@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  M3-T-10 部署产出物：滚动文件日志配置
+  1. 应用日志写 logs/fresh.log：按天 + 单文件 50MB 双维度滚动，历史压缩为 .gz，保留 14 天，总量上限 2GB
+  2. 日志根目录默认 ./logs（dev 下即 backEnd/logs/，与现有 backend-m3.log 同目录互不覆盖）；
+     部署时可用启动参数 log.path=/data/fresh/logs 覆盖（见 deploy/fresh.service 的 ExecStart）
+  3. prod 关 SQL stdout 说明（两部分配合）：
+     a) 本文件在 prod profile 下 root 只挂 FILE appender，控制台不再输出应用日志；
+     b) SQL 语句 stdout 由 yml 控制：application.yml 全局默认
+        mybatis-plus.configuration.log-impl=org.apache.ibatis.logging.stdout.StdOutImpl，
+        生产上线时在 application-prod.yml 追加以下配置即可关闭：
+        mybatis-plus:
+          configuration:
+            log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+        （yml 归属配置文件管理，此处仅注释说明，不改公共 yml 以免影响 dev 联调）
+-->
+<configuration>
+    <!-- 日志目录：优先读 log.path 配置（命令行参数或环境变量 LOG_PATH），缺省 ./logs -->
+    <springProperty scope="context" name="LOG_PATH" source="log.path" defaultValue="./logs"/>
+
+    <!-- 日志格式：时间 [线程] 级别 logger - 消息 -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"/>
+
+    <!-- 控制台输出（仅 dev profile 挂载，便于 mvn spring-boot:run 实时看日志） -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 滚动文件输出：按天 + 按大小（50MB）滚动，历史压缩，保留 14 天 -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/fresh.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 按天滚动；同一天内超过 50MB 追加 %i 序号切分，历史文件压缩为 .gz -->
+            <fileNamePattern>${LOG_PATH}/fresh.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <!-- 历史日志保留 14 天，到期自动清理 -->
+            <maxHistory>14</maxHistory>
+            <!-- 全部历史日志总量上限 2GB，超出从最旧开始删除 -->
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- dev（默认 profile）：控制台 + 滚动文件双写 -->
+    <springProfile name="dev">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
+
+    <!-- prod：只写滚动文件，关闭 stdout 控制台输出 -->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
+</configuration>

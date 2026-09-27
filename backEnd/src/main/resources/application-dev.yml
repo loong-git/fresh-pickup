@@ -1,0 +1,36 @@
+# 开发环境数据源（T-M1-11）：本地 root 账号，仅限开发调试，禁止用于生产
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/fresh_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: ${DB_PASSWORD:change-me}
+
+# JWT 签名密钥与有效期（T-M2-02）：dev 用约定密钥；生产必须由环境变量注入强随机密钥
+jwt:
+  secret: dev-secret-please-change
+  expire-days: 7
+
+# 短信验证码（T-M2-01）：dev 固定验证码便于联调；云短信接入后删除本项（见 AuthServiceImpl 预留注释）
+auth:
+  dev-code: "123456"
+
+# 支付渠道选择：mock=模拟收银台（MockPayService，默认走此渠道）；
+# wx=微信支付（WxPayService，@ConditionalOnProperty 按此值装配）。当前占位期固定 mock。
+pay:
+  mock-enabled: true
+  provider: mock
+
+# 微信支付占位配置（骨架期全部留空 → mchid 为空时 /api/pay/{orderId}/wx-notify 直接返回 400"微信支付未配置"）。
+# 真实接入申请流程（按序操作后回填）：
+#   1) 注册商户号：微信支付商户平台（pay.weixin.qq.com）申请入驻 → 审核通过获得商户号 mchid；
+#   2) 绑定 AppID：商户平台 → 产品中心 → AppID 账号管理，绑定小程序 appid 并开通 JSAPI 支付产品；
+#   3) 下载商户 API 证书：商户平台 → 账户中心 → API 安全 → 申请/下载 API 证书
+#      （apiclient_cert.pem / apiclient_key.pem），cert-path 填证书文件所在目录或 pem 路径；
+#   4) 设置 APIv3 密钥：同在 账户中心 → API 安全 → 设置 APIv3 密钥（32 位字符串），回填 api-v3-key。
+# 证书/密钥属敏感信息，生产环境应改由环境变量或外部挂载注入，切勿提交真实值到仓库。
+wxpay:
+  mchid: ''
+  appid: ''
+  cert-path: ''
+  api-v3-key: ''
