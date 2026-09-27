@@ -1,0 +1,61 @@
+# ============================================================================
+# 生鲜配送后端 systemd 服务单元（M3-T-10 部署产出物，未实际部署）
+# 功能：Spring Boot 后端注册为系统服务，崩溃/异常退出自动重启拉起（Restart=always），
+#       开机自启（enable）。
+#
+# 安装步骤：
+#   1. 打包：mvn -f backEnd/pom.xml clean package -DskipTests
+#      产物：backEnd/target/fresh-server-1.0.0.jar
+#   2. 部署目录：mkdir -p /data/fresh/backEnd /data/fresh/logs
+#      cp backEnd/target/fresh-server-1.0.0.jar /data/fresh/backEnd/
+#   3. 生产账号（推荐）：useradd -r -s /sbin/nologin fresh
+#      chown -R fresh:fresh /data/fresh   （并把下方 User=root 改为 User=fresh）
+#   4. 环境变量：修改下方 Environment= 占位值（DB_PASSWORD / JWT_SECRET / ADMIN_KEY）
+#      或改用 EnvironmentFile=/data/fresh/backEnd/fresh.env 集中管理（权限 600）
+#   5. cp deploy/fresh.service /etc/systemd/system/fresh.service
+#      systemctl daemon-reload
+#      systemctl enable --now fresh        # 开机自启 + 立即启动
+#
+# 运维命令：
+#   systemctl status fresh               # 查看状态
+#   journalctl -u fresh -f               # 跟踪 stdout/stderr（logback 文件日志在 /data/fresh/logs/fresh.log）
+#   systemctl restart fresh              # 重启（更换 jar 后执行）
+# ============================================================================
+
+[Unit]
+Description=Fresh Server (Spring Boot 3, 生鲜配送后端)
+Documentation=https://spring.io/projects/spring-boot
+# MySQL 服务名按发行版可能是 mysqld.service，按需调整
+After=network.target mysql.service
+Wants=network.target
+
+[Service]
+Type=simple
+# 生产建议改专用低权限账号运行（见安装步骤 3）
+User=root
+WorkingDirectory=/data/fresh/backEnd
+
+# ---- 环境变量（占位值必须替换！与 application-prod.yml 的 ${DB_PASSWORD}/${JWT_SECRET} 对应）----
+# prod 未配置 JWT_SECRET 时启动即失败（M2 防呆设计），属预期行为
+Environment=DB_PASSWORD=replace-with-real-db-password
+Environment=JWT_SECRET=replace-with-strong-random-secret
+Environment=ADMIN_KEY=replace-with-admin-key
+
+# java -jar 方式启动（推荐）：显式 prod profile；日志目录通过 --log.path 传给 logback-spring.xml
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /data/fresh/backEnd/fresh-server-1.0.0.jar --spring.profiles.active=prod --log.path=/data/fresh/logs
+# mvn 方式启动（备选，不推荐生产：需安装 maven 与源码）：
+# ExecStart=/usr/bin/mvn -f /data/fresh/backEnd/pom.xml spring-boot:run -Dspring-boot.run.profiles=prod
+
+# ---- 自愈与退出处理 ----
+# 进程异常退出/被杀 5 秒后自动拉起
+Restart=always
+RestartSec=5
+# 143 = SIGTERM 正常停机退出码（systemctl stop/restart 时不标记失败）
+SuccessExitStatus=143
+
+# 基础加固
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

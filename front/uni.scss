@@ -1,0 +1,81 @@
+/* ==================== 天猫生鲜风格 — 全局 SCSS 变量 ==================== */
+
+/* 主色调 — 天猫橙 */
+$primary-color: #FF6600;
+$primary-dark: #E55C00;
+$primary-soft: #FFF5EE;
+
+/* 点缀色 */
+$accent-color: #FF3333;
+$accent-soft: #FFF0F0;
+
+/* 背景色 */
+$bg-color: #F5F5F5;
+$bg-card: #FFFFFF;
+$bg-warm: #FFF8F5;
+
+/* 文字颜色 */
+$white: #FFFFFF;
+$text-primary: #333333;
+$text-secondary: #999999;
+$text-light: #CCCCCC;
+$text-price: #FF3333;
+$text-price-original: #999999;
+
+/* 边框 */
+$border-color: #F0F0F0;
+$border-light: #F5F5F5;
+
+/* 阴影 */
+$shadow-sm: 0 2rpx 12rpx rgba(0, 0, 0, 0.05);
+$shadow-md: 0 4rpx 20rpx rgba(0, 0, 0, 0.08);
+
+/* ---- 通用工具类 ---- */
+
+.btn-primary {
+  background-color: $primary-color;
+  color: $white;
+  border: none;
+  border-radius: 40rpx;
+  padding: 14rpx 40rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.card {
+  background-color: $bg-card;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: $shadow-sm;
+}
+
+.price {
+  color: $accent-color;
+  font-weight: 700;
+  font-size: 32rpx;
+}
+
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page-container {
+  min-height: 100vh;
+  background-color: $bg-color;
+  padding-bottom: 120rpx;
+}

@@ -1,0 +1,21 @@
+# 生产环境数据源（T-M1-11）：最小权限账号 fresh_app（仅 SELECT/INSERT/UPDATE/DELETE），
+# 密码从环境变量 DB_PASSWORD 注入，禁止在配置文件中硬编码明文。其余配置同 dev。
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/fresh_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: fresh_app
+    password: ${DB_PASSWORD}
+
+# JWT（T-M2-02）：生产密钥从环境变量注入，未配置则启动即失败（防呆：不允许带默认弱密钥上线）
+jwt:
+  secret: ${JWT_SECRET}
+  expire-days: 7
+
+# 短信验证码（T-M2-01）：prod 未接入云短信前置空 → send-code 明确报"短信通道未接入"
+auth:
+  dev-code: ""
+
+# Mock 支付（T-M2-05）：prod 关闭 → /api/pay/{orderId}/mock-pay 返回 404
+pay:
+  mock-enabled: false

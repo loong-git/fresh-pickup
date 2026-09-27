@@ -1,0 +1,42 @@
+{
+  "app-plus": {
+    "compilerVersion": 3,
+    "distribute": {
+      "android": { "permissions": [] },
+      "ios": {},
+      "sdkConfigs": {}
+    },
+    "modules": {},
+    "nvueStyleCompiler": "uni-app",
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "autoclose": true,
+      "delay": 0,
+      "waiting": true
+    },
+    "usingComponents": true
+  },
+  "appid": "__UNI__XXXXXXX",
+  "description": "生鲜配送小程序",
+  "mp-alipay": { "usingComponents": true },
+  "mp-baidu": { "usingComponents": true },
+  "mp-toutiao": { "usingComponents": true },
+  "mp-weixin": {
+    // 小程序 appid 占位（T-M4-04）：真实 appid 待申请——在微信公众平台注册小程序后，
+    // 用获取到的正式 appid 替换此处占位值；开发阶段可在微信开发者工具中导入本项目并选用测试号
+    "appid": "wx0000000000000000",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true
+  },
+  "name": "生鲜配送",
+  "quickapp": {},
+  "transformPx": false,
+  "uniStatistics": {
+    "enable": false
+  },
+  "versionCode": "100",
+  "versionName": "1.0.0",
+  "vueVersion": "3"
+}
