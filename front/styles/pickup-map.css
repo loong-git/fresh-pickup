@@ -1,0 +1,211 @@
+/* ============================================================
+   pickup 页地图 marker 样式（R6-1 从 pickup.vue 非 scoped 块迁出）
+   ------------------------------------------------------------
+   为什么必须独立纯 CSS 文件：本 uniapp 编译器对「页面级 SFC」的
+   全部 <style> 块（含非 scoped 块）统一注入 scoped= 参数，产物选择器
+   带 [data-v-xxx]；而 AMap.Marker content 是运行时 createElement 注入的
+   DOM，不带 data-v 标记，选择器永不命中（实测 marker content 宽度塌缩
+   21px、名称竖排撑高 300px、anchor center 补偿后整体飘出容器）。
+   App.vue（非页面组件）的非 scoped 块不带 scoped= 参数——对照实证。
+   纯 .css 文件经 JS import 引入不走 SFC 编译，天然免疫 scope 化。
+   规则统一以 .pickup-page 祖先限定影响面，避免类名泄漏到全局其他页面。
+   ============================================================ */
+
+/* ============================================================
+   R8 用户位置 marker 头像化：44px 圆头像 + 3px 白边 + 蓝色脉冲光圈
+   （与红色门店 pin 强区分，一眼定位自己）；avatar img 由 JS 注入
+   （登录头像 || DEFAULT_AVATAR），「我所在的位置」文字标签已移除；
+   .user-loc-marker 容器规则（透明背景无边框）与 anchor 'center' 语义
+   = 头像圆中心恰落在坐标点——原 R6-1 段与本段重复定义，已合并至此（轮2 核验 low）
+   ============================================================ */
+/* marker 容器（content 根节点）：透明背景，anchor 'center' 以头像圆中心对准坐标 */
+.pickup-page .user-loc-marker {
+	background: transparent;
+	border: none;
+}
+/* 头像定位框：44px 圆 + 3px 白边 + 投影，position relative 承载脉冲外圈 */
+.pickup-page .user-avatar-marker {
+	position: relative;
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	border: 3px solid #ffffff;
+	box-shadow: 0 2px 10px rgba(30, 111, 255, 0.5);
+	overflow: visible;
+}
+/* 头像图：铺满 38px 内圆（44 - 3×2 边框），aspectFill */
+.pickup-page .user-avatar-img {
+	display: block;
+	width: 38px;
+	height: 38px;
+	border-radius: 50%;
+	object-fit: cover;
+	background-color: #f0f0f0;
+}
+/* 蓝色脉冲外圈：从贴头像尺寸扩散放大并淡出，1.8s 无限循环；
+   仅 transform+opacity（合成器动画），不触发重排，不影响瓦片渲染性能 */
+.pickup-page .user-avatar-marker::after {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 44px;
+	height: 44px;
+	margin: -22px 0 0 -22px;
+	border-radius: 50%;
+	border: 2px solid rgba(30, 111, 255, 0.6);
+	background-color: rgba(30, 111, 255, 0.18);
+	animation: user-avatar-pulse 1.8s ease-out infinite;
+	pointer-events: none;
+}
+@keyframes user-avatar-pulse {
+	0% {
+		transform: scale(1);
+		opacity: 0.9;
+	}
+	100% {
+		transform: scale(1.9);
+		opacity: 0;
+	}
+}
+
+/* ============ F-06.7.3 R7：门店红色水滴 pin（替代三态圆点，AMap.Marker content HTMLElement） ============ */
+/* marker 根节点：34×41 定位框——34px pin 盒子 rotate(-45deg) 绕中心旋转后，左下尖角落位
+   (17, 34×0.7071+17≈41)；anchor 'bottom-center' 以根节点底部中心 (17,41) 对准门店坐标
+   → pin 尖端精确指向坐标点。气泡绝对定位不占布局流，content 尺寸恒定保证 anchor 不漂移 */
+.pickup-page .amap-store-marker {
+	position: relative;
+	width: 34px;
+	height: 41px;
+	cursor: pointer;
+}
+/* 水滴 pin：border-radius 50% 50% 50% 0（左下尖角）+ rotate(-45deg) 尖端朝正下方；
+   营业态红 #E02020、白描边 + 红色投影；box-sizing:border-box 固定含描边 34×34，
+   保证上述尖端几何补偿不变；flex 居中承载反旋转图标 */
+.pickup-page .amap-store-pin {
+	position: absolute;
+	left: 0;
+	top: 0;
+	box-sizing: border-box;
+	width: 34px;
+	height: 34px;
+	background-color: #E02020;
+	border: 2px solid #ffffff;
+	border-radius: 50% 50% 50% 0;
+	box-shadow: 0 2px 8px rgba(224, 32, 32, 0.45);
+	transform: rotate(-45deg);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+/* 选中态：放大 1.25 倍，同时上移 6px 补偿——放大后尖端 y = (17-6) + 24×1.25 = 41，
+   尖端仍精确落在根节点底部中心（anchor 语义不变）；选中背景红色覆盖停业灰，
+   与原三态优先级一致（selected > closed，zIndex 130 由 JS 写入） */
+.pickup-page .amap-store-pin-selected {
+	transform: translateY(-6px) rotate(-45deg) scale(1.25);
+	background-color: #E02020;
+}
+/* 停业态：灰 pin（icon 同走漂白滤镜呈灰白剪影） */
+.pickup-page .amap-store-pin-closed {
+	background-color: #999999;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+/* pin 内店铺图标：反旋转 rotate(45deg) 回正；emoji 🏪 经 grayscale+brightness 漂白成白色剪影
+   （白 pin 圆头上不显色的关键，纯色 brightness 拉满即白） */
+.pickup-page .amap-store-pin-icon {
+	font-size: 18px;
+	line-height: 1;
+	transform: rotate(45deg);
+	filter: grayscale(1) brightness(3);
+}
+/* R7 点击名签气泡：默认隐藏，选中 marker 的气泡加 .amap-bubble-visible（display:block）；
+   绝对定位在根节点下方 10px（即 pin 尖端下方 10px，契约 margin-top:10px 语义）水平居中，
+   white-space:nowrap 单行；textContent 注入文字（「{门店名} ｜ 距您步行XX米」）天然转义；
+   pointer-events:none 纯展示不拦地图手势 */
+.pickup-page .amap-bubble {
+	display: none;
+	position: absolute;
+	top: calc(100% + 10px);
+	left: 50%;
+	transform: translateX(-50%);
+	white-space: nowrap;
+	background-color: #ffffff;
+	color: #333333;
+	font-size: 24rpx;
+	line-height: 1.4;
+	padding: 10rpx 20rpx;
+	border-radius: 10rpx;
+	box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.18);
+	pointer-events: none;
+	z-index: 300;
+}
+.pickup-page .amap-bubble-visible {
+	display: block;
+}
+/* 门店名签（PC hover 兼容保留，R7 后移动端主交互为点击气泡）：默认隐藏、悬停显示；
+   绝对定位不参与占位，保证 anchor 始终以根节点底部中心为锚；textContent 注入天然转义 */
+.pickup-page .amap-store-name {
+	display: none;
+	position: absolute;
+	left: 50%;
+	bottom: calc(100% + 6px);
+	transform: translateX(-50%);
+	white-space: nowrap;
+	background-color: #ffffff;
+	color: #333333;
+	font-size: 22rpx;
+	line-height: 1;
+	padding: 8rpx 14rpx;
+	border-radius: 8rpx;
+	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.15);
+	pointer-events: none;
+	z-index: 300;
+}
+.pickup-page .amap-store-marker:hover .amap-store-name {
+	display: block;
+}
+
+/* ============ R7：定位地址条（📍 逆地理地址 + 重新定位按钮，页面模板 DOM） ============ */
+/* 从 pickup.vue SFC scoped 块迁入统一管理：flex 行布局，左地址右按钮 */
+.pickup-page .located-bar {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16rpx;
+	margin: 20rpx 24rpx 0;
+	padding: 16rpx 24rpx;
+	background-color: #fdecec;
+	border-radius: 12rpx;
+}
+/* 左侧地址：📍 + 逆地理地址（无值回退坐标/IP 文案）；两行内截断（-webkit-line-clamp:2），
+   flex:1 + min-width:0 允许收缩换行不挤压右侧按钮 */
+.pickup-page .located-text {
+	flex: 1;
+	min-width: 0;
+	font-size: 24rpx;
+	color: #e02020;
+	line-height: 1.5;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
+/* 右侧「◎ 重新定位」按钮：白底红字描边胶囊；locating 中加 .relocate-btn-disabled 降透明，
+   重复点击由 requestH5Location 的 locating 重入锁拦截 */
+.pickup-page .relocate-btn {
+	flex-shrink: 0;
+	padding: 10rpx 22rpx;
+	background-color: #ffffff;
+	border: 1rpx solid #e02020;
+	border-radius: 999rpx;
+}
+.pickup-page .relocate-btn-text {
+	font-size: 24rpx;
+	color: #e02020;
+	line-height: 1;
+	white-space: nowrap;
+}
+.pickup-page .relocate-btn-disabled {
+	opacity: 0.55;
+}
