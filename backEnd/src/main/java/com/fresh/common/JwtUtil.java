@@ -61,4 +61,21 @@ public class JwtUtil {
             return null;
         }
     }
+
+    /**
+     * 解析 token → 完整 Claims（F-12/G-01：供 AuthInterceptor 读 typ/role claim 做双向隔离与查库定角色前置判断）；
+     * 无/伪造/过期/格式错一律返回 null（与 parseUserId 同口径，由调用方统一 401）。
+     * 原 parseUserId 仅读 subject（:51-63），typ/role claim 无读取通道——本重载补齐，不影响存量链路。
+     */
+    public io.jsonwebtoken.Claims parseClaims(String token) {
+        try {
+            return Jwts.parser()
+                    .verifyWith(key)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+        } catch (JwtException | IllegalArgumentException e) {
+            return null;
+        }
+    }
 }
