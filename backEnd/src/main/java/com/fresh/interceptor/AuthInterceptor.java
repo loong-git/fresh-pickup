@@ -24,9 +24,13 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     /** request attribute key：当前登录用户ID */
     public static final String ATTR_USER_ID = "userId";
+    /** request attribute key：当前商家ID（F-12/G-01，/api/merchant/** 分支注入；Controller @RequestAttribute 读取） */
+    public static final String ATTR_MERCHANT_ID = "merchantId";
 
     @Autowired
     private JwtUtil jwtUtil;
+    @Autowired
+    private com.fresh.mapper.UserMapper userMapper;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
@@ -37,8 +41,19 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         Long userId = resolveUserId(request);
-        if (!requiresLogin(request.getMethod(), request.getRequestURI())) {
-            // 匿名路径：token 有效则顺手注入 userId（便于后续扩展），无效不拦截
+        String uri = request.getRequestURI();
+
+        // F-12/G-01 双向 typ 隔离铁律：全部需登录分支解析 claims 后凡 typ=admin 一律拒
+        // （G-06 签发 typ=admin 运营 JWT 后生效；G-01 阶段 C 端 token 无 typ claim，本检查 dormant）
+        if (userId != null) {
+            io.jsonwebtoken.Claims claims = resolveClaims(request);
+            if (claims != null && "admin".equals(claims.get("typ"))) {
+                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+                return false;
+            }
+        }
+
+        if (!requiresLogin(request.getMethod(), uri)) {
             if (userId != null) {
                 request.setAttribute(ATTR_USER_ID, userId);
             }
@@ -46,11 +61,20 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         if (userId == null) {
-            // 无/伪造/过期 token 统一 401 信封（契约 M2-3：R{code:401, message:"请先登录"}）
             ResponseUtil.writeJson(response, R.CODE_UNAUTHORIZED, R.MSG_UNAUTHORIZED);
             return false;
         }
         request.setAttribute(ATTR_USER_ID, userId);
+
+        // F-12/G-01 查库定角色：/api/merchant/** 前缀需 role=merchant 双校验（复刻 :121-123 /api/user/** 范式）
+        if (uri.startsWith("/api/merchant/")) {
+            com.fresh.entity.User u = userMapper.selectById(userId);
+            if (u == null || !"merchant".equals(u.getRole())) {
+                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+                return false;
+            }
+            request.setAttribute(ATTR_MERCHANT_ID, u.getMerchantId());
+        }
         return true;
     }
 
@@ -65,6 +89,15 @@ public class AuthInterceptor implements HandlerInterceptor {
             return null;
         }
         return jwtUtil.parseUserId(token);
+    }
+
+    /** 从 Authorization 头解析 token → 完整 Claims；缺失/格式错/解析失败返回 null（F-12/G-01 typ 隔离用） */
+    private io.jsonwebtoken.Claims resolveClaims(HttpServletRequest request) {
+        String auth = request.getHeader("Authorization");
+        if (auth == null || !auth.startsWith("Bearer ")) return null;
+        String token = auth.substring(7).trim();
+        if (token.isEmpty()) return null;
+        return jwtUtil.parseClaims(token);
     }
 
     /**
@@ -119,6 +152,10 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
         // F-06.7.4 R8 用户资料：GET /api/user/me、PUT /api/user/avatar 均用户维度数据，前缀整体登录
         if (uri.startsWith("/api/user/")) {
+            return true;
+        }
+        // F-12/G-01 商家端：/api/merchant/** 前缀整体登录（角色双校验在 preHandle 查库定角色，此处只判登录）
+        if (uri.startsWith("/api/merchant/")) {
             return true;
         }
         // 仅评价提交需登录；GET /api/dishes/{dishId}/reviews 列表保持匿名可读

@@ -19,12 +19,15 @@ public class R<T> {
     public static final int CODE_NOT_FOUND = 404;
     public static final int CODE_TOO_MANY_REQUESTS = 429;
     public static final int CODE_SERVER_ERROR = 500;
+    public static final int CODE_FORBIDDEN = 403;
     /** 401 对外固定文案（契约 M2-3） */
     public static final String MSG_UNAUTHORIZED = "请先登录";
     /** 429 对外固定文案（契约 M2-6） */
     public static final String MSG_TOO_MANY_REQUESTS = "操作过于频繁，请稍后再试";
     /** 500 对外固定文案，绝不携带内部细节 */
     public static final String MSG_SERVER_ERROR = "服务开小差了，请稍后重试";
+    /** 403 对外固定文案（F-12：已登录但角色不符，如非商家访问 /api/merchant/**） */
+    public static final String MSG_FORBIDDEN = "无权限访问";
 
     private int code;
     private T data;
