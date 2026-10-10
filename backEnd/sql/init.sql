@@ -2,6 +2,21 @@
 -- 生鲜配送小程序 - 数据库初始化脚本
 -- 执行方式：mysql -u root -p < init.sql
 -- ================================================
+-- 结构同步声明（F-12/C15，已同步至 m14-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
+-- 无需再跑 m3~m14 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
+--   m3  dish.on_sale + orders.pickup_date + 六类补齐商品种子（category 注释/image 口径同 m3）
+--   m4  store + user_coupon 表 + orders 自提点快照三列 + dish 秒杀六列 + review.audit_status
+--   m5  user.password_hash
+--   m6  user_coupon.expire_at + review.user_id + review.idx_user_id
+--   m7  free_activity + free_claim + 活动种子
+--   m8  free_activity.threshold + free_goods_pool（含 6 行池种子）
+--   m9  user.invite_code + uk_user_invite_code + invite_relation
+--   m10 dish.ft_dish_search（FULLTEXT ngram）+ dish_alias（含 8 行别名种子）
+--   m11 user.balance + user.cash_rewarded + cash_flow
+--   m12 store.lng + store.lat（列注释在 m13 定稿口径基础上补充说明）
+--   m13 store 四家门店坐标真源值（本文件 UPDATE 直落 m13 定稿值）
+--   m14 user.avatar
+-- ================================================
 
 CREATE DATABASE IF NOT EXISTS fresh_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE fresh_db;
@@ -28,6 +43,10 @@ CREATE TABLE user (
 
 -- ----------------------------
 -- 菜品表
+-- ft_dish_search（m10-migration.sql 同步，F-03 搜索升级）：ngram 为 MySQL 内置中文解析器（默认
+-- ngram_token_size=2，按二元切分），对 name/description/tags 三列建全文索引，替代 name 单列 LIKE；
+-- 后端 DishMapper.java:55-57 的 MATCH ... AGAINST 直接依赖本索引，缺失则搜索链路报错（FULLTEXT
+-- 由 MySQL 随 DML 自动维护，管理改商品即时生效，无需刷索引）
 -- ----------------------------
 DROP TABLE IF EXISTS dish;
 CREATE TABLE dish (
@@ -51,7 +70,8 @@ CREATE TABLE dish (
     create_time DATETIME        DEFAULT CURRENT_TIMESTAMP    COMMENT '创建时间',
     update_time DATETIME        DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
-    INDEX idx_category (category)
+    INDEX idx_category (category),
+    FULLTEXT INDEX ft_dish_search (name, description, tags) WITH PARSER ngram
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='菜品表';
 
 -- ----------------------------
@@ -122,7 +142,7 @@ INSERT INTO store (id, name, address, service, status) VALUES
 
 -- 坐标真源（m13-migration.sql 同步，F-06.7.2 R6）：高德 Geocoder/PlaceSearch 双源实测 2026-10-05，
 -- GCJ-02 与前端高德底图同源（前端门店坐标直用不转换）；id=2 为 PlaceSearch 纠错值
---（Geocoder 门牌号级误匹配偏 8km，详见 m13-migration.sql 头注）。UPDATE 幂等可重跑
+-- （Geocoder 门牌号级误匹配偏 8km，详见 m13-migration.sql 头注）。UPDATE 幂等可重跑
 UPDATE store SET lng = 113.341634, lat = 22.779372 WHERE id = 1;
 UPDATE store SET lng = 113.345527, lat = 22.774019 WHERE id = 2;
 UPDATE store SET lng = 113.270704, lat = 22.760571 WHERE id = 3;
@@ -168,6 +188,8 @@ CREATE TABLE review (
 -- ----------------------------
 -- 免费领商品活动表（M7）：单活动模型（种子固定 id=1），跨日首次领取由
 -- FreeActivityMapper.tryClaimQuota 条件 UPDATE 原子重置 daily_date/daily_claimed（无 COUNT+INSERT 竞态）
+-- threshold（m8-migration.sql 同步，M8 满额赠）：当日实付满此金额可领，免费单不计入；
+-- 用户可自选的候选商品见 free_goods_pool（池内第一行 id 升序=展示默认免费商品）
 -- ----------------------------
 DROP TABLE IF EXISTS free_activity;
 CREATE TABLE free_activity (
@@ -176,6 +198,7 @@ CREATE TABLE free_activity (
     daily_quota   INT         NOT NULL DEFAULT 100          COMMENT '每日限量份数（>0 才可领，置 0 等效暂停）',
     daily_date    DATE        NULL                          COMMENT '计数器所属日期：与当日一致才累计，NULL/过去日期在首次领取时原子重置',
     daily_claimed INT         NOT NULL DEFAULT 0            COMMENT '当日已领份数（原子条件 UPDATE 自增）',
+    threshold     DECIMAL(10,2) NOT NULL DEFAULT 50.00      COMMENT '满额门槛（当日实付满此金额可领）',
     status        VARCHAR(20) NOT NULL DEFAULT 'online'     COMMENT '活动状态：online进行/offline下线',
     create_time   DATETIME    DEFAULT CURRENT_TIMESTAMP     COMMENT '创建时间',
     update_time   DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -199,6 +222,34 @@ CREATE TABLE free_claim (
     UNIQUE KEY uk_user_date (user_id, claim_date),
     INDEX idx_claim_date (claim_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='免费领商品领取记录表';
+
+-- ----------------------------
+-- 免费领商品候选池表（M8，m8-migration.sql 同步）：uk_activity_dish(activity_id, dish_id) 数据库级去重
+-- （同一活动同一商品只入池一次，INSERT IGNORE 可重跑）；池本身不存商品快照，展示/领取时联 dish 取
+-- 在售数据，下架商品不进下发列表（claim 侧另有 on_sale 校验）；DDL 照 m8-migration.sql:26-32 逐字，
+-- 种子见文件末尾（须在 dish 种子之后，dish_id 引用 dish 表实际行）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS free_goods_pool (
+    id          BIGINT NOT NULL AUTO_INCREMENT COMMENT '候选池记录ID',
+    activity_id BIGINT NOT NULL                      COMMENT '活动ID（free_activity.id，单活动模型种子固定 1）',
+    dish_id     BIGINT NOT NULL                      COMMENT '候选商品ID（dish.id，须 on_sale=1，领取时校验）',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_activity_dish (activity_id, dish_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='免费领商品候选池表';
+
+-- ----------------------------
+-- 搜索别名表（F-03，m10-migration.sql 同步）：alias → dish_id 人工维护语义别名（如 洋芋/马铃薯→高山土豆），
+-- uk_alias 一别名仅指向一商品；搜索时别名命中的 dish_id 集合以 IN 并入 MATCH 结果（DishMapper.java:64
+-- 按 alias 精确查 dish_id）；DDL 照 m10-migration.sql:36-43 逐字，种子见文件末尾（须在 dish 种子之后）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS dish_alias (
+    id      BIGINT      NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    alias   VARCHAR(50) NOT NULL                COMMENT '搜索别名',
+    dish_id BIGINT      NOT NULL                COMMENT '命中商品',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_alias (alias),
+    KEY idx_dish (dish_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='搜索别名（F-03）';
 
 -- ----------------------------
 -- 邀请新人关系表（F-01，m9-migration.sql 同步）：uk_invitee 是"一人仅可被邀请一次"的权威约束
@@ -350,6 +401,35 @@ UPDATE dish SET good_rate = CONCAT(CAST(93 + ((id * 13) % 70) / 10 AS DECIMAL(4,
 -- ================================================
 -- M7 免费领商品活动种子（与 sql/m7-migration.sql 同一套，需在 dish 种子之后执行；
 -- 指向在售非秒杀商品 dish id=1（精品五花肉），每日限量 100 份，换品/调量直接 UPDATE 本行
+-- threshold=50.00（m8-migration.sql 同步）：当日实付满 50.00 可领，换门槛直接 UPDATE 本行，代码不写死金额
 -- ================================================
-INSERT INTO free_activity (id, dish_id, daily_quota, daily_claimed, status) VALUES
-(1, 1, 100, 0, 'online');
+INSERT INTO free_activity (id, dish_id, daily_quota, daily_claimed, threshold, status) VALUES
+(1, 1, 100, 0, 50.00, 'online');
+
+-- ================================================
+-- M8 免费商品候选池种子（与 sql/m8-migration.sql:38-44 同一套，需在 dish 种子之后执行；
+-- 活动 id=1 候选池 6 个在售 dish（优先非秒杀、含蔬菜/水果类），INSERT IGNORE 可重跑；
+-- 首行 dish_id=1 精品五花肉 = 默认免费商品（与 free_activity.dish_id=1 同品，页面大卡形象延续）
+-- ================================================
+INSERT IGNORE INTO free_goods_pool (activity_id, dish_id) VALUES
+(1, 1),
+(1, 10),
+(1, 13),
+(1, 16),
+(1, 20),
+(1, 22);
+
+-- ================================================
+-- M10 搜索别名种子（与 sql/m10-migration.sql:49-57 同一套，需在 dish 种子之后执行；
+-- 5 组 8 条语义别名，INSERT IGNORE 可重跑；别名词已对 name/description/tags LIKE 全表核对：
+-- 除「番茄」外均为三列外纯增量召回词（见 m10 文件头说明）
+-- ================================================
+INSERT IGNORE INTO dish_alias (alias, dish_id) VALUES
+('洋芋',   16),  -- → 高山土豆：云贵高原俗称，库内三列均无此词
+('马铃薯', 16),  -- → 高山土豆：学名，库内三列均无此词
+('番茄',   13),  -- → 本地西红柿：文档 DoD 西红柿↔番茄场景（description 已含「番茄味」，别名兜底保证精确命中）
+('柴鸡蛋', 9),   -- → 散养土鸡蛋：柴鸡蛋俗称，库内三列均无此词
+('笨鸡蛋', 9),   -- → 散养土鸡蛋：东北俗称，库内三列均无此词
+('泡面',   23),  -- → 老坛酸菜牛肉面五连包：泡面俗称（description 仅有「方便面」），库内三列均无「泡面」
+('毛蟹',   6),   -- → 鲜活大闸蟹：中华绒螯蟹俗称，库内三列均无此词
+('河蟹',   6);   -- → 鲜活大闸蟹：中华绒螯蟹俗称，库内三列均无此词

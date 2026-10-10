@@ -141,6 +141,7 @@ public class OrderServiceImpl implements OrderService {
             item.setDishName(dish.getName());
             item.setPrice(unitPrice); // 明细落成交单价快照（秒杀件为秒杀价），与 totalPrice 同口径
             item.setQuantity(quantity);
+            item.setMerchantId(dish.getMerchantId()); // F-12/m16 供货商家快照（下单时自 dish.merchant_id 落库，防商家改归属/删品后历史漂移）
             order.getItems().add(item);
         }
 

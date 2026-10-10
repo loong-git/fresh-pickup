@@ -49,6 +49,8 @@ public class User {
      * NULL=未设置（前端兜默认 SVG 头像）；写入仅经 PUT /api/user/avatar（前缀+长度校验， UserController）
      */
     private String avatar;
+    private String role;
+    private Long merchantId;
 
     private LocalDateTime createdAt;
 }

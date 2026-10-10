@@ -228,6 +228,7 @@ public class FreeServiceImpl implements FreeService {
         item.setDishName(dish.getName());
         item.setPrice(BigDecimal.ZERO); // 明细落成交单价快照：0 元单明细与主单同口径
         item.setQuantity(1);
+        item.setMerchantId(dish.getMerchantId()); // F-12/m16 供货商家快照（0 元单与主单同构，对齐 OrderServiceImpl.createOrder）
         orderItemMapper.insert(item);
 
         // 条件 UPDATE 原子扣减（T-M1-05 同思路）：影响行数=0 即库存不足 → 抛错整单回滚

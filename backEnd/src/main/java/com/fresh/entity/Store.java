@@ -3,6 +3,7 @@ package com.fresh.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -27,6 +28,8 @@ public class Store {
     private BigDecimal lng;
     /** 纬度（F-06 地图，m12）：NULL 同 lng 口径 */
     private BigDecimal lat;
+    @JsonIgnore
+    private Long ownerUserId;
     /** 创建时间：DB DEFAULT CURRENT_TIMESTAMP 兜底（MetaObjectHandler 只填 createTime/updateTime，不走 fill） */
     private LocalDateTime createdAt;
 }
