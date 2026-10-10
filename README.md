@@ -29,7 +29,7 @@
 | 前端 | uniapp (Vue3) + Vuex + Vite，H5 端（小程序条件编译已预留） |
 | 后端 | Spring Boot 3 + MyBatis-Plus + spring-boot-starter-validation |
 | 安全 | JWT（jjwt）+ AuthInterceptor 权限矩阵 + Bucket4j 限流 + CORS 白名单 |
-| 数据 | MySQL 8（7 张表）+ 逻辑删除 |
+| 数据 | MySQL 8（13 张表）+ 逻辑删除 |
 | 外部依赖 | 字典系统（枚举托管，可替换为任意配置源，FALLBACK 内置兜底） |
 
 ## 📁 目录结构
@@ -43,7 +43,7 @@
 │   └── static/images/           # 商品占位图（SVG，可替换真实图片）
 ├── backEnd/                     # Spring Boot 后端
 │   └── src/main/java/com/fresh/
-│       ├── controller/          # 10 个控制器（含 Admin 管理薄版）
+│       ├── controller/          # 14 个控制器（含 Admin 管理薄版）
 │       ├── service/             # 业务（库存原子扣减/幂等/计价/敏感词/字典代理）
 │       ├── pay/                 # PayService 抽象（Mock 实现 / 微信骨架）
 │       ├── interceptor/         # JWT 鉴权 + 限流

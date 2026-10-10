@@ -2,6 +2,7 @@ package com.fresh.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -39,6 +40,8 @@ public class Dish {
     /** 好评率文案（T-M4-03）：如 94.4% */
     private String goodRate;
     private String emoji;
+    @JsonIgnore
+    private Long merchantId;
     private String bgColor;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

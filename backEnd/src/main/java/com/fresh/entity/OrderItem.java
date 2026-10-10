@@ -13,4 +13,5 @@ public class OrderItem {
     private String dishName;
     private BigDecimal price;
     private Integer quantity;
+    private Long merchantId;
 }
