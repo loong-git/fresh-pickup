@@ -5,6 +5,19 @@ server:
 spring:
   profiles:
     active: dev
+  # 商家上传件上限（F-12/G-01 §2.8）：全仓原无任何 multipart 配置，Spring Boot 默认 1MB，
+  # 与 R5 允许的 ≤5MB 冲突——不配则 1~5MB 真实照片会被框架层先行打断。
+  # request 上限略高于 file 上限，留 multipart 边界（boundary/表单头）余量。
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+# 商家上传落盘目录（F-12/G-01 §2.8）：dev 默认 ./uploads/（相对后端进程工作目录），
+# prod 由环境变量 FRESH_UPLOAD_DIR 覆盖（本文件是环境无关公共配置，application-prod.yml 不动）。
+# 消费方两处：MerchantController#uploadDir 落盘、CorsConfig#addResourceHandlers 注册 /uploads/** 静态映射。
+fresh:
+  upload-dir: ${FRESH_UPLOAD_DIR:./uploads/}
 
 mybatis-plus:
   configuration:
