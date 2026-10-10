@@ -3,9 +3,11 @@ package com.fresh.config;
 import com.fresh.interceptor.AuthInterceptor;
 import com.fresh.interceptor.RateLimitInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
@@ -16,6 +18,10 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 public class CorsConfig implements WebMvcConfigurer {
+
+    /** 商家上传落盘目录（F-12/G-01 §2.8）：与 MerchantController 的 @Value 同源配置，静态映射指向同一处 */
+    @Value("${fresh.upload-dir:./uploads/}")
+    private String uploadDir;
 
     @Autowired
     private AuthInterceptor authInterceptor;
@@ -31,6 +37,19 @@ public class CorsConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(authInterceptor).addPathPatterns("/api/**");
         registry.addInterceptor(rateLimitInterceptor).addPathPatterns("/api/**");
+    }
+
+    /**
+     * 商家上传件静态映射（F-12/G-01 §2.8）：/uploads/** → file:${fresh.upload-dir}/。
+     * 与 MerchantController 落盘目录同源同义（相对路径同按进程工作目录解析）；
+     * 拦截器链只挂 /api/**（:31-33 零改动），故本映射匿名可读——商品图/执照图本就是展示件，
+     * 写入权在 POST /api/merchant/uploads（登录 + role=merchant + 限流）。
+     */
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        String dir = uploadDir.replaceAll("/+$", "");
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations("file:" + dir + "/");
     }
 
     @Override

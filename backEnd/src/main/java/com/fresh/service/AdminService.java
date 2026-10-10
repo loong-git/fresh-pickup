@@ -1,9 +1,11 @@
 package com.fresh.service;
 
 import com.fresh.dto.AdminDishUpdateDTO;
+import com.fresh.dto.AdminMerchantCreateDTO;
 
 /**
  * 管理端薄版服务（T-M3-09）：X-Admin-Key 鉴权在 Controller 层完成，此处只做业务。
+ * F-12/G-01 M-04 补课：本类全部写操作随做随写 admin_audit_log（actor=admin:&lt;key 摘要&gt;，R6）。
  */
 public interface AdminService {
 
@@ -18,4 +20,10 @@ public interface AdminService {
      * approve → audit_status 置 NULL 恢复展示；reject → 删除评价记录。
      */
     void auditReview(Long reviewId, String action);
+
+    /**
+     * 平台代开通商家（F-12/M-05 一期，决策点②）：按 phone 查已注册 user，同事务
+     * INSERT merchant + INSERT merchant_profile(approved) + UPDATE user role/merchant_id，并写审计。
+     */
+    void createMerchant(AdminMerchantCreateDTO dto);
 }
