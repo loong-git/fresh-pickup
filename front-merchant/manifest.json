@@ -1,0 +1,45 @@
+{
+  "app-plus": {
+    "compilerVersion": 3,
+    "distribute": {
+      "android": { "permissions": [] },
+      "ios": {},
+      "sdkConfigs": {}
+    },
+    "modules": {},
+    "nvueStyleCompiler": "uni-app",
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "autoclose": true,
+      "delay": 0,
+      "waiting": true
+    },
+    "usingComponents": true
+  },
+  // 商家端独立 appid 占位（G-01 §3.1）：与用户端 front/manifest.json 的 __UNI__XXXXXXX 分开，
+  // 两端各自打包/各自升级，不复用同一 appid（否则 DCloud 侧应用信息与版本通道会互相覆盖）
+  "appid": "__UNI__MERCHANT",
+  "description": "生鲜商家端（G-01：登录 + 工作台占位）",
+  "mp-alipay": { "usingComponents": true },
+  "mp-baidu": { "usingComponents": true },
+  "mp-toutiao": { "usingComponents": true },
+  "mp-weixin": {
+    // 商家端小程序 appid 占位：与用户端占位串（wx0000000000000000）不同，
+    // 真实 appid 待微信公众平台单独注册「生鲜商家端」小程序后替换；
+    // 开发阶段可在微信开发者工具导入本项目并选用测试号
+    "appid": "wx0000000000000001",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true
+  },
+  "name": "生鲜商家端",
+  "quickapp": {},
+  "transformPx": false,
+  "uniStatistics": {
+    "enable": false
+  },
+  "versionCode": "100",
+  "versionName": "1.0.0",
+  "vueVersion": "3"
+}

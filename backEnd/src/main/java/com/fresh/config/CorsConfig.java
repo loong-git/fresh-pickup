@@ -56,7 +56,7 @@ public class CorsConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
                 // 生产域名上线后在此追加，例如 https://fresh.example.com
-                .allowedOrigins("http://localhost:5173", "http://localhost:8080")
+                .allowedOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:8080")
                 // PUT：T-M3-09 管理端薄版（/api/admin/** 核销/改价/补库存/上下架）
                 .allowedMethods("GET", "POST", "PUT")
                 .allowedHeaders("*")
