@@ -97,7 +97,8 @@ const AUDIT_TEXT = {
 // 入口 key -> 路由（G-02 只放开商品管理）：不在表里的 key 一律按「建设中」置灰处理，
 // G-03 交付备货单/数据看板时往这里加一行即可，页面模板与点击分支都不用再改
 const ENTRY_ROUTES = {
-  goods: '/pages/dishes/dishes'
+  goods: '/pages/dishes/dishes',
+  stock: '/pages/pickup-plan/pickup-plan'
 }
 
 export default {
