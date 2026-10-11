@@ -2,8 +2,8 @@
 -- 生鲜配送小程序 - 数据库初始化脚本
 -- 执行方式：mysql -u root -p < init.sql
 -- ================================================
--- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m16-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
--- 无需再跑 m3~m16 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
+-- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m17-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
+-- 无需再跑 m3~m17 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
 --   m3  dish.on_sale + orders.pickup_date + 六类补齐商品种子（category 注释/image 口径同 m3）
 --   m4  store + user_coupon 表 + orders 自提点快照三列 + dish 秒杀六列 + review.audit_status
 --   m5  user.password_hash
@@ -18,6 +18,8 @@
 --   m14 user.avatar
 --   m15 merchant + merchant_profile + admin_audit_log + user.role + user.merchant_id + uk_user_merchant（含平台自营主体种子）
 --   m16 merchant_store + dish.merchant_id + order_item.merchant_id + store.owner_user_id + idx_merchant/idx_owner
+--   m17 orders.pickup_code + uk_pickup_code + order_item.fulfill_status + ops_log
+--       （F-18/G-04 Step 1；存量取货码回填只在 m17-migration.sql 里做，本文件不回填——见 init.sql 订单明细表注释先例）
 -- ================================================
 
 CREATE DATABASE IF NOT EXISTS fresh_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -87,6 +89,9 @@ CREATE TABLE dish (
 
 -- ----------------------------
 -- 订单表
+-- pickup_code + uk_pickup_code（m17-migration.sql 同步，F-18/G-04 取货码）：6 位数字全局唯一，支付置态事务内生成；
+-- 可空而非 NOT NULL——MySQL UNIQUE 允许多行 NULL（uk_client_request_id 同型先例），未支付/已取消单留 NULL；
+-- 本文件是新库全量重建，无存量已支付待自提单，故不做 m17 的哈希回填（回填只在 m17 存量迁移里做，同 order_item 注释先例）
 -- ----------------------------
 DROP TABLE IF EXISTS orders;
 CREATE TABLE orders (
@@ -105,8 +110,10 @@ CREATE TABLE orders (
     store_address     VARCHAR(255)  NULL                        COMMENT '自提点地址快照（T-M4-01，下单时按 storeId 查 store 落库）',
     pay_status        TINYINT       NOT NULL    DEFAULT 0        COMMENT '支付状态（T-M2-05）：0未支付/1已支付',
     pay_time          DATETIME      NULL                        COMMENT '支付时间（T-M2-05）',
+    pickup_code       CHAR(6)       NULL                        COMMENT '取货码（G-04/m17，M-12）：6 位数字全局唯一，支付置态事务内生成（D-3）；存量已支付待自提单按 sha2(id+盐) 派生回填（D-2）；核销成功后不清空，幂等判定依据；NULL=未支付或已取消',
     PRIMARY KEY (id),
     UNIQUE INDEX uk_client_request_id (client_request_id),
+    UNIQUE KEY uk_pickup_code (pickup_code),
     INDEX idx_phone (phone),
     INDEX idx_user_id (user_id),
     INDEX idx_status (status),
@@ -118,6 +125,8 @@ CREATE TABLE orders (
 -- merchant_id（m16-migration.sql 同步，F-12/G-01 归属层）：下单时自 dish.merchant_id 落的供货商家快照
 -- （对齐 orders.store_name 下单快照惯例），防商家改归属/删品后历史履约与对账漂移；
 -- 可空而非 NOT NULL DEFAULT 1 是语义正确性优先——新库无历史明细，故本文件不做 m16 的 JOIN 回填
+-- fulfill_status（m17-migration.sql 同步，F-18/G-04 履约旁路列）：NOT NULL DEFAULT 'normal'，与订单三态正交（D-10 不加中间态）；
+-- 存量行靠 DEFAULT 自动为 normal，m17 亦无回填 UPDATE；一期唯一写入方=商家缺货登记 PUT /api/merchant/order-items/{id}/shortage
 -- ----------------------------
 DROP TABLE IF EXISTS order_item;
 CREATE TABLE order_item (
@@ -128,6 +137,7 @@ CREATE TABLE order_item (
     price       DECIMAL(10,2)   NOT NULL                    COMMENT '单价',
     quantity    INT             NOT NULL                    COMMENT '数量',
     merchant_id BIGINT          NULL                        COMMENT '供货商家快照（F-12/m16，下单时自 dish.merchant_id 落库；NULL=历史行回填兜底）',
+    fulfill_status VARCHAR(20)  NOT NULL DEFAULT 'normal'   COMMENT '履约旁路状态（M-19/D-10）：normal/shortage，与订单三态正交；一期唯一写入方=商家缺货登记 PUT /api/merchant/order-items/{id}/shortage',
     PRIMARY KEY (id),
     INDEX idx_order_id (order_id),
     INDEX idx_merchant (merchant_id)
@@ -338,6 +348,23 @@ CREATE TABLE IF NOT EXISTS merchant_store (
   UNIQUE KEY uk_merchant_store (merchant_id, store_id),
   KEY idx_store (store_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家-自提点供货关系（一期数据维护=平台，商家端只读）';
+
+-- ----------------------------
+-- 现场动作审计表（F-18/G-04，m17-migration.sql:85-99 同步）：D-5 两表边界
+-- 本表只收商家/主理人现场动作（核销/到货确认/门店信息变更/缺货登记），operator_user_id 即操作者 userId；
+-- 平台侧动作（store_apply 审核、Admin 核销）一律走 admin_audit_log（m15:89-101，actor=admin:<摘要8>）——
+-- 该列是 BIGINT，装不下 'admin:<key摘要>' 字符串，故两表不合并（05 册 C3 注已收窄生效）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS ops_log (
+    id               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+    operator_user_id BIGINT       NOT NULL COMMENT '操作者 userId（语义收窄：商家/主理人；平台操作员不写本表）',
+    action           VARCHAR(50)  NOT NULL COMMENT 'verify_order/update_dish/audit_review/...',
+    target_id        VARCHAR(64)  NOT NULL COMMENT '目标对象ID',
+    detail           VARCHAR(500) NULL     COMMENT '变更摘要',
+    created_at       DATETIME              DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    PRIMARY KEY (id),
+    KEY idx_target (action, target_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运营操作审计（D-5 边界：本表只收商家/主理人现场动作——核销/到货确认/门店信息变更/缺货登记；平台侧动作一律走 admin_audit_log）';
 
 -- ----------------------------
 -- 邀请新人关系表（F-01，m9-migration.sql 同步）：uk_invitee 是"一人仅可被邀请一次"的权威约束
