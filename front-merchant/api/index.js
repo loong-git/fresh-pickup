@@ -534,3 +534,41 @@ export function setMerchantDishOnSale(id, onSale) {
     data: { onSale: Number(onSale) }
   })
 }
+
+// ==================== 备货单（G-03 / F-17，只读两张列表） ====================
+// 两条都是「后端已夹好/兜好默认值」的读接口：空值不下发（让服务端默认生效），返回原信封。
+
+/**
+ * 备货单聚合：GET /api/merchant/pickup-plan?date=&storeId=（两个参数都可省）
+ * date 缺省时后端按「明天」兜底并把生效日期回显在 data.date，页面必须渲染回显值而不是请求值；
+ * 归属由服务端 @RequestAttribute 解析，本层不拼任何归属入参。
+ * @param {{date?:string, storeId?:string|number}} [query] date 形如 YYYY-MM-DD
+ * @returns {Promise<{code,data:{date:string,groups:Array<{storeId:number,storeName:string,orderCount:number,items:Array<{dishId:number,dishName:string,quantity:number}>}>},message:string}>}
+ */
+export function getMerchantPickupPlan(query) {
+  const src = query && typeof query === 'object' ? query : {}
+  const data = {}
+  if (src.date) data.date = src.date
+  // storeId=0 是合法值（后端按 id 过滤，0 命中不了任何店），只有空串/null/undefined 才当「不带这一筛选」
+  if (src.storeId !== '' && src.storeId !== null && src.storeId !== undefined) data.storeId = src.storeId
+  return request({ url: '/api/merchant/pickup-plan', method: 'GET', data })
+}
+
+/**
+ * 供货明细分页：GET /api/merchant/order-items?date=&status=&page=&size=
+ * status 值域 pending_pickup | completed | all（all = 全部非取消；cancelled 后端一律排除，未知值后端兜底 all），
+ * 过滤口径只在服务端一份，页面不得对已加载数据做前端过滤（那样分页语义直接错）。
+ * size 后端夹到 [1,50]、page<1 归一 1，两条都是「夹而不拒」并在 data 里回显生效值 —— 翻页要用回显值。
+ * 归属由服务端 @RequestAttribute 解析，本层不拼任何归属入参。
+ * @param {{date?:string, status?:string, page?:number, size?:number}} [query]
+ * @returns {Promise<{code,data:{list:object[],page:number,size:number,total:number,hasMore:boolean},message:string}>}
+ */
+export function getMerchantOrderItems(query) {
+  const src = query && typeof query === 'object' ? query : {}
+  const data = {}
+  if (src.date) data.date = src.date
+  if (src.status) data.status = src.status
+  if (src.page) data.page = Number(src.page)
+  if (src.size) data.size = Number(src.size)
+  return request({ url: '/api/merchant/order-items', method: 'GET', data })
+}

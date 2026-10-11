@@ -23,6 +23,18 @@
       "style": {
         "navigationBarTitleText": "新增商品"
       }
+    },
+    {
+      "path": "pages/pickup-plan/pickup-plan",
+      "style": {
+        "navigationBarTitleText": "备货单"
+      }
+    },
+    {
+      "path": "pages/plan-orders/plan-orders",
+      "style": {
+        "navigationBarTitleText": "供货明细"
+      }
     }
   ],
   "globalStyle": {
