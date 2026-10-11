@@ -109,7 +109,7 @@
 <script>
 // 商家端登录页：改造自 front/pages/login/login.vue（双 tab 验证码/密码 + 多多红胶囊表单手感保留）。
 // C 端专属逻辑全部删除：邀请码横幅与 inviteCode 透传、头像入 store、设置密码卡区（/api/auth/set-password
-// 不在本期商家端接口清单内，不引）、redirect 回跳（本端只两页，登录后唯一去处是工作台且用 reLaunch，无回跳语义）。
+// 不在本期商家端接口清单内，不引）、redirect 回跳（G-02 起本端已有四页 login·workspace·dishes·dish-edit，但登录成功的唯一去处仍是 reLaunch 工作台、编辑页只由列表页带 ?id= 进入，没有「登录后回来源页」要还原，故仍无回跳语义）。
 // 本页的核心改造是「登录成功 ≠ 进工作台」：拿到 token 后必须先 GET /api/merchant/me 判角色，
 // 200/403/401 三分支各走各的（§3.2），而 403 与 401 的可区分性由 api 层 handleEnvelope 保证。
 import { sendCode, login, loginPassword, getMerchantMe } from '@/api/index.js'

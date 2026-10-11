@@ -71,10 +71,15 @@ public class MerchantDishServiceImpl implements MerchantDishService {
     /** 兜底 detail：两侧都装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（BE-2 的硬要求） */
     private static final String AUDIT_MINIMAL_DETAIL = "{\"old\":\"audit truncated\",\"new\":\"audit truncated\"}";
 
-    /** 商品图允许的形态之一：空串=清空该列（C 端退回 emoji/占位兜底，F-13.6bis #21 收窄后的口径） */
+    /**
+     * 商品图入库的唯一非空形态前缀：/static/images/ 覆盖平台静态件与上传落盘件
+     * （/static/images/dish-N.svg 与 /static/images/uploads/&lt;名&gt;，F-13/G-02 决策①方案 A）。
+     * <p>空串=清空该列（C 端退回 emoji/占位兜底，F-13.6bis #21 收窄后的口径），是白名单的另一形态，
+     * 故本类不再为它单独设常量。
+     * <p>/uploads/（CorsConfig 对同一物理目录注册的第二条映射）已从白名单剔除，见
+     * assertDisplayValue 的 BE-9 说明——它是商家端 dev 预览的显示层形态，不是入库形态。
+     */
     private static final String IMAGE_PREFIX_STATIC = "/static/images/";
-    /** 商品图允许的形态之二：后端 ResourceHandler 映射前缀（CorsConfig:55，商家端 dev 预览用） */
-    private static final String IMAGE_PREFIX_UPLOADS = "/uploads/";
 
     /**
      * 卡片背景色形态白名单（BE-4① / F-13.10 #4）：# + 3/6/8 位十六进制，或空串/null。
@@ -342,7 +347,16 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * <p><b>image</b>（F-13.10 #3，high）：商家可控的 image 会被 C 端 &lt;image :src="dish.image"&gt; 原样吐给
      * 每个访客，实测 `PUT /dishes/34 {"image":"https://tracker.example.com/p.gif?m=34"}` 200 入库、
      * `GET /api/dishes/34` 原样回显 → 受害面是全站访客（IP/UA/Referer 外流）不是商家自己，`data:` 亦可写。
-     * 故只放行三种形态：空串（清空）、/static/images/（平台静态件，含上传落盘前缀）、/uploads/（后端映射件）。
+     * 故只放行两种形态：空串（清空）、/static/images/（平台静态件，含上传落盘前缀 /static/images/uploads/）。
+     * <p><b>BE-9 收紧（本批）**：/uploads/ 从白名单剔除。它是 CorsConfig 对同一目录注册的第二条映射、
+     * 只服务商家端 dev 预览（商家端跑独立 origin，C 端静态根路径在它那里取不到文件），而 C 端
+     * &lt;image :src="dish.image"&gt; **不拼 BASE_URL**（front/pages/index/index.vue:118、detail.vue:23 即此形态）——
+     * 库里存了 /uploads/xxx.jpg 时，dev 下 5173 把它当自己的路由走 SPA 回退、prod 下 nginx try_files 同样
+     * 回 index.html，浏览器拿到的是 text/html 不是图片，@error 触发 → C 端**静默退回 emoji 兜底**。
+     * 症状「上传成功、库里有值、C 端看起来没图」正是决策①点名的静默假成功形态，且入库侧留着这一档，
+     * 任何调用方（含 Admin 之外的脚本）存错前缀都不会得到反馈。商家端前端只写上传出参的 path 键
+     * （front-merchant/pages/dish-edit/dish-edit.vue:532-537），显示另经 api/index.js#merchantFileUrl 换前缀，
+     * 故剔除的回归面为零；dev 库实测 dish.image 亦无一行以 /uploads/ 开头（无需回填清洗）。
      * <p><b>bgColor</b>（BE-4①）：见 BG_COLOR_PATTERN 注释——background 简写让 12 字符的 url(...) 过了 @Size(20)。
      * <p><b>name/unit/category</b>（BE-4② / F-13.10 #6）：update 的部分更新语义把「非 null 但 blank」当成
      * 合法的清空指令，实测 `PUT /dishes/35 {"category":"","unit":"","name":""}` 三列全变空串；
@@ -353,9 +367,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * <p>null（未传）不参与判定：image/bgColor 为 null 是「本次不改这列」，name/unit/category 同理。
      */
     private void assertDisplayValue(String image, String bgColor, String name, String unit, String category) {
-        if (image != null && !(image.isEmpty()
-                || image.startsWith(IMAGE_PREFIX_STATIC)
-                || image.startsWith(IMAGE_PREFIX_UPLOADS))) {
+        if (image != null && !image.isEmpty() && !image.startsWith(IMAGE_PREFIX_STATIC)) {
             throw new BizException(R.CODE_BAD_REQUEST, "请求参数有误，请检查后重试");
         }
         if (bgColor != null && !bgColor.isEmpty() && !BG_COLOR_PATTERN.matcher(bgColor).matches()) {
