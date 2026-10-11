@@ -21,31 +21,32 @@
     <!-- ==================== 2. 表单 ==================== -->
     <template v-else>
       <view class="card form-card">
-        <view class="field-row">
+        <view class="field-row de-field-name" :class="{ 'field-error': errorKey === 'name' }">
           <text class="field-label">名称</text>
           <input class="field-input" v-model="form.name" maxlength="100" placeholder="必填，如 山东红富士苹果" placeholder-style="color:#BBBBBB;" />
         </view>
-        <view class="field-row">
+        <view class="field-row de-field-price" :class="{ 'field-error': errorKey === 'price' }">
           <text class="field-label">价格</text>
           <input class="field-input" v-model="form.price" type="digit" placeholder="必填，单位元" placeholder-style="color:#BBBBBB;" />
           <text class="field-suffix">元</text>
         </view>
-        <view class="field-row">
+        <view class="field-row de-field-unit" :class="{ 'field-error': errorKey === 'unit' }">
           <text class="field-label">单位</text>
           <input class="field-input" v-model="form.unit" maxlength="20" placeholder="必填，如 斤 / 盒 / 份" placeholder-style="color:#BBBBBB;" />
         </view>
         <!-- 类目：11 类只选不建（F-13.4），取值域来自字典 dish_category，页内不硬编码枚举 -->
         <picker class="row-picker" mode="selector" :range="categoryLabels" :value="categoryIndex" @change="onCategoryChange">
-          <view class="field-row">
+          <view class="field-row de-field-category" :class="{ 'field-error': errorKey === 'category' }">
             <text class="field-label">类目</text>
             <text class="field-picker">{{ categoryDisplay }}</text>
             <text class="cell-arrow">›</text>
           </view>
         </picker>
-        <text v-if="categoriesHint" class="field-hint field-hint-warn" @click="loadCategories">{{ categoriesHint }}</text>
+        <!-- 重试走 retryCategories（带 60s 冷却），不直连 loadCategories：/api/dict 是 IP 维度 10 次/分，连点必吃 429 -->
+        <text v-if="categoriesHint" class="field-hint field-hint-warn" @click="retryCategories">{{ categoriesHint }}</text>
 
         <!-- 库存两态分开：新增带初始值（POST 必填），编辑只给增量（PUT 见 stock 非 null 即 400，R7'） -->
-        <view v-if="!isEdit" class="field-row">
+        <view v-if="!isEdit" class="field-row de-field-stock" :class="{ 'field-error': errorKey === 'stock' }">
           <text class="field-label">库存</text>
           <input class="field-input" v-model="form.stock" type="number" placeholder="必填，0~99999" placeholder-style="color:#BBBBBB;" />
         </view>
@@ -56,27 +57,30 @@
             <text class="sign-btn" :class="{ active: stockSign === 'plus' }" @click="setStockSign('plus')">＋</text>
             <text class="sign-btn" :class="{ active: stockSign === 'minus' }" @click="setStockSign('minus')">−</text>
           </view>
+          <!-- 方向回显：数量框是 type="number"（能打出负号），把当前符号钉在框旁边，
+               让「方向只有 stockSign 一处真值」这件事在界面上也只看一处（框里打负号会被直接拦下，见 adjustStock） -->
+          <text class="stock-sign-echo">{{ stockSign === 'minus' ? '−' : '＋' }}</text>
           <input class="field-input stock-input" v-model="stockDelta" type="number" placeholder="数量" placeholder-style="color:#BBBBBB;" />
-          <button class="btn-sub" :class="{ 'btn-sub-disabled': adjusting || writeBlocked }" :disabled="adjusting || writeBlocked" @click="adjustStock">
+          <button class="btn-sub" :class="{ 'btn-sub-disabled': adjusting || writeBlocked || leaving }" :disabled="adjusting || writeBlocked || leaving" @click="adjustStock">
             <text>{{ adjusting ? '调整中…' : '调整' }}</text>
           </button>
         </view>
-        <text v-if="isEdit" class="field-hint">商家端只能按增减量改库存（单次 ±1000 以内），要精确改数找平台</text>
+        <text v-if="isEdit" class="field-hint">商家端只能按增减量改库存（单次 ±1000 以内），要精确改数找平台；数量只填正数，增减方向用 ＋/− 选</text>
 
-        <view class="field-row">
+        <view class="field-row de-field-limitBuy" :class="{ 'field-error': errorKey === 'limitBuy' }">
           <text class="field-label">限购</text>
           <input class="field-input" v-model="form.limitBuy" type="number" placeholder="必填，1~20" placeholder-style="color:#BBBBBB;" />
         </view>
-        <view class="field-row">
+        <view class="field-row de-field-emoji" :class="{ 'field-error': errorKey === 'emoji' }">
           <text class="field-label">emoji</text>
           <input class="field-input" v-model="form.emoji" maxlength="50" placeholder="无图时 C 端显示的占位表情" placeholder-style="color:#BBBBBB;" />
         </view>
-        <view class="field-row">
+        <view class="field-row de-field-bgColor" :class="{ 'field-error': errorKey === 'bgColor' }">
           <text class="field-label">背景色</text>
           <input class="field-input" v-model="form.bgColor" maxlength="20" placeholder="如 #FFF1E6" placeholder-style="color:#BBBBBB;" />
           <view class="color-chip" :style="{ backgroundColor: safeColor }"></view>
         </view>
-        <view class="field-row field-row-col">
+        <view class="field-row field-row-col de-field-description" :class="{ 'field-error': errorKey === 'description' }">
           <text class="field-label">描述</text>
           <textarea class="field-textarea" v-model="form.description" maxlength="2000" placeholder="选填，2000 字以内" placeholder-style="color:#BBBBBB;" />
         </view>
@@ -106,7 +110,7 @@
             <text v-else class="img-emoji">{{ form.emoji || '🥬' }}</text>
           </view>
           <view class="img-btns">
-            <button class="btn-sub" :class="{ 'btn-sub-disabled': uploading || writeBlocked }" :disabled="uploading || writeBlocked" @click="chooseImage">
+            <button class="btn-sub" :class="{ 'btn-sub-disabled': uploading || writeBlocked || leaving }" :disabled="uploading || writeBlocked || leaving" @click="chooseImage">
               <text>{{ uploading ? '上传中…' : (image ? '换一张' : '选图上传') }}</text>
             </button>
             <text v-if="image" class="img-clear" @click="clearImage">移除图片</text>
@@ -125,14 +129,19 @@
           <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 1 }" :disabled="writeBlocked || busySale || onSale === 1" @click="changeOnSale(1)"><text>上架</text></button>
           <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 0 }" :disabled="writeBlocked || busySale || onSale === 0" @click="changeOnSale(0)"><text>下架</text></button>
         </view>
+        <!-- 语义更正（主会话裁定，后端本期不改）：on_sale=0 只是撤出推荐位，下单链路不看它，
+             故这里不把「下架」说成「买不了」；徽标文字保持简短，这层意思写在 hint 行 -->
+        <text class="field-hint">已下架 = 仅撤出推荐位，不阻断下单</text>
       </view>
 
       <view class="card save-card">
+        <!-- 停态刻意不做 HTML disabled：真 disabled 会把 click 吞掉，商家滚到表单底部点保存就什么都不发生
+             （实测红条在长表单里 top=-1405 完全不在视口内，等于零反馈）。改法=视觉禁用 + 可点 + save() 首行 toast 指路 -->
         <button
           class="btn-main"
-          :class="{ 'btn-disabled': saving || writeBlocked }"
-          :disabled="saving || writeBlocked"
-          @click="save"
+          :class="{ 'btn-disabled': saving || writeBlocked || leaving }"
+          :disabled="saving || leaving"
+          @click="save()"
         ><text>{{ saveText }}</text></button>
         <text v-if="writeBlocked" class="field-hint">当前账号不可保存商品（见顶部提示）</text>
       </view>
@@ -164,8 +173,14 @@ import {
 } from '@/api/index.js'
 import '@/styles/common.css'
 
-// 保存/删除成功后回列表的停留时长：太短 toast 还没看清就跳页，等于没告知
+// 保存成功后回列表的停留时长：太短 toast 还没看清就跳页，等于没告知
 const BACK_DELAY = 900
+// 类目字典重试冷却（FEB-9）：/api/dict 是 IP 维度 10 次/分，连点「点击重试」正是 429 的成因
+const CATEGORY_RETRY_GAP = 60 * 1000
+// 背景色合法形态（FEB-5）：C 端 detail.vue:28 把它绑到 background 简写（不是 background-color），
+// url(//a.co/x) 这类是「合法 CSS」——只在本地预览上兜底不够，脏值必须在下发前就拦掉。
+// 本页预览（safeColor）与提交校验（validate）共用这一份正则
+const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
 
 export default {
   data() {
@@ -175,6 +190,13 @@ export default {
       // 三态互斥（同工作台纪律）：loading | error | ready（ready 即表单可编辑）
       viewState: 'ready',
       errorText: '',
+      // 校验命中要落到「哪一栏」而不只是一句 toast（FEB-6）：字段名，供红描边 + 滚动定位用
+      errorKey: '',
+      // 新增态库存为 0 的提示只说一次（FEB-11），每次点保存都弹等于噪音
+      stockZeroNoticed: false,
+      // 总闸（FEB-3）：toast 之后到真正离开本页之前的 900ms 窗口里，saving 已被 finally 解禁、
+      // 按钮看着能点，连点就会再发一个 PUT（白吃 10/分写额度 + 多一条 dish.update 审计）——故另设一刀切的闸
+      leaving: false,
       // 表单值全部按字符串存（input 绑定态），提交时再转数字——中途态不能污染成 NaN
       form: {
         name: '',
@@ -201,6 +223,8 @@ export default {
       categoriesError: '',
       // true = 字典上游不可达、类目下拉用的是 api 层内置 11 类（照常可选，但要让商家知道来源）
       categoriesDegraded: false,
+      // 退化原因（与列表页同一分流）：'rate-limited' 是 429（等一会再点），其余是上游不可达（不是商家的错）
+      categoriesRateLimited: false,
       // 编辑态库存：currentStock 只信服务端返回值（详情出参 / 调整接口返回的真实库存），页内不做加减估算
       currentStock: null,
       stockDelta: '',
@@ -219,7 +243,11 @@ export default {
     },
     // 类目行提示：退化成内置分类与读取失败各一句（都保留点击重试），真源正常时返回空串不出这一行
     categoriesHint() {
-      if (this.categoriesDegraded) return '类目字典暂不可用，当前为内置分类，点击重试'
+      if (this.categoriesDegraded) {
+        // 429 与「上游不可达」是两种成因，给的话不一样：前者让商家等（稍后再点），后者不怪商家（内置分类照常用）
+        if (this.categoriesRateLimited) return '类目请求太频繁，稍后再点重试'
+        return '类目字典暂不可用，当前为内置分类，点击重试'
+      }
       return this.categoriesError ? '类目字典加载失败：' + this.categoriesError + '，点击重试' : ''
     },
     // picker 显示值：字典里查得到的 code 显中文名；查不到的（脏值/历史分类）原样显 code，不替后端猜
@@ -232,10 +260,11 @@ export default {
     previewImage() {
       return merchantFileUrl(this.image)
     },
-    // 背景色色块：值不是 # 开头的合法形态时用灰底兜一下，避免把整块预览染成不可预测的颜色
+    // 背景色色块：值不是合法 #RGB/#RRGGBB/#RRGGBBAA 时用灰底兜一下，避免把整块预览染成不可预测的颜色
+    // 正则与 validate() 用的 HEX_COLOR_RE 同一份（一处真值：本页预览与下发拦口不能两种口径）
     safeColor() {
       const c = (this.form.bgColor || '').trim()
-      return /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : '#F5F5F5'
+      return HEX_COLOR_RE.test(c) ? c : '#F5F5F5'
     },
     // store 里的 me.status 预判（可能为 null：直接深链进本页时快照还没建）
     lockedByStatus() {
@@ -253,7 +282,18 @@ export default {
     },
     saveText() {
       if (this.saving) return '保存中…'
+      // 停态时按钮文字自己就说清「不能保存」，不只在颜色上区分（灰按钮 + 只换颜色，商家会以为是网络卡）
+      if (this.writeBlocked) return '当前账号不可保存'
       return this.isEdit ? '保存修改' : '新增商品'
+    }
+  },
+  watch: {
+    // 描红只是「上一次校验拦在哪一栏」的记号：商家一开始改表单就撤掉，别让改好的栏还挂着红框
+    form: {
+      deep: true,
+      handler() {
+        this.errorKey = ''
+      }
     }
   },
   async onLoad(options) {
@@ -291,15 +331,35 @@ export default {
       clearTimeout(this._backTimer)
       this._backTimer = null
     }
+    // 类目重试冷却用的是时间戳（没有 setInterval 要清），这里只把残留值置空
+    this._categoryRetryAt = 0
   },
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
+    // 回列表（FEB-4）：深链/分享链接直达本页时页面栈长度为 1，uni.navigateBack() 在 H5 等于 history.go(-1)
+    // 落到站外或无响应（实测连执行上下文都没了）。判栈姿势照 api/index.js 的 goLoginPage：
+    // 先 getCurrentPages() 拿栈，能退才退，不能退就 reLaunch 到列表页（栈里不留本页，回退不会再撞回来）
+    goBackToList() {
+      let pages = []
+      try {
+        pages = getCurrentPages() || []
+      } catch (e) {
+        pages = []
+      }
+      if (pages.length > 1) {
+        uni.navigateBack()
+        return
+      }
+      uni.reLaunch({ url: '/pages/dishes/dishes' })
+    },
     // toast 之后再回列表：立刻 navigateBack 会把 toast 一起带走，等于没告知
+    // 首行置 leaving 总闸：这 900ms 里 saving 会被 finally 解禁，但四个写入口一律看 leaving 早退
     toastThenBack(title) {
+      this.leaving = true
       this.showToast(title)
       this._backTimer = setTimeout(() => {
         this._backTimer = null
-        uni.navigateBack()
+        this.goBackToList()
       }, BACK_DELAY)
     },
     // ==================== 数据加载 ====================
@@ -316,6 +376,16 @@ export default {
         // 维持原快照，不 toast、不切换视图
       }
     },
+    // 手动重试（红条 hint 的点击口）：60s 冷却——字典限流是 IP 维度，连点「点击重试」只会把 429 坐实
+    retryCategories() {
+      const now = Date.now()
+      if (this._categoryRetryAt && now < this._categoryRetryAt) {
+        this.showToast('类目请求太频繁，稍后再点重试')
+        return
+      }
+      this._categoryRetryAt = now + CATEGORY_RETRY_GAP
+      this.loadCategories()
+    },
     async loadCategories() {
       try {
         const res = await getDishCategories()
@@ -326,10 +396,14 @@ export default {
           .filter((c) => c.code)
         // degraded = 这一批是 api 层的内置兜底：category 是后端必填，没这一层新增就永远提交不出去
         this.categoriesDegraded = !!(res && res.degraded)
+        // degradedReason 是 api 层给的两个字面值（'rate-limited' / 'unreachable'）：分流文案用，不改名不自造
+        this.categoriesRateLimited = !!(res && res.degraded && res.degradedReason === 'rate-limited')
+        if (this.categoriesRateLimited) this._categoryRetryAt = Date.now() + CATEGORY_RETRY_GAP
         this.categoriesError = ''
         this.syncCategoryIndex()
       } catch (e) {
         this.categoriesDegraded = false
+        this.categoriesRateLimited = false
         this.categoriesError = (e && e.message) || '未知错误'
       }
     },
@@ -372,6 +446,7 @@ export default {
       }
     },
     fillForm(d) {
+      this.errorKey = ''
       this.form.name = d.name == null ? '' : String(d.name)
       this.form.price = d.price == null ? '' : String(d.price)
       this.form.unit = d.unit == null ? '' : String(d.unit)
@@ -387,6 +462,11 @@ export default {
       // on_sale 是 TINYINT 直出（1/0），脏值一律按「非 1 即下架」显示，与列表页同一口径
       this.onSale = Number(d.onSale) === 1 ? 1 : 0
       this.syncCategoryIndex()
+      // FEB-10：存一份「进页面时」的提交形态快照（与 buildPayload 同形状、同字符串化口径），
+      // 编辑态保存前拿它做 diff。没这一份，什么都没改点保存也会发全量 PUT：
+      // buildPayload 每个键都非 null → pickDishFields 全下发 → 后端 setCount 恒 ≥10，
+      // 「无更新字段」的防线永不命中，还多落一条 old==new 的 dish.update 审计（实测已见该形态）
+      this._originalSnapshot = this.snapshotPayload()
     },
     // ==================== 表单交互 ====================
     onCategoryChange(e) {
@@ -401,21 +481,30 @@ export default {
       this.stockSign = sign
     },
     addTag() {
-      const t = (this.tagInput || '').trim()
-      if (!t) {
+      const raw = (this.tagInput || '').trim()
+      if (!raw) {
         this.showToast('请先写个标签')
         return
       }
-      if (t.length > 12) {
-        this.showToast('单个标签不能超过 12 个字')
-        return
+      // FEB-7：一次粘「产地直发,当季现摘」这种逗号串时拆开逐个收；
+      // 重复值不再静默收下（原来 :key="t + '_' + i" 容忍了重复，界面上会出现两个一模一样的标签）
+      const parts = raw.split(',')
+      const next = this.tags.slice()
+      let reason = ''
+      for (let i = 0; i < parts.length; i++) {
+        const t = (parts[i] || '').trim()
+        if (!t) continue
+        if (t.length > 12) { reason = '单个标签不能超过 12 个字'; break }
+        if (next.indexOf(t) !== -1) { if (!reason) reason = '这个标签已经加过了'; continue }
+        if (next.length >= 5) { reason = '标签最多 5 个'; break }
+        next.push(t)
       }
-      if (this.tags.length >= 5) {
-        this.showToast('标签最多 5 个')
-        return
+      const changed = next.length !== this.tags.length
+      if (changed) {
+        this.tags = next
+        this.tagInput = ''
       }
-      this.tags = this.tags.concat([t])
-      this.tagInput = ''
+      if (reason) this.showToast(reason)
     },
     removeTag(i) {
       this.tags = this.tags.filter((_, idx) => idx !== i)
@@ -435,6 +524,7 @@ export default {
     },
     // 上传出参两个键，入库只取 path（/static/images/uploads/<名>）；取 url 就是决策①点名的静默假成功
     async uploadImage(filePath) {
+      if (this.leaving) return
       this.uploading = true
       try {
         const res = await uploadMerchantImage(filePath)
@@ -465,7 +555,16 @@ export default {
     },
     // ==================== 库存增量（编辑态） ====================
     async adjustStock() {
-      const n = Math.abs(Number(this.stockDelta))
+      if (this.leaving) return
+      const typed = Number(this.stockDelta)
+      // FEB-2：这一栏原来是 Math.abs(Number(stockDelta))——数量框 type="number" 能打负号，
+      // 打 -5 时符号态还明晃晃停在「＋」上，abs 把 -5 静默翻成 +5 真写进了库（实测审计落 delta=5、stock 180）。
+      // 方向的真值只有 stockSign 一处：负数输入一律拒绝并指路，绝不在页内替商家改方向
+      if (String(this.stockDelta || '').trim() !== '' && typed < 0) {
+        this.showToast('数量只填正数，增减方向用 ＋/− 选')
+        return
+      }
+      const n = Math.abs(typed)
       if (!this.stockDelta || !Number.isInteger(n) || n <= 0) {
         this.showToast('请填写要调整的库存数量（正整数）')
         return
@@ -499,6 +598,7 @@ export default {
     },
     // ==================== 上下架 ====================
     async changeOnSale(onSale) {
+      if (this.leaving) return
       this.busySale = true
       try {
         const res = await setMerchantDishOnSale(this.dishId, onSale)
@@ -520,31 +620,41 @@ export default {
       }
     },
     // ==================== 保存 ====================
-    // 本地只拦「一眼能判的」长度/必填，语义校验（分类取值、价格精度等）交服务端，400 原文原样 toast
+    // 本地只拦「一眼能判的」长度/必填，语义校验（分类取值、价格精度等）交服务端，400 原文原样 toast。
+    // 返回 { msg, key }（FEB-6）：光有一句居中 toast，12 个字段的表单里商家不知道是哪栏拦下的，
+    // key 用来给那一栏描红 + 滚过去；校验通过返回 null
     validate() {
+      const fail = (msg, key) => ({ msg, key })
       const name = (this.form.name || '').trim()
-      if (!name) return '请填写商品名称'
-      if (name.length > 100) return '商品名称不能超过 100 个字'
+      if (!name) return fail('请填写商品名称', 'name')
+      if (name.length > 100) return fail('商品名称不能超过 100 个字', 'name')
       const price = String(this.form.price || '').trim()
-      if (!price) return '请填写商品价格'
-      if (!/^\d{1,8}(\.\d{1,2})?$/.test(price)) return '价格最多 8 位整数、2 位小数'
-      if (!(Number(price) > 0)) return '价格必须大于 0'
-      if (!this.form.category) return '请选择商品分类'
+      if (!price) return fail('请填写商品价格', 'price')
+      // FEB-8：格式不合法与「位数超限」是两回事，原来一条正则不命中就回「最多 8 位整数、2 位小数」，
+      // 而 .5 / 1e3 / 8. 既没超整数位也没超小数位——答非所问。提交口径不动（后端 @Digits 由后端批收紧），只拆文案
+      if (!/^\d+(\.\d{1,2})?$/.test(price)) return fail('价格请填数字，最多两位小数（如 8.88）', 'price')
+      if (!/^\d{1,8}(\.\d{1,2})?$/.test(price)) return fail('价格最多 8 位整数、2 位小数', 'price')
+      if (!(Number(price) > 0)) return fail('价格必须大于 0', 'price')
+      if (!this.form.category) return fail('请选择商品分类', 'category')
       const unit = (this.form.unit || '').trim()
-      if (!unit) return '请填写商品单位（如 斤/盒/份）'
-      if (unit.length > 20) return '单位不能超过 20 个字'
+      if (!unit) return fail('请填写商品单位（如 斤/盒/份）', 'unit')
+      if (unit.length > 20) return fail('单位不能超过 20 个字', 'unit')
       if (!this.isEdit) {
         const stock = String(this.form.stock || '').trim()
-        if (stock === '' || !/^\d+$/.test(stock)) return '请填写库存数量（0~99999 的整数）'
-        if (Number(stock) > 99999) return '库存不能超过 99999'
+        if (stock === '' || !/^\d+$/.test(stock)) return fail('请填写库存数量（0~99999 的整数）', 'stock')
+        if (Number(stock) > 99999) return fail('库存不能超过 99999', 'stock')
       }
       const limitBuy = String(this.form.limitBuy || '').trim()
-      if (!/^\d+$/.test(limitBuy)) return '请填写限购数量（1~20 的整数）'
-      if (Number(limitBuy) < 1 || Number(limitBuy) > 20) return '限购数量要在 1~20 之间'
-      if ((this.form.description || '').length > 2000) return '描述不能超过 2000 个字'
-      if ((this.form.emoji || '').length > 50) return '表情符号过长（50 字以内）'
-      if ((this.form.bgColor || '').length > 20) return '背景色值过长（20 字以内）'
-      return ''
+      if (!/^\d+$/.test(limitBuy)) return fail('请填写限购数量（1~20 的整数）', 'limitBuy')
+      if (Number(limitBuy) < 1 || Number(limitBuy) > 20) return fail('限购数量要在 1~20 之间', 'limitBuy')
+      if ((this.form.description || '').length > 2000) return fail('描述不能超过 2000 个字', 'description')
+      if ((this.form.emoji || '').length > 50) return fail('表情符号过长（50 字以内）', 'emoji')
+      const bgColor = (this.form.bgColor || '').trim()
+      if (bgColor.length > 20) return fail('背景色值过长（20 字以内）', 'bgColor')
+      // FEB-5：本页预览（safeColor）拦不住下发——脏值照原样进库，而 C 端 detail.vue:28 绑的是 background 简写，
+      // url(//a.co/x) 是合法 CSS（外呼追踪面）。非空且不是 #RGB/#RRGGBB/#RRGGBBAA 就拦在提交前
+      if (bgColor && !HEX_COLOR_RE.test(bgColor)) return fail('背景色请用 #RRGGBB 形式，如 #FFF1E6', 'bgColor')
+      return null
     },
     buildPayload() {
       const p = {
@@ -564,12 +674,92 @@ export default {
       if (!this.isEdit) p.stock = Number(this.form.stock)
       return p
     },
-    async save() {
-      if (this.writeBlocked || this.saving) return
-      const msg = this.validate()
-      if (msg) {
-        this.showToast(msg)
+    // 提交形态的字符串化快照（FEB-10）：与 buildPayload 同形状，数字/数组统一成可比较的字符串，
+    // 免得 8 与 '8'、[a] 与 'a' 这种「同一含义两种写法」被误判成有变更
+    snapshotPayload() {
+      const p = this.buildPayload()
+      const keys = Object.keys(p).sort()
+      const norm = {}
+      keys.forEach((k) => {
+        const v = p[k]
+        norm[k] = Array.isArray(v) ? v.join('\u0001') : (v === null || v === undefined ? '' : String(v))
+      })
+      return JSON.stringify(norm)
+    },
+    // ==================== 校验反馈定位 ====================
+    focusField(key) {
+      if (!key) return
+      this.errorKey = key
+      this.scrollToField('.de-field-' + key)
+    },
+    scrollToField(sel) {
+      // #ifdef H5
+      // index.html 锁死 html,body overflow:hidden，本页滚动容器是 document.body（onPageWheel 同口径），
+      // uni.pageScrollTo 滚的是 window，这里会静默无效——照 free.vue:897-917 用 scrollIntoView
+      try {
+        const el = typeof document !== 'undefined' && typeof document.querySelector === 'function'
+          ? document.querySelector(sel)
+          : null
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } catch (e) {
+        // 定位失败只是少了个滚动动画，toast 已经给出去了，不能因此抛错打断页面
+      }
+      // #endif
+      // #ifndef H5
+      try {
+        const q = uni.createSelectorQuery().in(this)
+        q.select(sel).boundingClientRect()
+        q.selectViewport().scrollOffset()
+        q.exec((res) => {
+          if (!res || !res[0]) return
+          const cur = (res[1] && res[1].scrollTop) || 0
+          uni.pageScrollTo({ scrollTop: Math.max(0, cur + res[0].top - 16), duration: 300 })
+        })
+      } catch (e) {
+        // 同上：小程序端查询异常也不该把反馈升级成报错
+      }
+      // #endif
+    },
+    // skipZeroStockNotice：仅由库存为 0 的确认框「仍要新增」回调内部传 true，模板上的点击不传值
+    async save(skipZeroStockNotice) {
+      // FEB-1：停态下点保存不再静默 return——按钮此处刻意「视觉禁用但可点」（HTML disabled 会吞掉 click），
+      // 提示复用页面既有 hint 的语义（「见顶部提示」），红条本身已改 sticky 常驻视口
+      if (this.writeBlocked) {
+        this.showToast('当前账号不可保存商品（见顶部提示）')
         return
+      }
+      if (this.saving || this.leaving) return
+      const ret = this.validate()
+      if (ret) {
+        this.showToast(ret.msg)
+        this.focusField(ret.key)
+        return
+      }
+      this.errorKey = ''
+      // FEB-11：新增态库存 0 在本页与服务端都是合法值（validate 的 0~99999 口径没动、后端 @NotNull 也过得去），
+      // 但 on_sale 走 DB 默认 1 → 建出来的是「C 端立刻可见却一件买不了」的商品。
+      // 给一次可确认提示（问一句就继续，不硬拦），stockZeroNoticed 保证只问一次
+      if (skipZeroStockNotice !== true && !this.isEdit && Number(this.form.stock) === 0 && !this.stockZeroNoticed) {
+        this.stockZeroNoticed = true
+        uni.showModal({
+          title: '库存为 0',
+          content: '库存为 0，商品会在 C 端显示但无法下单，建议先填库存',
+          confirmText: '仍要新增',
+          cancelText: '去填库存',
+          success: (r) => {
+            if (r && r.confirm) this.save(true)
+            else this.focusField('stock')
+          }
+        })
+        return
+      }
+      // FEB-10：编辑态且提交形态与进页面时一致 → 一个请求都不发（新增态无快照可比，保持原行为）
+      if (this.isEdit) {
+        const snapshot = this.snapshotPayload()
+        if (this._originalSnapshot && snapshot === this._originalSnapshot) {
+          this.toastThenBack('没有需要保存的修改')
+          return
+        }
       }
       this.saving = true
       const payload = this.buildPayload()
@@ -611,7 +801,14 @@ export default {
 /* 多多红单色板：灰底 + 白卡（.card/.error-row/.btn-main/.btn-disabled/.cell-arrow 取自 common.css） */
 
 /* ==================== 0. 写闸门红条 ==================== */
+/* sticky 而不是随表单滚走（FEB-1）：本页表单比视口长得多，实测红条 top=-1405/bottom=-1321，
+   滚到底点保存时红条完全在视口外，「见顶部提示」这句指路等于指了个看不见的地方。
+   本仓固定层先例见 App.vue:56-69 的全局提示条；这里是页内首屏卡，sticky 就够（不用 fixed，
+   fixed 要自己处理左右外边距与导航栏高度，且会把下面的表单顶出一段空白） */
 .block-card {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   margin-top: 24rpx;
   background-color: #FFF7F0;
   border: 1rpx solid #FFE3E0;
@@ -657,6 +854,13 @@ export default {
 /* 字段级说明行：小字灰，不抢主文案；字典失败时同一位置改成可点重试的红字 */
 .field-hint { font-size: 22rpx; color: #BBBBBB; line-height: 1.5; }
 .field-hint-warn { color: #E02020; }
+/* 校验命中栏的描红（FEB-6）：12 个字段的表单里，一句居中 1.5s 的 toast 不足以说明「是哪栏拦的」，
+   故另给一条行级视觉记号，配合 scrollIntoView/pageScrollTo 把这一栏带进视口。类名写在 <style> 里而非行内 style */
+.field-error {
+  box-shadow: inset 0 0 0 2rpx #E02020;
+  border-radius: 12rpx;
+  background-color: #FFF7F0;
+}
 
 /* ==================== 库存增量控件（编辑态独有） ==================== */
 .stock-now { font-size: 26rpx; color: #666666; min-width: 130rpx; }
@@ -668,6 +872,12 @@ export default {
 }
 .sign-btn.active { color: #E02020; font-weight: 700; border-color: #E02020; background-color: #FFF7F0; }
 .stock-input { flex: 0 0 160rpx; width: 160rpx; }
+/* 方向回显（FEB-2）：把当前 stockSign 钉在数量框旁边——方向只该有一处真值，
+   框里能打出负号是这一行的历史坑（Math.abs 会把它静默翻正并真的写进库） */
+.stock-sign-echo {
+  flex-shrink: 0; font-size: 30rpx; font-weight: 700; line-height: 1.2;
+  color: #E02020; min-width: 28rpx; text-align: center;
+}
 
 /* ==================== 次级按钮（common.css 只有主按钮，本页的上传/调整/上下架属次级动作） ==================== */
 .btn-sub {

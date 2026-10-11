@@ -45,11 +45,24 @@ public class CorsConfig implements WebMvcConfigurer {
      * - /static/images/uploads/** → 同一目录：与入库的 dish.image 值（/static/images/uploads/&lt;名&gt;）同构，
      *   便于后端直读同一份文件；prod 下该前缀由 nginx alias 命中，本映射不参与。
      * 两条映射指的是同一处，故不存在「改了一处忘另一处」的漂移面。
-     * 拦截器链只挂 /api/**（:38-39 零改动），故本映射匿名可读——商品图/执照图本就是展示件，
-     * 写入权在 POST /api/merchant/uploads（登录 + role=merchant + 限流）。
+     * 拦截器链只挂 /api/**（:38-39 零改动），故本映射**匿名可读**；写入权在 POST /api/merchant/uploads
+     * （登录 + role=merchant + 限流 + 停业闸门）。
+     * 【F-13.10 #7 更正原注释的事实错误】此前这里写「商品图/执照图本就是展示件」，前提已被证伪：
+     * 营业执照与商品图经同一个 sink 落进同一目录、URL 形态同构（MerchantController:97-103 无 scene 参数），
+     * 所以执照图当前与商品图共用这条匿名映射、凭不可猜的 UUID 可读——唯一防线是 UUID。
+     * 处置方案（分 scene 子目录 / 走带归属的下载端点）待拍板，见 F-13.6 追加条目；本类映射行为一字未改。
      */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // BE-8（F-13.10 #10）：fresh.upload-dir 为空串时 dir.replaceAll 得 ""、location 退化成 "file:/"，
+        // 静态映射直接指向文件系统根（../ 穿越守卫随之失效）。今天 yml 有非空默认值所以不可达，
+        // 但 deploy/fresh.service 里一行 Environment=FRESH_UPLOAD_DIR= 的失误即可踩中。
+        // 与 dev「空值凑合跑」相比，AdminKeyProdGuard:47-71 的 fail-fast 姿势才是本仓口径：拒绝启动。
+        if (uploadDir == null || uploadDir.isBlank()) {
+            throw new IllegalStateException("fresh.upload-dir 必须是非空目录路径：空值会让商家上传件的静态映射"
+                    + "退化成 file:/（文件系统根），上传件与执照图将匿名可读且可被 ../ 穿越；"
+                    + "dev 取 application.yml 的 ../front/static/images/uploads/，prod 由环境变量 FRESH_UPLOAD_DIR 注入");
+        }
         String dir = uploadDir.replaceAll("/+$", "");
         String location = "file:" + dir + "/";
         registry.addResourceHandler("/uploads/**")

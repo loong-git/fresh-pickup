@@ -72,10 +72,22 @@ public class MerchantController {
      * 绝不把文件内容/ base64 写进库（R5），也绝不使用用户可控的文件名（路径穿越防线：
      * 落盘名 = UUID + 白名单后缀，原始文件名只参与后缀比对不参与命名）。
      * IO 异常不在此捕获，交 GlobalExceptionHandler 统一转 500 信封（不新增文案）。
+     * <p>BE-1（F-13.10 #1，critical）第二道闸：本方法原先**不读任何 request attribute**，是六个商家端点里
+     * 唯一「attribute 缺失不会 500」的一个——所以 AuthInterceptor 用未解码 URI 判前缀时，
+     * `POST /api/%6derchant/uploads` 无 token 也能真落盘（主会话实测）。参数表补 @RequestAttribute(ATTR_MERCHANT_ID)
+     * 后，属性缺失会在 handler 参数解析阶段抛 ServletRequestBindingException → 500 fail-closed，
+     * 鉴权判定（已换成映射路径）与归属注入两处只要有一处失守都落不成静默成功。ATTR_USER_ID 同批补上，
+     * 供 BE-5 的审计 actor='merchant:&lt;userId&gt;' 使用（拦截器在 /api/merchant/ 分支之前就已注入它）。
+     * <p>BE-5（F-13.10 #5）：决策④ 的原文是商家端**所有**写端点非 active 时 403，本方法此前既不查 status
+     * 也不写审计；现在闸门（首行，失败即 403 且不落盘）与审计（落盘成功后，只记文件名 + 字节数）各补一行。
      */
     @RateLimit(limit = 10, windowSeconds = 60)   // USER 维度（注解默认；商家亦有 userId，§2.8 限流复用零改造）
     @PostMapping("/uploads")
-    public R<Map<String, String>> upload(@RequestParam("file") MultipartFile file) throws IOException {
+    public R<Map<String, String>> upload(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
+                                         @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
+                                         @RequestParam("file") MultipartFile file) throws IOException {
+        merchantService.assertActive(merchantId);   // BE-5 停业闸门：文案沿用 R.MSG_FORBIDDEN，不新增 403 串
+
         String original = file.getOriginalFilename();
         String ext = original == null ? "" : original.toLowerCase()
                 .substring(original.lastIndexOf('.') + 1);
@@ -100,10 +112,16 @@ public class MerchantController {
         file.transferTo(dir.toAbsolutePath().resolve(fileName).toFile());
         // 同一份文件的两种寻址：path 供入库（C 端静态根语义）、url 供商家端预览（后端映射）；
         // 两键皆非 null，Map.of 可用（F-12 R5 门禁过的校验链一字未动）
+        merchantService.auditUpload(userId, merchantId, fileName, file.getSize());   // BE-5 审计（旁路，不影响上传）
         return R.ok(Map.of("path", "/static/images/uploads/" + fileName, "url", "/uploads/" + fileName), "上传成功");
     }
 
-    /** 商家资料 + 资质状态（§2.11）：非商家 403 由拦截器裁决，本类不重复校验 */
+    /**
+     * 商家资料 + 资质状态（§2.11）：非商家 403 由拦截器裁决，本类不重复校验。
+     * BE-7（F-13.10 #12）：G-02 起 me 被 dishes/dish-edit 两页的 syncMerchantSnapshot 消费，
+     * 是商家端唯一没挂限流的端点；补齐读档口径（F-13.2 表行 1/2 的 USER 30/分）。
+     */
+    @RateLimit(limit = 30, windowSeconds = 60)
     @GetMapping("/me")
     public R<Map<String, Object>> me(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
                                      @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId) {
@@ -113,9 +131,11 @@ public class MerchantController {
     /** 更新可编辑字段（§2.11）：主体名/结算账户一期锁定平台维护，不在白名单 */
     @PutMapping("/profile")
     @RateLimit(limit = 10, windowSeconds = 60)
-    public R<Void> updateProfile(@RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
+    public R<Void> updateProfile(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
+                                 @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
                                  @Valid @RequestBody MerchantProfileUpdateDTO dto) {
-        merchantService.updateProfile(merchantId, dto);   // WHERE merchant_id=? 强制归属（R3 铁律）
+        // 闸门与审计都在 Service 内（BE-5：merchant.profile 随建随写 admin_audit_log）
+        merchantService.updateProfile(userId, merchantId, dto);   // WHERE merchant_id=? 强制归属（R3 铁律）
         return R.ok(null, "资料已更新");
     }
 
