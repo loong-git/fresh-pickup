@@ -26,7 +26,7 @@
       </view>
     </view>
 
-    <!-- ==================== 4. 正常态：商家卡 + 登出/换账号出口 + 三个建设中入口 ==================== -->
+    <!-- ==================== 4. 正常态：商家卡 + 登出/换账号出口 + 入口列表（G-02 放开商品管理，另两个仍建设中） ==================== -->
     <template v-else>
       <view class="card merchant-card">
         <view class="merchant-head">
@@ -57,18 +57,21 @@
         </view>
       </view>
 
-      <!-- 三入口一期全置灰不可进（§3.3）：不给 › 箭头，只挂「建设中」角标；点击仅 toast 不跳转 -->
+      <!-- 入口逐个替换（§3.3）：已交付的挂路由并给 › 箭头，未交付的保持置灰 + 「建设中」角标（箭头与角标二选一，
+           同时给会让用户以为角标那行也能点进去） -->
       <view class="card cell-card">
         <view
-          class="cell cell-disabled"
+          class="cell"
+          :class="{ 'cell-disabled': !entryRoute(entry) }"
           v-for="entry in entries"
           :key="entry.key"
-          @click="onEntryTap"
+          @click="onEntryTap(entry)"
         >
           <text class="cell-icon">{{ entry.icon }}</text>
           <text class="cell-title">{{ entry.title }}</text>
           <text class="cell-sub">{{ entry.hint }}</text>
-          <text class="tag-building">建设中</text>
+          <text v-if="entryRoute(entry)" class="cell-arrow">›</text>
+          <text v-else class="tag-building">建设中</text>
         </view>
       </view>
     </template>
@@ -81,7 +84,7 @@
 // 商家工作台占位页（G-01 §3.3）：一期只做「我是谁 + 三个建设中入口」，G-02 起逐页替换。
 // 数据加载纪律照用户端 front/pages/mine/mine.vue：onShow 每次重拉 me，回页即反映服务端最新状态。
 // 页面不预判角色：role 判定与 401/403 分流全在 api 层（handleEnvelope），本页只按 code 渲染三态。
-import { getMerchantMe } from '@/api/index.js'
+import { getMerchantMe, merchantStatusText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 资质审核三态文案（列值域见 m15-migration.sql:40 pending/approved/rejected）
@@ -91,11 +94,10 @@ const AUDIT_TEXT = {
   rejected: '资质已驳回'
 }
 
-// 商家生命周期三态文案（列值域见 m15-migration.sql:22 active/suspended/terminated）
-const STATUS_TEXT = {
-  active: '正常营业',
-  suspended: '停业整顿',
-  terminated: '已清退'
+// 入口 key -> 路由（G-02 只放开商品管理）：不在表里的 key 一律按「建设中」置灰处理，
+// G-03 交付备货单/数据看板时往这里加一行即可，页面模板与点击分支都不用再改
+const ENTRY_ROUTES = {
+  goods: '/pages/dishes/dishes'
 }
 
 export default {
@@ -113,8 +115,8 @@ export default {
       refreshAt: 0,
       // onShow 重拉失败但会话已有商家快照时的降级标记：卡片照常展示，只在卡底追加一行重试提示
       refreshFailed: false,
-      // 一期占位三入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款；
-      // key 仅作 v-for key 与 G-02 路由预留，本页不跳转）
+      // 三入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
+      // 可点与否由 ENTRY_ROUTES[entry.key] 决定，本页不再持第二个开关字段（两处真值会打架）
       entries: [
         { key: 'goods', icon: '🛒', title: '商品管理', hint: '上新/改价/库存' },
         { key: 'stock', icon: '📦', title: '备货单', hint: '备货/发货' },
@@ -148,8 +150,7 @@ export default {
       return (this.merchant && this.merchant.status) || ''
     },
     statusText() {
-      const s = this.status
-      return STATUS_TEXT[s] || s
+      return merchantStatusText(this.status)
     },
     refreshText() {
       return this.refreshAt ? this.formatClock(this.refreshAt) : ''
@@ -222,9 +223,19 @@ export default {
       }
     },
     // ==================== 交互 ====================
-    // 三入口一期全置灰：只 toast 提示，不跳任何页（G-02 逐页替换后才挂路由）
-    onEntryTap() {
-      uni.showToast({ title: '功能建设中，敬请期待', icon: 'none', duration: 1500 })
+    // 入口可点与否的唯一判定处（模板与点击分支共用，避免两处真值打架）
+    entryRoute(entry) {
+      return (entry && ENTRY_ROUTES[entry.key]) || ''
+    },
+    // 三入口按 key 分支：已交付的页 navigateTo 过去，未在册的仍 toast「建设中」不跳转
+    // （G-02 只放开商品管理；备货单/数据看板归 G-03）
+    onEntryTap(entry) {
+      const url = this.entryRoute(entry)
+      if (!url) {
+        uni.showToast({ title: '功能建设中，敬请期待', icon: 'none', duration: 1500 })
+        return
+      }
+      uni.navigateTo({ url })
     },
     // 登出/换账号的执行体：清 merchant_token 与快照后回登录页换账号（403 引导态 / 错误态兜底行直连，
     // 正常态那一行经 confirmSwitchAccount 二次确认后才走到这里）

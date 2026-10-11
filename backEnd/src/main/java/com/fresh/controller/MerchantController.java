@@ -48,7 +48,11 @@ public class MerchantController {
     /** 魔数比对所需文件头长度（WEBP 需到第 12 字节） */
     private static final int HEADER_LEN = 12;
 
-    /** 上传落盘目录：dev 默认 ./uploads/，prod 由环境变量 FRESH_UPLOAD_DIR 覆盖（CorsConfig 同源注册静态映射） */
+    /**
+     * 上传落盘目录：dev 取 application.yml 的 fresh.upload-dir（值 ../front/static/images/uploads/，
+     * 相对后端进程工作目录 backEnd/ 解析，即回退一级进 front/），prod 由环境变量 FRESH_UPLOAD_DIR 覆盖；
+     * 下方 ./uploads/ 只是该 key 完全缺失时的兜底默认值，dev/prod 都不会命中（CorsConfig 同源注册静态映射）。
+     */
     @Value("${fresh.upload-dir:./uploads/}")
     private String uploadDir;
 
@@ -57,7 +61,14 @@ public class MerchantController {
 
     /**
      * 单图上传（§2.8，M-03）：校验链 后缀白名单 → 大小 ≤5MB → 魔数 → 随机文件名 → 落盘，
-     * 返回相对路径 /uploads/<随机名>（前端拼 baseURL）。
+     * 出参两键（F-13/G-02 决策①方案 A，同一物理文件的两种寻址语义）：
+     * - path = /static/images/uploads/&lt;随机名&gt;：**入库一律用它**——与 C 端现状 dish.image
+     *   （/static/images/dish-N.svg）完全同构，C 端 :src="dish.image" 不拼 BASE_URL，dev 由前端静态目录
+     *   命中、prod 由 nginx-fresh.conf 的 location /static/images/ alias 命中；若改存 /uploads/ 前缀，
+     *   dev 无此路径、prod 掉进 try_files 回 index.html 拿 200 的 HTML，症状是「上传成功、库里有值、
+     *   C 端永远显示 emoji 兜底」的静默假成功，事后无法从状态码察觉；
+     * - url = /uploads/&lt;随机名&gt;：后端 ResourceHandler 映射（CorsConfig 对同一目录注册的第二条），
+     *   商家端 dev 预览用（商家端跑 5174，其静态目录下没有这些文件，只能回源后端）。
      * 绝不把文件内容/ base64 写进库（R5），也绝不使用用户可控的文件名（路径穿越防线：
      * 落盘名 = UUID + 白名单后缀，原始文件名只参与后缀比对不参与命名）。
      * IO 异常不在此捕获，交 GlobalExceptionHandler 统一转 500 信封（不新增文案）。
@@ -85,9 +96,11 @@ public class MerchantController {
 
         String fileName = UUID.randomUUID().toString().replace("-", "") + "." + ext;
         Path dir = Paths.get(uploadDir);
-        Files.createDirectories(dir);   // 兜底目录不存在（首次上传时 ./uploads/ 尚未创建）
+        Files.createDirectories(dir);   // 兜底目录不存在（首次上传时目标目录尚未创建）
         file.transferTo(dir.toAbsolutePath().resolve(fileName).toFile());
-        return R.ok(Map.of("url", "/uploads/" + fileName), "上传成功");
+        // 同一份文件的两种寻址：path 供入库（C 端静态根语义）、url 供商家端预览（后端映射）；
+        // 两键皆非 null，Map.of 可用（F-12 R5 门禁过的校验链一字未动）
+        return R.ok(Map.of("path", "/static/images/uploads/" + fileName, "url", "/uploads/" + fileName), "上传成功");
     }
 
     /** 商家资料 + 资质状态（§2.11）：非商家 403 由拦截器裁决，本类不重复校验 */

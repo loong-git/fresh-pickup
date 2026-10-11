@@ -40,16 +40,22 @@ public class CorsConfig implements WebMvcConfigurer {
     }
 
     /**
-     * 商家上传件静态映射（F-12/G-01 §2.8）：/uploads/** → file:${fresh.upload-dir}/。
-     * 与 MerchantController 落盘目录同源同义（相对路径同按进程工作目录解析）；
-     * 拦截器链只挂 /api/**（:31-33 零改动），故本映射匿名可读——商品图/执照图本就是展示件，
+     * 商家上传件静态映射（F-12/G-01 §2.8 + F-13/G-02 决策①方案 A）：同一物理目录注册两条路径。
+     * - /uploads/** → file:${fresh.upload-dir}/：商家端 dev 预览用（商家端跑 5174，图片文件不在其静态目录下，只能回源后端）；
+     * - /static/images/uploads/** → 同一目录：与入库的 dish.image 值（/static/images/uploads/&lt;名&gt;）同构，
+     *   便于后端直读同一份文件；prod 下该前缀由 nginx alias 命中，本映射不参与。
+     * 两条映射指的是同一处，故不存在「改了一处忘另一处」的漂移面。
+     * 拦截器链只挂 /api/**（:38-39 零改动），故本映射匿名可读——商品图/执照图本就是展示件，
      * 写入权在 POST /api/merchant/uploads（登录 + role=merchant + 限流）。
      */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         String dir = uploadDir.replaceAll("/+$", "");
+        String location = "file:" + dir + "/";
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:" + dir + "/");
+                .addResourceLocations(location);
+        registry.addResourceHandler("/static/images/uploads/**")
+                .addResourceLocations(location);
     }
 
     @Override

@@ -13,11 +13,15 @@ spring:
       max-file-size: 5MB
       max-request-size: 6MB
 
-# 商家上传落盘目录（F-12/G-01 §2.8）：dev 默认 ./uploads/（相对后端进程工作目录），
-# prod 由环境变量 FRESH_UPLOAD_DIR 覆盖（本文件是环境无关公共配置，application-prod.yml 不动）。
-# 消费方两处：MerchantController#uploadDir 落盘、CorsConfig#addResourceHandlers 注册 /uploads/** 静态映射。
+# 商家上传落盘目录（F-12/G-01 §2.8 + F-13/G-02 决策①方案 A）：
+# dev 值 ../front/static/images/uploads/ —— 相对路径按后端进程工作目录解析，而 mvn spring-boot:run 的工作目录是 backEnd/
+# （F-12 实测文件落在 backEnd/uploads/ 就是这条证据），故必须回退一级到仓库根再进 front/；
+# 落进 C 端静态根的 uploads 子目录后，dev 由 5173 静态目录直接命中、prod 由 nginx alias /data/fresh/images/ 命中，
+# C 端与 nginx 双双零改动（入库值 /static/images/uploads/<名> 与现状 dish.image 同构）。
+# prod 由环境变量 FRESH_UPLOAD_DIR 覆盖为 /data/fresh/images/uploads（本文件是环境无关公共配置，application-prod.yml 不动）。
+# 消费方两处：MerchantController#uploadDir 落盘、CorsConfig#addResourceHandlers 双映射（/uploads/** 与 /static/images/uploads/**）。
 fresh:
-  upload-dir: ${FRESH_UPLOAD_DIR:./uploads/}
+  upload-dir: ${FRESH_UPLOAD_DIR:../front/static/images/uploads/}
 
 mybatis-plus:
   configuration:
