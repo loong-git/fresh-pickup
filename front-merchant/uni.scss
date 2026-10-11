@@ -1,0 +1,30 @@
+/* ==================== 生鲜商家端 — 全局 SCSS 变量（G-01 §3.1 视觉单色板） ==================== */
+/* 收敛口径：用户端 front/uni.scss 是「天猫橙 #FF6600 + 多多红 #E02020」双轨（01 盘点 §2.3 未收敛），
+   商家端只保留多多红 #E02020 一系，红值一律照 front 页面里已在用的那几个，保证两端同手感；
+   橙系（$primary-color:#FF6600 / $bg-warm 等）与商家端用不到的价格色、秒杀色全部删除。 */
+
+/* 主色 — 多多红 */
+$mc-primary: #E02020;
+/* 禁用/按下态：front 登录页主按钮禁用态同款浅红（.btn-main-disabled） */
+$mc-primary-disabled: #F5B5B0;
+/* 浅底：引导态/浅卡背景，取自 front 券卡与登录页设置密码卡（#FFF7F0 / #FFF7F6 同档） */
+$mc-primary-soft: #FFF7F0;
+/* 发丝边框：浅红描边（front coupon-item） */
+$mc-hairline: #FFE3E0;
+
+/* 中性色 */
+$mc-white: #FFFFFF;
+$mc-bg: #F5F5F5;
+$text-primary: #333333;
+$text-secondary: #666666;
+$text-weak: #999999;
+$text-placeholder: #BBBBBB;
+$text-disabled: #CCCCCC;
+
+/* 边框与阴影（与 front 同一档，卡片浮起量保持一致） */
+$border-color: #EEEEEE;
+$shadow-sm: 0 2rpx 12rpx rgba(0, 0, 0, 0.05);
+
+/* 说明：一期两页（登录/工作台）的页面样式按仓库惯例写在各自 <style scoped> 纯 CSS 里
+   （front 全仓零 lang="scss"，此处变量不产出 CSS 规则，仅作单色板的唯一登记处），
+   两页共用的卡片/cell/按钮/引导态/空态在 styles/common.css（经 JS import，非页面级 scoped）。 */

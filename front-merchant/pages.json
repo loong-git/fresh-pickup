@@ -1,0 +1,22 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationBarTitleText": "商家登录"
+      }
+    },
+    {
+      "path": "pages/workspace/workspace",
+      "style": {
+        "navigationBarTitleText": "商家工作台"
+      }
+    }
+  ],
+  "globalStyle": {
+    "backgroundColor": "#F5F5F5",
+    "navigationBarBackgroundColor": "#E02020",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "生鲜商家端"
+  }
+}
