@@ -69,7 +69,10 @@ public class AuthInterceptor implements HandlerInterceptor {
         // F-12/G-01 查库定角色：/api/merchant/** 前缀需 role=merchant 双校验（复刻 :121-123 /api/user/** 范式）
         if (uri.startsWith("/api/merchant/")) {
             com.fresh.entity.User u = userMapper.selectById(userId);
-            if (u == null || !"merchant".equals(u.getRole())) {
+            // merchant_id 为空必须在此收口 403：setAttribute(name, null) 按 Servlet 语义等于移除属性，Controller 的
+            // @RequestAttribute(merchantId)（required 默认 true）会先抛 ServletRequestBindingException 被兜底转 500
+            // → Service 层那两行判空 403 不可达（此判空勿删）
+            if (u == null || !"merchant".equals(u.getRole()) || u.getMerchantId() == null) {
                 ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
                 return false;
             }
