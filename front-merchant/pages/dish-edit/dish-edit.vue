@@ -633,7 +633,7 @@ export default {
       // FEB-8：格式不合法与「位数超限」是两回事，原来一条正则不命中就回「最多 8 位整数、2 位小数」，
       // 而 .5 / 1e3 / 8. 既没超整数位也没超小数位——答非所问。提交口径不动（后端 @Digits 由后端批收紧），只拆文案
       if (!/^\d+(\.\d{1,2})?$/.test(price)) return fail('价格请填数字，最多两位小数（如 8.88）', 'price')
-      if (!/^\d{1,8}(\.\d{1,2})?$/.test(price)) return fail('价格最多 8 位整数、2 位小数', 'price')
+      if (!/^\d{1,6}(\.\d{1,2})?$/.test(price)) return fail('价格最多 6 位整数、2 位小数', 'price')
       if (!(Number(price) > 0)) return fail('价格必须大于 0', 'price')
       if (!this.form.category) return fail('请选择商品分类', 'category')
       const unit = (this.form.unit || '').trim()
