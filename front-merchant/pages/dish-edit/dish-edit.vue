@@ -129,9 +129,9 @@
           <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 1 }" :disabled="writeBlocked || busySale || onSale === 1" @click="changeOnSale(1)"><text>上架</text></button>
           <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 0 }" :disabled="writeBlocked || busySale || onSale === 0" @click="changeOnSale(0)"><text>下架</text></button>
         </view>
-        <!-- 语义更正（主会话裁定，后端本期不改）：on_sale=0 只是撤出推荐位，下单链路不看它，
-             故这里不把「下架」说成「买不了」；徽标文字保持简短，这层意思写在 hint 行 -->
-        <text class="field-hint">已下架 = 仅撤出推荐位，不阻断下单</text>
+        <!-- 语义（后端已改）：on_sale=0 既撤出推荐位，也会被下单链路硬拦
+             （OrderServiceImpl:120 拒 on_sale!=1，文案「包含已下架商品，请重新选择」），故 hint 照实说「不能下单」 -->
+        <text class="field-hint">下架后该商品不能下单，同时已从推荐位撤出</text>
       </view>
 
       <view class="card save-card">
@@ -788,7 +788,28 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
+    // 滚轮接管的两道守卫（照 dishes.vue:490-508 同一套写法，缺一条就是 bug，见各自注释）：
+    // ① 栈顶守卫：navigateTo 不触发上一页 onUnload，列表页与本页的监听会同时挂在 document 上，
+    //    不在栈顶还接管就是双份驱动滚动
+    // ② 弹层放行：弹层打开时滚轮该归弹层，不该 preventDefault 后去滚背景。
+    //    选择器集合必须带 .uni-picker-container —— 本页 :38 的类目下拉是 picker，实测弹层打开时
+    //    背景被滚走 120px、而选项区自己滚不动，正是缺这条守卫的样子
     onPageWheel(e) {
+      // getCurrentPages 在卸载竞态下可能拿不到栈（api 层 goLoginPage 同样做了守卫），拿不到就不接管滚动，
+      // 绝不能在这里 preventDefault 把滚轮吞掉——那是「页面还活着但滚不动了」的成因
+      let pages = []
+      try {
+        pages = getCurrentPages() || []
+      } catch (err) {
+        return
+      }
+      if (!pages.length || (pages[pages.length - 1] && pages[pages.length - 1].route) !== 'pages/dish-edit/dish-edit') return
+      const t = e.target
+      const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
+      if (el && typeof el.closest === 'function'
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container')) {
+        return
+      }
       e.preventDefault()
       document.body.scrollTop += e.deltaY
     }
