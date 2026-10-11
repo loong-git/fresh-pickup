@@ -28,10 +28,16 @@ public class MerchantDishCreateDTO {
     @Size(max = 100, message = "商品名称不能超过 100 个字")
     private String name;
 
-    /** 单价（dish.price DECIMAL(10,2)：整数位 8 位 + 2 位小数，列宽即校验上限） */
+    /**
+     * 单价。dish.price 列本身是 DECIMAL(10,2)，但校验上限不按列宽取（BE-6 / F-13.10 #8）：
+     * 旧口径 @Digits(integer=8) 允许 99999999.99，而 orders.total_price 实测同为 DECIMAL(10,2)，
+     * limitBuy≤20 × 单价 → 12 位金额在**下单侧**数值越界落 500（商家改价把顾客下单打挂）。
+     * 故整数位收到 6（上限 999999.99，× 20 = 19999999.8 仍在 10 位内）；只改商家侧 DTO，
+     * R1' 的 C 端与订单链路一字不动。message 沿用同一句式，只改数字。
+     */
     @NotNull(message = "请填写商品价格")
     @DecimalMin(value = "0.01", message = "价格必须大于 0")
-    @Digits(integer = 8, fraction = 2, message = "价格最多 8 位整数、2 位小数")
+    @Digits(integer = 6, fraction = 2, message = "价格最多 6 位整数、2 位小数")
     private BigDecimal price;
 
     /** 商品图相对路径（dish.image VARCHAR(255) 可空；空值 C 端回退 emoji 占位） */

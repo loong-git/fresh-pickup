@@ -22,8 +22,9 @@ public class MerchantDishUpdateDTO {
     @Size(max = 100, message = "商品名称不能超过 100 个字")
     private String name;
 
+    /** 单价：整数位上限与 MerchantDishCreateDTO 同口径（BE-6，推导见该字段注释），只改数字不改句式 */
     @DecimalMin(value = "0.01", message = "价格必须大于 0")
-    @Digits(integer = 8, fraction = 2, message = "价格最多 8 位整数、2 位小数")
+    @Digits(integer = 6, fraction = 2, message = "价格最多 6 位整数、2 位小数")
     private BigDecimal price;
 
     @Size(max = 255, message = "图片地址过长")

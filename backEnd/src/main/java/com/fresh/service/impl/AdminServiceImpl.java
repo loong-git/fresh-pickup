@@ -63,6 +63,20 @@ public class AdminServiceImpl implements AdminService {
     /** S-4：审计 detail 值序列化用（Jackson ObjectMapper 线程安全，同 common/ResponseUtil 姿势静态复用） */
     private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
 
+    /**
+     * 审计 detail 列宽与预算口径（admin_audit_log.detail VARCHAR(500)，init.sql:319；BE-2 同型修复）：
+     * MerchantDishServiceImpl 那边按「Jackson 最坏 2 倍」推预算的前提已被 F-13.10 #2 实测证伪——
+     * 控制码转成六字符转义串（反斜杠 + u0001）是 **6 倍**，100 个 U+0001 序列化后 602 字符 > 500，STRICT_TRANS_TABLES 下 INSERT 报 1406，
+     * 被本方法旧的「catch → log.warn」吞掉 → 业务写照常提交、审计行凭空消失。
+     * 本类的 detail 虽然全部来自 @Size 界定过的短值（order 状态、dish 三个数值列、review 动作、
+     * 商家名 ≤100 + 脱敏手机号），但同名「100 字符全控制码」的推演同样成立，故按同一口径收口：
+     * 先序列化、再按剩余预算整体截断，兜底必须仍落一行。
+     */
+    private static final int AUDIT_DETAIL_MAX = 500;
+
+    /** 兜底 detail：两侧都装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（BE-2 的硬要求） */
+    private static final String AUDIT_MINIMAL_DETAIL = "{\"old\":\"audit truncated\",\"new\":\"audit truncated\"}";
+
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
@@ -248,23 +262,121 @@ public class AdminServiceImpl implements AdminService {
 
     /**
      * 审计落库（R6/M-04）：actor/action/target_type/target_id/detail(旧值→新值 JSON)/ip。
-     * 审计是旁路——整体 try-catch，写失败只 log.warn，绝不抛异常打断主事务（契约 §2.10b 红线）。
+     * 审计是旁路——写失败绝不打断主事务（契约 §2.10b 红线）。
+     * <p>BE-2 同型修复（本仓母版同样只 log.warn 过）：detail 先序列化、再按列宽剩余预算整体截断，
+     * 且**失败也要再落一行**——第一趟完整 detail，任一层原因（1406 超长、1366 孤立代理、其它列宽…）
+     * 失败即退成 AUDIT_MINIMAL_DETAIL 重试一次，两趟都失败才 warn。旧写法丢的那一行是不可发现的脱审。
      */
     private void writeAudit(String actor, String action, String targetType, String targetId,
                             String oldVal, String newVal) {
+        String detail = buildAuditDetail(oldVal, newVal);
         try {
-            AdminAuditLog row = new AdminAuditLog();
-            row.setActor(actor);
-            row.setAction(action);
-            row.setTargetType(targetType);
-            row.setTargetId(targetId);
-            row.setDetail("{\"old\":" + jsonValue(oldVal) + ",\"new\":" + jsonValue(newVal) + "}");
-            row.setIp(currentIp());
-            adminAuditLogMapper.insert(row);
+            insertAudit(actor, action, targetType, targetId, detail);
+            return;
         } catch (Exception e) {
-            log.warn("审计写入失败（旁路，不影响主事务）: action={}, targetType={}, targetId={}",
+            log.warn("审计写入失败（旁路，不影响主事务），改用最小 detail 重试: action={}, targetType={}, targetId={}",
                     action, targetType, targetId, e);
         }
+        try {
+            insertAudit(actor, action, targetType, targetId, AUDIT_MINIMAL_DETAIL);
+        } catch (Exception e) {
+            log.warn("审计重试仍失败（旁路，不影响主事务）: action={}, targetType={}, targetId={}",
+                    action, targetType, targetId, e);
+        }
+    }
+
+    private void insertAudit(String actor, String action, String targetType, String targetId, String detail) {
+        AdminAuditLog row = new AdminAuditLog();
+        row.setActor(actor);
+        row.setAction(action);
+        row.setTargetType(targetType);
+        row.setTargetId(targetId);
+        row.setDetail(detail);
+        row.setIp(currentIp());
+        adminAuditLogMapper.insert(row);
+    }
+
+    /**
+     * detail 组装（BE-2）：产出必落在 VARCHAR(500) 内且仍是合法 JSON（JSON_VALID(detail)=1 是 DoD⑦ 硬断言）。
+     * 常规值两侧原样保留；超限时 old 侧塌成 "truncated"，把预算让给「本次改了什么」的 new 侧，
+     * new 侧仍装不下就按 clipJsonLiteral 的 token 边界截。
+     */
+    private String buildAuditDetail(String oldVal, String newVal) {
+        String oldJson = jsonValue(dropUnpairedSurrogates(oldVal));
+        String newJson = jsonValue(dropUnpairedSurrogates(newVal));
+        String detail = "{\"old\":" + oldJson + ",\"new\":" + newJson + "}";
+        if (detail.length() <= AUDIT_DETAIL_MAX) {
+            return detail;
+        }
+        String head = "{\"old\":\"truncated\",\"new\":";
+        String clippedNew = clipJsonLiteral(newJson, AUDIT_DETAIL_MAX - head.length() - 1);
+        return clippedNew != null ? head + clippedNew + "}" : AUDIT_MINIMAL_DETAIL;
+    }
+
+    /**
+     * 把「已序列化的 JSON 值」截到 maxLen 字符内且仍是合法 JSON 字符串：按 token 边界前进扫描
+     * （\\uXXXX 6 字符、\\x 2 字符、代理对 2 字符），截点绝不落在转义序列或代理对中间。
+     * 不可截时返回 null，交调用方走最小 detail 兜底。
+     */
+    private String clipJsonLiteral(String literal, int maxLen) {
+        if (literal == null || literal.length() <= maxLen) {
+            return literal;
+        }
+        if (literal.length() < 2 || literal.charAt(0) != '"' || maxLen < 2) {
+            return null;
+        }
+        int bodyEnd = maxLen - 1;                 // 末位留给收尾双引号
+        int i = 1;
+        int safeEnd = 1;
+        while (i < bodyEnd) {
+            char c = literal.charAt(i);
+            int step = 1;
+            if (c == '\\') {
+                step = (i + 1 < literal.length() && literal.charAt(i + 1) == 'u') ? 6 : 2;
+            } else if (Character.isHighSurrogate(c)) {
+                step = 2;
+            }
+            if (i + step > bodyEnd) {
+                break;
+            }
+            i += step;
+            safeEnd = i;
+        }
+        return literal.substring(0, safeEnd) + "\"";
+    }
+
+    /**
+     * 孤立代理项换成 U+FFFD：Jackson 走 Writer 序列化对不成对代理是**原样透传**（不报错），
+     * 而 utf8mb4 列存不下它 → MySQL 1366 → 整行审计消失（与超长 1406 同一类不可发现脱审）。
+     */
+    private String dropUnpairedSurrogates(String value) {
+        if (value == null) {
+            return null;
+        }
+        StringBuilder sb = null;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isHighSurrogate(c) && i + 1 < value.length()
+                    && Character.isLowSurrogate(value.charAt(i + 1))) {
+                if (sb != null) {
+                    sb.append(c).append(value.charAt(i + 1));
+                }
+                i++;                            // 合法代理对：两个一起走
+                continue;
+            }
+            if (!Character.isSurrogate(c)) {
+                if (sb != null) {
+                    sb.append(c);
+                }
+                continue;
+            }
+            if (sb == null) {
+                sb = new StringBuilder(value.length());
+                sb.append(value, 0, i);
+            }
+            sb.append('\uFFFD');
+        }
+        return sb == null ? value : sb.toString();
     }
 
     /** 管理密钥摘要（R8 敏感清单纪律）：SHA-256 取前 8 位十六进制，绝不明文落库/入日志 */

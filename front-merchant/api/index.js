@@ -19,6 +19,8 @@ export const TOKEN_STORAGE_KEY = 'merchant_token'
 const LOGIN_PAGE = 'pages/login/login'
 
 // 兜底文案与后端码表同源（R.java:23 MSG_UNAUTHORIZED / R.java:30 MSG_FORBIDDEN），信封 message 缺失时才用
+// MSG_UNAUTHORIZED 同时是 401 跳登录页前那一声 toast 的文案：同一串只在这一处定义，
+// 页面与请求层不会各写一份「请先登录」而漂移
 const MSG_UNAUTHORIZED = '请先登录'
 const MSG_FORBIDDEN = '无权限访问'
 
@@ -115,18 +117,25 @@ const UPLOADS_BACKEND_PREFIX = '/uploads/'
  * 分支：
  * - 空值/非字符串 -> ''（模板据此走 emoji 兜底，不产出 'undefined' 这种坏 src）
  * - /static/images/uploads/<名> 与 /uploads/<名> -> BASE_URL + '/uploads/<名>'（两种写法归一到同一条后端映射）
- * - 其余以 '/' 开头（存量种子图 /static/images/dish-N.svg 等）-> 交 resolveFileUrl 拼后端，
- *   取不到就随 @error 落 emoji 兜底，与 C 端口径一致
+ * - /static/images/<名>（非 uploads 子目录，即平台 28 个种子商品 dish-N.svg）-> 直接 ''，不发请求。
+ *   为什么不能交 resolveFileUrl 拼后端：后端 ResourceHandler 只映射 /uploads/** 与 /static/images/uploads/**
+ *   （CorsConfig），种子图是 C 端静态目录里的文件、后端根本没有这一份，拼出来的 URL 每次都必 404；
+ *   C 端显示这些 svg 是「同 origin 命中自己的静态目录」，商家端跑独立 origin 是「跨 origin 打后端」，
+ *   两者寻址语义本就不同，此前注释写成「与 C 端口径一致」不实。回 '' 让模板走 emoji，省掉 28 个注定失败的请求。
  * - 绝对 http(s) URL / 非 '/' 开头（chooseImage 的本地临时路径等）-> 原样返回
  * 本函数只管「显示」：写进 dish.image 的必须是上传出参的 path 键（/static/images/uploads/<名>），
  * 存 url 键或本函数返回值会让 C 端显示不出来——那正是决策①要消灭的静默假成功。
  */
+const DISH_STATIC_ROOT_PREFIX = '/static/images/'
+
 export function merchantFileUrl(u) {
   if (typeof u !== 'string' || !u) return ''
   let name = null
   if (u.indexOf(UPLOADS_STATIC_PREFIX) === 0) name = u.slice(UPLOADS_STATIC_PREFIX.length)
   else if (u.indexOf(UPLOADS_BACKEND_PREFIX) === 0) name = u.slice(UPLOADS_BACKEND_PREFIX.length)
   if (name) return BASE_URL + UPLOADS_BACKEND_PREFIX + name
+  // C 端静态根专属资源（种子 svg 等）：商家端 origin 下取不到，后端也没有这一份，直接回空串走 emoji 兜底
+  if (u.indexOf(DISH_STATIC_ROOT_PREFIX) === 0) return ''
   return resolveFileUrl(u)
 }
 
@@ -144,6 +153,9 @@ function goLoginPage() {
   if (!pages.length) return
   const current = (pages[pages.length - 1] && pages[pages.length - 1].route) || ''
   if (current === LOGIN_PAGE) return
+  // 跳转前先告知原因：reLaunch 会销毁当前页（长表单内容随之全丢），不出一声的话用户只觉得
+  // 「页面莫名其妙跳回登录了」。文案复用 MSG_UNAUTHORIZED，不新写第二串（redirect 回跳本期不做）
+  uni.showToast({ title: MSG_UNAUTHORIZED, icon: 'none' })
   uni.reLaunch({ url: '/' + LOGIN_PAGE })
 }
 
@@ -383,7 +395,11 @@ export function uploadMerchantImage(filePath) {
  * 拉不到时（reject 或成功但空列表）回内置 11 类并标 degraded：category 是后端 @NotBlank 必填，
  * 下拉一旦为空新增就永远提交不出去（C 端靠同一份兜底免疫，见 front/api/dict.js:23-34 的 FALLBACK）；
  * 回退结果刻意不进缓存——上游恢复后下次进入自动回真源。
- * @returns {Promise<{code:number,data:Array<{word:string,definition:string,sortOrder:number}>,degraded?:boolean}>}
+ * degradedReason（契约字段名，编辑页消费侧同名，不可改名）只取两个字面值，用于区分「谁把字典弄坏的」：
+ * - 'rate-limited'：reject 且 code 429——是本页自己打太频繁撞的限流桶，不是上游故障，
+ *   文案须引导「稍后再点重试」，否则会误导商家去查上游、并在用户对着错误文案反复点时把 IP 桶续满
+ * - 'unreachable'：其余失败（网络异常/5xx/403）与「200 但空列表」
+ * @returns {Promise<{code:number,data:Array<{word:string,definition:string,sortOrder:number}>,degraded?:boolean,degradedReason?:'rate-limited'|'unreachable'}>}
  */
 const DISH_CATEGORY_FALLBACK = [
   { word: '肉蛋水产', definition: 'code:meat', sortOrder: 110 },
@@ -407,11 +423,16 @@ export function getDishCategories() {
   return request({ url: '/api/dict', method: 'GET', data: { group: 'dish_category' } }).then(
     (res) => {
       const list = res && Array.isArray(res.data) ? res.data : []
-      if (!list.length) return { code: 200, data: DISH_CATEGORY_FALLBACK, degraded: true }
+      // 200 但空列表：上游没坏，只是这一组没词条 —— 归 unreachable（重试也还是空，不是限流）
+      if (!list.length) return { code: 200, data: DISH_CATEGORY_FALLBACK, degraded: true, degradedReason: 'unreachable' }
       categoryDictCache = list
       return res
     },
-    () => ({ code: 200, data: DISH_CATEGORY_FALLBACK, degraded: true })
+    (e) => {
+      // 429 与真·不可达分开标：前者是我们自己点快了，后者才是上游有问题
+      const reason = (e && Number(e.code) === 429) ? 'rate-limited' : 'unreachable'
+      return { code: 200, data: DISH_CATEGORY_FALLBACK, degraded: true, degradedReason: reason }
+    }
   )
 }
 
