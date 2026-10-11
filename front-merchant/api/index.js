@@ -50,11 +50,48 @@ export function clearStoredToken() {
   }
 }
 
+// 登录身份 storage 键：只存手机号（非敏感凭证，仅用于 403 引导文案指代账号），
+// 与 merchant_token 同写同清（main.js 的 setLoginPhone/clearToken 是唯一调用方，页面不各自读写）
+export const LOGIN_PHONE_STORAGE_KEY = 'merchant_login_phone'
+
+export function getStoredLoginPhone() {
+  try {
+    const cached = uni.getStorageSync(LOGIN_PHONE_STORAGE_KEY)
+    return typeof cached === 'string' ? cached : ''
+  } catch (e) {
+    return ''
+  }
+}
+
+export function setStoredLoginPhone(phone) {
+  try {
+    uni.setStorageSync(LOGIN_PHONE_STORAGE_KEY, phone || '')
+  } catch (e) {
+    // 落盘失败只影响 403 文案能否带出账号，不影响本次会话
+  }
+}
+
+export function clearStoredLoginPhone() {
+  try {
+    uni.removeStorageSync(LOGIN_PHONE_STORAGE_KEY)
+  } catch (e) {
+    // 存储异常静默
+  }
+}
+
 // 401 统一回调注册器：main.js 启动时注册 → 触发时同步清 Vuex 登录态
 // （api 层不反向 import store，避免 main.js ↔ api 循环引用，与用户端同构）
 let unauthorizedHandler = null
 export function setUnauthorizedHandler(fn) {
   unauthorizedHandler = typeof fn === 'function' ? fn : null
+}
+
+// 文件相对路径 -> 可展示 URL：后端上传出参回 '/uploads/<随机名>' 相对路径，拼 BASE_URL 的责任收敛到本函数
+// （契约 §3.1：唯一出口，G-02 起任何页面展示图片一律走这里，不在页内各拼各的造成分叉）
+// 空值/非字符串回空串；不以 '/' 开头的（已是绝对 URL 等）原样返回，不重复拼
+export function resolveFileUrl(u) {
+  if (typeof u !== 'string' || !u) return ''
+  return u.charAt(0) === '/' ? BASE_URL + u : u
 }
 
 // 401 兜底跳转：与用户端的差异点——C 端有游客态，401 只清态不跳转；
@@ -239,7 +276,7 @@ export function updateMerchantProfile(fields) {
  * 与 MerchantController.java:67 @RequestParam("file") 对齐；字段名不匹配后端回 400「请选择文件」）
  * 走 uni.uploadFile 而非 request（multipart 边界由运行时生成，手拼 Content-Type 会坏）；
  * Bearer 头需在此手填——request 层的 header 注入到不了这条通道。
- * 出参 {code:200,data:{url:'/uploads/<随机名>'}}，url 为相对路径，展示时自行拼 BASE_URL 前缀。
+ * 出参 {code:200,data:{url:'/uploads/<随机名>'}}，url 为相对路径，展示时一律走本文件 resolveFileUrl()（§3.1 唯一出口，禁止页内自拼 BASE_URL）。
  * 后端 R5 校验链（后缀白名单 + 魔数 + ≤5MB + 随机文件名）在服务端完成，前端只透传 400 文案
  * @param {string} filePath - uni.chooseImage 等拿到的本地临时路径
  */

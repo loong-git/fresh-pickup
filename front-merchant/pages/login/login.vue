@@ -21,10 +21,14 @@
       <text class="guide-text">
         账号<text v-if="forbiddenPhone" class="guide-strong"> {{ forbiddenPhone }} </text>已登录，但不是商家账号
       </text>
-      <text class="guide-text">商家资质由平台统一开通，需平台代开通商家后用该手机号重新登录</text>
+      <!-- 老状态 storage 无 merchant_login_phone 时 forbiddenPhone 为空：这一行不能出现「该手机号」空指代，故按有无号码分两个表述 -->
+      <text v-if="forbiddenPhone" class="guide-text">商家资质由平台统一开通，需平台代开通商家后用该手机号重新登录</text>
+      <text v-else class="guide-text">商家资质由平台统一开通，需平台代开通商家后重新登录</text>
       <!-- 后端 403 的 message 原样透出一行（前端不改写、不猜原因），排查时能一眼看出是拦截器还是 Service 判空 -->
       <text v-if="forbiddenMessage" class="guide-tip">{{ forbiddenMessage }}</text>
       <button class="btn-main" @click="switchAccount"><text>换个账号</text></button>
+      <!-- token 还在（403 不清态）：刚被开通的商家点重新检查只重发一次 me，不必走换账号清态重收验证码 -->
+      <text class="guide-link" @click="restoreSession">我已开通，重新检查</text>
     </view>
 
     <!-- ==================== 4. 登录表单（验证码 / 密码双通道） ==================== -->
@@ -69,7 +73,7 @@
           ><text>{{ codeSending ? '发送中…' : (smsCountdown > 0 ? smsCountdown + 's后重发' : '获取验证码') }}</text></button>
         </view>
         <text class="form-hint">开发环境验证码固定为 123456</text>
-        <button class="btn-main" :class="{ 'btn-disabled': smsLogging }" :disabled="smsLogging" @click="loginBySms"><text>{{ smsLogging ? '登录中…' : '登录' }}</text></button>
+        <button class="btn-main" :class="{ 'btn-disabled': smsLogging || loginLock > 0 }" :disabled="smsLogging || loginLock > 0" @click="loginBySms"><text>{{ smsLogging ? '登录中…' : (loginLock > 0 ? loginLock + 's后可重试' : '登录') }}</text></button>
         <text class="form-hint form-hint-loose">未注册手机号验证通过后将自动注册（注册后仍需平台开通商家资质才能进工作台）</text>
       </view>
 
@@ -95,7 +99,7 @@
             placeholder-style="color:#BBBBBB;"
           />
         </view>
-        <button class="btn-main" :class="{ 'btn-disabled': pwdLogging }" :disabled="pwdLogging" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : '登录' }}</text></button>
+        <button class="btn-main" :class="{ 'btn-disabled': pwdLogging || loginLock > 0 }" :disabled="pwdLogging || loginLock > 0" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : (loginLock > 0 ? loginLock + 's后可重试' : '登录') }}</text></button>
         <text class="form-hint form-hint-loose">未设置过密码的账号请用验证码登录</text>
       </view>
     </template>
@@ -121,7 +125,13 @@ export default {
       codeSending: false,
       smsCountdown: 0,
       smsTimer: null,
+      // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl.java:76-86），
+      // 输入框换号时据此判定是否该收掉上一个号码的冷却
+      smsCooldownPhone: '',
       smsLogging: false,
+      // 登录按钮 60s 冷却（429 是 IP 维度限流，AuthController.java:35/:45，两个 tab 的登录按钮共用这一计时）
+      loginLock: 0,
+      loginLockTimer: null,
       // 密码登录表单
       pwdPhone: '',
       pwdPassword: '',
@@ -134,6 +144,15 @@ export default {
       forbiddenMessage: ''
     }
   },
+  watch: {
+    // 后端发码限流按手机号维度，换号本可立即发码，不该继承上一个号码的冷却：
+    // 一旦当前输入与启动倒计时的号码不一致，收掉倒计时让按钮回到可用态
+    smsPhone(val) {
+      if (this.smsCooldownPhone && (val || '').trim() !== this.smsCooldownPhone) {
+        this.stopSmsCountdown()
+      }
+    }
+  },
   onLoad() {
     // 商家端无游客态：本地已有 token 时先静默复查（能进工作台就直接进，403 就渲染引导态），
     // 否则用户每次冷启都要重新收验证码
@@ -142,6 +161,7 @@ export default {
   onUnload() {
     // 验证码倒计时定时器清理（照用户端登录页同款处理）
     this.stopSmsCountdown()
+    this.stopLoginLock()
     // #ifdef H5
     // 页面级滚轮兜底监听清理（与下方 onReady 的注册配对）
     if (this._pageWheelHandler) {
@@ -173,9 +193,17 @@ export default {
       try {
         await sendCode(phone)
         uni.showToast({ title: '验证码已发送', icon: 'none' })
+        // 记号码要在 startSmsCountdown 之后：该函数首行会 stopSmsCountdown 清掉残留计时，先记会被抹掉
         this.startSmsCountdown()
+        this.smsCooldownPhone = phone
       } catch (e) {
         this.showToast((e && e.message) || '网络异常')
+        // 429（IP 或手机号维度限流，后端提示「1 分钟后再试」类原文已 toast 透出）：前端同步进入倒计时，
+        // 否则按钮立刻可再点，用户只会连续撞限流；非 429 分支维持原行为（不启动倒计时）
+        if (e && e.code === 429) {
+          this.startSmsCountdown()
+          this.smsCooldownPhone = phone
+        }
       } finally {
         this.codeSending = false
       }
@@ -192,10 +220,24 @@ export default {
     stopSmsCountdown() {
       if (this.smsTimer) { clearInterval(this.smsTimer); this.smsTimer = null }
       this.smsCountdown = 0
+      this.smsCooldownPhone = ''
+    },
+    // 登录按钮 60s 冷却：与验证码倒计时分表计时（一个跟手机号/IP 的发码限流走，一个跟登录接口的 IP 限流走）
+    startLoginLock() {
+      this.stopLoginLock()
+      this.loginLock = 60
+      this.loginLockTimer = setInterval(() => {
+        this.loginLock--
+        if (this.loginLock <= 0) this.stopLoginLock()
+      }, 1000)
+    },
+    stopLoginLock() {
+      if (this.loginLockTimer) { clearInterval(this.loginLockTimer); this.loginLockTimer = null }
+      this.loginLock = 0
     },
     // 验证码登录：POST /api/auth/login 只负责拿 token，角色判定交 afterToken 里的 me（三分支见那处注释）
     async loginBySms() {
-      if (this.smsLogging) return
+      if (this.smsLogging || this.loginLock > 0) return
       const phone = (this.smsPhone || '').trim()
       if (!/^1[3-9]\d{9}$/.test(phone)) { this.showToast('请输入正确的手机号'); return }
       const code = (this.smsCode || '').trim()
@@ -210,11 +252,14 @@ export default {
       } catch (e) {
         this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
+        // 429：后端 IP 维度 5 次/分（AuthController.java:45），toast 透出的即是「操作过于频繁，请稍后再试」人话原文，
+        // 前端同步锁定登录按钮 60s，避免连点继续撞限流窗；非 429 分支行为不变
+        if (e && e.code === 429) this.startLoginLock()
       }
     },
     // 密码登录：POST /api/auth/login-password（未设密码时后端 code:400 且 message 人话透出，直接 toast）
     async loginWithPassword() {
-      if (this.pwdLogging) return
+      if (this.pwdLogging || this.loginLock > 0) return
       const phone = (this.pwdPhone || '').trim()
       if (!/^1[3-9]\d{9}$/.test(phone)) { this.showToast('请输入正确的手机号'); return }
       const password = this.pwdPassword || ''
@@ -229,6 +274,8 @@ export default {
       } catch (e) {
         this.pwdLogging = false
         this.showToast((e && e.message) || '网络异常')
+        // 429 同验证码通道：IP 维度限流不分登录方式，锁定的是两个 tab 共用的登录按钮
+        if (e && e.code === 429) this.startLoginLock()
       }
     },
     // ==================== 拿到 token 后的角色判定（§3.2 三分支唯一落点） ====================
@@ -238,6 +285,8 @@ export default {
     // - 401（token 失效）→ 请求层已清 merchant_token，本页停留让用户重新登录
     async afterToken(token, phone) {
       this.$store.commit('setToken', token)
+      // 登录身份（手机号）与 token 同点持久化：冷启动 403 时引导文案要有可指代的账号（P1-3）
+      this.$store.commit('setLoginPhone', phone || '')
       try {
         const res = await getMerchantMe()
         const me = (res && res.data) || {}
@@ -273,6 +322,10 @@ export default {
     // 换个账号：清登录态 + 复位表单（403 保留的 token 在这里才清，避免下一个账号串上一账号的态）
     switchAccount() {
       this.$store.commit('clearToken')
+      // 发码倒计时按手机号维度计时（AuthServiceImpl.java:76-86），换号本可立即发码，不能拿上一个号码的计时拦新号；
+      // loginLock 是 IP 维度限流、与账号无关，故保留不清（清了也只是让用户再撞一次 429）
+      this.stopSmsCountdown()
+      this.smsCooldownPhone = ''
       this.forbidden = false
       this.forbiddenPhone = ''
       this.forbiddenMessage = ''
@@ -292,11 +345,12 @@ export default {
           this.$store.commit('setMerchant', me)
           uni.reLaunch({ url: '/pages/workspace/workspace' })
         } else {
-          this.showForbidden('', '账号已登录，但未绑定商家主体')
+          // 冷启动复查走到这里没有表单输入可用，账号一律取持久化的登录身份（老状态无此键时为空，文案自适配）
+          this.showForbidden(this.$store.state.loginPhone, '账号已登录，但未绑定商家主体')
         }
       } catch (e) {
         if (e && e.code === 403) {
-          this.showForbidden('', e.message)
+          this.showForbidden(this.$store.state.loginPhone, e.message)
         }
         // 401 由请求层清态（本页就是登录页，请求层不会再跳）；其余失败按 toast 处理，
         // 两种情况都照常收起 checking 让用户看到表单，不卡死在「校验中」
