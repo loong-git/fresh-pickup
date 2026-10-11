@@ -2,6 +2,8 @@ package com.fresh.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.common.BizException;
 import com.fresh.common.R;
 import com.fresh.dto.AdminDishUpdateDTO;
@@ -57,6 +59,9 @@ public class AdminServiceImpl implements AdminService {
 
     /** T-M4-05 收口：评价审核动作白名单（approve 过审展示 / reject 驳回删除） */
     private static final Set<String> ALLOWED_AUDIT_ACTIONS = Set.of("approve", "reject");
+
+    /** S-4：审计 detail 值序列化用（Jackson ObjectMapper 线程安全，同 common/ResponseUtil 姿势静态复用） */
+    private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
 
     @Autowired
     private OrderMapper orderMapper;
@@ -199,7 +204,7 @@ public class AdminServiceImpl implements AdminService {
         if (u.getMerchantId() != null) {
             throw new BizException(R.CODE_BAD_REQUEST, "该手机号已绑定商家");
         }
-        // 3) 同事务：INSERT merchant → INSERT merchant_profile(approved) → UPDATE user role/merchant_id
+        // 3) 同事务：INSERT merchant → INSERT merchant_profile(approved) → 条件 UPDATE user role/merchant_id
         Merchant m = new Merchant();
         m.setName(dto.getName());
         m.setContactPhone(dto.getPhone());
@@ -213,12 +218,26 @@ public class AdminServiceImpl implements AdminService {
         mp.setAuditedAt(LocalDateTime.now());
         merchantProfileMapper.insert(mp);
 
-        u.setRole("merchant");                          // 绑定与解锁分离（06 §5.3.3）：代开通即过审即解锁
-        u.setMerchantId(m.getId());
+        int rows;
         try {
-            userMapper.updateById(u);                   // uk_user_merchant UNIQUE 兜底防并发重复绑定
+            // S-3 TOCTOU 修法：条件 UPDATE（项目既有幂等范式，同 OrderServiceImpl 状态机 /
+            // FreeServiceImpl#decreaseStock 影响行数判定）。真正的防线是 WHERE merchant_id IS NULL：
+            // 并发双开通时后一笔在行锁重读后条件不成立 → 0 行 → 下方抛异常回滚本事务刚插的
+            // merchant + merchant_profile，不留 updateById 后写覆盖造成的孤儿主体脏数据。
+            // uk_user_merchant 是 UNIQUE(merchant_id)，两笔并发拿到的是不同自增 id，UNIQUE 根本不冲突，
+            // 兜不住「一人一主体」——别再依赖它（旧注释在此误导过）。
+            rows = userMapper.update(null, new LambdaUpdateWrapper<User>()
+                    .eq(User::getId, u.getId())
+                    .isNull(User::getMerchantId)
+                    .set(User::getRole, "merchant")          // 绑定与解锁分离（06 §5.3.3）：代开通即过审即解锁
+                    .set(User::getMerchantId, m.getId()));
         } catch (DuplicateKeyException e) {
-            // 并发双开通：第二笔 UPDATE 撞 UNIQUE → 与本方法开头的前置判定同文案（幂等语义一致）
+            // 残留兜底：同一 user 被并发绑到同一 merchant_id 时仍撞 uk_user_merchant
+            // → 与本方法开头的前置判定同文案（幂等语义一致）
+            throw new BizException(R.CODE_BAD_REQUEST, "该手机号已绑定商家");
+        }
+        if (rows == 0) {
+            // 影响 0 行 = 该 user 的 merchant_id 已被并发请求写入 → 与前置判定同文案；抛异常触发事务回滚
             throw new BizException(R.CODE_BAD_REQUEST, "该手机号已绑定商家");
         }
 
@@ -278,11 +297,21 @@ public class AdminServiceImpl implements AdminService {
         return null;
     }
 
-    /** detail JSON 值序列化：null → null，其余带引号并转义反斜杠/双引号（值均为服务端可控短串） */
+    /**
+     * detail JSON 值序列化：null → null，其余交 Jackson writeValueAsString 全量转义。
+     * S-4：旧实现只 replace 反斜杠/双引号，商家名里的 \n、\r、\t 及 <0x20 控制码会原样落进 detail，
+     * 写出的审计记录是不可解析 JSON（引号已防结构注入，此项伤的是审计可读性）；Jackson 一并正确转义。
+     */
     private String jsonValue(String value) {
         if (value == null) {
             return "null";
         }
-        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        try {
+            return AUDIT_MAPPER.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            // String 序列化实际不可失败；兜底退回旧的仅转义反斜杠/双引号实现（调用方 writeAudit 另有 try-catch，
+            // 绝不把异常抛出去打断主事务——审计是旁路，见 writeAudit 的 R6/M-04 注释）
+            return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        }
     }
 }
