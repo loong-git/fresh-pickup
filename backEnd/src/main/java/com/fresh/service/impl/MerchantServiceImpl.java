@@ -21,8 +21,9 @@ import java.util.Map;
 /**
  * 商家端服务实现（F-12/G-01 Step 4d）。
  * R3 铁律落地方式（两条硬约束，契约 §2.11 主会话 Step 3 实测后新增）：
- * 1) 每个以 merchantId 为参的方法第一行判空回 403——ATTR_MERCHANT_ID 由拦截器无条件注入，
- *    role=merchant 但 merchant_id 为 NULL 的行（m15 列可空）若落到 WHERE merchant_id = null 会静默空集，
+ * 1) 每个以 merchantId 为参的方法第一行判空回 403——拦截器已在归属为空时收口 403（有条件注入），故本类收到的
+ *    merchantId 恒非 null；此判空属纵深防御（防将来出现不经 /api/merchant/** 前缀的内部调用路径），不是可回收的
+ *    死代码——m15 列可空，merchant_id 为 NULL 若落到 WHERE merchant_id = null 会静默空集，
  *    一旦被写成「参数为空即不加条件」的动态 SQL 就是全表泄露；403 与拦截器同口径，
  *    不区分「你不是商家」与「你没归属」，避免新增泄露面。
  * 2) 读写一律带归属条件（merchant 表 WHERE id=merchantId，merchant_profile WHERE merchant_id=merchantId），

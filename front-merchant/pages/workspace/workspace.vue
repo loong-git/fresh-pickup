@@ -49,9 +49,10 @@
         <text v-if="refreshFailed" class="refresh-fail" @click="loadMe">资料刷新失败，点击重试</text>
       </view>
 
-      <!-- 正常态唯一登出/换账号出口：没有这一行，已登录用户既退不出也换不了号（403 分支的 switchAccount 走不到） -->
+      <!-- 正常态唯一登出/换账号出口：没有这一行，已登录用户既退不出也换不了号（403 分支的 switchAccount 走不到）；
+           走 confirmSwitchAccount 带二次确认，403/错误态那两个出口仍直连 switchAccount -->
       <view class="card cell-card">
-        <view class="cell" @click="switchAccount">
+        <view class="cell" @click="confirmSwitchAccount">
           <text class="cell-logout">换个账号 / 退出登录</text>
         </view>
       </view>
@@ -161,7 +162,7 @@ export default {
   // #ifdef H5
   onReady() {
     // 页面级滚轮兜底：index.html 锁 html,body overflow:hidden 后 PC 滚轮默认滚动失效，手动接管页面滚动
-    // （照用户端 my-coupons.vue 简版；本页无弹层，故不带我的页那套弹层放行守卫）
+    // （照用户端 my-coupons.vue 简版；弹层只有换账号确认的 showModal，瞬态小卡，故不带我的页那套弹层放行守卫）
     this._pageWheelHandler = (e) => this.onPageWheel(e)
     document.addEventListener('wheel', this._pageWheelHandler, { passive: false })
   },
@@ -225,10 +226,26 @@ export default {
     onEntryTap() {
       uni.showToast({ title: '功能建设中，敬请期待', icon: 'none', duration: 1500 })
     },
-    // 登出/换账号唯一出口：清 merchant_token 与快照后回登录页换账号（正常态登出行 / 403 引导态 / 错误态兜底行共用）
+    // 登出/换账号的执行体：清 merchant_token 与快照后回登录页换账号（403 引导态 / 错误态兜底行直连，
+    // 正常态那一行经 confirmSwitchAccount 二次确认后才走到这里）
     switchAccount() {
       this.$store.commit('clearToken')
       uni.reLaunch({ url: '/pages/login/login' })
+    },
+    // 正常态「换个账号 / 退出登录」入口的二次确认：误触代价=重新登录并重收一次验证码（P1-2 想消除的痛点），
+    // 故只在这一路包一层 modal；403 引导态与错误态的「换个账号」是用户主动求助出口、账号本就进不去，
+    // 无误触代价，不给它们加确认（否则「重新检查」那条自救路径也被拖啰嗦）
+    confirmSwitchAccount() {
+      uni.showModal({
+        title: '换个账号',
+        content: '将退出当前登录的商家账号，需重新用验证码登录。确定换账号？',
+        confirmText: '退出',
+        confirmColor: '#E02020',
+        success: (res) => {
+          if (!res.confirm) return
+          this.switchAccount()
+        }
+      })
     },
     // 时间戳 -> HH:mm:ss（脏值返回空串，模板随之隐藏这一行）
     formatClock(ms) {

@@ -7,7 +7,8 @@ import java.util.Map;
 /**
  * 商家端服务（F-12/G-01 Step 4d）：登录与 role=merchant 判定已在 AuthInterceptor 完成
  * （/api/merchant/** 前缀分支 + 查库定角色 + ATTR_MERCHANT_ID 注入），此处不重复角色校验，
- * 但每个以 merchantId 为参的方法自守卫（ATTR_MERCHANT_ID 理论上可为 NULL，m15 列可空）。
+ * 但每个以 merchantId 为参的方法仍自守卫：拦截器已在归属为空时收口 403（ATTR_MERCHANT_ID 为有条件注入），
+ * 故进到本服务的 merchantId 恒非 null，此处判空属纵深防御，不是可回收的死代码（m15 列可空）。
  */
 public interface MerchantService {
 

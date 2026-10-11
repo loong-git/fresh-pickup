@@ -37,6 +37,19 @@ WorkingDirectory=/data/fresh/backEnd
 
 # ---- 环境变量（占位值必须替换！与 application-prod.yml 的 ${DB_PASSWORD}/${JWT_SECRET} 对应）----
 # prod 未配置 JWT_SECRET 时启动即失败（M2 防呆设计），属预期行为
+#
+# ---- 上线前三件事（务必逐条确认，只靠防呆代码挡不住部署侧的疏漏）----
+# 1) 本仓库的密钥守卫 AdminKeyProdGuard 是 @Profile("prod")，只在 profile 精确等于 prod 时注册。
+#    部署命令行必须带 --spring.profiles.active=prod（见下方 ExecStart）；写成 production、拼错，
+#    或压根没带该参数，守卫都静默不注册，而 admin-dev-key 这个默认值依旧在字节码里可用。
+#    fail-fast 的强度取决于 profile 纪律，不取决于代码。
+# 2) 下面三个占位值（replace-with-admin-key / replace-with-real-db-password /
+#    replace-with-strong-random-secret）上线前必须全部替换成真实值，照抄 unit 文件等于裸奔：
+#    ADMIN_KEY 的占位值已被启动守卫直接拒起（连同短于 8 位的弱值），
+#    DB_PASSWORD / JWT_SECRET 两个占位串同样必须换成真实值——JWT_SECRET 留公开默认串意味着
+#    任何人可离线伪造全量用户 token。
+# 3) 生产密钥建议改由 EnvironmentFile=/data/fresh/backEnd/fresh.env（权限 600）注入，
+#    不要写进本 unit 文件：unit 文件随仓库公开可读，把真实值写进来等于把密钥提交进版本库。
 Environment=DB_PASSWORD=replace-with-real-db-password
 Environment=JWT_SECRET=replace-with-strong-random-secret
 Environment=ADMIN_KEY=replace-with-admin-key
