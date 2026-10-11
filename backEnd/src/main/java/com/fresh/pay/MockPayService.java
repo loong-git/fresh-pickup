@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -25,11 +26,18 @@ import java.util.List;
  * - 本人订单校验：非本人（含 user_id 未认领存量单）一律 404，不泄露他人订单存在性；
  * - 已取消订单不可支付；
  * - 支付成功即按订单明细累加商品销量（T-M4-03 销量闭环，唯一累加点；取消已支付单时按同明细回退）；
+ * - 取货码（F-18.6/D-3）：支付成功事务内生成 6 位数字码（attachPickupCode），与置态、销量累加同事务，
+ *   生成失败即抛 BizException 让整单支付回滚，杜绝「已支付无码」半态；免费领 0 元单经
+ *   FreeServiceImpl:241 复用本方法自动获得取货码，不另写生成逻辑。真实支付转正后（WxPayService 现为骨架、
+ *   无实体置态代码，本期零改动）在同一个 if (updated > 0) 支付成功点做对偶挂钩；
  * - prod 由 pay.mock-enabled=false 在 PayController 层直接 404，本 Bean 不再单独按 profile 装配。
  */
 @Slf4j
 @Service
 public class MockPayService implements PayService {
+
+    /** 取货码随机源（D-4）：SecureRandom 而非 Random——码只有 1e6 空间且核销只靠它+归属判定，可预测即等于可枚举他人单 */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Autowired
     private OrderMapper orderMapper;
@@ -68,6 +76,10 @@ public class MockPayService implements PayService {
             List<OrderItem> items = orderItemMapper.selectList(
                     new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, orderId));
             items.forEach(item -> dishMapper.increaseSoldCount(item.getDishId(), item.getQuantity()));
+            // 取货码生成（F-18.6/D-3）：与上面的置态+销量累加同事务、同一 if (updated > 0) 支付成功点，
+            // 幂等由 OrderMapper.attachPickupCode 的 `pickup_code IS NULL` 条件兜住（二次支付不换码）；
+            // 失败抛 BizException → 本事务整体回滚，不出现「已支付无码」半态
+            attachPickupCode(orderId);
             // 邀请新人挂钩（F-01.2 / F-04.2；F-05 后现金轨唯一激励）：支付成功事务内调 InviteService.onOrderPaid——
             // 首单（已支付订单数==1）→ invite_relation 原子置位 0→1
             // + 冻结现金入账（cash_flow status 0→1 → 邀请人 balance+5，F-04.2 修订②注册只冻结不入账）
@@ -77,5 +89,21 @@ public class MockPayService implements PayService {
             order = orderMapper.selectById(orderId);
         }
         return order;
+    }
+
+    /**
+     * 取货码挂载（算法照 F-18.6 第 3 条原文，D-3/D-4）：6 位数字、最多重试 5 次；
+     * 先用 countByPickupCode 避开已占用的码（撞唯一键的概率前移成一次读，不把 1062 打进事务），
+     * 再走条件 UPDATE（WHERE id=#{orderId} AND pickup_code IS NULL）幂等写入——已支付单二次调用不会走到这里
+     * （payResult 开头早退 + else 回读两条路径都不重新生成），条件本身也保证并发二次置态不换码。
+     * 禁止用订单号尾 6 位替代：可由单号推出 = 可猜。
+     */
+    private void attachPickupCode(String orderId) {
+        for (int i = 0; i < 5; i++) {
+            String code = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
+            if (orderMapper.countByPickupCode(code) > 0) { continue; }
+            if (orderMapper.attachPickupCode(orderId, code) > 0) { return; }
+        }
+        throw new BizException("取货码生成失败，请稍后重试");
     }
 }

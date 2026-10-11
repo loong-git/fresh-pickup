@@ -35,6 +35,12 @@ public class Order {
     private Integer payStatus;
     /** 支付时间（T-M2-05） */
     private LocalDateTime payTime;
+    /**
+     * 取货码（G-04/D-3/D-4/m17）：6 位数字、uk_pickup_code 全局唯一，支付置态事务内生成（未支付无码=NULL，是设计不是缺陷）；
+     * <b>只发给单主本人</b>——{@code GET /api/orders} 按 userId 过滤，出参带它是有意的：主理人核销时用户必须口播这 6 位码；
+     * 跨用户/跨商家一律不出（partner/merchant 侧走各自白名单出参，不共享这个实体）。核销成功后不清空（幂等判定依据）。
+     */
+    private String pickupCode;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)
