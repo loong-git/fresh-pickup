@@ -94,8 +94,9 @@
       <!-- 加载更多：触底自动 + 按钮兜底（范式照 front/pages/order/order.vue:90-96）；
            hasMore 用后端回显值，为 false 时整块换成「共 N 条」（N 取 shownTotal，见 computed 注释） -->
       <view class="load-more">
-        <button v-if="hasMore" class="btn-more" :disabled="loadingMore" @click="loadMore">
-          <text>{{ loadingMore ? '加载中…' : '加载更多' }}</text>
+        <button v-if="hasMore" class="btn-more" :class="{ 'btn-more-cooling': retryLock > 0 }"
+          :disabled="loadingMore || retryLock > 0" @click="loadMore">
+          <text>{{ retryLock > 0 ? retryLock + 's后可重试' : (loadingMore ? '加载中…' : '加载更多') }}</text>
         </button>
         <text v-else class="no-more">共 {{ shownTotal }} 条</text>
       </view>
@@ -463,6 +464,8 @@ export default {
     // ② 弹层放行：日期 picker（.uni-picker-container）与 modal/toast 打开时滚轮归弹层，
     //    这里不能 preventDefault 去滚背景，否则「弹层里滚不动、页面却在滚」；
     //    textarea/input 同列表内——表单控件上的滚轮归控件，被页面抢走就会连带影响长按选字/选中。
+    //    末尾的 uni-textarea/uni-input 是 H5 自定义元素「壳」：closest('textarea') 匹配不到 <uni-textarea>
+    //    （标签名是 UNI-TEXTAREA），指针落在只读文本框的边框/内边距区时滚轮仍会被页面抢走，故壳也要放行。
     onPageWheel(e) {
       // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
       let pages = []
@@ -475,11 +478,15 @@ export default {
       const t = e.target
       const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
       if (el && typeof el.closest === 'function'
-        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input')) {
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input, uni-textarea, uni-input')) {
         return
       }
       e.preventDefault()
       document.body.scrollTop += e.deltaY
+      // H5 端原生滚动被上面 preventDefault 吃掉了，uni 的 onReachBottom 不可能触发（小程序端不受影响）。
+      // 触底翻页在这里补上：判定用 body 自己的几何，阈值 50px；闸门全在 loadMore 里
+      // （retryLock / _loadingList / hasMore），所以这里无条件调用是安全的。
+      if (document.body.scrollTop + window.innerHeight >= document.body.scrollHeight - 50) this.loadMore()
     }
     // #endif
   }
@@ -597,6 +604,10 @@ export default {
   border: 1rpx solid #E02020; border-radius: 999rpx;
 }
 .btn-more[disabled] { color: #F5B5B0; background-color: #FFFFFF; border-color: #F5B5B0; }
+/* 冷却态（429 后 retryLock > 0）：置灰取值口径同 .error-retry-cooling（color #BBBBBB / border #EEEEEE），
+   再加 not-allowed 把「这一下点不动」说给人看。写成 .btn-more.btn-more-cooling 是为了压过
+   上一条 .btn-more[disabled]（两者同特异度，靠源码顺序 + 类名叠加取胜），不改原类。 */
+.btn-more.btn-more-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 .no-more { font-size: 24rpx; color: #999999; line-height: 1.6; }
 
 .page-bottom-space { height: 60rpx; }

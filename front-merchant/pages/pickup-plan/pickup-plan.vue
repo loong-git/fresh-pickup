@@ -345,6 +345,8 @@ export default {
     // ② 弹层放行：弹层（含本页可能出现的 picker/modal/toast）打开时滚轮该归弹层，不能 preventDefault 去滚背景；
     //    textarea/input 同列表内——「复制失败→长按只读文本框手抄」是指定的兜底通道，
     //    滚轮压在它上面时若被页面 preventDefault 抢走，选中/滚动都受影响，等于兜底通道自己先不可用。
+    //    末尾的 uni-textarea/uni-input 是 H5 自定义元素「壳」：closest('textarea') 匹配不到 <uni-textarea>
+    //    （标签名是 UNI-TEXTAREA），指针落在只读文本框的边框/内边距区时滚轮仍会被页面抢走，故壳也要放行。
     onPageWheel(e) {
       // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
       let pages = []
@@ -357,7 +359,7 @@ export default {
       const t = e.target
       const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
       if (el && typeof el.closest === 'function'
-        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input')) {
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input, uni-textarea, uni-input')) {
         return
       }
       e.preventDefault()
