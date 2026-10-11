@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.common.BizException;
+import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
 import com.fresh.dto.MerchantProfileUpdateDTO;
 import com.fresh.entity.AdminAuditLog;
@@ -91,8 +92,8 @@ public class MerchantServiceImpl implements MerchantService {
         me.put("role", "merchant");
         me.put("merchantId", merchant.getId());
         me.put("name", merchant.getName());
-        // R4：手机号一律脱敏（出参绝不直出 contactPhone 明文）
-        me.put("contactPhone", maskPhone(merchant.getContactPhone()));
+        // R4：手机号一律脱敏（出参绝不直出 contactPhone 明文）；F-17/G-03 起统一经 common/PhoneMask
+        me.put("contactPhone", PhoneMask.mask(merchant.getContactPhone()));
         me.put("contactName", merchant.getContactName());
         me.put("status", merchant.getStatus());
         Map<String, Object> profileMap = new LinkedHashMap<>();
@@ -393,11 +394,5 @@ public class MerchantServiceImpl implements MerchantService {
             return servletAttributes.getRequest().getRemoteAddr();
         }
         return null;
-    }
-
-    /** 138****1234（逐字复刻 OrderServiceImpl#maskPhone:347-349；merchant.contact_phone 由代开通
-     *  DTO @Pattern("^1\\d{10}$") 与 m15 种子保证 11 位，substring 安全，同 FreeServiceImpl:449 口径注释） */
-    private String maskPhone(String phone) {
-        return phone.substring(0, 3) + "****" + phone.substring(7);
     }
 }
