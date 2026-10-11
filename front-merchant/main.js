@@ -7,7 +7,10 @@ import {
 	setUnauthorizedHandler,
 	getStoredToken,
 	setStoredToken,
-	clearStoredToken
+	clearStoredToken,
+	getStoredLoginPhone,
+	setStoredLoginPhone,
+	clearStoredLoginPhone
 } from './api/index.js'
 
 // ==================== Vuex store（商家端极简态） ====================
@@ -17,6 +20,8 @@ const store = createStore({
 	state: {
 		// 登录态：刷新后从独立 storage 键 merchant_token 恢复（键名与 C 端 'user' 不同，两端同域调试不串态）
 		token: getStoredToken(),
+		// 登录身份手机号：403 引导文案的指代来源，与 token 同写同清（老状态无此键时为空串，文案自适配）
+		loginPhone: getStoredLoginPhone(),
 		// GET /api/merchant/me 出参快照：{role,merchantId,name,contactPhone,contactName,status,profile}
 		// null = 本会话尚未成功拉到（登录页/工作台都会以 onShow 重拉覆盖，不做乐观填充）
 		merchant: null
@@ -27,11 +32,19 @@ const store = createStore({
 			state.token = token || ''
 			setStoredToken(state.token)
 		},
-		// 清登录态：401（请求层回调）与「换个账号」共用；me 快照一并清掉，防上一个账号的商家名残留渲染
+		// 写入登录身份：与 setToken 同点提交（login.vue afterToken，登录成功那一刻）
+		setLoginPhone(state, phone) {
+			state.loginPhone = phone || ''
+			setStoredLoginPhone(state.loginPhone)
+		},
+		// 清登录态：401（请求层回调）与「换个账号」共用；me 快照与登录身份一并清掉，
+		// 防上一个账号的商家名残留渲染、防新账号 403 文案指向旧手机号
 		clearToken(state) {
 			state.token = ''
+			state.loginPhone = ''
 			state.merchant = null
 			clearStoredToken()
+			clearStoredLoginPhone()
 		},
 		// 覆盖 me 快照（onShow 每次重拉都整体替换，不做字段级 merge）
 		setMerchant(state, merchant) {

@@ -8,6 +8,8 @@
       <text class="guide-text">当前账号已登录，但不是商家账号，工作台不对其开放</text>
       <text v-if="forbiddenMessage" class="guide-tip">{{ forbiddenMessage }}</text>
       <button class="btn-main" @click="switchAccount"><text>换个账号</text></button>
+      <!-- token 还在，刚被平台开通的商家点「重新检查」只重发一次 me 即可 200，不必清态重收验证码（换账号是重路径） -->
+      <text class="guide-link" @click="loadMe">我已开通，重新检查</text>
     </view>
 
     <!-- ==================== 2. 首次加载中（store 无 me 快照时的占位，避免空白页） ==================== -->
@@ -15,20 +17,26 @@
       <text class="checking-text">正在加载商家资料…</text>
     </view>
 
-    <!-- ==================== 3. 加载失败（区别于 403 引导态：可点重试） ==================== -->
+    <!-- ==================== 3. 加载失败（区别于 403 引导态：可点重试；404「商家不存在」这类确定性失败重试永远失败，故同给换账号出口，与 P0-1 一起兜住死路） ==================== -->
     <view v-else-if="viewState === 'error'" class="card">
-      <view class="error-row" @click="loadMe">
+      <view class="error-row">
         <text class="error-text">{{ errorText || '商家资料加载失败，请检查网络' }}</text>
-        <text class="error-retry">点击重试</text>
+        <text class="error-retry" @click="loadMe">点击重试</text>
+        <text class="guide-link" @click="switchAccount">换个账号</text>
       </view>
     </view>
 
-    <!-- ==================== 4. 正常态：商家卡 + 三个建设中入口 ==================== -->
+    <!-- ==================== 4. 正常态：商家卡 + 登出/换账号出口 + 三个建设中入口 ==================== -->
     <template v-else>
       <view class="card merchant-card">
         <view class="merchant-head">
           <text class="merchant-name">{{ merchantName }}</text>
-          <text class="audit-tag" :class="'audit-' + auditKey">{{ auditText }}</text>
+          <view class="merchant-tags">
+            <text class="audit-tag" :class="'audit-' + auditKey">{{ auditText }}</text>
+          </view>
+          <!-- 商家生命周期状态只读透出（值域 active/suspended/terminated，见 m15-migration.sql:22）；
+               停业/清退的执行拦截属 G-02/G-06，本页只保证「被停的商家看得到自己是什么状态」，不做任何跳转拦截 -->
+          <text v-if="status && status !== 'active'" class="status-tip">商家当前状态：{{ statusText }}</text>
         </view>
         <view class="merchant-rows">
           <text class="merchant-row">联系人：{{ contactText }}</text>
@@ -37,6 +45,15 @@
         </view>
         <!-- 每次 onShow 重拉 me 的成功时刻（资料变更/审核状态流转后回页即可见，验收时用它辨认刷新确实发生） -->
         <text v-if="refreshText" class="refresh-tip">资料刷新于 {{ refreshText }}</text>
+        <!-- 会话内已有完整快照时，onShow 重拉失败降级为本行提示，不把整页换成错误卡（对照用户端 mine.vue 分区块错误态） -->
+        <text v-if="refreshFailed" class="refresh-fail" @click="loadMe">资料刷新失败，点击重试</text>
+      </view>
+
+      <!-- 正常态唯一登出/换账号出口：没有这一行，已登录用户既退不出也换不了号（403 分支的 switchAccount 走不到） -->
+      <view class="card cell-card">
+        <view class="cell" @click="switchAccount">
+          <text class="cell-logout">换个账号 / 退出登录</text>
+        </view>
       </view>
 
       <!-- 三入口一期全置灰不可进（§3.3）：不给 › 箭头，只挂「建设中」角标；点击仅 toast 不跳转 -->
@@ -73,6 +90,13 @@ const AUDIT_TEXT = {
   rejected: '资质已驳回'
 }
 
+// 商家生命周期三态文案（列值域见 m15-migration.sql:22 active/suspended/terminated）
+const STATUS_TEXT = {
+  active: '正常营业',
+  suspended: '停业整顿',
+  terminated: '已清退'
+}
+
 export default {
   data() {
     return {
@@ -86,6 +110,8 @@ export default {
       forbiddenMessage: '',
       // 本次 me 成功时刻（ms），仅驱动「资料刷新于」一行
       refreshAt: 0,
+      // onShow 重拉失败但会话已有商家快照时的降级标记：卡片照常展示，只在卡底追加一行重试提示
+      refreshFailed: false,
       // 一期占位三入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款；
       // key 仅作 v-for key 与 G-02 路由预留，本页不跳转）
       entries: [
@@ -115,6 +141,14 @@ export default {
     auditText() {
       const s = this.merchant && this.merchant.profile ? this.merchant.profile.auditStatus : ''
       return AUDIT_TEXT[s] || (s ? '未知状态：' + s : '资质状态未返回')
+    },
+    // 商家生命周期状态（后端 me.status，MerchantServiceImpl.java:66）：脏值/未知值原样展示，不替后端猜
+    status() {
+      return (this.merchant && this.merchant.status) || ''
+    },
+    statusText() {
+      const s = this.status
+      return STATUS_TEXT[s] || s
     },
     refreshText() {
       return this.refreshAt ? this.formatClock(this.refreshAt) : ''
@@ -148,11 +182,16 @@ export default {
     // GET /api/merchant/me：200 → ready；403 → 引导态；401 → 请求层已清 merchant_token 并 reLaunch 回登录页，
     // 本页只收起加载态不再发第二个请求；其余（网络异常/400/500）→ 错误态可点重试
     async loadMe() {
+      // 并发守卫：错误卡重试/引导卡「重新检查」/刷新区「点击重试」都可连点，
+      // 慢失败不能盖掉快成功——同一时刻只放行一个 me 请求
+      if (this._loading) return
+      this._loading = true
       try {
         const res = await getMerchantMe()
         const me = (res && res.data) || null
         this.merchant = me
         this.refreshAt = Date.now()
+        this.refreshFailed = false
         // 已有 token 却拿到没有角色的空响应：按「非商家」处理，绝不渲染工作台内容（不放水）
         this.viewState = (me && me.role === 'merchant') ? 'ready' : 'forbidden'
         this.forbiddenMessage = (me && me.role === 'merchant') ? '' : '未返回商家主体信息'
@@ -168,8 +207,17 @@ export default {
           this.viewState = 'loading'
           return
         }
+        // 会话内已有完整商家快照：保持 ready 展示，只降级卡底一行重试提示（偶发网络抖动不该把已看到的数据整页换掉）
+        if (this.merchant) {
+          this.refreshFailed = true
+          this.viewState = 'ready'
+          return
+        }
+        // 首屏无快照才是整页错误态
         this.errorText = (e && e.message) || ''
         this.viewState = 'error'
+      } finally {
+        this._loading = false
       }
     },
     // ==================== 交互 ====================
@@ -177,7 +225,7 @@ export default {
     onEntryTap() {
       uni.showToast({ title: '功能建设中，敬请期待', icon: 'none', duration: 1500 })
     },
-    // 403 引导态出口：清 merchant_token 与快照后回登录页换账号（工作台只有这一个出口）
+    // 登出/换账号唯一出口：清 merchant_token 与快照后回登录页换账号（正常态登出行 / 403 引导态 / 错误态兜底行共用）
     switchAccount() {
       this.$store.commit('clearToken')
       uni.reLaunch({ url: '/pages/login/login' })
@@ -213,13 +261,17 @@ export default {
 
 /* ==================== 4. 商家卡 ==================== */
 .merchant-card { margin-top: 24rpx; }
-.merchant-head { display: flex; align-items: center; gap: 16rpx; }
-/* 主体名后端锁定平台维护，前端只读展示，超长省略不撑破卡片 */
+/* 名称与徽标/状态行纵向排布：长名两行截断后不再与徽标同行，天然不重叠 */
+.merchant-head { display: flex; flex-direction: column; align-items: flex-start; gap: 8rpx; }
+/* 主体名后端锁定平台维护，前端只读展示；name 为 VARCHAR(100)（m15-migration.sql:19），
+   单行截断会无处看全名，故改两行截断（-webkit-line-clamp 系，uniapp H5/小程序端均支持） */
 .merchant-name {
-  flex: 1; min-width: 0;
+  width: 100%;
   font-size: 34rpx; font-weight: 700; color: #333333; line-height: 1.4;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
 }
+.merchant-tags { display: flex; align-items: center; gap: 12rpx; }
 .audit-tag {
   flex-shrink: 0;
   font-size: 22rpx; font-weight: 600; line-height: 1.4;
@@ -233,6 +285,13 @@ export default {
 .merchant-rows { display: flex; flex-direction: column; gap: 8rpx; margin-top: 20rpx; }
 .merchant-row { font-size: 24rpx; color: #666666; line-height: 1.6; }
 .refresh-tip { display: block; margin-top: 20rpx; font-size: 20rpx; color: #CCCCCC; line-height: 1.4; }
+/* 非 active 生命周期的提示行：主红小字（色板内既有值），只读展示不拦截 */
+.status-tip { font-size: 22rpx; color: #E02020; opacity: .8; line-height: 1.5; }
+/* 有快照时 onShow 重拉失败的降级重试行：与刷新时间行同位呼应，可点 */
+.refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
+
+/* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中红色字） ==================== */
+.cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #E02020; }
 
 /* ==================== 5. 三入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
 .cell-card { margin-top: 24rpx; }
