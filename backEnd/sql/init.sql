@@ -2,8 +2,8 @@
 -- 生鲜配送小程序 - 数据库初始化脚本
 -- 执行方式：mysql -u root -p < init.sql
 -- ================================================
--- 结构同步声明（F-12/C15，已同步至 m14-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
--- 无需再跑 m3~m14 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
+-- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m16-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
+-- 无需再跑 m3~m16 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
 --   m3  dish.on_sale + orders.pickup_date + 六类补齐商品种子（category 注释/image 口径同 m3）
 --   m4  store + user_coupon 表 + orders 自提点快照三列 + dish 秒杀六列 + review.audit_status
 --   m5  user.password_hash
@@ -16,6 +16,8 @@
 --   m12 store.lng + store.lat（列注释在 m13 定稿口径基础上补充说明）
 --   m13 store 四家门店坐标真源值（本文件 UPDATE 直落 m13 定稿值）
 --   m14 user.avatar
+--   m15 merchant + merchant_profile + admin_audit_log + user.role + user.merchant_id + uk_user_merchant（含平台自营主体种子）
+--   m16 merchant_store + dish.merchant_id + order_item.merchant_id + store.owner_user_id + idx_merchant/idx_owner
 -- ================================================
 
 CREATE DATABASE IF NOT EXISTS fresh_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -25,6 +27,8 @@ USE fresh_db;
 -- 用户表（T-M2-01）：手机号登录账号，新手机号登录时静默注册
 -- password_hash（m5-migration.sql 同步）/ invite_code（m9-migration.sql 同步）/
 -- balance + cash_rewarded（m11-migration.sql 同步，F-04）：新库全量重建与存量增量两路结构一致
+-- role + merchant_id + uk_user_merchant（m15-migration.sql 同步，F-12/G-01 商家化地基）：
+--   存量行 ALTER 后由 DEFAULT 语义自动 role='user'，零 UPDATE 零回填；merchant_id NULL=非商家
 -- ----------------------------
 DROP TABLE IF EXISTS user;
 CREATE TABLE user (
@@ -36,9 +40,12 @@ CREATE TABLE user (
     balance       DECIMAL(10,2) NOT NULL DEFAULT 0           COMMENT '邀请现金余额（F-04）：注册只冻结不入账，新人首单支付后入账挂钩增加；独立钱包不与下单抵扣打通',
     cash_rewarded INT          NOT NULL DEFAULT 0            COMMENT '已发邀请现金人数计数（F-04，封顶原子闸门）：冻结发放时条件自增 WHERE cash_rewarded<10',
     avatar        TEXT         NULL                          COMMENT '头像（R8）：data:image/(jpeg|png|webp);base64, 前缀，≤60000 字符；NULL=未设置（前端兜默认 SVG 头像）',
+    role          VARCHAR(20)  NOT NULL DEFAULT 'user'       COMMENT '角色（F-12/m15）：user 普通用户 / merchant 商家（admin 预留不启用——平台 Admin 走 X-Admin-Key 独立线）',
+    merchant_id   BIGINT       NULL                          COMMENT '归属商家ID（F-12/m15，逻辑外键 merchant.id）；NULL=非商家；uk_user_merchant 一人一主体',
     PRIMARY KEY (id),
     UNIQUE INDEX uk_phone (phone),
-    UNIQUE INDEX uk_user_invite_code (invite_code)
+    UNIQUE INDEX uk_user_invite_code (invite_code),
+    UNIQUE KEY uk_user_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ----------------------------
@@ -47,6 +54,8 @@ CREATE TABLE user (
 -- ngram_token_size=2，按二元切分），对 name/description/tags 三列建全文索引，替代 name 单列 LIKE；
 -- 后端 DishMapper.java:55-57 的 MATCH ... AGAINST 直接依赖本索引，缺失则搜索链路报错（FULLTEXT
 -- 由 MySQL 随 DML 自动维护，管理改商品即时生效，无需刷索引）
+-- merchant_id（m16-migration.sql 同步，F-12/G-01 归属层）：NOT NULL DEFAULT 1，dish 种子 INSERT 不含该列时
+-- 由 DEFAULT 语义自动落 1（平台自营），与存量库 ALTER 后行为逐行一致；C 端读链路不带归属条件（F-13 R1'）
 -- ----------------------------
 DROP TABLE IF EXISTS dish;
 CREATE TABLE dish (
@@ -66,11 +75,13 @@ CREATE TABLE dish (
     tags        VARCHAR(255)    NULL                         COMMENT '卖点标签（T-M4-03）：JSON 数组串，按分类写死',
     good_rate   VARCHAR(10)     NULL                         COMMENT '好评率文案（T-M4-03）：如 94.4%',
     emoji       VARCHAR(50)     DEFAULT ''                   COMMENT 'Emoji占位符',
+    merchant_id BIGINT          NOT NULL    DEFAULT 1        COMMENT '归属商家（F-12/m16，逻辑外键 merchant.id）；1=平台自营；存量行由 DEFAULT 语义自动覆盖零 UPDATE',
     bg_color    VARCHAR(20)     DEFAULT ''                   COMMENT '背景颜色',
     create_time DATETIME        DEFAULT CURRENT_TIMESTAMP    COMMENT '创建时间',
     update_time DATETIME        DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
     INDEX idx_category (category),
+    INDEX idx_merchant (merchant_id),
     FULLTEXT INDEX ft_dish_search (name, description, tags) WITH PARSER ngram
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='菜品表';
 
@@ -104,6 +115,9 @@ CREATE TABLE orders (
 
 -- ----------------------------
 -- 订单明细表
+-- merchant_id（m16-migration.sql 同步，F-12/G-01 归属层）：下单时自 dish.merchant_id 落的供货商家快照
+-- （对齐 orders.store_name 下单快照惯例），防商家改归属/删品后历史履约与对账漂移；
+-- 可空而非 NOT NULL DEFAULT 1 是语义正确性优先——新库无历史明细，故本文件不做 m16 的 JOIN 回填
 -- ----------------------------
 DROP TABLE IF EXISTS order_item;
 CREATE TABLE order_item (
@@ -113,12 +127,15 @@ CREATE TABLE order_item (
     dish_name   VARCHAR(100)    NOT NULL                    COMMENT '菜品名称',
     price       DECIMAL(10,2)   NOT NULL                    COMMENT '单价',
     quantity    INT             NOT NULL                    COMMENT '数量',
+    merchant_id BIGINT          NULL                        COMMENT '供货商家快照（F-12/m16，下单时自 dish.merchant_id 落库；NULL=历史行回填兜底）',
     PRIMARY KEY (id),
-    INDEX idx_order_id (order_id)
+    INDEX idx_order_id (order_id),
+    INDEX idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单明细表';
 
 -- ----------------------------
 -- 自提点门店表（T-M4-01）：lng/lat 列（m12-migration.sql 同步），坐标值高德 GCJ-02 真源（m13-migration.sql 同步）
+-- owner_user_id（m16-migration.sql 同步，F-12/G-01 归属层）：主理人 user.id，NULL=平台直营；存量 4 店种子不含该列，零回填
 -- ----------------------------
 DROP TABLE IF EXISTS store;
 CREATE TABLE store (
@@ -129,8 +146,10 @@ CREATE TABLE store (
     status     VARCHAR(20)  NOT NULL DEFAULT 'open'  COMMENT '营业状态（T-M4-01）：open营业/closed停业',
     lng        DECIMAL(10,6) NULL                    COMMENT '经度（F-06 地图）：高德 GCJ-02 真源，与底图同源',
     lat        DECIMAL(10,6) NULL                    COMMENT '纬度（F-06 地图）：高德 GCJ-02 真源，与底图同源',
+    owner_user_id BIGINT     NULL                    COMMENT '主理人 user.id（F-12/m16，逻辑外键）；NULL=平台直营',
     created_at DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    INDEX idx_owner (owner_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自提点门店表';
 
 -- 种子 4 家：沿用前端现有自提点数据（3 家营业 + 1 家停业），显式 id 保证快照引用稳定
@@ -250,6 +269,75 @@ CREATE TABLE IF NOT EXISTS dish_alias (
     UNIQUE KEY uk_alias (alias),
     KEY idx_dish (dish_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='搜索别名（F-03）';
+
+-- ----------------------------
+-- 商家主体表（F-12/G-01，m15-migration.sql:17-29 同步）：商家化地基的归属锚点，零物理外键、
+-- 归属全靠逻辑外键（对齐全库惯例）；平台自营主体固定 id=1（dish/order_item 的归属列 DEFAULT 1 所指主体
+-- 必须先存在，种子见文件末尾）；status 生命周期出口执行清单归 G-06，一期仅口径声明
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS merchant (
+  id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '商家ID（平台自营固定 id=1）',
+  name          VARCHAR(100) NOT NULL                COMMENT '商家名称',
+  contact_phone VARCHAR(20)  NOT NULL                COMMENT '联系手机号（登录号快照；权威绑定在 user.merchant_id，此列仅展示/检索，不设 UNIQUE）',
+  contact_name  VARCHAR(50)  NULL                    COMMENT '联系人',
+  status        VARCHAR(20)  NOT NULL DEFAULT 'active' COMMENT 'active正常/suspended停业整顿/terminated清退（执行口径见 06 §4.2「商家生命周期出口执行清单」：on_sale 下架+seckill 清除等六步，非仅 on_sale 熔断）',
+  credit_status VARCHAR(20)  NULL                    COMMENT '信用分（三期预留，对齐 review.audit_status 三态范式 init.sql:161；一期 NULL）',
+  remark        VARCHAR(255) NULL                    COMMENT '备注',
+  created_at    DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家主体表（零物理外键，归属全靠逻辑外键——对齐全库惯例）';
+
+-- ----------------------------
+-- 商家资质/入驻信息表（F-12/G-01，m15-migration.sql:34-44 同步）：与 merchant 1:1（主键即关系，
+-- 便于二期多证照扩展）；audit_status 三态复用 review.audit_status 范式；一期平台代开通=直接 approved
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS merchant_profile (
+  merchant_id       BIGINT       NOT NULL COMMENT '商家ID（逻辑外键 merchant.id，1:1 主键即关系）',
+  business_license  VARCHAR(255) NULL     COMMENT '营业执照图 URL（依赖 POST /api/merchant/uploads；VARCHAR(255) 对齐 dish.image 惯例 init.sql:37）',
+  legal_person      VARCHAR(50)  NULL     COMMENT '法人姓名',
+  address           VARCHAR(255) NULL     COMMENT '经营地址',
+  settlement_account VARCHAR(64) NULL     COMMENT '结算账户（三期结算启用；列位预留代价为零）',
+  audit_status      VARCHAR(20)  NOT NULL DEFAULT 'pending' COMMENT 'pending/approved/rejected（复用评价审核三态范式；一期平台代开通=直接 approved）',
+  audit_remark      VARCHAR(255) NULL     COMMENT '驳回理由',
+  audited_at        DATETIME     NULL     COMMENT '审核时间',
+  PRIMARY KEY (merchant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家资质/入驻信息';
+
+-- ----------------------------
+-- 管理/商家操作审计表（F-12/G-01 M-04 补课，m15-migration.sql:89-101 同步）：现状日志不记操作者
+-- （AdminServiceImpl.java:93），本表 actor 前缀区分 admin:<key摘要> / merchant:<userId>；
+-- G-02 商家端写端点随建随写本表（F-13 R6'）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  actor       VARCHAR(64)  NOT NULL COMMENT '操作主体：admin:<key摘要> / merchant:<userId>（现状日志不记操作者，AdminServiceImpl.java:93）',
+  action      VARCHAR(50)  NOT NULL COMMENT 'dish.update/order.status/review.audit/merchant.create/deposit.deduct…',
+  target_type VARCHAR(30)  NOT NULL COMMENT 'dish/order/review/merchant/deposit',
+  target_id   VARCHAR(64)  NOT NULL COMMENT '目标ID（订单号 VARCHAR(50) 口径对齐 init.sql:62）',
+  detail      VARCHAR(500) NULL     COMMENT '旧值→新值 JSON',
+  ip          VARCHAR(45)  NULL     COMMENT '操作来源 IP（IPv6 容量）',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+  PRIMARY KEY (id),
+  KEY idx_target (target_type, target_id),
+  KEY idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理/商家操作审计';
+
+-- ----------------------------
+-- 商家-自提点供货关系表（F-12/G-01，m16-migration.sql:74-83 同步）：uk_merchant_store 数据库级去重
+-- （对齐 free_goods_pool uk_activity_dish 惯例）；status 软停供保历史轨迹；一期数据维护=平台，商家端只读
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS merchant_store (
+  id          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  merchant_id BIGINT      NOT NULL COMMENT '商家ID（逻辑外键 merchant.id）',
+  store_id    BIGINT      NOT NULL COMMENT '自提点ID（逻辑外键 store.id）',
+  status      VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'active供货中/offline已停供（软停供保历史轨迹）',
+  created_at  DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '建立时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_merchant_store (merchant_id, store_id),
+  KEY idx_store (store_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家-自提点供货关系（一期数据维护=平台，商家端只读）';
 
 -- ----------------------------
 -- 邀请新人关系表（F-01，m9-migration.sql 同步）：uk_invitee 是"一人仅可被邀请一次"的权威约束
@@ -433,3 +521,13 @@ INSERT IGNORE INTO dish_alias (alias, dish_id) VALUES
 ('泡面',   23),  -- → 老坛酸菜牛肉面五连包：泡面俗称（description 仅有「方便面」），库内三列均无「泡面」
 ('毛蟹',   6),   -- → 鲜活大闸蟹：中华绒螯蟹俗称，库内三列均无此词
 ('河蟹',   6);   -- → 鲜活大闸蟹：中华绒螯蟹俗称，库内三列均无此词
+
+-- ================================================
+-- M15 商家主体种子（与 sql/m15-migration.sql:106-107 同一套，INSERT IGNORE 可重跑）：
+-- 平台自营主体 id=1 + 资质行 audit_status='approved'（一期平台代开通口径）；
+-- dish.merchant_id / order_item 归属的 DEFAULT 1 与 NULL 兜底 1 均指向本行，故须在四张商家表建好后执行
+-- 注：m16 的两条 `UPDATE order_item … 回填`（JOIN dish 落快照 + 孤儿置 1）仅存量库需要——新库无历史明细，
+-- 回填是空操作，故本文件不并入；存量库增量仍走 sql/m16-migration.sql（R8' 并库不删迁移）
+-- ================================================
+INSERT IGNORE INTO merchant (id, name, contact_phone, status) VALUES (1, '平台自营', '00000000000', 'active');
+INSERT IGNORE INTO merchant_profile (merchant_id, audit_status, audited_at) VALUES (1, 'approved', NOW());
