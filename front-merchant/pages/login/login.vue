@@ -325,7 +325,6 @@ export default {
       // 发码倒计时按手机号维度计时（AuthServiceImpl.java:76-86），换号本可立即发码，不能拿上一个号码的计时拦新号；
       // loginLock 是 IP 维度限流、与账号无关，故保留不清（清了也只是让用户再撞一次 429）
       this.stopSmsCountdown()
-      this.smsCooldownPhone = ''
       this.forbidden = false
       this.forbiddenPhone = ''
       this.forbiddenMessage = ''
