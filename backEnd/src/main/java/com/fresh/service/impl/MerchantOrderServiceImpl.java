@@ -23,7 +23,8 @@ import java.util.regex.Pattern;
  * 「四个写才审计」口径一致），也**不经过**商家侧的写闸门判定——读放行是 G-02 已定口径，
  * 停业商家仍需看自己的历史备货单去收尾备货（契约 F-17.2 #8）。
  *
- * <p>归属（R3 同型，本期为读）：取数只经 OrderItemMapper 那 7 条 @Select，每一条都恒带
+ * <p>归属（R3 同型，本期为读）：取数只经 OrderItemMapper 那 8 条 @Select（F-17 找茬轮 G-1 加了
+ * 带 storeId 的计数孪生条），每一条都恒带
  * {@code oi.merchant_id = #{merchantId}}；本类不存在任何绕过这些方法的读路径，
  * 也没有「merchantId 为空就不加条件」的分支——首行判空直接 403（同 MerchantDishServiceImpl:107-109）。
  * storeId 只作过滤、不作归属。
@@ -81,16 +82,34 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
                 ? orderItemMapper.selectPickupPlan(merchantId, effectiveDate)
                 : orderItemMapper.selectPickupPlanByStore(merchantId, effectiveDate, storeId);
 
+        // 空结果短路（G-1/M2）：该日无货是稳态最常见形态，rows 为空时店级计数必然也用不上，
+        // 直接返回空组、跳过第二条聚合 SQL——写法对齐端点② total==0 短路那条查询的同型口径。
+        if (rows.isEmpty()) {
+            Map<String, Object> emptyData = new LinkedHashMap<>();
+            emptyData.put("date", effectiveDate.toString());
+            emptyData.put("groups", List.of());
+            return emptyData;
+        }
+
         // 组头「N 单」= 店级去重单数。聚合行的 orderCount 是 dish 级（一笔含多菜的订单会在多个 dish 行里
-        // 各计一次），当组头数会重复计数，故单独按店取；每店一行、店间互不影响，
-        // storeId 非空时按 key 取那一行与「SQL 里加 store_id 等值」逐字等价。
+        // 各计一次），当组头数会重复计数，故单独按店取。
+        // storeId 非空时谓词下推：走带 store_id 等值的孪生条（同「storeId 二选一」既有模式，不绑 null），
+        // 与「全店版按 key 取那一行」逐字相等（G-1/M2）。
+        List<Map<String, Object>> storeCounts = storeId == null
+                ? orderItemMapper.countPickupOrdersPerStore(merchantId, effectiveDate)
+                : orderItemMapper.countPickupOrdersForStore(merchantId, effectiveDate, storeId);
         Map<Object, Integer> orderCountByStore = new LinkedHashMap<>();
-        for (Map<String, Object> row : orderItemMapper.countPickupOrdersPerStore(merchantId, effectiveDate)) {
+        for (Map<String, Object> row : storeCounts) {
             Integer count = toInteger(row.get("orderCount"));
             orderCountByStore.put(row.get("storeId"), count == null ? 0 : count);
         }
 
-        // key = store_id（**可能是 null**）→ 用允许 null key 的 LinkedHashMap，既 NPE 不了也丢不了行
+        // key = store_id（**可能是 null**）→ 用允许 null key 的 LinkedHashMap，既 NPE 不了也丢不了行。
+        // 组键恒为 store_id 单列（G-2/M3）：SQL 的 GROUP BY 还带 store_name（admin 改店名后同一店
+        // 新旧快照会裂成多条聚合行），若展示层按 (store_id, store_name) 建组，同店会出双组头、
+        // 且各自取同一个**店级** orderCount → 组头之和 > 真实单数；mandated 聚合口径不能动，
+        // 故在这里按 store_id 合键——同店多快照的 items 并进同一组，组名取该 store_id 的第一条
+        // 非 null 店名快照，store_id 为 NULL 才落「未指定自提点」（storeName()）。
         Map<Object, Map<String, Object>> groups = new LinkedHashMap<>();
         Map<Object, List<Map<String, Object>>> itemsByStore = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
@@ -99,10 +118,13 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             if (group == null) {
                 group = new LinkedHashMap<>();
                 group.put("storeId", storeKey);
-                group.put("storeName", storeName(row.get("storeName")));
+                group.put("storeName", row.get("storeName"));
                 group.put("orderCount", orderCountByStore.getOrDefault(storeKey, 0));
                 groups.put(storeKey, group);
                 itemsByStore.put(storeKey, new ArrayList<>());
+            } else if (group.get("storeName") == null && row.get("storeName") != null) {
+                // 首行店名为 null（同 store_id 下裂出的另一快照行）→ 用第一条非 null 快照补位
+                group.put("storeName", row.get("storeName"));
             }
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("dishId", row.get("dishId"));
@@ -114,6 +136,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
         List<Map<String, Object>> groupList = new ArrayList<>(groups.size());
         for (Map.Entry<Object, Map<String, Object>> entry : groups.entrySet()) {
             Map<String, Object> group = entry.getValue();
+            group.put("storeName", storeName(group.get("storeName")));
             group.put("items", itemsByStore.get(entry.getKey()));
             groupList.add(group);
         }
@@ -146,7 +169,11 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
         long total = dateAbsent
                 ? orderItemMapper.countOrderItemsAllDates(merchantId, tab)
                 : orderItemMapper.countOrderItemsByDate(merchantId, pickupDate, tab);
-        List<Map<String, Object>> rows = total == 0
+        // 短路条件从 total==0 扩为 offset >= total（G-3/L4）：page 无上界，page=999999999 会算出
+        // 巨大 offset 仍进 JOIN 白跑一条 LIMIT 查询。offset >= total 时本页必然空
+        // （total==0 恒满足，天然覆盖原短路）；page 回显仍按「夹而不拒」语义不动，
+        // hasMore 因 rows 为空自然为 false，total 保持真值。
+        List<Map<String, Object>> rows = offset >= total
                 ? List.of()
                 : dateAbsent
                 ? orderItemMapper.selectOrderItemsAllDates(merchantId, tab, offset, pageSize)

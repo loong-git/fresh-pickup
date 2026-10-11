@@ -10,12 +10,12 @@ package com.fresh.common;
  * 故 {@code MerchantServiceImpl} 改调本方法不构成行为变更（现库 19 笔 orders.phone 与 5 笔
  * merchant.contact_phone 实测 CHAR_LENGTH 恒为 11）。
  *
- * <p>唯一差异在母版**抛异常**的那段定义域（null 或长度 &lt; 7）：母版是裸 substring，脏值会抛
- * StringIndexOutOfBoundsException 并被 GlobalExceptionHandler 兜底成 500。本方法在该区间不抛、
- * 也绝不回明文——长度不足一律回 {@code "****"}，null 原样回 null。理由：orders.phone 是
- * VARCHAR(20) 而非 CHAR(11)，读端点把脏数据变成 500 既不可用也无处排查；而「非 11 位原样返回」
- * （UserController:126 的口径）会把短号明文发到商家侧，正面违反 RD。两个失败模式都排除后只剩
- * 「全掩码」这一种取值。合法值路径未受影响。
+ * <p>唯一差异在母版**抛异常**的那段定义域：长度不是 11 的值（null 除外，原样回 null；过短、过长、
+ * 含分隔符的历史/迁移脏值）统一回 {@code "****"}。理由：orders.phone 是 VARCHAR(20) 而非 CHAR(11)，
+ * 母版口径 {@code substring(0,3)+"****"+substring(7)} 对长度 20 的值只遮 4 位、会把尾部 9 位明文
+ * 送进商家侧出参（G-4/L5，找茬轮判定：现网/API 造不出该值，历史与迁移数据能）；而「非 11 位原样
+ * 返回」（UserController:126 的口径）会把短号明文发到商家侧，正面违反 RD。两个失败模式都排除后
+ * 只剩「全掩码」这一种取值。<b>合法 11 位号码的输出与母版逐字不变</b>（前 3 + 4 星 + 后 4）。
  *
  * <p>本类只新增工具，不回收 OrderServiceImpl / UserController / AdminServiceImpl 三份私有实现
  * （RE 红线：C 端交易链路与 Admin 侧一字不动；登记为 F-17.7 #7 的既有债务）。
@@ -25,22 +25,23 @@ public final class PhoneMask {
     /** 掩码串：4 个星号，与四份母版逐字一致 */
     private static final String MASK = "****";
 
-    /** 母版 substring(0, 3) + substring(7) 能成功的最小长度（长度 7 时尾段为空串） */
-    private static final int MIN_MASKABLE_LENGTH = 7;
+    /** 合法手机号长度：仅 11 位走母版掩码口径，其余长度一律全掩码（G-4/L5） */
+    private static final int VALID_PHONE_LENGTH = 11;
 
     private PhoneMask() {
     }
 
     /**
      * @param phone 明文手机号（可为 null）
-     * @return 脱敏值：长度 {@value #MIN_MASKABLE_LENGTH} 及以上按母版口径掩码；更短回 {@value #MASK}；
-     *         null 回 null。返回值**永不**是入参原文（除非入参本身已含星号且长度不足，取值仍为 {@value #MASK}）。
+     * @return 脱敏值：长度恰为 {@value #VALID_PHONE_LENGTH} 位按母版口径掩码（前 3 + {@value #MASK} + 后 4，
+     *         与四份既有实现逐字相等）；其余长度（过短/过长/历史迁移脏值）一律回 {@value #MASK}，
+     *         null 回 null。返回值**永不**是入参原文（除非入参本身已含星号，取值仍为 {@value #MASK}）。
      */
     public static String mask(String phone) {
         if (phone == null) {
             return null;
         }
-        if (phone.length() < MIN_MASKABLE_LENGTH) {
+        if (phone.length() != VALID_PHONE_LENGTH) {
             return MASK;
         }
         return phone.substring(0, 3) + MASK + phone.substring(7);
