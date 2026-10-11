@@ -16,7 +16,7 @@
           <text>{{ t.label }}</text>
         </view>
       </view>
-      <!-- 日期只选不算：date 不传时后端按默认日期兜底，页内不 new Date() 猜一个（深链/刷新进来同理保持缺省） -->
+      <!-- 日期只选不算：本端点 date 为空 = 不限自提日期（后端无默认值），页内不 new Date() 猜一个（深链/刷新进来同理保持缺省） -->
       <picker class="date-picker" mode="date" :value="date" @change="onDateChange">
         <view class="picker-row">
           <text class="picker-label">自提日期</text>
@@ -24,7 +24,8 @@
           <text class="picker-arrow">›</text>
         </view>
       </picker>
-      <text v-if="date" class="date-clear" @click="clearDate">清除日期</text>
+      <!-- 清除日期是可逆操作入口，同样收成胶囊 + 按下态（与备货单页的日期条按钮同一档） -->
+      <view v-if="date" class="date-clear" hover-class="pill-hover" @click="clearDate">清除日期</view>
     </view>
 
     <!-- ==================== 2. 加载中（首屏与筛选切换后的重拉都走这一态，避免旧条件的行被读成新条件的） ==================== -->
@@ -37,7 +38,8 @@
       <view class="error-row">
         <text class="error-lead">{{ errorLeadText }}</text>
         <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
-        <text v-if="errorRetryable" class="error-retry" @click="fetchList(true)">点击重试</text>
+        <text v-if="errorRetryable && !retryLock" class="error-retry" @click="fetchList(true)">点击重试</text>
+        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
       </view>
     </view>
@@ -54,19 +56,33 @@
     <template v-else>
       <view class="card list-card">
         <view class="order-item" v-for="(it, i) in list" :key="rowKey(it, i)">
+          <!-- 每枚圆点与它后面那段文本绑成同一个不换行单元（.item-unit）：
+               圆点当独立 flex 项时会随换行被甩到下一行行首，看着像排版坏了 -->
           <view class="item-line">
             <text class="item-day">{{ dayText(it.pickupDate) }}</text>
-            <text class="item-dot">·</text>
-            <text class="item-store">{{ storeNameOf(it) }}</text>
-            <text class="item-dot">·</text>
-            <text class="item-dish">{{ dishNameOf(it) }}</text>
+            <view class="item-unit">
+              <text class="item-dot">·</text>
+              <text class="item-store">{{ storeNameOf(it) }}</text>
+            </view>
+            <view class="item-unit">
+              <text class="item-dot">·</text>
+              <text class="item-dish">{{ dishNameOf(it) }}</text>
+            </view>
             <text class="item-qty">× {{ countOf(it.quantity) }}</text>
-            <text class="item-price">¥{{ fmtPrice(it.price) }}</text>
+            <!-- 这一行显示行小计（单价 × 数量）并明写「小计」：后端的 price 列语义是单价，
+                 而 ×2 与金额并排天然被读成小计，备货/对账要的正是「这一行值多少钱」；
+                 单价与小计两处同显只会让商家再猜一次哪个才是钱 -->
+            <view class="item-unit">
+              <text class="item-price">¥{{ fmtPrice(lineMoney(it)) }}</text>
+              <text class="item-money-tag">小计</text>
+            </view>
           </view>
           <view class="item-line item-sub-line">
             <text class="item-sub">单号 {{ tailOf(it.orderId) }}</text>
-            <text class="item-dot">·</text>
-            <text class="item-sub">{{ timeText(it.createTime) }}</text>
+            <view class="item-unit">
+              <text class="item-dot">·</text>
+              <text class="item-sub">{{ timeText(it.createTime) }}</text>
+            </view>
             <text class="item-tag item-tag-status">{{ statusText(it.status) }}</text>
             <!-- 未支付角标条件留全（payStatus===0 且非 cancelled）：后端已排除 cancelled，
                  但这里不依赖对方行为——少写半个条件就是一处「上游改了才会出错」的隐性耦合 -->
@@ -76,12 +92,12 @@
       </view>
 
       <!-- 加载更多：触底自动 + 按钮兜底（范式照 front/pages/order/order.vue:90-96）；
-           hasMore 用后端回显值，为 false 时整块换成「共 N 条」 -->
+           hasMore 用后端回显值，为 false 时整块换成「共 N 条」（N 取 shownTotal，见 computed 注释） -->
       <view class="load-more">
         <button v-if="hasMore" class="btn-more" :disabled="loadingMore" @click="loadMore">
           <text>{{ loadingMore ? '加载中…' : '加载更多' }}</text>
         </button>
-        <text v-else class="no-more">共 {{ total }} 条</text>
+        <text v-else class="no-more">共 {{ shownTotal }} 条</text>
       </view>
     </template>
 
@@ -113,7 +129,7 @@ export default {
         { key: 'completed', label: '已完成' }
       ],
       status: 'all',
-      // '' = 不带 date（后端默认），页内不自行推算日期
+      // '' = 不带 date = 不限自提日期（本端点无默认值），页内不自行推算日期
       date: '',
       list: [],
       // 生效分页值（一律取后端回显，回显缺失才退回本次请求值）
@@ -126,15 +142,28 @@ export default {
       errorText: '',
       errorCode: 0,
       // 仅驱动「加载更多」按钮的加载中文案：整页四态不受它影响（翻页失败不该把已加载的列表换成错误卡）
-      loadingMore: false
+      loadingMore: false,
+      // 429 冷却剩余秒数（>0 时重试按钮与触底自动加载同时熄 fire）与驱动它的定时器：
+      // 与 dishes.vue 同口径，否则每次点/每滚一次都在给这个限流桶续命
+      retryLock: 0,
+      retryLockTimer: null
     }
   },
   computed: {
     dateLabel() {
-      return this.date || '未指定（默认）'
+      // 后端 MerchantOrderController:58 明写本端点「date 为空 = 不限自提日期（无默认值）」：
+      // 这里写成「默认」会让商家把翻出来的历史单当成今天要备的货
+      return this.date || '不限日期'
     },
     hasFilter() {
       return !!(this.date || this.status !== 'all')
+    },
+    // 「共 N 条」给 max(后端 total, 已加载行数)：翻页期间有单被取消会让后端 total 收缩，
+    // 屏上已经渲染的行又不会凭空消失，两者不能互相打脸（计数比可见行数小 = 数据被吞的错觉）
+    shownTotal() {
+      const n = Number(this.total)
+      const loaded = Array.isArray(this.list) ? this.list.length : 0
+      return Math.max(Number.isFinite(n) && n >= 0 ? n : 0, loaded)
     },
     errorLeadText() {
       if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
@@ -151,13 +180,17 @@ export default {
     }
   },
   onLoad(query) {
-    // 深链带 date 时只认 YYYY-MM-DD 这一种形状：脏值直接当「未指定」丢掉，
-    // 否则后端按空条件筛出一片空列表，页面上却还显示着那串脏日期，看着像「搜索坏了」
+    // 深链带 date 时不只验形状，还验它确有其日（'2026-02-30' 过得了 ^\d{4}-\d{2}-\d{2}$ 却不是日子）：
+    // 脏值一律按「未指定」丢掉、绝不带进请求，否则后端 400 落在错误卡上会被「请检查网络」指错方向，
+    // 而按空条件筛出一片空列表、页面上却还显示着那串脏日期，看着像「搜索坏了」
     const raw = String((query && query.date) || '')
-    this.date = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : ''
+    this.date = this.isValidDateStr(raw) ? raw : ''
   },
   onShow() {
     // 每次进入回到第一页重拉（备货量与状态在别的页可能已变），带 in-flight 守卫防连点
+    // 重第一页成功后必须一并回顶（标记由 fetchList 消费）：翻到第 3 页再切标签页回来只剩 20 行，
+    // 滚动条悬在空处就像数据被吞了（同 dishes.vue:246-250 的回顶纪律）
+    this._resetScrollTop = true
     this.fetchList(true)
   },
   // 触底自动加载下一页（与「加载更多」按钮同一入口）
@@ -178,6 +211,9 @@ export default {
       this._pageWheelHandler = null
     }
     // #endif
+    // 冷却计时器随页销毁一起清：setInterval 挂在 window 上，不摘就会在页面卸载后
+    // 继续每秒写一次已死组件的状态（照 dishes.vue:275-278）
+    this.stopRetryLock()
   },
   methods: {
     // ==================== 数据加载 ====================
@@ -232,6 +268,14 @@ export default {
         this.errorText = ''
         this.errorCode = 0
         this.viewState = this.list.length ? 'ready' : 'empty'
+        // 重拉第一页成功后回顶（只在 onShow 置的标记下执行一次）：屏上行数从几百行缩到一页，
+        // 不回顶就会停在一片空白上，被读成「数据没了」
+        if (reset && this._resetScrollTop) {
+          this._resetScrollTop = false
+          // #ifdef H5
+          document.body.scrollTop = 0
+          // #endif
+        }
       } catch (e) {
         if (e && e.code === 401) {
           // 跳转与清态都由请求层做完（含「请先登录」toast），这里只停在加载态，不闪现错误卡
@@ -247,6 +291,10 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = Number((e && e.code) || 0)
+        // 429：给秒级冷却闸门（错误卡的重试按钮与触底自动加载都归它管），冷却期内点不动 ——
+        // 否则用户每点一次、商家每滚一次都在续这个限流桶，会把该商家后面 1 分钟的全部分额度花光
+        if (Number(e && e.code) === 429) this.startRetryLock()
+        else this.stopRetryLock()
         // 翻页失败（已有列表在手）不动整页态：保留现场只 toast，商家可再点一次「加载更多」；
         // 首屏/重拉失败才整页换错误卡（照 front/pages/order/order.vue:215-223 的分流）
         if (reset || !this.list.length) {
@@ -273,6 +321,20 @@ export default {
     condKey() {
       return this.date + '|' + this.status
     },
+    // 日期串是否为「确有其日」：先验 ^\d{4}-\d{2}-\d{2}$ 形状，再按本地分量构造后回读年月日比对
+    // （2026-02-30 会被 Date 顺延成 2026-03-02，回读不等即判脏）。
+    // 刻意不走 new Date('YYYY-MM-DD')：那串按 UTC 解析，本地回读会少一天，与本页 timeText
+    // 「不让时区平移一次」的纪律同源
+    isValidDateStr(s) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''))
+      if (!m) return false
+      const y = Number(m[1])
+      const mo = Number(m[2])
+      const d = Number(m[3])
+      if (mo < 1 || mo > 12 || d < 1 || d > 31) return false
+      const dt = new Date(y, mo - 1, d)
+      return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d
+    },
     // 追加成新数组而不是 push：跨页边界时后端可能把同一条 orderItemId 在相邻两页各给一次（新单挤进上一页边界），
     // 去重后 concat 出一个新引用，Vue 侧一次替换，既不会重复渲染也不依赖就地变更的侦测时机
     appendRows(rows) {
@@ -289,6 +351,9 @@ export default {
     },
     // ==================== 筛选交互 ====================
     loadMore() {
+      // 429 冷却闸门同样要拦住自动触底：只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
+      // 把该商家其它读接口（备货单、商品列表）一起打死
+      if (this.retryLock > 0) return
       if (this._loadingList || !this.hasMore) return
       this.fetchList(false)
     },
@@ -299,7 +364,8 @@ export default {
     },
     onDateChange(e) {
       const v = String((e && e.detail && e.detail.value) || '')
-      this.date = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''
+      // 与 onLoad 的深链校验同一把尺子（形状 + 确有其日），免得两处各验一半、口径漂移
+      this.date = this.isValidDateStr(v) ? v : ''
       this.fetchList(true, true)
     },
     clearDate() {
@@ -363,6 +429,28 @@ export default {
       const n = Number(v)
       return Number.isFinite(n) ? n.toFixed(2) : '0.00'
     },
+    // 行小计 = 单价 × 数量：先按「分」取整再还原，避免 0.1×3 这类浮点毛刺显示成 0.30000000000000004
+    // （任一侧不是有限数就当 0，与 countOf/fmtPrice 的兜底口径一致）
+    lineMoney(it) {
+      const price = Number(it && it.price)
+      const qty = Number(it && it.quantity)
+      const p = Number.isFinite(price) ? price : 0
+      const q = Number.isFinite(qty) ? qty : 0
+      return Math.round(p * q * 100) / 100
+    },
+    // ==================== 429 冷却（照 dishes.vue:425-436，同 login.vue 的 loginLock 秒级禁用范式） ====================
+    startRetryLock() {
+      this.stopRetryLock()
+      this.retryLock = 60
+      this.retryLockTimer = setInterval(() => {
+        this.retryLock--
+        if (this.retryLock <= 0) this.stopRetryLock()
+      }, 1000)
+    },
+    stopRetryLock() {
+      if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      this.retryLock = 0
+    },
     // ==================== 跳转 ====================
     goWorkspace() {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
@@ -373,7 +461,8 @@ export default {
     // ① 栈顶守卫：监听挂在 document 上，navigateTo/reLaunch 都不保证触发本页 onUnload，
     //    栈里多挂一份 handler 就会一次滚两倍。
     // ② 弹层放行：日期 picker（.uni-picker-container）与 modal/toast 打开时滚轮归弹层，
-    //    这里不能 preventDefault 去滚背景，否则「弹层里滚不动、页面却在滚」。
+    //    这里不能 preventDefault 去滚背景，否则「弹层里滚不动、页面却在滚」；
+    //    textarea/input 同列表内——表单控件上的滚轮归控件，被页面抢走就会连带影响长按选字/选中。
     onPageWheel(e) {
       // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
       let pages = []
@@ -386,7 +475,7 @@ export default {
       const t = e.target
       const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
       if (el && typeof el.closest === 'function'
-        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container')) {
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input')) {
         return
       }
       e.preventDefault()
@@ -425,7 +514,15 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .picker-arrow { flex-shrink: 0; font-size: 34rpx; color: #CCCCCC; }
-.date-clear { display: block; margin-top: 12rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
+/* 「清除日期」收成胶囊 + 按下态：与备货单页日期条的按钮同一档，内边距不小于 12rpx 24rpx */
+.date-clear {
+  display: inline-block; margin-top: 12rpx; text-align: center;
+  font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  padding: 12rpx 24rpx;
+}
+/* 按下反馈（hover-class 目标）：移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
+.pill-hover { color: #B01818; background-color: #FFF7F0; border-color: #B01818; }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
@@ -434,6 +531,8 @@ export default {
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
 .guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+/* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
+.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 
 /* ==================== 4. 空态 ==================== */
 .empty-card { display: flex; flex-direction: column; align-items: center; }
@@ -451,8 +550,11 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 .item-dot { flex-shrink: 0; font-size: 24rpx; color: #DDDDDD; line-height: 1.5; }
+/* 圆点 + 其后那段文本 = 一个不换行单元：整组一起折行，绝不会出现行首孤立圆点；
+   min-width:0 让单元内的 ellipsis（店名/商品名）仍然生效 */
+.item-unit { display: flex; align-items: center; min-width: 0; gap: 8rpx; }
 .item-store {
-  flex: 0 1 auto; min-width: 0; max-width: 320rpx;
+  flex: 0 1 auto; min-width: 0; max-width: 240rpx;
   font-size: 26rpx; color: #666666; line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -470,6 +572,8 @@ export default {
   font-size: 28rpx; font-weight: 700; color: #E02020; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
+/* 「小计」两字的小标签：金额语义的唯一说明，缺了它 ×2 与 ¥6.60 并排就会被读成两种数 */
+.item-money-tag { flex-shrink: 0; font-size: 20rpx; color: #999999; line-height: 1.4; }
 .item-sub {
   flex: 0 1 auto; min-width: 0;
   font-size: 22rpx; color: #999999; line-height: 1.5;
