@@ -4,14 +4,21 @@
              显示值只取后端回显的 effectiveDate：date 不传时后端按「明天」兜底并回显生效日期，
              页面若自己 new Date() 算一个来显示，就等于把同一条口径在两端各存一份，迟早漂移（静默改口径） -->
     <view class="card date-card">
+      <!-- 字段名标签：只有一个裸日期摆在这里会被读成「今天 11 号的单不见了」，
+           措辞与 plan-orders 的 .picker-label 逐字一致（同一枚日期在两端不能两种叫法） -->
+      <view class="date-field-row">
+        <text class="date-field-label">自提日期</text>
+      </view>
       <view class="date-row">
-        <text class="date-step" @click="stepDay(-1)">前一天</text>
+        <view class="date-step" hover-class="pill-hover" @click="stepDay(-1)">前一天</view>
         <text class="date-current">{{ effectiveDate || '--' }}</text>
-        <text class="date-step" @click="stepDay(1)">后一天</text>
+        <view class="date-step" hover-class="pill-hover" @click="stepDay(1)">后一天</view>
       </view>
       <view class="date-sub-row">
-        <text class="date-quick" @click="goToday">今天</text>
-        <text class="plan-entry" @click="goOrders">看明细 ›</text>
+        <!-- 「看明细」是两页唯一贯通入口：裸 text 的命中区只有字形那一小块（约 60×25px）且无按下态，
+             点在字外就没反应，相邻的「前一天/后一天」反倒更像按钮；这里统一收成胶囊 + hover-class -->
+        <view class="date-quick" hover-class="pill-hover" @click="goToday">今天</view>
+        <view class="plan-entry" hover-class="pill-hover" @click="goOrders">看明细 ›</view>
       </view>
     </view>
 
@@ -26,7 +33,8 @@
       <view class="error-row">
         <text class="error-lead">{{ errorLeadText }}</text>
         <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
-        <text v-if="errorRetryable" class="error-retry" @click="loadPlan(true)">点击重试</text>
+        <text v-if="errorRetryable && !retryLock" class="error-retry" @click="loadPlan(true)">点击重试</text>
+        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
       </view>
     </view>
@@ -36,7 +44,10 @@
       <view class="empty-row">
         <text class="empty-text">该日无待备货</text>
       </view>
+      <!-- 两个方向的出口都给：只留「看后一天」等于假定商家想往后翻，
+           而周末/节假日前一天恰恰要往前找备货量 -->
       <view class="empty-actions">
+        <text class="guide-link" @click="stepDay(-1)">看前一天</text>
         <text class="guide-link" @click="stepDay(1)">看后一天</text>
       </view>
     </view>
@@ -69,7 +80,7 @@
         <view class="export-toggle" @click="toggleExportText">
           <text class="export-toggle-text">{{ showExportText ? '收起文本' : '展开文本' }}</text>
         </view>
-        <text v-if="copyHint" class="copy-hint">{{ copyHint }}</text>
+        <text v-if="copyHint" class="copy-hint" :class="{ 'copy-hint-ok': copyOk }">{{ copyHint }}</text>
         <textarea
           v-if="showExportText"
           class="export-textarea"
@@ -108,8 +119,14 @@ export default {
       errorCode: 0,
       // 只读文本视图是否展开（折叠是默认，复制失败时代码自动展开）
       showExportText: false,
-      // 复制失败的常驻提示（toast 一闪而过，长按手抄这句得留在屏上）
-      copyHint: ''
+      // 复制结果的常驻提示（成功/失败都落这一行：toast 一闪而过，长按手抄这句得留在屏上）
+      copyHint: '',
+      // copyHint 是当前这条复制「成功」时写的（仅驱动颜色：成功不该穿失败那身红）
+      copyOk: false,
+      // 429 冷却剩余秒数（>0 时重试按钮不可点）与驱动它的定时器：与 dishes.vue 同口径，
+      // 限流态下的「重试」必须有秒级闸门，否则每次点都在给这个桶续命
+      retryLock: 0,
+      retryLockTimer: null
     }
   },
   computed: {
@@ -156,6 +173,9 @@ export default {
       this._pageWheelHandler = null
     }
     // #endif
+    // 冷却计时器随页销毁一起清：setInterval 挂在 window 上，不摘就会在页面卸载后
+    // 继续每秒写一次已死组件的状态
+    this.stopRetryLock()
   },
   methods: {
     // ==================== 数据加载 ====================
@@ -187,6 +207,7 @@ export default {
         this.errorText = ''
         this.errorCode = 0
         this.copyHint = ''
+        this.copyOk = false
         // 空态判定：一条组都没有（有组但组内空条目仍算 ready，卡片自会显示「暂无条目」）
         this.viewState = groups.length ? 'ready' : 'empty'
       } catch (e) {
@@ -201,6 +222,10 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = Number((e && e.code) || 0)
+        // 429：给秒级冷却闸门，冷却期内按钮点不动 —— 否则用户每点一次都在续这个限流桶，
+        // 来回几次就把后面 1 分钟的全部分额度花光（照 dishes.vue:376-379）
+        if (Number(e && e.code) === 429) this.startRetryLock()
+        else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
         this._loadingPlan = false
@@ -211,10 +236,13 @@ export default {
       }
     },
     // ==================== 日期步进 ====================
-    // 步进基准优先取后端回显值（回显与请求同源时才成立），没有回显才取上一次请求值；
-    // 两者都没有（首屏就失败）才退到本地今天——这个值只进请求，屏幕上的日期仍然只认回显
+    // 步进基准优先取本次请求带出去的 queryDate（它是「页面上那枚日期想要的值」，改一步即生效），
+    // 回显值 effectiveDate 只在成功时更新：慢网下连点时它还是上一轮的日期，
+    // 以它为基准会把第 2、3 次点击算成同一天的 +1，三次点击只前进一格（点被吞掉）；
+    // 两者都没有（首屏就失败、queryDate 仍为空）才退到本地今天——这个值只进请求，
+    // 屏幕上的日期仍然只认回显
     stepDay(delta) {
-      const base = this.effectiveDate || this.queryDate || this.todayStr()
+      const base = this.queryDate || this.effectiveDate || this.todayStr()
       const d = this.parseDate(base) || this.newToday()
       d.setDate(d.getDate() + delta)
       this.queryDate = this.fmtDate(d)
@@ -254,18 +282,25 @@ export default {
       }
       try {
         await uni.setClipboardData({ data: text, showToast: false })
-        this.copyHint = ''
+        // 成功也要落到常驻行位（不只 toast）：非可信上下文下 setClipboardData 可能既不 reject
+        // 又没真写进去，只剩一次性 toast 就是「静默假成功」，商家得能在屏上回头核对这句
+        this.copyHint = '已复制到剪贴板，可粘贴核对'
+        this.copyOk = true
         uni.showToast({ title: '已复制', icon: 'none' })
       } catch (e) {
         // 失败就说失败并把只读文本展开（非 secure context 下剪贴板会走到这一路）
         this.copyHint = '复制失败，请长按文本框手动复制'
+        this.copyOk = false
         this.showExportText = true
         uni.showToast({ title: this.copyHint, icon: 'none', duration: 2000 })
       }
     },
     toggleExportText() {
       this.showExportText = !this.showExportText
-      if (this.showExportText) this.copyHint = ''
+      if (this.showExportText) {
+        this.copyHint = ''
+        this.copyOk = false
+      }
     },
     // ==================== 渲染辅助 ====================
     storeNameOf(g) {
@@ -281,18 +316,35 @@ export default {
     },
     // ==================== 跳转 ====================
     goOrders() {
-      // 把当前生效日期作为明细页的初始筛选值（拿不到回显时传空串 = 明细页也交给后端默认，页内不猜日期）
-      uni.navigateTo({ url: '/pages/plan-orders/plan-orders?date=' + encodeURIComponent(this.effectiveDate) })
+      // 传给明细页的必须是「本页当前正在查的那枚日期」，故与 stepDay 同优先级取基准：
+      // 在途未回显时 effectiveDate 还是上一轮的日期，照它传会把明细页带到错的日期上
+      // 两者都没有（首屏就没成功）才传空串 = 明细页按它的口径走「不限日期」，页内不猜日期
+      uni.navigateTo({ url: '/pages/plan-orders/plan-orders?date=' + encodeURIComponent(this.queryDate || this.effectiveDate || '') })
     },
     goWorkspace() {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
+    },
+    // ==================== 429 冷却（照 dishes.vue:425-436，同 login.vue 的 loginLock 秒级禁用范式） ====================
+    startRetryLock() {
+      this.stopRetryLock()
+      this.retryLock = 60
+      this.retryLockTimer = setInterval(() => {
+        this.retryLock--
+        if (this.retryLock <= 0) this.stopRetryLock()
+      }, 1000)
+    },
+    stopRetryLock() {
+      if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      this.retryLock = 0
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
     // 两道守卫缺一不可：
     // ① 栈顶守卫：监听挂在 document 上，而 navigateTo 不触发上一页 onUnload —— 进明细页后本页 handler
     //    仍挂着，两份 handler 同时驱动 body.scrollTop 会让滚轮一次滚两倍。
-    // ② 弹层放行：弹层（含本页可能出现的 picker/modal/toast）打开时滚轮该归弹层，不能 preventDefault 去滚背景。
+    // ② 弹层放行：弹层（含本页可能出现的 picker/modal/toast）打开时滚轮该归弹层，不能 preventDefault 去滚背景；
+    //    textarea/input 同列表内——「复制失败→长按只读文本框手抄」是指定的兜底通道，
+    //    滚轮压在它上面时若被页面 preventDefault 抢走，选中/滚动都受影响，等于兜底通道自己先不可用。
     onPageWheel(e) {
       // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
       let pages = []
@@ -305,7 +357,7 @@ export default {
       const t = e.target
       const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
       if (el && typeof el.closest === 'function'
-        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container')) {
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input')) {
         return
       }
       e.preventDefault()
@@ -321,21 +373,40 @@ export default {
 
 /* ==================== 1. 日期条 ==================== */
 .date-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
+/* 字段名标签：与 plan-orders 的 .picker-label 同一档（26rpx/#999999），日期条不再是个裸日期 */
+.date-field-row { display: flex; margin-bottom: 12rpx; }
+.date-field-label { font-size: 26rpx; color: #999999; line-height: 1.4; }
 .date-row { display: flex; align-items: center; gap: 16rpx; }
+/* 胶囊按钮：view + 12rpx 24rpx 内边距（原 8rpx 上下偏薄），四枚入口同一形状 */
 .date-step {
-  flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: #E02020;
+  flex-shrink: 0; text-align: center;
+  font-size: 26rpx; font-weight: 600; color: #E02020;
   background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
-  padding: 8rpx 24rpx; line-height: 1.4;
+  padding: 12rpx 24rpx; line-height: 1.4;
 }
+/* 按下反馈（hover-class 目标，date-step / date-quick / plan-entry 共用）：
+   移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
+.pill-hover { color: #B01818; background-color: #FFF7F0; border-color: #B01818; }
 .date-current {
   flex: 1; min-width: 0; text-align: center;
   font-size: 32rpx; font-weight: 700; color: #333333; line-height: 1.4;
   font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.date-sub-row { display: flex; align-items: center; justify-content: space-between; margin-top: 16rpx; }
-.date-quick { font-size: 26rpx; color: #666666; padding: 6rpx 4rpx; }
-.plan-entry { font-size: 26rpx; font-weight: 600; color: #E02020; padding: 6rpx 4rpx; }
+.date-sub-row { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-top: 16rpx; }
+/* 「今天」「看明细」与上一排步进钮同形：同一文件里已有一套胶囊设计语言，不另起炉灶 */
+.date-quick {
+  flex-shrink: 0; text-align: center;
+  font-size: 26rpx; color: #666666; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  padding: 12rpx 24rpx;
+}
+.plan-entry {
+  flex-shrink: 0; text-align: center;
+  font-size: 26rpx; font-weight: 600; color: #E02020; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  padding: 12rpx 24rpx;
+}
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
@@ -344,10 +415,12 @@ export default {
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
 .guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+/* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
+.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 
 /* ==================== 4. 空态 ==================== */
 .empty-card { display: flex; flex-direction: column; align-items: center; }
-.empty-actions { display: flex; justify-content: center; }
+.empty-actions { display: flex; justify-content: center; gap: 16rpx; }
 
 /* ==================== 5. 组卡片 ==================== */
 .group-card { padding: 20rpx 24rpx; }
@@ -384,6 +457,8 @@ export default {
 .copy-hint {
   align-self: stretch; font-size: 22rpx; color: #E02020; line-height: 1.5; text-align: center;
 }
+/* 复制成功的常驻复核行：与失败提示同一行位，但不穿失败那身红 */
+.copy-hint-ok { color: #666666; }
 .export-textarea {
   width: 100%; min-height: 260rpx; box-sizing: border-box;
   background-color: #F5F5F5; border-radius: 12rpx; padding: 16rpx;
