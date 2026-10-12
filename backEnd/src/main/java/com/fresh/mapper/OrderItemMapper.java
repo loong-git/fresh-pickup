@@ -5,6 +5,7 @@ import com.fresh.entity.OrderItem;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -119,6 +120,7 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
      */
     @Select("SELECT oi.id AS orderItemId, oi.order_id AS orderId, oi.dish_id AS dishId, "
             + "oi.dish_name AS dishName, oi.quantity AS quantity, oi.price AS price, "
+            + "oi.fulfill_status AS fulfillStatus, "
             + "o.store_id AS storeId, o.store_name AS storeName, o.pickup_date AS pickupDate, "
             + "o.status AS status, o.pay_status AS payStatus, o.phone AS phone, "
             + "o.create_time AS createTime "
@@ -138,6 +140,7 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
     /** 端点② 明细页（date 缺省 = 不限自提日期）：与上方一条只差去掉 pickup_date 等值 */
     @Select("SELECT oi.id AS orderItemId, oi.order_id AS orderId, oi.dish_id AS dishId, "
             + "oi.dish_name AS dishName, oi.quantity AS quantity, oi.price AS price, "
+            + "oi.fulfill_status AS fulfillStatus, "
             + "o.store_id AS storeId, o.store_name AS storeName, o.pickup_date AS pickupDate, "
             + "o.status AS status, o.pay_status AS payStatus, o.phone AS phone, "
             + "o.create_time AS createTime "
@@ -169,4 +172,23 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
             + "AND (#{status} = 'all' OR o.status = #{status})")
     long countOrderItemsAllDates(@Param("merchantId") Long merchantId,
                                  @Param("status") String status);
+
+    // ------------------------------------------------------------------
+    // F-18.8/D-15 缺货登记（本接口在一期的**唯一写方法**；上面 8 条 @Select 的只读口径不变，
+    // 上面注释第 1 条「每条都带 oi.merchant_id = #{merchantId}」对这条 UPDATE 同样成立）。
+    // fulfill_status 是 m17 的履约旁路列（normal/shortage），与 orders.status 三态正交（D-10/RE：状态机不动）。
+    // ------------------------------------------------------------------
+
+    /**
+     * 缺货登记条件 UPDATE（契约 F-18.8 第 5 条）：归属双条件 {@code id + merchant_id}，
+     * 值 shortage 由服务端钉死、不收任何入参。
+     * <p>额外的 {@code AND fulfill_status != 'shortage'} 是<b>已登记偏差</b>（理由写在
+     * {@code MerchantFulfillServiceImpl} 类注释）：Connector/J 默认按 matched rows 回影响行数
+     * （application-dev.yml:5 的 URL 没带 useAffectedRows=true），少了这一条，重复登记会回 1 行、
+     * 进而落第二行 ops_log，与 D-6「幂等成功不重复写日志」冲突。定性结果（200/404/幂等）与契约一致。
+     */
+    @Update("UPDATE order_item SET fulfill_status = 'shortage' "
+            + "WHERE id = #{orderItemId} AND merchant_id = #{merchantId} "
+            + "AND fulfill_status != 'shortage'")
+    int markShortage(@Param("orderItemId") Long orderItemId, @Param("merchantId") Long merchantId);
 }

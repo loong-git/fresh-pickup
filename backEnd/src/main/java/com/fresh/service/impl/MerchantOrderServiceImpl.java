@@ -189,6 +189,9 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             line.put("dishName", row.get("dishName"));
             line.put("quantity", toInteger(row.get("quantity")));
             line.put("price", row.get("price"));
+            // F-18.8 第 5 条显式新增字段：商家要看得到自己登记过的缺货行（fulfill_status 一期唯一写入方
+            // = MerchantFulfillService）；旁路列与 status 三态正交，pickup-plan 的聚合口径不受影响（S3-G7）。
+            line.put("fulfillStatus", row.get("fulfillStatus"));
             line.put("storeId", row.get("storeId"));
             line.put("storeName", row.get("storeName"));
             line.put("pickupDate", row.get("pickupDate"));
