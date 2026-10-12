@@ -2,15 +2,20 @@ package com.fresh.controller;
 
 import com.fresh.annotation.RateLimit;
 import com.fresh.common.R;
+import com.fresh.dto.PartnerStoreUpdateDTO;
 import com.fresh.interceptor.AuthInterceptor;
 import com.fresh.service.PartnerOrderService;
+import com.fresh.service.PartnerStoreService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -33,6 +38,12 @@ import java.util.Map;
  * <p>出参形态见 PartnerOrderService 注释：清单不含 pickupCode/address/userId（D-13/RD），
  * 电话只以 maskedPhone 出现。核销请求体用 {@code @RequestBody Map<String, String>} 而非新建 DTO
  * （本批只读一个键，不值得多一个文件；缺键即 null → Service 判形状后 400）。
+ *
+ * <p><b>Step 4b 追加的四条（F-18.12 第 4~6 条，门店维护 + 到货批次）</b>：委托 PartnerStoreService，
+ * 归属仍只从 {@code ATTR_PARTNER_STORE_IDS} 取；{@code storeId} 是 D-22 的<b>选择器</b>
+ * （只用来在名下多店里选一家，服务端校验它 ∈ 集合、不在即 404），不是归属入参。
+ * 门店出参是白名单 Map（D-23）——{@code Store} 实体那六列全挂着 {@code @JsonIgnore}，
+ * 主理人要读它们只能走本类的重建路径。Step 3 那三个端点的方法体一字未改（G7 回归断言的行为不变）。
  */
 @RestController
 @RequestMapping("/api/partner")
@@ -40,6 +51,8 @@ public class PartnerController {
 
     @Autowired
     private PartnerOrderService partnerOrderService;
+    @Autowired
+    private PartnerStoreService partnerStoreService;
 
     /**
      * 名下门店（GET /api/partner/stores）：出参 id/name/address/status/service，
@@ -78,5 +91,57 @@ public class PartnerController {
                                          @RequestAttribute(AuthInterceptor.ATTR_PARTNER_STORE_IDS) List<Long> storeIds,
                                          @RequestBody Map<String, String> body) {
         return R.ok(partnerOrderService.verify(userId, storeIds, body == null ? null : body.get("pickupCode")));
+    }
+
+    /**
+     * 门店信息（F-18.12 第 4 条，GET /api/partner/store）：D-23 白名单 Map，
+     * 含六个新列 + name/address/service/status/lng/lat；contactPhone 只出脱敏值（RD）。
+     * storeId 为 D-22 选择器，缺省取名下 id 最小的一家。
+     */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/store")
+    public R<Map<String, Object>> store(@RequestAttribute(AuthInterceptor.ATTR_PARTNER_STORE_IDS) List<Long> storeIds,
+                                        @RequestParam(required = false) Long storeId) {
+        return R.ok(partnerStoreService.storeDetail(storeIds, storeId));
+    }
+
+    /**
+     * 门店维护（F-18.12 第 5 条，PUT /api/partner/store）：body 只接受 D-7 的七项
+     * （openTime/closeTime/dailyCapacity/accepting/contactPhone/service/photos），
+     * 其余键（含 name/address/lng/lat/status）忽略不生效；写 ops_log action=update_store（detail 内手机号已脱敏）。
+     * storeId 走查询参数（body 里的 storeId 也能当选择器，但它在白名单之外、绝不参与写列）。
+     */
+    @RateLimit(limit = 10, windowSeconds = 60)
+    @PutMapping("/store")
+    public R<Map<String, Object>> updateStore(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
+                                              @RequestAttribute(AuthInterceptor.ATTR_PARTNER_STORE_IDS) List<Long> storeIds,
+                                              @RequestParam(required = false) Long storeId,
+                                              @Valid @RequestBody PartnerStoreUpdateDTO dto) {
+        return R.ok(partnerStoreService.updateStore(userId, storeIds, storeId, dto), "门店信息已更新");
+    }
+
+    /**
+     * 到货批次清单（F-18.12 第 6 条，GET /api/partner/arrivals?date=yyyy-MM-dd，缺省=明日）：
+     * 每行带 confirmed 布尔位，供前端出「当日批次未确认」警示条（D-9）。
+     */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/arrivals")
+    public R<Map<String, Object>> arrivals(@RequestAttribute(AuthInterceptor.ATTR_PARTNER_STORE_IDS) List<Long> storeIds,
+                                           @RequestParam(required = false) Long storeId,
+                                           @RequestParam(required = false) String date) {
+        return R.ok(partnerStoreService.arrivals(storeIds, storeId, date));
+    }
+
+    /**
+     * 到货确认（F-18.12 第 6 条，POST /api/partner/arrivals/{id}/confirm）：
+     * 四条件 UPDATE（id + 归属集合 + status∈{planned,arriving}），已 confirmed → 幂等成功且不重复写 ops_log，
+     * 他店/不存在 → 404（同文案，不泄漏行存在性）。
+     */
+    @RateLimit(limit = 10, windowSeconds = 60)
+    @PostMapping("/arrivals/{id}/confirm")
+    public R<Map<String, Object>> confirmArrival(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
+                                                 @RequestAttribute(AuthInterceptor.ATTR_PARTNER_STORE_IDS) List<Long> storeIds,
+                                                 @PathVariable("id") Long id) {
+        return R.ok(partnerStoreService.confirmArrival(userId, storeIds, id), "到货已确认");
     }
 }

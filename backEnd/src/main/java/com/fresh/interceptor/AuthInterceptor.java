@@ -177,6 +177,8 @@ public class AuthInterceptor implements HandlerInterceptor {
      * 邀请码/统计/记录与现金余额/提现均用户维度数据，前缀整体登录）；
      * /api/merchant/**（F-12/G-01 商家端）与 /api/partner/**（F-18.8 主理人端）均前缀整体登录，
      * 两者在 preHandle 里各自补第二道条件（角色 / 归属集合）；
+     * /api/store-applies（F-18.12/D-20 主理人入驻申请）整体登录但**不补归属条件**（申请时名下无店，
+     * 归属是审核通过那一刻才由 Admin 写入的）；
      * 例外豁免：POST /api/pay/{id}/wx-notify（需求 A，微信服务器回调无 token，匿名可达）；
      * 匿名可读：GET /api/dishes**（含 GET 评价列表）、GET /api/stores（T-M4-01）、
      * GET /api/seckill/current（T-M4-03）、POST /api/auth/**（T-M5 login-password 匿名，仅 set-password 例外）、
@@ -229,6 +231,16 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
         // F-18.8 第 2 条 主理人端：/api/partner/** 前缀整体登录（归属集合在 preHandle 查 store 注入，此处只判登录）
         if (path.startsWith("/api/partner/")) {
+            return true;
+        }
+        // F-18.12 第 1~2 条（D-20）主理人入驻申请：/api/store-applies 前缀整体登录，但**只判登录、不判归属**——
+        // 申请阶段名下还没有店，归属集合非空那道闸门（上方 /api/partner/ 分支）会把入口自己锁死，
+        // 所以申请侧绝不能挂 /api/partner/（D-20）。role=user 也能用（S4b-G1 的核心断言）。
+        // 条件里带上「裸集合路径」的等值判断：POST /api/store-applies 本身就是端点 1 的路径，
+        // 只写 startsWith("/api/store-applies/") 会放过它 → 匿名请求进 Controller 后
+        // @RequestAttribute(userId) 抛 ServletRequestBindingException 被兜底转 500（已登记「契约疑点」）。
+        // preHandle 的 merchant/partner/typ=admin 三段判定语义一字未动。
+        if (path.equals("/api/store-applies") || path.startsWith("/api/store-applies/")) {
             return true;
         }
         // 仅评价提交需登录；GET /api/dishes/{dishId}/reviews 列表保持匿名可读

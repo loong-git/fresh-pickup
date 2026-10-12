@@ -18,14 +18,16 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 /**
  * 管理端薄版（T-M3-09）：
  * - 鉴权：X-Admin-Key 请求头校验，key 读环境变量 ADMIN_KEY（@Value 占位符默认 admin-dev-key，
  *   生产由环境变量覆盖）；缺失/错误 → 统一信封 401（HTTP 恒 200，码经 body.code 携带）。
  *   AuthInterceptor 权限矩阵不含 /api/admin/**，此处自行校验，不走 JWT。
- * - 仅四个运营端点：订单核销/取消、商品改价/补库存/上下架（部分更新）、评价审核（T-M4-05 收口：
+ * - 运营端点：订单核销/取消、商品改价/补库存/上下架（部分更新）、评价审核（T-M4-05 收口：
  *   命中软词 pending 的评价人工过审/驳回，否则列表默认不展示、永久不可见）、
- *   平台代开通商家（F-12/M-05 一期）。
+ *   平台代开通商家（F-12/M-05 一期）、入驻申请审核（F-18.12 第 3 条，第五个端点）。
  * 异常统一交给 common/GlobalExceptionHandler 脱敏转信封。
  */
 @RestController
@@ -92,6 +94,30 @@ public class AdminController {
         }
         adminService.createMerchant(dto);   // 同事务 INSERT merchant + merchant_profile(approved) + UPDATE user
         return R.ok(null, "商家已开通");
+    }
+
+    /**
+     * 入驻申请审核（F-18.12 第 3 条，第 5 个端点）：PUT /api/admin/store-applies/{id}/audit，
+     * body {@code {action:'approve'|'reject', remark?}}。
+     * <p>approve = 同事务三写（置态 + INSERT store + 审计），rejected/approved 之后再审为幂等成功
+     * （不重复发布门店），申请不存在 404、非法 action 400。
+     * <p>请求体用 {@code @RequestBody Map<String, String>} 而非新建 DTO：F-18.12 的「允许新增文件」清单
+     * 只点了 StoreApplyCreateDTO / PartnerStoreUpdateDTO 两个 DTO，本端点只读两个键，
+     * 姿势照 PartnerController#verify:77-81 的既有先例（同理由见其类注释）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // R6 随建随挂：Admin 新端点必带限流
+    @PutMapping("/store-applies/{id}/audit")
+    public R<Void> auditStoreApply(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                   @PathVariable("id") Long id,
+                                   @RequestBody Map<String, String> body) {
+        R<Void> denied = checkKey(key);
+        if (denied != null) {
+            return denied;
+        }
+        adminService.auditStoreApply(id,
+                body == null ? null : body.get("action"),
+                body == null ? null : body.get("remark"));
+        return R.ok(null, "申请已审核");
     }
 
     /** key 校验：通过返回 null；缺失/错误返回 401 信封（与 AuthInterceptor 同一套码表文案风格） */
