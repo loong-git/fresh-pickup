@@ -38,7 +38,10 @@
         <el-table-column prop="targetId" label="目标 ID" min-width="100" />
         <!-- createdAt 是服务端 DATE_FORMAT 定形的 "YYYY-MM-DD HH:mm:ss" 串，直接显示，不做二次格式化 -->
         <el-table-column prop="createdAt" label="时间" min-width="170" />
-        <el-table-column prop="detail" label="详情" min-width="240" class-name="col-detail" />
+        <!-- FE-G6-2：detail 是服务端写侧动作的原始 JSON（含 image 路径那种长串），单行省略号显示，
+             悬停由 show-overflow-tooltip 给**全文**（Element Plus 弹层渲染的是单元格的完整文本，
+             不做任何按长度裁切丢字）。原先那两条单元格样式会把一行撑到 ~300px 高。 -->
+        <el-table-column prop="detail" label="详情" min-width="240" show-overflow-tooltip />
       </el-table>
 
       <div class="pager">
@@ -69,6 +72,7 @@ import { getAdminAuditLogs } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
+// 初值 'loading' 只服务首屏渲染；首屏那一跳见文件末尾的 onMounted
 const viewState = ref('loading')
 const errorText = ref('')
 const errorCode = ref(0)
@@ -87,6 +91,10 @@ const CODE_HINTS = {
 const codeHint = computed(() => CODE_HINTS[errorCode.value] || '')
 
 async function load() {
+  // FE-G6-3 在飞守卫：请求未回时不再发第二条（分页器 @current-change / @size-change、
+  // 「重试」按钮同守这一条），否则乱序回包会把上一页的行画在下一页的高亮下。
+  // 照 Login.vue:101 的同一精神，复用本页已有的单值 viewState，不新增第二个状态变量、不加定时器。
+  if (viewState.value === 'loading') return
   viewState.value = 'loading'
   errorText.value = ''
   errorCode.value = 0
@@ -133,6 +141,10 @@ function onSizeChange() {
 }
 
 onMounted(() => {
+  // 首屏这一行是必须的：viewState 初值 'loading' 只用于首屏渲染加载态占位，
+  // 若原样进 load() 会被在飞守卫当成「已在飞」而永久早退（一次请求都不发、页面卡在「正在加载」）。
+  // 落到 'idle' 后同一同步 tick 内 load() 立刻置回 'loading'，浏览器不会在两个值之间绘制。
+  viewState.value = 'idle'
   load()
 })
 </script>
@@ -151,8 +163,7 @@ onMounted(() => {
   justify-content: flex-end;
   margin-top: 16px;
 }
-:deep(.col-detail) {
-  word-break: break-all;
-  white-space: pre-wrap;
-}
+/* FE-G6-2：详情列原有的两条单元格样式（任意位置断词 + 保留原始换行符）已整条删除——
+   它们让长 JSON 按内容里的换行一路撑高（单行实测 ~300px，20 行的表要滚三屏），
+   现在由列上的 show-overflow-tooltip 承担「单行省略 + 悬停看全文」。 */
 </style>
