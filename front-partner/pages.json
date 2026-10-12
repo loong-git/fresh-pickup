@@ -11,6 +11,18 @@
       "style": {
         "navigationBarTitleText": "主理人工作台"
       }
+    },
+    {
+      "path": "pages/verify/verify",
+      "style": {
+        "navigationBarTitleText": "核销台"
+      }
+    },
+    {
+      "path": "pages/arrival/arrival",
+      "style": {
+        "navigationBarTitleText": "到货批次"
+      }
     }
   ],
   "globalStyle": {
