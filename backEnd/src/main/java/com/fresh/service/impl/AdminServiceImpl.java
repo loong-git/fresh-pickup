@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.common.BizException;
+import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
@@ -15,6 +16,8 @@ import com.fresh.entity.MerchantProfile;
 import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
 import com.fresh.entity.Review;
+import com.fresh.entity.Store;
+import com.fresh.entity.StoreApply;
 import com.fresh.entity.User;
 import com.fresh.mapper.AdminAuditLogMapper;
 import com.fresh.mapper.DishMapper;
@@ -23,6 +26,8 @@ import com.fresh.mapper.MerchantProfileMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.ReviewMapper;
+import com.fresh.mapper.StoreApplyMapper;
+import com.fresh.mapper.StoreMapper;
 import com.fresh.mapper.UserMapper;
 import com.fresh.service.AdminService;
 import com.fresh.service.CouponService;
@@ -77,6 +82,19 @@ public class AdminServiceImpl implements AdminService {
     /** 兜底 detail：两侧都装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（BE-2 的硬要求） */
     private static final String AUDIT_MINIMAL_DETAIL = "{\"old\":\"audit truncated\",\"new\":\"audit truncated\"}";
 
+    // ---- F-18.12 第 3 条（入驻申请审核链）新增常量与依赖，本类既有方法体一字未改 ----
+
+    /** store_apply 三态（m18 ⑦ 建表口径，照 m15 merchant_profile.audit_status 的三态范式） */
+    private static final String APPLY_PENDING = "pending";
+    private static final String APPLY_APPROVED = "approved";
+    private static final String APPLY_REJECTED = "rejected";
+
+    /** 审核动作里的 approve 一侧（白名单本身复用上方 ALLOWED_AUDIT_ACTIONS，不再长第二份集合） */
+    private static final String ACTION_APPROVE = "approve";
+
+    /** 过审发布的门店固定置 open（A2.1：过审即营业；停业走 Admin 或后续门店维护，本期 partner 不可改 status） */
+    private static final String STORE_STATUS_OPEN = "open";
+
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
@@ -95,6 +113,11 @@ public class AdminServiceImpl implements AdminService {
     private MerchantProfileMapper merchantProfileMapper;
     @Autowired
     private AdminAuditLogMapper adminAuditLogMapper;
+    /** F-18.12 第 3 条：入驻申请审核链的两个依赖（只被下面新增的 auditStoreApply 使用） */
+    @Autowired
+    private StoreApplyMapper storeApplyMapper;
+    @Autowired
+    private StoreMapper storeMapper;
 
     /** 管理密钥：与 AdminController.checkKey 同源配置（ADMIN_KEY 环境变量优先），仅用于算摘要做审计 actor */
     @Value("${ADMIN_KEY:admin-dev-key}")
@@ -258,6 +281,105 @@ public class AdminServiceImpl implements AdminService {
         // 4) 审计（R6 红线：Admin 新端点随建随写 admin_audit_log）
         writeAudit("admin:" + adminKeyDigest(), "merchant.create", "merchant", String.valueOf(m.getId()),
                 null, "name=" + dto.getName() + ",phone=" + maskPhone(dto.getPhone()));
+    }
+
+    /**
+     * 入驻申请审核（F-18.12 第 3 条，本类唯一新增的写方法；上面四个既有方法体一字未改）。
+     *
+     * <p><b>同事务三写</b>（{@code @Transactional} 覆盖整方法，任一步抛异常整体回滚，不留「已发布却没置态」半态）：
+     * ① 条件 UPDATE store_apply 置 approved/rejected + audited_at=NOW()（+ remark，见下方「remark 为 null 时不 SET」）；
+     * ② approve 才 INSERT store（名称/地址/坐标/服务/联系电话全部取自申请行，
+     *    {@code owner_user_id=申请人} 是这家店归属的<b>唯一</b>生产写入点，m18 ⑪ 那段 UPDATE 只是演示库归位种子）；
+     * ③ admin_audit_log（actor={@code admin:<key 摘要 8>}，D-5 把平台侧动作划给这张表）。
+     *
+     * <p><b>为什么把条件 UPDATE 排在 INSERT store 前面</b：两者在同一事务里，成败都整体回滚，顺序不影响原子性；
+     * 先做带 {@code status='pending'} 的那条 UPDATE 可以让「并发二次审核」在第一步就回 0 行短路掉，
+     * 连一个白烧的自增 id 都不留（S-3 的姿势，同 {@link #createMerchant} 里的条件 UPDATE）。
+     *
+     * <p><b>幂等</b>（照 {@code updateOrderStatus:114-116}）：已是目标态 → 直接成功、<b>不重复 INSERT store</b>、
+     * 不写第二行审计（无状态变化就不该有留痕，同 :144 那行的既有注释口径）。
+     * 审核结论不可翻转（approved 再 reject / rejected 再 approve → 400）：翻转要连带处理「已发布的店」，
+     * 那是二期 Admin 下架链的事，本期封死入口；rejected 后申请人重新提交=新行（D-21）。
+     *
+     * <p>审计 detail 里的联系电话只出 {@link PhoneMask#mask} 结果（RD：admin_audit_log 也不许落明文手机号）。
+     */
+    @Override
+    @Transactional
+    public void auditStoreApply(Long applyId, String action, String remark) {
+        String op = action == null ? "" : action.trim();
+        // 动作白名单复用 ALLOWED_AUDIT_ACTIONS（:61 那份，评价审核与本端点共用，不复制第二份集合）
+        if (!ALLOWED_AUDIT_ACTIONS.contains(op)) {
+            throw new BizException(R.CODE_BAD_REQUEST, "action 仅允许 approve（过审并发布门店）或 reject（驳回）");
+        }
+        String trimmedRemark = remark == null ? null : remark.trim();
+        if (trimmedRemark != null && trimmedRemark.length() > 255) {
+            // audit_remark VARCHAR(255)：严格模式下超长是 1406 而非 400，必须在写库前拦（同列宽纪律见本类 :67-75）
+            throw new BizException(R.CODE_BAD_REQUEST, "审核意见不能超过 255 字");
+        }
+        boolean approve = ACTION_APPROVE.equals(op);
+        String targetStatus = approve ? APPLY_APPROVED : APPLY_REJECTED;
+
+        StoreApply apply = storeApplyMapper.selectById(applyId);
+        if (apply == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "申请不存在");
+        }
+        if (targetStatus.equals(apply.getStatus())) {
+            // 幂等早退：已 approved 再 approve 不再 INSERT store；已 rejected 再 reject 不再刷 audited_at
+            log.info("管理端入驻申请审核幂等命中: applyId={}, status={}", applyId, apply.getStatus());
+            return;
+        }
+        if (!APPLY_PENDING.equals(apply.getStatus())) {
+            throw new BizException(R.CODE_BAD_REQUEST, "该申请已审核完成，不可再次审核");
+        }
+
+        // ① 条件 UPDATE 置态：WHERE id + status='pending' 是并发闸门（本仓未开 useAffectedRows，
+        //    matched-rows 语义下少了 status 条件，并发第二笔也会回 1 行 → 重复发布门店）
+        int rows = storeApplyMapper.update(null, new LambdaUpdateWrapper<StoreApply>()
+                .eq(StoreApply::getId, applyId)
+                .eq(StoreApply::getStatus, APPLY_PENDING)
+                .set(StoreApply::getStatus, targetStatus)
+                // remark 为 null 时不 SET：pending 行的 audit_remark 按构造必为 NULL（只有本方法写它，
+                // 而本方法要求 status='pending'），不 SET 与 SET NULL 等价，却避开了 MP 绑无 jdbcType 的 null 参数
+                // （F-17.2 #4 实测过的 JdbcType OTHER 坑）
+                .set(trimmedRemark != null, StoreApply::getAuditRemark, trimmedRemark)
+                .set(StoreApply::getAuditedAt, LocalDateTime.now()));
+        if (rows == 0) {
+            StoreApply now = storeApplyMapper.selectById(applyId);
+            if (now != null && targetStatus.equals(now.getStatus())) {
+                // 并发窗口内另一笔已把状态翻到同一目标态 → 与开头那次幂等早退同义（不重复发布、不重复留痕）
+                log.info("管理端入驻申请审核并发幂等命中: applyId={}, status={}", applyId, targetStatus);
+                return;
+            }
+            // 行在两次读之间消失（Admin 手工清库等极端情形）：与「申请不存在」同码同文案
+            throw new BizException(R.CODE_NOT_FOUND, "申请不存在");
+        }
+
+        String newSide = "status=" + targetStatus + ",remark=" + trimmedRemark
+                + ",maskedPhone=" + PhoneMask.mask(apply.getContactPhone());
+        Long publishedStoreId = null;
+        if (approve) {
+            // ② INSERT store：这是门店进 GET /api/stores 的**唯一**发布通道（D-12/A2.1 的数据纪律）
+            Store store = new Store();
+            store.setName(apply.getProposedName());
+            store.setAddress(apply.getProposedAddress());
+            store.setLng(apply.getLng());
+            store.setLat(apply.getLat());
+            store.setService(apply.getService());
+            store.setStatus(STORE_STATUS_OPEN);
+            // 归属唯一来源：申请行的 user_id（服务端 token 解析后落库的值），绝不收任何请求侧归属入参（RF）
+            store.setOwnerUserId(apply.getUserId());
+            store.setContactPhone(apply.getContactPhone());
+            // open_time/close_time/daily_capacity/photos 不填 → 列 NULL；accepting 不填 → DB DEFAULT 1（D-8 一期只展示）
+            storeMapper.insert(store);
+            publishedStoreId = store.getId();
+            newSide = newSide + ",storeId=" + publishedStoreId;
+        }
+        log.info("管理端审核入驻申请: applyId={}, action={}, applicantUserId={}, publishedStoreId={}",
+                applyId, op, apply.getUserId(), publishedStoreId);
+
+        // ③ 审计（写门店与写申请同事务，审计本身是旁路：writeAudit 双层 try-catch 吞异常，绝不打断主事务）
+        writeAudit("admin:" + adminKeyDigest(), "store_apply.audit", "store_apply", String.valueOf(applyId),
+                "status=" + apply.getStatus(), newSide);
     }
 
     /**
