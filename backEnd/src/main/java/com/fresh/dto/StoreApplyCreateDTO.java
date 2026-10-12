@@ -65,6 +65,8 @@ public class StoreApplyCreateDTO {
 
     @Size(max = 6, message = "凭证照片最多 6 张")
     private List<@NotNull(message = "凭证照片不能为空")
-            @Pattern(regexp = "^/static/images/uploads/.{1,140}$",
+            // BE-11（F-18.20 J 行）：原 `.{1,140}` 的 `.` 能吃 `/` 与 `?` → `../../` 目录穿越和查询串都过关；
+            // 改 (?!.*\.\.) 拒任何一段 `..`，[^?#] 拒查询串/锚点——意图钉回「只允许平台上传件本路径」
+            @Pattern(regexp = "^/static/images/uploads/(?!.*\\.\\.)[^?#]{1,140}$",
                      message = "凭证照片必须是平台上传件路径（/static/images/uploads/ 开头，且不超过 162 字符）") String> proofPhotos;
 }

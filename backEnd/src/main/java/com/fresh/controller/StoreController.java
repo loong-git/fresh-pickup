@@ -1,5 +1,6 @@
 package com.fresh.controller;
 
+import com.fresh.annotation.RateLimit;
 import com.fresh.common.R;
 import com.fresh.entity.Store;
 import com.fresh.service.StoreService;
@@ -21,7 +22,9 @@ public class StoreController {
     @Autowired
     private StoreService storeService;
 
+    /** BE-8（F-18.20 G 行）：匿名 GET 挂读档限流 30/分/IP（RF 纪律：新端点一律挂限流注解，读 30/写 10 每分） */
     @GetMapping
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     public R<List<Store>> list() {
         return R.ok(storeService.listAll());
     }

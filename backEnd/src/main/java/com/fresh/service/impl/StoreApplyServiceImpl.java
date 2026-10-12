@@ -9,6 +9,7 @@ import com.fresh.service.OpsLogWriter;
 import com.fresh.service.StoreApplyService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,7 +65,9 @@ public class StoreApplyServiceImpl implements StoreApplyService {
             throw new BizException(R.CODE_BAD_REQUEST, "联系电话需为 11 位大陆手机号");
         }
 
-        // ② D-21：一用户一期最多 1 条在审申请（应用层判定，无唯一键，见 m18 ⑦ 注释）
+        // ② D-21：一用户一期最多 1 条在审申请——应用层先查给友好文案；并发窗口（两个请求同时读到 0）
+        //    由 m18 ⑦b / init.sql 的生成列唯一键 uk_user_pending(user_id, pending_guard) 在库侧封死（BE-3，F-18.20 C 行），
+        //    撞键在下面 insert 处转 400，与上方 D-21 文案逐字一致。
         if (storeApplyMapper.countPendingByUser(userId) > 0) {
             throw new BizException(R.CODE_BAD_REQUEST, "已有申请在审核中，请等待结果");
         }
@@ -82,7 +85,14 @@ public class StoreApplyServiceImpl implements StoreApplyService {
         apply.setContactPhone(contactPhone);
         apply.setProofPhotos(normalizePhotos(dto.getProofPhotos()));
         apply.setStatus(STATUS_PENDING);   // 显式写，不靠 DEFAULT：出参 status:'pending' 要与落库值同源
-        storeApplyMapper.insert(apply);
+        // pending_guard 是生成列，实体不声明、insert 语句不含它，由 DB 按 status 自动落值
+        try {
+            storeApplyMapper.insert(apply);
+        } catch (DuplicateKeyException e) {
+            // BE-3：并发双 pending 撞 uk_user_pending(1062) → 转 400，文案与 D-21 应用层判定逐字一致
+            log.warn("并发双 pending 撞 uk_user_pending: applicantUserId={}", userId);
+            throw new BizException(R.CODE_BAD_REQUEST, "已有申请在审核中，请等待结果");
+        }
 
         // ④ 审计落点（F-18.4：写端点必留痕）。两表边界 D-5 把「申请提交」列在 ops_log 的现场动作一侧
         //    （operator_user_id 就是申请人本人，不是平台动作，平台动作是下一步的审核），

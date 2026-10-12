@@ -188,6 +188,9 @@
 //    明文根本到不了本页，所以这一栏的初值恒为空串、留空恒等于「不改」，本页不给「清空电话」这条路（见 phoneHint）；
 // ④ 四态单值互斥 loading|error|empty|ready（照 workspace.vue:136 / verify.vue:179 的纪律，不叠布尔），
 //    冷却锁只在 code===429 起，onUnload 成对清定时器，所有请求走 @/api/index.js（页内零原生请求）。
+// ⑤ 「未保存离开」守卫（FE-11）：有改动时返回弹一次 showModal，总闸是一枚 leaving 布尔，
+//    写法照母版 front-merchant/pages/dish-edit/dish-edit.vue 的 leaving（不造第二套状态机）；
+//    它只参与返回与保存两处闸门，不参与四态，也不新增定时器（onUnload 那对清理逻辑一字未动）。
 // 一期不做地图选点（D-24）：本页连坐标都不让改（D-7），搬高德地图块过来只能看不能存，纯增回归面。
 import { getPartnerStore, updatePartnerStore, resolveFileUrl } from '@/api/index.js'
 import '@/styles/common.css'
@@ -224,6 +227,28 @@ const MESSAGE_FIELD_RULES = [
   ['门店照片', 'photos']
 ]
 
+// 深链进来的门店编号形状：后端 ?storeId= 绑的是 Long，非数字串会在参数绑定就炸（F-18.20 第 8 条实测 500），
+// 所以本页只认纯数字，其余一律当「没带这一选择器」（FE-8）
+const STORE_ID_RE = /^\d+$/
+
+// FE-5：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先（BE-5），取不到回落本地 60。
+// 与核销台/批次页同一口径；本页两条通道（读门店明细、写门店维护）都不自己另算一套。
+const RETRY_FALLBACK_SECONDS = 60
+
+// FE-10：同页 429 只留一句说法（加载失败卡与保存反馈两支共用 coolingText 这一处实现）
+function coolingText(seconds) {
+  const n = Number(seconds)
+  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
+}
+
+// 载荷来源：请求层 handleEnvelope 的 reject 现在带 data（后端信封原样透传，见 api/index.js），
+// 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。
+function retrySecondsOf(err) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
+}
+
 export default {
   data() {
     return {
@@ -257,6 +282,10 @@ export default {
       emptyMessage: '',
       // 保存单飞锁（写操作专用，finally 复位；失败也不能留在 true）
       saving: false,
+      // FE-11「未保存离开」守卫的总闸（一枚布尔，写法照母版 dish-edit.vue:199/358 的 leaving，不造第二套状态机）：
+      // 置 true 就等于「人已决定走」——本钩子下次进来直接放行（不再弹第二次），save() 也首行早退，
+      // 免得 showModal 的回调里再 navigateBack 时自己拦自己形成死循环
+      leaving: false,
       // 常驻反馈：{tone:'ok'|'neutral'|'err'|'cooling', text:string}；null = 本次会话还没点过保存
       feedback: null,
       // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清；口径同 verify.vue:186-187）
@@ -328,7 +357,7 @@ export default {
     feedbackText() {
       if (!this.feedback) return ''
       if (this.feedback.tone === 'cooling') {
-        return this.retryLock > 0 ? '操作过于频繁，请 ' + this.retryLock + 's 后再试' : this.feedback.text
+        return this.retryLock > 0 ? coolingText(this.retryLock) : this.feedback.text
       }
       return this.feedback.text
     },
@@ -338,7 +367,8 @@ export default {
       return this.changedKeys.length ? '保存 ' + this.changedKeys.length + ' 项改动' : '保存修改'
     },
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      // FE-10：与保存那一支同一句（秒数读实时 retryLock，不再写死 60）
+      if (this.errorCode === 429) return coolingText(this.retryLock)
       return '门店资料加载失败，请检查网络后重试'
     }
   },
@@ -352,8 +382,45 @@ export default {
     }
   },
   onLoad(options) {
-    this.storeId = options && options.storeId ? String(options.storeId) : ''
+    // FE-8：?storeId= 是深链/工作台带进来的 D-22 选择器，形状先在这里洗一次——非纯数字串不合法
+    // （后端把它绑成 Long，脏值会在参数绑定就 500「服务开小差了」，F-18.20 第 8 条实测；BE-14 补 400 兜底前，
+    // 页面也不该替后端把脏值发出去）。不合法就置空 = 不吃选择器，由后端取名下 id 最小的一家，
+    // 并给一行提示说清「现在打开的不是链接里那一家」。
+    const raw = options && options.storeId !== undefined && options.storeId !== null ? String(options.storeId) : ''
+    if (raw && !STORE_ID_RE.test(raw)) {
+      this.storeId = ''
+      this.showToast('链接编号无效，已按缺省门店打开')
+    } else {
+      this.storeId = raw
+    }
     this.load(true)
+  },
+  // FE-11：本页是长表单且刻意不在 onShow 重拉，改了直接返回就是静默丢弃（回页也看不出丢了什么）。
+  // 总闸写法照母版 dish-edit.vue 的 leaving（一枚布尔，不另造状态机）：
+  // ① 没改动 / 人已决定离开 → return false 走系统默认返回；
+  // ② 有改动且首次拦 → 弹一次 showModal（留下=主按钮，丢弃=次按钮），return true 把这次返回吞掉；
+  // ③ 选「丢弃并离开」→ 走 leavePage()（先置 leaving 再退），此时 ① 放行，不会二次弹框；此后 save() 也进不去。
+  // 实测边界（H5，本机 @dcloudio/uni-h5 的 navigateBack 实现：invokeHook(ON_BACK_PRESS)===true 即不退）：
+  // 导航栏返回按钮走 uni.navigateBack，会触发本钩子；浏览器物理「后退」是 popstate、不经过本钩子，那一支拦不住（已登记回报）。
+  onBackPress() {
+    if (this.leaving) return false
+    if (!this.changedKeys.length) return false
+    uni.showModal({
+      title: '还有未保存的改动',
+      content: '将提交 ' + this.changedKeys.length + ' 项改动：' + this.changedKeys.join('、') + '；现在离开即丢弃',
+      confirmText: '留下继续改',
+      cancelText: '丢弃并离开',
+      success: (r) => {
+        // 只有明确点了「丢弃」才放行；confirm（留下）与拿不到结果一律停在本页
+        if (r && r.confirm) return
+        this.leavePage()
+      },
+      fail: () => {
+        // 弹框起不来的端：不能把人永久锁在表单里，退化为原行为（直接离开），改动是否丢弃由系统决定
+        this.leavePage()
+      }
+    })
+    return true
   },
   // 刻意不在 onShow 重拉：本页是编辑态，回页重拉会把用户刚改还没存的值整体覆盖（母版 dish-edit 同样只在 onLoad 拉）；
   // 需要看最新值时走错误/空态那两条显式的「重新检查」出口
@@ -415,8 +482,10 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 才起冷却锁（verify.vue:443 同判据）：其余失败重试是有意义的，不该被秒数拦住
-        if (code === 429) this.startRetryLock()
+        // 只有 429 才起冷却锁（本页文件头纪律 ④「冷却锁只在 code===429 起」，核销台 fetchList 同判据）：
+        // 其余失败重试是有意义的，不该被秒数拦住
+        // FE-5：秒数交给 retrySecondsOf（后端 data.retryAfterSeconds 优先，取不到回落 60）
+        if (code === 429) this.startRetryLock(retrySecondsOf(e))
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -517,8 +586,11 @@ export default {
     // ==================== 保存（PUT /api/partner/store，只带改动过的键） ====================
     // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:271-273 同姿势）
     async save() {
+      // FE-11：人已决定离开（leaving 总闸）就不再放行写入口——母版 dish-edit.vue:731 同判据，
+      // 避免「弹框之后到页面销毁之间」抢发一次 PUT 把丢弃变成半保存
+      if (this.leaving) return
       if (this.retryLock > 0) {
-        this.showToast('操作过于频繁，请 ' + this.retryLock + 's 后再试')
+        this.showToast(coolingText(this.retryLock))
         return
       }
       if (this.saving) return
@@ -562,8 +634,10 @@ export default {
         return
       }
       if (code === 429) {
-        this.setFeedback('cooling', '操作过于频繁，请稍后再试')
-        this.startRetryLock()
+        // FE-5 + FE-10：秒数按后端 data.retryAfterSeconds 起，句式与加载失败那一支同一处生成
+        const seconds = retrySecondsOf(e)
+        this.setFeedback('cooling', coolingText(seconds))
+        this.startRetryLock(seconds)
         return
       }
       if (code === 400) {
@@ -638,12 +712,30 @@ export default {
     goApply() {
       uni.navigateTo({ url: '/pages/apply/apply' })
     },
-    // ==================== 429 冷却（照 verify.vue:561-574 同款） ====================
-    startRetryLock() {
+    // FE-11 的「离开」只有一个出口：先置总闸，再判栈退（姿势照母版 dish-edit.vue:342-353 的 goBackToList，
+    // 本钩子只多这一枚闸，没有第二套状态机）。判栈是必要的：H5 深链 /pages/store/store?storeId=7 直接打开时
+    // 栈里只有本页，navigateBack 退不动（用户点了「丢弃」却哪儿也去不了），此时 reLaunch 回工作台且栈里不留本页。
+    leavePage() {
+      this.leaving = true
+      let pages = []
+      try {
+        pages = getCurrentPages() || []
+      } catch (e) {
+        pages = []
+      }
+      if (pages.length > 1) {
+        uni.navigateBack()
+        return
+      }
+      uni.reLaunch({ url: '/pages/workspace/workspace' })
+    },
+    // ==================== 429 冷却（与核销台/批次页同款写法；秒数由调用方按 FE-5 取好） ====================
+    startRetryLock(seconds) {
       this.stopRetryLock()
-      // 本地闸门 60s，与读写两侧 @RateLimit 的 60s 窗口同档；冷却结束再点仍可能吃一次 429，
+      // FE-5：秒数优先取后端 429 信封的 data.retryAfterSeconds，取不到回落本地 60，
+      // 与读写两侧 @RateLimit 的 60s 窗口同档；冷却结束再点仍可能吃一次 429，
       // 那一支会把常驻反馈行重新写上，反馈不会说谎
-      this.retryLock = 60
+      this.retryLock = Number(seconds) > 0 ? Number(seconds) : RETRY_FALLBACK_SECONDS
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()

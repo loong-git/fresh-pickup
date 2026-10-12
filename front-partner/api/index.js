@@ -13,8 +13,9 @@
 import { BASE_URL } from './config.js'
 
 // 分层超时（照用户端与商家端纪律，三档语义一字不改）：查询类 10s；提交类 20s；上传 30s
-// TIMEOUT_UPLOAD 本轮无调用方（照片上传通道归 Step 7 门店维护/入驻页，届时走 uni.uploadFile + 同一个 handleEnvelope），
-// 保留它而不是删掉再抄回来：这是 §3「三个超时档逐字保留」的要求
+// TIMEOUT_UPLOAD 至今没有调用方，如实登记（FE-4）：上传通道一期不做——门店照片是只读展示（D-18 无上传端点，
+// 见 store.vue 的 photo-card），入驻页的凭证照片同样「没有上传口」（apply.vue:564），文件服务随 G-05 才开放。
+// 保留它而不是删掉再抄回来：这是 §3「三个超时档逐字保留」的要求；G-05 落地时走 uni.uploadFile + 同一个 handleEnvelope。
 const TIMEOUT_QUERY = 10000
 const TIMEOUT_SUBMIT = 20000
 const TIMEOUT_UPLOAD = 30000
@@ -99,11 +100,13 @@ export function setUnauthorizedHandler(fn) {
 /**
  * 相对路径 -> 后端可直读 URL：以 '/' 开头的拼 BASE_URL，其余（已是绝对 http(s) URL 等）原样返回；
  * 空值/非字符串回空串。
- * 主理人端唯一保留的 URL 出口：本轮两页不展示图片，Step 7 的门店照片（photos，入库值形如
- * /static/images/uploads/<名>）与凭证图一律走它，页面不得自拼 BASE_URL。
+ * 主理人端唯一保留的 URL 出口（现状读数，FE-4）：当前唯一调用方是 store.vue 的 photoList
+ * ——门店照片 photos 的**只读展示**（入库值形如 /static/images/uploads/<名>），页面不得自拼 BASE_URL。
+ * 凭证图 proofPhotos 不走这里：它既没有上传端点（D-18 一期不做，见 apply.vue:564 与 TIMEOUT_UPLOAD 的注释），
+ * 也不在 GET /api/store-applies/mine 的出参里（最小暴露，见下方 getMyStoreApply），所以本层现在没有它的 URL 出口。
  * 商家端那个 merchantFileUrl() 不拷过来：它处理的是「C 端静态根前缀 <-> 后端 /uploads 映射前缀」的
- * 商品图换前缀问题，主理人端本轮无任何图片展示需求，先落地就是死代码（Step 7 若确实需要换前缀，
- * 届时按当时的后端映射实测再决定，不照抄结论）。
+ * 商品图换前缀问题，主理人端只有门店照片这一处图片需求且实测直读可显示，先落地就是死代码
+ * （G-05 文件服务开放后若确实需要换前缀，届时按当时的后端映射实测再决定，不照抄结论）。
  */
 export function resolveFileUrl(u) {
   if (typeof u !== 'string' || !u) return ''
@@ -145,7 +148,8 @@ function rejectUnauthorized(reject) {
 }
 
 /**
- * 统一信封分流：request 与（Step 7 的）uploadFile 共用同一个判定函数（两条通道的 401/403 语义必须一致）
+ * 统一信封分流：本函数是本层唯一的信封判定处，将来若开放上传通道（G-05 文件服务，一期不做）
+ * 也必须复用同一个函数，两条通道的 401/403 语义才可能一致（现状：上传通道无调用方，见文件头 TIMEOUT_UPLOAD）
  * 后端 HTTP 状态码恒 200、业务码只写在 body.code（ResponseUtil.java:23-27 拦截器直写信封 +
  * GlobalExceptionHandler 全部 return R），故 statusCode 只在信封不可解析时兜底。
  * - code 200 且信封是对象 → resolve(完整信封 {code,data,message})
@@ -156,7 +160,9 @@ function rejectUnauthorized(reject) {
  *   主理人端的 403 来源是 AuthInterceptor:108-118「token 有效但 store.owner_user_id 名下门店集合为空」，
  *   即「登录成功、还没绑定自提点」，这是登录成功后的业务事实，绝不当登录失效处理——
  *   按 401 踢回登录页会让用户陷在登录死循环里（本轮登录页的 403 分支就靠这一条分流）
- * - 其余（400/404/429/500/网络异常）→ reject({code,message})，调用方须 toast，全站无静默分支
+ * - 其余（400/404/429/500/网络异常）→ reject({code,message,data})，调用方须 toast，全站无静默分支
+ *   （data 原样透传后端信封 body.data：当前唯一使用方=429 锁的 {retryAfterSeconds}，见 PartnerOrderServiceImpl 的 BE-5；
+ *     网络异常与信封不可解析时为 null）
  */
 function handleEnvelope(res, resolve, reject) {
   const body = (res && res.data && typeof res.data === 'object') ? res.data : null
@@ -167,7 +173,7 @@ function handleEnvelope(res, resolve, reject) {
     return
   }
   if (code === 403) {
-    reject({ code: 403, message: message || MSG_FORBIDDEN })
+    reject({ code: 403, message: message || MSG_FORBIDDEN, data: (body && body.data !== undefined) ? body.data : null })
     return
   }
   if (res && res.statusCode === 200 && body && code === 200) {
@@ -176,7 +182,8 @@ function handleEnvelope(res, resolve, reject) {
   }
   reject({
     code: code || -1,
-    message: message || '服务开小差了，请稍后重试'
+    message: message || '服务开小差了，请稍后重试',
+    data: (body && body.data !== undefined) ? body.data : null
   })
 }
 
@@ -361,9 +368,12 @@ export function updatePartnerStore(fields) {
  * date 缺省不下发 → 服务端默认「明日」（PartnerStoreServiceImpl.java:252-254），本页两页一律显式带 date，
  * 免得警示条（按今天查）与批次页（按后端缺省查）落在两个不同的日上。
  * storeId 是 D-22 的「名下多店选一家」选择器（PartnerController.java:130 @RequestParam Long storeId）：
- * 空值 = 取名下 id 最小的一家；集合外的 id → 404。它既不是归属也不是可改列（RF），归属仍由服务端解析。
- * F-18.15 登记的遗留项（本函数只收 date、多店切换无入口）到此收口：Step 6/7 要切店直接给 storeId，
- * 不要在页面里另发一次原生请求。
+ * 空值 = 取名下 id 最小的一家（PartnerStoreServiceImpl.java:368-371 Collections.min）；集合外的 id → 404。
+ * 它既不是归属也不是可改列（RF），归属仍由服务端解析。
+ * 两个调用方的现状读数（FE-2/FE-3，别再当成「遗留项待收口」）：
+ * ① 核销台的到货警示条**逐店显式传 storeId**——待取清单覆盖名下全部店，只查最小 id 那一家会漏报别家；
+ * ② 批次页刻意不传（一期不提供选店，页面只显示服务端解析出的那一家，并在卡头如实写明门店编号）。
+ * 页面一律走本函数，不许另发原生请求。
  * @param {{date?:string, storeId?:string|number}} [params] date 形如 YYYY-MM-DD，空值不下发
  * @returns {Promise<{code,data:{storeId:number,date:string,list:Array<object>},message:string}>}
  */

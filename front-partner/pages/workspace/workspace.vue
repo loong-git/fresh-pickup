@@ -331,8 +331,9 @@ export default {
     onEntryTap(entry) {
       let url = this.entryRoute(entry)
       if (!url) {
-        // entries 与 ENTRY_ROUTES 同文件维护，在册表漏一行属于编码疏漏而不是用户状态；
-        // 真漏了也给一句实话，不留「点了没反应」的死行（母版纪律）
+        // 防御分支，当前不可达（FE-13 裁定）：entries 与 ENTRY_ROUTES 同文件维护，四行现已全部在册
+        // （verify/arrivals/store/apply），这一支走不到——留着是因为「在册表漏一行」属于编码疏漏而不是用户状态，
+        // 真漏了也要给一句实话，不留「点了没反应」的死行（母版纪律）。不删代码、不再挂占位话术。
         uni.showToast({ title: '该功能暂未开放', icon: 'none', duration: 1500 })
         return
       }

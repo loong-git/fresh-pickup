@@ -17,7 +17,7 @@
              与商家端「暂无商家权限」同源但结论不同：主理人身份不占 user.role，而是
              store.owner_user_id 的归属集合（AuthInterceptor:108-118 集合为空即 403）。
              账号本身是登录成功的，故不清登录态、不跳工作台，给两条明确去向：
-             ①「去申请入驻」（本轮 Step 7 交付该页，先 toast 告知，不留白屏死链）
+             ①「去申请入驻」（pages/apply/apply 已注册于 pages.json:34，真 navigateTo 过去）
              ②「重新检查」（平台刚给这个账号绑店后自救，不用重收验证码）——它带 429 秒级冷却 ==================== -->
     <view v-else-if="forbidden" class="card guide-card">
       <text class="guide-title">该账号还没有绑定的自提点</text>
@@ -129,11 +129,10 @@ import { sendCode, login, loginPassword, getPartnerStores } from '@/api/index.js
 import '@/styles/common.css'
 
 // 登录成功后的唯一去处（工作台）与入驻申请页路由。
-// APPLY_PAGE 本轮只是「将来要跳哪儿」的登记：pages/apply/apply 归 Step 7，pages.json 里没有这一条，
-// 现在跳过去就是白屏死链，故 goStoreApply() 先 toast 告知、不 navigateTo（§4 硬约束）。
+// pages/apply/apply 已由 F-18.19 交付并在 pages.json 注册（第 34 行那条），所以这里是真 navigateTo，
+// 跳过去就是申请表单页；写法与 workspace.vue 的同名方法 goStoreApply() 一致。
 const WORKSPACE_PAGE = '/pages/workspace/workspace'
 const APPLY_PAGE = '/pages/apply/apply'
-const APPLY_PENDING_TOAST = '入驻页在 Step 7 交付'
 
 export default {
   data() {
@@ -374,11 +373,11 @@ export default {
       this.forbiddenPhone = phone || ''
       this.forbiddenMessage = (typeof message === 'string' ? message : '').trim()
     },
-    // 「去申请入驻」：本轮 Step 7 才交付 pages/apply/apply，现在只给明确告知，不跳不存在的页（§4 硬约束：不留白屏死链）
+    // 「去申请入驻」：pages/apply/apply 已在 pages.json:34 注册（F-18.19 交付），这里是真跳转。
+    // 引导态其余分支（保留 token、换账号）一律不动——本页 403 的语义是「登录成功、名下还没绑店」，
+    // 那张表单正是这条路的下一步，跳过去比 toast 诚实。
     goStoreApply() {
-      uni.showToast({ title: APPLY_PENDING_TOAST, icon: 'none', duration: 1500 })
-      // Step 7 交付后这一行改为 uni.navigateTo({ url: APPLY_PAGE })，其余分支不动
-      // （APPLY_PAGE 常量即为此处预留，见文件头注释）
+      uni.navigateTo({ url: APPLY_PAGE })
     },
     // 换个账号：清登录态 + 复位表单（403 保留的 token 在这里才清，避免下一个账号串上一账号的态）
     switchAccount() {

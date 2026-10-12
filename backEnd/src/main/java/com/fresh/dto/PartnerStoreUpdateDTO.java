@@ -61,6 +61,8 @@ public class PartnerStoreUpdateDTO {
     /** 门店照片（D-18：上限 6 张、每张 /static/images/uploads/ 前缀白名单，后缀 ≤140 → 整体必落 VARCHAR(1000)；空数组=清空） */
     @Size(max = 6, message = "门店照片最多 6 张")
     private List<@NotNull(message = "门店照片不能为空")
-            @Pattern(regexp = "^/static/images/uploads/.{1,140}$",
+            // BE-11（F-18.20 J 行）：与 StoreApplyCreateDTO.proofPhotos 同一条正则同步改——
+            // (?!.*\.\.) 拒目录穿越、[^?#] 拒查询串/锚点（原 `.{1,140}` 两者都能吃进去）
+            @Pattern(regexp = "^/static/images/uploads/(?!.*\\.\\.)[^?#]{1,140}$",
                      message = "门店照片必须是平台上传件路径（/static/images/uploads/ 开头，且不超过 162 字符）") String> photos;
 }

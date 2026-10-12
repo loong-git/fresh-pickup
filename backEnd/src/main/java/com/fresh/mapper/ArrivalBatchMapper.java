@@ -50,11 +50,14 @@ public interface ArrivalBatchMapper extends BaseMapper<ArrivalBatch> {
     int confirmById(@Param("id") Long id, @Param("storeIds") List<Long> storeIds);
 
     /**
-     * 确认失败后的定性预读：<b>只取 id/store_id/status/confirm_time 四列</b>，按主键取（归属判定交给 Service 比集合，
-     * 「他店批次」与「不存在」都落同一个 404 文案，不做区分、不泄漏行存在性）。
+     * 确认失败后的定性预读：<b>只取 id/store_id/status/confirm_time 四列</b>，按主键 + <b>归属集合</b>取
+     * （BE-12，F-18.20 K 行：判定写进 SQL——{@code store_id IN (…)} 与主键同条，摘不掉；
+     * Service 侧内存比集合保留作纵深）。「他店批次」与「不存在」都落 null → 同一个 404 文案，不泄漏行存在性。
      * confirm_time 一并取是为了幂等分支也能把已确认时间回给出参（重复确认不再写第二行 ops_log）。
+     * <p>形态照本文件 confirmById：{@code <script>} + foreach（归属只来自 ATTR_PARTNER_STORE_IDS，RF）。
      */
-    @Select("SELECT id AS id, store_id AS storeId, status AS status, confirm_time AS confirmTime "
-            + "FROM arrival_batch WHERE id = #{id}")
-    Map<String, Object> selectForConfirm(@Param("id") Long id);
+    @Select("<script>SELECT id AS id, store_id AS storeId, status AS status, confirm_time AS confirmTime "
+            + "FROM arrival_batch WHERE id = #{id} "
+            + "AND store_id IN <foreach item='sid' collection='storeIds' open='(' separator=',' close=')'>#{sid}</foreach></script>")
+    Map<String, Object> selectForConfirm(@Param("id") Long id, @Param("storeIds") List<Long> storeIds);
 }
