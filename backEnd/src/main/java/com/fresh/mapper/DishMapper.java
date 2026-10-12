@@ -150,4 +150,66 @@ public interface DishMapper extends BaseMapper<Dish> {
             + "JOIN free_activity fa ON fa.id = fp.activity_id "
             + "WHERE d.merchant_id = #{merchantId}")
     long countFreeActivities(@Param("merchantId") Long merchantId);
+
+    // ------------------------------------------------------------------
+    // F-20.18 Step 5b-1｜运营端商品列表（GET /api/admin/v2/dishes，只读）。纪律与上方 F-19 那一组、
+    // 与 AdminAuditLogMapper 的 F-20.16 一组同构，此处只列新增要点：
+    // 1) <b>没有归属条件</b>是本批的语义本身（F-20.17 事实 1：运营要的是全量，商家侧那些恒带
+    //    d.merchant_id = #{merchantId} 的读路径绝不许拿过来凑数），所以 merchantId 在这里只是<b>筛选</b>，
+    //    不是归属闸门；闸门在 Controller 那把 requireAdminJwtOnly。
+    // 2) RB：页 + 独立 COUNT 两条手写 SQL；D-16：两条 WHERE 逐字相同 = 下面这一个编译期常量串。
+    // 3) D-9/D-17：筛选一律精确等值（merchantId/onSale/category），零 LIKE、零 <script>、零 @SelectProvider；
+    //    形态 (#{x} IS NULL OR col = #{x})，null 短路；同参数绑两次是既定代价。值只走 #{} 绑定、列名一律常量。
+    // 4) D-18：create_time/update_time 一律 DATE_FORMAT 取串（createdAt 判例）；price/seckill_price 取原始 DECIMAL，
+    //    由 Service 的 moneyText 统一两位小数字符串。on_sale/seckill 出 0/1 原值，映射文案归页面（D-18）。
+    // 5) 本批不做商品关键字搜索（D-17 钉死「登记为边界，不许顺手加个搜索框」）——上方 selectIdsByFulltext 是
+    //    <b>C 端</b>检索链路用的，与运营列表是两套口径，这里既不引它、也不在此开 LIKE。
+    // ------------------------------------------------------------------
+
+    /**
+     * F-20.18 D-16：dish 面 COUNT 与页两条 SQL 的 WHERE <b>必须逐字相同</b>，用同一个编译期常量串作唯一来源。
+     * 三个筛选全可 null（null = 该条件短路不生效）：{@code merchantId} 等值、{@code onSale} ∈ {0,1}
+     * （值域在 Service 拦白名单，本层只等值）、{@code category} 等值（现库 category 是字典 code：
+     * meat/vegetable/…，但库里<b>确有</b>一行非 ASCII 的脏值——见 Service 侧 category 形状闸门的注释）。
+     */
+    String DISH_FILTER_WHERE = "WHERE (#{merchantId} IS NULL OR d.merchant_id = #{merchantId}) "
+            + "AND (#{onSale} IS NULL OR d.on_sale = #{onSale}) "
+            + "AND (#{category} IS NULL OR d.category = #{category})";
+
+    /**
+     * 运营端商品列表的一页（契约 F-20.18）：逐键点名，<b>不选</b> {@code description}（长文本，列表页不展示、
+     * 也不需要它才能改价/补库存/上下架）、不选 {@code tags}/{@code emoji}/{@code bg_color}（纯 C 端渲染装饰位）。
+     * 这是 RD 最小暴露：出参是白名单，不是「整行减几个键」。
+     * <p>{@code soldCount} 出的是 {@code dish.sold_count} 的<b>历史累计</b>销量（与看板窗口无关）——
+     * 同 {@link #selectSeckillDishes} 里 D-7 点名的那条：别名不带 Total 是因为这一列在本页面就是「累计」语义，
+     * 页面文案必须照写「累计销量」，不许当窗口值用。
+     * <p>{@code ORDER BY d.id ASC}：与 selectSeckillDishes 同一套「固定序」（BIGINT 自增主键 = 全序稳定，
+     * 翻页不重复不漏）。不按 update_time 排：那是 ON UPDATE 自动列，改价即跳页首，页面会逐字打脸「上一页还看到的行
+     * 下一页又出现一次」。
+     * <p>offset/size 由 Service 算好并校验过界（越界脏值 400、不夹到边界），本条不做任何兜底。
+     */
+    @Select("SELECT d.id AS id, d.name AS name, d.price AS price, d.stock AS stock, "
+            + "d.on_sale AS onSale, d.sold_count AS soldCount, d.category AS category, d.unit AS unit, "
+            + "d.image AS image, d.good_rate AS goodRate, d.seckill AS seckill, "
+            + "d.seckill_price AS seckillPrice, d.limit_buy AS limitBuy, d.merchant_id AS merchantId, "
+            + "DATE_FORMAT(d.create_time, '%Y-%m-%d %H:%i:%s') AS createTime, "
+            + "DATE_FORMAT(d.update_time, '%Y-%m-%d %H:%i:%s') AS updateTime "
+            + "FROM dish d "
+            + DISH_FILTER_WHERE + " "
+            + "ORDER BY d.id ASC "
+            + "LIMIT #{offset}, #{size}")
+    List<Map<String, Object>> selectDishesPage(@Param("merchantId") Long merchantId,
+                                               @Param("onSale") Integer onSale,
+                                               @Param("category") String category,
+                                               @Param("offset") long offset,
+                                               @Param("size") int size);
+
+    /**
+     * 运营端商品列表的总数（独立 COUNT）：WHERE 与 {@link #selectDishesPage} 逐字相同
+     * （同 {@link #DISH_FILTER_WHERE}），仅去掉 SELECT 列表/ORDER BY/LIMIT；三个筛选参数与页那条签名顺序一致。
+     */
+    @Select("SELECT COUNT(*) FROM dish d " + DISH_FILTER_WHERE)
+    long countDishes(@Param("merchantId") Long merchantId,
+                     @Param("onSale") Integer onSale,
+                     @Param("category") String category);
 }

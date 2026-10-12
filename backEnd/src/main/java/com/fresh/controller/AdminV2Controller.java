@@ -13,11 +13,14 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * 运营端 v2 只读面（F-20/G-06 Step 3，D-7）：{@code /api/admin/v2} 下两条 <b>@GetMapping</b>，
- * 大盘四指标 + 审计日志分页。本期 v2 <b>不挂任何写映射</b>（POST/PUT/DELETE 三类一个都不出现），
- * 核销台/商品管理/评价审核/入驻审核四个 P0 页继续消费 {@link AdminController} 的旧 5 端点（D-7 明令不在 v2 重复造写接口）。
+ * 运营端 v2 只读面（F-20/G-06 Step 3，D-7；F-20.18 Step 5b-1 扩到六条）：{@code /api/admin/v2} 下六条
+ * <b>GET 映射</b>——大盘四指标 + 审计日志分页 + 四条运营列表（orders / dishes / reviews / store-applies）。
+ * v2 <b>至今不挂任何写映射</b>（POST/PUT/DELETE 三类一个都不出现，验收断言「写映射 0、GET 映射恰 6」，
+ * 与本文件的注解计数逐字相等）：
+ * 核销台/商品管理/评价审核/入驻审核四个 P0 页的<b>写</b>动作仍走 {@link AdminController} 的旧 5 端点
+ * （D-7 明令不在 v2 重复造写接口），本批给它们的是<b>列表数据源</b>，两者不重叠。
  *
- * <p><b>鉴权只认运营 JWT</b>：两条端点第一行调 {@link AdminController#requireAdminJwtOnly}（F-20.6 第 6 条备好的那把闸门，
+ * <p><b>鉴权只认运营 JWT</b>：六条端点第一行调 {@link AdminController#requireAdminJwtOnly}（F-20.6 第 6 条备好的那把闸门，
  * 本期首次派活；闸门方法留在 AdminController 里<b>只有一份</b>，不在此复制三重判定）。
  * {@code X-Admin-Key} 静态密钥在 v2 上<b>一律 401</b>（D-2「防止新代码更弱」），401 文案仍是 RE 红线那一句
  * 「管理密钥缺失或错误」，逐字节未变。
@@ -31,12 +34,14 @@ import java.util.Map;
  * 那两处 setAttribute（:89/:98）在 admin 面根本走不到——也就是说 v2 上 USER 维度<b>永远</b>是「按 IP 记账、
  * 却挂着 user: 前缀」的假象（不会 NPE，但既不是按运营账号也不是按用户，还比 IP 更容易被误读成按人限流）。
  * 想按 operator 限流就得往 admin 面注入 ATTR_USER_ID，那正是 BE-20-1 明令禁止的越权面。
- * 故两条都显式写 {@code keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60}（RF 随建随挂）。
+ * 故六条都显式写 {@code keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60}（RF 随建随挂，
+ * 新增四条同 v2 现档，D-14）。
  *
- * <p>参数一律 {@code @RequestParam} 而非 DTO（两个都是纯读、0-2 个参数，同 {@code MerchantOrderController} 的姿势）；
+ * <p>参数一律 {@code @RequestParam} 而非 DTO（六条都是纯读、0-5 个参数，同 {@code MerchantOrderController} 的姿势）；
  * 没有任何归属入参，也不接受任何「操作者身份」入参——身份只从 header 来。
- * 脏值（非法 date / pageNum / pageSize）由 Service 抛 400，复用既有文案；类型不匹配交
- * {@code GlobalExceptionHandler} 转 400。出参为 Service 逐键重拼的手工白名单 Map，HTTP 恒 200、业务码只看 body.code。
+ * 脏值（非法 date / pageNum / pageSize / 白名单外的筛选值）由 Service 抛 400，复用既有文案；类型不匹配
+ * （如 {@code ?storeId=abc} 绑不进 Long）交 {@code GlobalExceptionHandler:70} 转 400。
+ * 出参为 Service 逐键重拼的手工白名单 Map（含脱敏与「不查询」两层），HTTP 恒 200、业务码只看 body.code。
  */
 @RestController
 @RequestMapping("/api/admin/v2")
@@ -78,7 +83,8 @@ public class AdminV2Controller {
      * <b>{@code ip} 不下发</b>（RD 最小暴露，SQL 侧连列都没查）。只读动作不写审计（RF 只约束写动作）。
      * <p>F-20.16（收 G-06 DoD ④）四个<b>可选、精确等值</b>筛选 {@code actor}/{@code action}/{@code targetType}/{@code targetId}：
      * 一律 {@code @RequestParam(required=false)}、全可缺省（缺省 = 不筛）；形状闸门与非空校验在 Service 层
-     * （脏形状 → 400，复用既有文案）。<b>闸门、限流注解、返回类型一律不动</b>，v2 面仍恰 2 条 {@code @GetMapping}、0 写映射。
+     * （脏形状 → 400，复用既有文案）。<b>闸门、限流注解、返回类型一律不动</b>，本条自身仍是 0 写映射
+     * （F-20.16 当时面上恰 2 条 GET 映射，F-20.18 追加四条后共 6 条，见类注释）。
      */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     @GetMapping("/audit-logs")
@@ -94,5 +100,118 @@ public class AdminV2Controller {
             return denied;
         }
         return R.ok(adminV2Service.auditLogs(pageNum, pageSize, actor, action, targetType, targetId));
+    }
+
+    /**
+     * 运营端订单列表（F-20.18，{@code GET /api/admin/v2/orders}，核销台的数据源）：
+     * {@code ?pageNum=&pageSize=&status=&storeId=&date=} →
+     * {@code {list:[{id,totalPrice,address,phone,pickupDate,status,createTime,updateTime,storeId,storeName,storeAddress,payStatus,payTime}], total, pageNum, pageSize, filters:{status,storeId,date}}}。
+     * <p>闸门/限流/返回类型与前两条<b>逐字同一套</b>（D-14）：{@code requireAdminJwtOnly} 复用、不复制第二份三重判定；
+     * 分页照 {@code auditLogs} 那一套（D-16：pageNum≥1、pageSize∈[1,100] 缺省 20、越界与脏值一律 400 不夹取、
+     * {@code offset>=total} 短路回空 list）；取数是 {@code OrderMapper} 的「页 + 独立 COUNT」两条手写 SQL
+     * （RB：本工程没装 MP 分页插件，那条分页通道会静默回全量且 total=0，故一律不用；
+     * 两条 WHERE 共用 {@code ORDER_FILTER_WHERE} 那个编译期常量串）。
+     * <p>三个筛选全<b>可选、精确等值</b>（D-17，本批零 LIKE、不做关键字搜索）：
+     * {@code status} ∈ 三态白名单（白名单外 400）、{@code storeId} 等值、{@code date=YYYY-MM-DD} 按
+     * {@code create_time} 自然日（与 {@code overview} 同窗口口径，缺省=不限，非法形状/假日期 400）。
+     * <p><b>脱敏面（D-15）</b>：{@code phone} 出 {@code PhoneMask.mask} 的掩码值；{@code pickup_code}（取货码=核销凭证）、
+     * {@code user_id}、{@code client_request_id} <b>禁下发</b>，在 SQL 层连列都没选。
+     * 只读动作不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
+    @GetMapping("/orders")
+    public R<Map<String, Object>> orders(@RequestHeader(value = "Authorization", required = false) String authz,
+                                          @RequestParam(required = false) Integer pageNum,
+                                          @RequestParam(required = false) Integer pageSize,
+                                          @RequestParam(required = false) String status,
+                                          @RequestParam(required = false) Long storeId,
+                                          @RequestParam(required = false) String date) {
+        R<Map<String, Object>> denied = adminController.requireAdminJwtOnly(authz);
+        if (denied != null) {
+            return denied;
+        }
+        return R.ok(adminV2Service.orders(pageNum, pageSize, status, storeId, date));
+    }
+
+    /**
+     * 运营端商品列表（F-20.18，{@code GET /api/admin/v2/dishes}，商品管理台的数据源；一期<b>只改不建</b>——
+     * 平台侧本就没有「新建商品」端点，见 F-20.17 事实 3 附注）：
+     * {@code ?pageNum=&pageSize=&merchantId=&onSale=&category=} →
+     * {@code {list:[{id,name,price,stock,onSale,soldCount,category,unit,image,goodRate,seckill,seckillPrice,limitBuy,merchantId,createTime,updateTime}], total, pageNum, pageSize, filters:{merchantId,onSale,category}}}。
+     * <p>闸门/限流/分页/取数与 {@code /orders} 同一套（D-14/D-16/RB），两条 SQL 共用
+     * {@code DishMapper.DISH_FILTER_WHERE}。
+     * <p>三个筛选（D-17）：{@code merchantId} 等值（本面是<b>筛选</b>不是归属闸门——运营要的是全量语义，
+     * 绝不许拿 {@code /api/merchant/**} 那种恒带归属谓词的接口凑数，F-20.17 事实 1）、
+     * {@code onSale} ∈ {0,1}（其余值 400）、{@code category} 等值（先过形状闸门）。
+     * <b>没有</b>关键字搜索参数：D-17 把「商品搜索框」明确登记为边界，不许顺手加。
+     * <p>{@code onSale}/{@code seckill} 出 0/1 原值由页面映射文案（D-18）；{@code price}/{@code seckillPrice}
+     * 是服务端定形两位小数字符串；{@code description/tags/emoji/bg_color} 不选（RD 最小暴露）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
+    @GetMapping("/dishes")
+    public R<Map<String, Object>> dishes(@RequestHeader(value = "Authorization", required = false) String authz,
+                                          @RequestParam(required = false) Integer pageNum,
+                                          @RequestParam(required = false) Integer pageSize,
+                                          @RequestParam(required = false) Long merchantId,
+                                          @RequestParam(required = false) Integer onSale,
+                                          @RequestParam(required = false) String category) {
+        R<Map<String, Object>> denied = adminController.requireAdminJwtOnly(authz);
+        if (denied != null) {
+            return denied;
+        }
+        return R.ok(adminV2Service.dishes(pageNum, pageSize, merchantId, onSale, category));
+    }
+
+    /**
+     * 运营端评价审核队列（F-20.18，{@code GET /api/admin/v2/reviews}）：
+     * {@code ?pageNum=&pageSize=&auditStatus=} →
+     * {@code {list:[{id,dishId,rating,content,reviewer,auditStatus,createTime}], total, pageNum, pageSize, filters:{auditStatus}}}。
+     * <p>闸门/限流/分页/取数同前（D-14/D-16/RB），两条 SQL 共用 {@code ReviewMapper.REVIEW_FILTER_WHERE}。
+     * <p>{@code auditStatus} 是两枚 <b>UI 伪值</b>（D-17）：{@code pending}（待人工复审）与 {@code visible}（展示中），
+     * SQL 侧映射钉死 {@code pending → audit_status='pending'}、{@code visible → audit_status IS NULL}，
+     * 白名单外一律 400。<b>没有第三档</b>：{@code AdminServiceImpl#auditReview} 的 reject 是物理删行，
+     * 库里不存在「已驳回」这一态（页面文案也绝不许写「已驳回列表」）。
+     * <p>{@code filters.auditStatus} 回的是<b>UI 伪值本身</b>（D-19），行里的 {@code auditStatus} 是库里原值
+     * （{@code 'pending'} 或 {@code null}=展示中）。{@code user_id} <b>禁下发</b>（D-15，SQL 层就没选）。
+     * <p>现库 {@code review} <b>0 行</b>是实况：本条要正常回 {@code {list:[],total:0}} 而不是 500
+     * （页 SQL 由 {@code offset>=total} 短路根本不执行，COUNT 对空表回 0）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
+    @GetMapping("/reviews")
+    public R<Map<String, Object>> reviews(@RequestHeader(value = "Authorization", required = false) String authz,
+                                          @RequestParam(required = false) Integer pageNum,
+                                          @RequestParam(required = false) Integer pageSize,
+                                          @RequestParam(required = false) String auditStatus) {
+        R<Map<String, Object>> denied = adminController.requireAdminJwtOnly(authz);
+        if (denied != null) {
+            return denied;
+        }
+        return R.ok(adminV2Service.reviews(pageNum, pageSize, auditStatus));
+    }
+
+    /**
+     * 运营端入驻申请列表（F-20.18，{@code GET /api/admin/v2/store-applies}，入驻审核工作台的数据源）：
+     * {@code ?pageNum=&pageSize=&status=} →
+     * {@code {list:[{id,proposedName,proposedAddress,lng,lat,service,contactName,contactPhone,status,auditRemark,auditedAt,createdAt}], total, pageNum, pageSize, filters:{status}}}。
+     * <p>闸门/限流/分页/取数同前（D-14/D-16/RB），两条 SQL 共用 {@code StoreApplyMapper.STORE_APPLY_FILTER_WHERE}。
+     * <p>{@code status} 三态白名单 {@code pending}/{@code approved}/{@code rejected}（DEFAULT pending，init.sql:414），
+     * 白名单外 400（D-17）。
+     * <p><b>脱敏面（D-15）</b>：{@code contactPhone} 出 {@code PhoneMask.mask} 的掩码值（该列可空，null 原样回 null）；
+     * {@code proof_photos} <b>不下发</b>（执照图匿名映射仍是 §9 悬项）、{@code user_id} 不下发、
+     * 生成列 {@code pending_guard} <b>绝不 SELECT</b>——三者都在 SQL 层就「不查询」。
+     * {@code lng/lat} 与 {@code store_address}（{@code /orders} 面）一样按契约可下发：自提点坐标不是个人信息。
+     * <p>现库 {@code store_apply} <b>0 行</b>是实况，同 {@code /reviews}：回 {@code {list:[],total:0}} 而不是 500。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
+    @GetMapping("/store-applies")
+    public R<Map<String, Object>> storeApplies(@RequestHeader(value = "Authorization", required = false) String authz,
+                                               @RequestParam(required = false) Integer pageNum,
+                                               @RequestParam(required = false) Integer pageSize,
+                                               @RequestParam(required = false) String status) {
+        R<Map<String, Object>> denied = adminController.requireAdminJwtOnly(authz);
+        if (denied != null) {
+            return denied;
+        }
+        return R.ok(adminV2Service.storeApplies(pageNum, pageSize, status));
     }
 }
