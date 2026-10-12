@@ -1,4 +1,4 @@
-// 路由（F-20.11 Step 4）：/login、/overview、/audit-logs 三页 + 一条全局前置守卫。
+// 路由（F-20.11 Step 4 的三页 + F-20.22 Step 5b-2 的四页 = /login 与六个业务页）+ 一条全局前置守卫。
 // 依赖方向是单向的：router → api，api 绝不 import router（否则成 api → router → views → api 的静态循环，
 // 与本仓三端 main.js ↔ api 的做法同构）——api 层 401 要跳 /login，靠的是本模块末尾注册的回调。
 // 三页一律动态 import（懒加载），首屏包只装壳。
@@ -27,7 +27,34 @@ const routes = [
     component: () => import('../views/AuditLogs.vue'),
     meta: { requiresAuth: true }
   },
-  // 未知路径统一改道大盘：运营端只有两页，写死第四种落点不如回到已知态
+  // F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 的 v2 只读列表 + 一个 AdminController 旧写端点）。
+  // 与既有两页同一套 requiresAuth: true —— 守卫读的是同一个 getStoredToken()，四页新页不必各写一条守卫。
+  // 四页一律动态 import：核销台/商品管理/评价审核/入驻审核各自的表与写侧文案不进首屏包。
+  {
+    path: '/orders',
+    name: 'orders',
+    component: () => import('../views/Orders.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/dishes',
+    name: 'dishes',
+    component: () => import('../views/Dishes.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/reviews',
+    name: 'reviews',
+    component: () => import('../views/Reviews.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/store-applies',
+    name: 'store-applies',
+    component: () => import('../views/StoreApplies.vue'),
+    meta: { requiresAuth: true }
+  },
+  // 未知路径统一改道大盘：运营端没有为第四种落点写死文案，回到已知态更实在
   { path: '/:pathMatch(.*)*', redirect: '/overview' }
 ]
 

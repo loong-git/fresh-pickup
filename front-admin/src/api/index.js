@@ -262,3 +262,192 @@ export function getAdminAuditLogs(pageNum, pageSize, filters) {
     method: 'GET'
   })
 }
+
+// ==================== v2 四条只读列表（F-20.22 Step 5b-2 的四个 P0 页的数据源，5b-1 已交付） =====
+// 四条共用同一外层形态：{list, total, pageNum, pageSize, filters}，filters 里**未传的键恒为 null**（D-19）。
+// 分页/筛选纪律与 audit-logs 逐字同一套（D-16/D-17）：pageNum≥1、pageSize∈[1,100] 缺省 20、
+// 越界与脏值一律 400 **不夹取**、筛选全是「精确等值」（本面零 LIKE、没有关键字搜索参数）。
+// 400 在服务端有**两句**原文（AdminV2ServiceImpl.BAD_REQUEST_MSG「请求参数有误，请检查后重试」
+// 与 GlobalExceptionHandler:70 对类型绑不进去的「参数格式不正确」），请求层只透 message、不猜是哪一句
+// ——判定与并列文案渲染都在页面那两条提示条里（照 FE-G6-6 的修法）。
+// 金额是服务端定形的两位小数**字符串**、时间是 DATE_FORMAT 定形的 "YYYY-MM-DD HH:mm:ss" 字符串（D-18），
+// 本层不做任何换算/格式化，页面原样显示。phone / contactPhone 已在服务端过 PhoneMask（D-15），
+// 本层与页面都不许拼回明文。
+
+/**
+ * 运营端订单列表（核销台数据源）：GET /api/admin/v2/orders
+ * 行内键（AdminV2ServiceImpl:280-292 逐键重拼的白名单，AdminV2Controller 的 javadoc 同一份）：
+ * id,totalPrice,**address**,phone,pickupDate,status,createTime,updateTime,storeId,storeName,storeAddress,payStatus,payTime。
+ * ⚠ `pickup_code` / `user_id` / `client_request_id` 三键在 SQL 层连列都没 SELECT（D-15 禁下发），
+ *   页面不许凭空造这三列。`id` 是 **19 位雪花 id、JSON 里就是字符串**，本层与页面一律原样透传、绝不 Number()。
+ * 排序 create_time DESC, id DESC。
+ * @param {number} pageNum 从 1 起
+ * @param {number} pageSize ∈ {10,20,50,100}
+ * @param {{status?:string, storeId?:string|number, date?:string}} [filters]
+ *        status ∈ pending_pickup|completed|cancelled（服务端先 toLowerCase 再过白名单，BE-G6-2）；
+ *        storeId 等值；date=YYYY-MM-DD 按 create_time 的自然日（缺省=不限，「今日」由服务端决定，前端不推算）
+ */
+export function getAdminOrders(pageNum, pageSize, filters) {
+  const f = filters || {}
+  return request({
+    url: withQuery('/api/admin/v2/orders', {
+      pageNum,
+      pageSize,
+      status: f.status,
+      storeId: f.storeId,
+      date: f.date
+    }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 运营端商品列表（商品管理台数据源，一期**只改不建**——Admin 面本就没有「新建商品」端点，F-20.17 事实 3 附注）：
+ * GET /api/admin/v2/dishes
+ * 行内键：id,name,price,stock,onSale,soldCount,category,unit,image,goodRate,seckill,seckillPrice,limitBuy,
+ * merchantId,createTime,updateTime。onSale/seckill 出 0/1 原值由页面映射文案（D-18）；
+ * seckillPrice 非秒杀恒 null；goodRate 是服务端算好的 "94.3%" 串（可为 null），不二次格式化。
+ * 排序 id ASC（不是新建在前）。
+ * ⚠ 没有关键字搜索参数（D-17 把「商品搜索框」登记为边界，不许顺手加）。
+ * @param {{merchantId?:string|number, onSale?:string|number, category?:string}} [filters]
+ *        onSale ∈ {0,1}；category 精确等值且**允许中文**（库里确有一行分类是「蔬菜」，BE-G6-1 已将闸门放宽到
+ *        「长度 ≤64 且不含控制字符」，所以点分类名不会是 400）
+ */
+export function getAdminDishes(pageNum, pageSize, filters) {
+  const f = filters || {}
+  return request({
+    url: withQuery('/api/admin/v2/dishes', {
+      pageNum,
+      pageSize,
+      merchantId: f.merchantId,
+      onSale: f.onSale,
+      category: f.category
+    }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 运营端评价队列（评价审核页数据源）：GET /api/admin/v2/reviews
+ * 行内键：id,dishId,rating,content,reviewer,auditStatus,createTime。
+ * ⚠ **没有 dishName**（AdminServiceImpl 侧不 JOIN dish，ReviewMapper 的注释点名「菜品名由同批的 dishes 列表
+ *   在前端对齐」）→ 要显示菜品名只能拿 getAdminDishes 的 id→name 映射，绝不为此改后端。
+ * ⚠ `user_id` 禁下发（D-15）。
+ * auditStatus 行里是**库里原值**：'pending'=待人工复审、null=展示中；库里不存在「已驳回」这一态
+ * （reject 是 deleteById 物理删行），页面文案绝不许写「已驳回列表」。
+ * @param {{auditStatus?:string}} [filters] 两枚 UI 伪值：pending → audit_status='pending'、
+ *        visible → audit_status IS NULL（D-17 钉死的 SQL 映射）；白名单外 400。filters 回的是伪值本身（D-19）
+ */
+export function getAdminReviews(pageNum, pageSize, filters) {
+  const f = filters || {}
+  return request({
+    url: withQuery('/api/admin/v2/reviews', {
+      pageNum,
+      pageSize,
+      auditStatus: f.auditStatus
+    }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 运营端入驻申请列表（入驻审核页数据源）：GET /api/admin/v2/store-applies
+ * 行内键：id,proposedName,proposedAddress,lng,lat,service,contactName,contactPhone,status,auditRemark,
+ * auditedAt,createdAt。
+ * ⚠ `proof_photos`（执照图，§9 悬项未拍板）、`user_id`、生成列 `pending_guard` 三者在 SQL 层就不查询，
+ *   页面没有「查看资质材料」这一列可用——这是实况，不是缺陷，也不许从别处凑。
+ * contactPhone 过 PhoneMask（可空列：null 原样回 null）。排序 id DESC。
+ * @param {{status?:string}} [filters] status ∈ pending|approved|rejected（三态白名单，大小写不敏感，BE-G6-2）
+ */
+export function getAdminStoreApplies(pageNum, pageSize, filters) {
+  const f = filters || {}
+  return request({
+    url: withQuery('/api/admin/v2/store-applies', {
+      pageNum,
+      pageSize,
+      status: f.status
+    }),
+    method: 'GET'
+  })
+}
+
+// ==================== 旧面四个写端点（AdminController，运营 JWT 第二轨，F-20.17 事实 2 已实测整条链路） =====
+// 路径里的 id 一律 encodeURIComponent(String(id)) 原样透传：orders.id 是 19 位雪花 id，
+// 一旦 Number() 化就丢精度（…4738 → …4000 之类），打过去必然 404「订单不存在」——那是前端造的假故障。
+// Authorization 由上面的 request() 在 token 存在时自动挂（本层唯一的挂头处），
+// method≠GET → isSubmit → 走 **TIMEOUT_SUBMIT 20s** 提交档（纪律 1）。
+// ⚠ 这四个端点带 @RateLimit(IP, 10 次/60s)，**比只读列表的 30 次/分更紧**；
+//   写成功与否由页面重拉列表核对，绝不本地改行（纪律 3）。
+
+/**
+ * 订单核销/取消：PUT /api/admin/orders/{id}/status，body {status}
+ * @param {string} id 订单 id（**服务端回的原样字符串**，19 位雪花，绝不 Number()）
+ * @param {string} status 'completed'（核销）| 'cancelled'（取消）；其余值服务端 400
+ *        「status 仅允许 completed（核销）或 cancelled（取消）」；查无此单 404「订单不存在」；
+ *        非 pending_pickup 的单 400「当前状态不可变更（仅待自提订单可核销/取消）」
+ * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「订单状态已更新」
+ */
+export function updateAdminOrderStatus(id, status) {
+  return request({
+    url: '/api/admin/orders/' + encodeURIComponent(String(id)) + '/status',
+    method: 'PUT',
+    data: { status }
+  })
+}
+
+/**
+ * 商品改价/补库存/上下架：PUT /api/admin/dishes/{id}，body {price?, stock?, onSale?}（**部分更新**）
+ * 只下发运营实际填过的那几项（服务端语义是「传了才更新」，三项都不传 → 400「无更新字段（可传 price / stock / onSale）」，
+ * 该 400 在 setCount==0 处抛、不触库，是零副作用的诚实回答，页面原样渲染即可）。
+ * @param {number|string} id 菜品 id（列表里的数字 id）
+ * @param {{price?:number, stock?:number, onSale?:number}} patch
+ *        price @DecimalMin 0.01「价格必须大于 0」；stock @Min 0「库存不能为负数」且是**直接置值**不是累加；
+ *        onSale @Min0 @Max1「onSale 仅允许 0（下架）或 1（上架）」；查无此菜 404「菜品不存在」
+ * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「商品已更新」
+ */
+export function updateAdminDish(id, patch) {
+  return request({
+    url: '/api/admin/dishes/' + encodeURIComponent(String(id)),
+    method: 'PUT',
+    data: patch || {}
+  })
+}
+
+/**
+ * 评价审核：PUT /api/admin/reviews/{id}/audit，body {action}
+ * @param {number|string} id 评价 id
+ * @param {string} action 'approve'（过审：audit_status 置 NULL 恢复展示，可重复执行）
+ *        | 'reject'（驳回：**deleteById 物理删行，不可恢复**）；
+ *        其余值 400「action 仅允许 approve（过审展示）或 reject（驳回删除）」；查无此评价 404「评价不存在」
+ * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「评价已审核」
+ */
+export function auditAdminReview(id, action) {
+  return request({
+    url: '/api/admin/reviews/' + encodeURIComponent(String(id)) + '/audit',
+    method: 'PUT',
+    data: { action }
+  })
+}
+
+/**
+ * 入驻申请审核：PUT /api/admin/store-applies/{id}/audit，body {action, remark?}
+ * 服务端读的是 @RequestBody Map<String,String> 的 action / remark 两个键（**无 DTO**，
+ * 姿势照 PartnerController#verify），所以本层只发字符串值，remark 为空时**整个键不下发**
+ * （不传 = 服务端不 SET audit_remark，避免把空串写进留痕列）。
+ * @param {number|string} id 申请 id
+ * @param {string} action 'approve'（同事务置态 + INSERT store + 把 store.owner_user_id 绑成申请人，
+ *        **不可翻转、不可用 SQL 代办、本页面无法回滚**）| 'reject'（只置 rejected + 留 audit_remark）
+ * @param {string} [remark] 审核意见，可空；>255 字服务端 400「审核意见不能超过 255 字」
+ *        其余失败：400「action 仅允许 approve（过审并发布门店）或 reject（驳回）」、
+ *        400「该申请已审核完成，不可再次审核」、404「申请不存在」
+ * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「申请已审核」
+ */
+export function auditAdminStoreApply(id, action, remark) {
+  const body = { action }
+  if (remark !== '' && remark !== null && remark !== undefined) body.remark = String(remark)
+  return request({
+    url: '/api/admin/store-applies/' + encodeURIComponent(String(id)) + '/audit',
+    method: 'PUT',
+    data: body
+  })
+}
