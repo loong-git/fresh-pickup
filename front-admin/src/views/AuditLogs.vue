@@ -2,7 +2,9 @@
   <div class="page">
     <h2 class="page-title">审计记录</h2>
     <p class="page-note">
-      Admin 侧写动作的留痕（谁、做了什么、对哪一条），按 id 倒序分页；服务端手写 LIMIT/OFFSET + 独立 COUNT。
+      Admin 侧写动作的留痕（谁、做了什么、对哪一条），按 id 倒序分页；服务端手写 LIMIT/OFFSET + 独立 COUNT。<br />
+      可用「操作者 / 动作 / 目标类型 / 目标 ID」四个筛选，<b>均为精确等值（不是模糊搜索），且不区分大小写</b>；
+      「目标 ID」同样是精确等值。筛选后「共 N 条」与列表来自同一 WHERE 的独立 COUNT（同源，D-10）。
     </p>
 
     <div v-if="viewState === 'loading'" class="state-box">
@@ -26,6 +28,22 @@
     </div>
 
     <template v-else>
+      <!-- F-20.16 四个精确等值筛选（文本输入即可，不引新组件）+ 重置。
+           @change 在失焦/回车时触发（不是每次按键），配合下方 onFilterChange 把页码回第 1 页后重查；
+           空串由请求层 withQuery 挡下、不下发（服务端按「不筛」处理）。筛选变化沿用 FE-G6-3 的在飞守卫。 -->
+      <div class="toolbar">
+        <el-input v-model="filters.actor" size="small" class="filter-input" clearable
+                  placeholder="操作者（精确，不区分大小写）" @change="onFilterChange" />
+        <el-input v-model="filters.action" size="small" class="filter-input" clearable
+                  placeholder="动作（精确，如 dish.update）" @change="onFilterChange" />
+        <el-input v-model="filters.targetType" size="small" class="filter-input" clearable
+                  placeholder="目标类型（精确，如 dish）" @change="onFilterChange" />
+        <el-input v-model="filters.targetId" size="small" class="filter-input" clearable
+                  placeholder="目标 ID（精确等值）" @change="onFilterChange" />
+        <el-button size="small" type="primary" @click="onFilterChange">查询</el-button>
+        <el-button size="small" @click="onReset">重置</el-button>
+      </div>
+
       <el-table :data="rows" border stripe size="small" class="table">
         <!-- 空表 → 「暂无审计记录」，不是报错：后端空表回的是 {list:[],total:0}（F-20.10 实测不 500） -->
         <template #empty>
@@ -61,9 +79,11 @@
 </template>
 
 <script setup>
-// 审计日志分页（F-20.11 Step 4）：GET /api/admin/v2/audit-logs?pageNum=&pageSize=
-// 出参 {list,total,pageNum,pageSize}；行内恰七键 id/actor/action/targetType/targetId/detail/createdAt。
-// ⚠ 出参**没有 ip**（AdminAuditLogMapper:31-35 的 SELECT 连这一列都没查，RD 最小暴露）——
+// 审计日志分页（F-20.11 Step 4 + F-20.16 Step 5a）：
+// GET /api/admin/v2/audit-logs?pageNum=&pageSize=&actor=&action=&targetType=&targetId=
+// 出参 {list,total,pageNum,pageSize,filters}；行内恰七键 id/actor/action/targetType/targetId/detail/createdAt。
+// F-20.16 收 G-06 DoD ④：四个可选**精确等值**筛选（非模糊、不区分大小写），任一变化回第 1 页 + 沿用 FE-G6-3 在飞守卫。
+// ⚠ 出参**没有 ip**（AdminAuditLogMapper 的 SELECT 连这一列都没查，RD 最小暴露）——
 //   表格里不许凭空加这一列，也不许从别处凑。
 // ⚠ pageSize 越界（0 / >100 / 负数）后端是 **400 而不是夹到边界**（F-20.10 追认），
 //   所以可选页大小只能提供 [10,20,50,100]，不给任何越界选项。
@@ -82,6 +102,10 @@ const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(20)
 
+// F-20.16 生效筛选（页面这一份 filters 就是本页筛选态的唯一真源；后端出参 filters 只是回显，不再另建第二处）。
+// 空串由请求层 withQuery 挡下、不下发 → 服务端按「该条件不生效」处理。
+const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
+
 // 各码的「下一步」文案：只给本层能确定的建议，不推断业务原因
 const CODE_HINTS = {
   400: '分页参数不在允许范围内（页码从 1 起、每页 10/20/50/100 四档），请调整后重试。',
@@ -99,7 +123,7 @@ async function load() {
   errorText.value = ''
   errorCode.value = 0
   try {
-    const envelope = await getAdminAuditLogs(pageNum.value, pageSize.value)
+    const envelope = await getAdminAuditLogs(pageNum.value, pageSize.value, filters.value)
     const data = envelope.data || {}
     // total 用后端值（独立 COUNT 的结果），绝不用本页行数推算——那会把「这一页几条」说成「一共几条」
     rows.value = Array.isArray(data.list) ? data.list : []
@@ -140,6 +164,24 @@ function onSizeChange() {
   load()
 }
 
+function onFilterChange() {
+  // 任一筛选变化必须回第 1 页（与 onSizeChange 同因：原页码在新筛选条件下很可能越界，
+  // 后端不回 400 而是回空 list，会被误读成「这一档没数据」）。load() 自带 FE-G6-3 在飞守卫。
+  pageNum.value = 1
+  load()
+}
+
+function onReset() {
+  // 重置 = 清空四个筛选 + 回第 1 页 + 重查（回到无筛选全量）；逐字段清空而非整体替换，
+  // 保持 filters 这一份引用与 v-model 绑定不变。
+  filters.value.actor = ''
+  filters.value.action = ''
+  filters.value.targetType = ''
+  filters.value.targetId = ''
+  pageNum.value = 1
+  load()
+}
+
 onMounted(() => {
   // 首屏这一行是必须的：viewState 初值 'loading' 只用于首屏渲染加载态占位，
   // 若原样进 load() 会被在飞守卫当成「已在飞」而永久早退（一次请求都不发、页面卡在「正在加载」）。
@@ -150,6 +192,17 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* F-20.16 筛选工具条：四个精确等值输入 + 查询/重置，窄屏自动换行，作用域内不污染全局 */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.filter-input {
+  width: 220px;
+}
 .table {
   background: #fff;
   margin-top: 16px;
