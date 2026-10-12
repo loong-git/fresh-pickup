@@ -53,6 +53,8 @@ import java.util.Set;
  * - 订单状态迁移沿用用户端同一套状态机条件 UPDATE（只允许从 pending_pickup 迁出），
  *   重复核销/重复取消幂等返回；置 cancelled 时与用户取消语义一致回补库存（防库存永久少记）。
  * - 商品部分更新：仅 set DTO 中非 null 字段，配合 @Valid 范围校验。
+ * - 审计 actor（F-20.9 #1，R-c 收口）：五个写方法的 actor 不再恒为 {@code admin:<key 摘要>}，
+ *   改由 Controller 显式传入本次是哪条轨放行的行（{@link #auditActor} 归一，静态密钥轨的取值逐字不变）。
  */
 @Slf4j
 @Service
@@ -82,7 +84,8 @@ public class AdminServiceImpl implements AdminService {
     /** 兜底 detail：两侧都装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（BE-2 的硬要求） */
     private static final String AUDIT_MINIMAL_DETAIL = "{\"old\":\"audit truncated\",\"new\":\"audit truncated\"}";
 
-    // ---- F-18.12 第 3 条（入驻申请审核链）新增常量与依赖，本类既有方法体一字未改 ----
+    // ---- F-18.12 第 3 条（入驻申请审核链）新增常量与依赖（那一批没有改动任何既有方法体；
+    //      F-20.9 #1 才给五个写方法各加了 {@code String actor} 形参，见类注释与 {@link #auditActor}）----
 
     /** store_apply 三态（m18 ⑦ 建表口径，照 m15 merchant_profile.audit_status 的三态范式） */
     private static final String APPLY_PENDING = "pending";
@@ -125,7 +128,7 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional
-    public void updateOrderStatus(String orderId, String status) {
+    public void updateOrderStatus(String orderId, String status, String actor) {
         String target = status == null ? "" : status.trim();
         if (!ALLOWED_TARGETS.contains(target)) {
             throw new BizException("status 仅允许 completed（核销）或 cancelled（取消）");
@@ -165,11 +168,11 @@ public class AdminServiceImpl implements AdminService {
         }
         log.info("管理端更新订单状态: orderId={}, {} -> {}", orderId, order.getStatus(), target);
         // R6 补课：审计在置态成功后写（幂等早退分支无状态变化，不产生留痕）
-        writeAudit("admin:" + adminKeyDigest(), "order.status", "order", orderId, order.getStatus(), target);
+        writeAudit(auditActor(actor), "order.status", "order", orderId, order.getStatus(), target);
     }
 
     @Override
-    public void updateDish(Long dishId, AdminDishUpdateDTO dto) {
+    public void updateDish(Long dishId, AdminDishUpdateDTO dto, String actor) {
         Dish dish = dishMapper.selectById(dishId);
         if (dish == null) {
             throw new BizException(404, "菜品不存在");
@@ -195,13 +198,13 @@ public class AdminServiceImpl implements AdminService {
         log.info("管理端更新商品: dishId={}, price={}, stock={}, onSale={}",
                 dishId, dto.getPrice(), dto.getStock(), dto.getOnSale());
         // R6 补课：旧值取方法开头 selectById 快照、新值取本次提交列（未传的列为 null，JSON 里显式留痕）
-        writeAudit("admin:" + adminKeyDigest(), "dish.update", "dish", String.valueOf(dishId),
+        writeAudit(auditActor(actor), "dish.update", "dish", String.valueOf(dishId),
                 "price=" + dish.getPrice() + ",stock=" + dish.getStock() + ",onSale=" + dish.getOnSale(),
                 "price=" + dto.getPrice() + ",stock=" + dto.getStock() + ",onSale=" + dto.getOnSale());
     }
 
     @Override
-    public void auditReview(Long reviewId, String action) {
+    public void auditReview(Long reviewId, String action, String actor) {
         String op = action == null ? "" : action.trim();
         if (!ALLOWED_AUDIT_ACTIONS.contains(op)) {
             throw new BizException("action 仅允许 approve（过审展示）或 reject（驳回删除）");
@@ -224,13 +227,13 @@ public class AdminServiceImpl implements AdminService {
             log.info("管理端驳回删除评价: reviewId={}, dishId={}", reviewId, review.getDishId());
         }
         // R6 补课：审核动作成对留痕（旧值 audit_status 可能为 null=已过审，新值记本次动作）
-        writeAudit("admin:" + adminKeyDigest(), "review.audit", "review", String.valueOf(reviewId),
+        writeAudit(auditActor(actor), "review.audit", "review", String.valueOf(reviewId),
                 review.getAuditStatus(), op);
     }
 
     @Override
     @Transactional
-    public void createMerchant(AdminMerchantCreateDTO dto) {
+    public void createMerchant(AdminMerchantCreateDTO dto, String actor) {
         // 1) 按 phone 查 user；查无 → 400（决策点②：不静默建号——静默建号绕过验证码验证，
         //    建出的 user 无 token 无会话，商家还得再登录一次；拒绝 400 保证绑定的是真实可登录账号）
         User u = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhone, dto.getPhone()));
@@ -279,18 +282,21 @@ public class AdminServiceImpl implements AdminService {
         }
 
         // 4) 审计（R6 红线：Admin 新端点随建随写 admin_audit_log）
-        writeAudit("admin:" + adminKeyDigest(), "merchant.create", "merchant", String.valueOf(m.getId()),
+        writeAudit(auditActor(actor), "merchant.create", "merchant", String.valueOf(m.getId()),
                 null, "name=" + dto.getName() + ",phone=" + maskPhone(dto.getPhone()));
     }
 
     /**
-     * 入驻申请审核（F-18.12 第 3 条，本类唯一新增的写方法；上面四个既有方法体一字未改）。
+     * 入驻申请审核（F-18.12 第 3 条，本类唯一新增的写方法；当时上面四个既有方法体一字未改——
+     * F-20.9 #1 起四个方法各多一个 {@code String actor} 形参、审计那一行的 actor 表达式换成
+     * {@link #auditActor}，除此之外业务体仍是那一批的原样）。
      *
      * <p><b>同事务三写</b>（{@code @Transactional} 覆盖整方法，任一步抛异常整体回滚，不留「已发布却没置态」半态）：
      * ① 条件 UPDATE store_apply 置 approved/rejected + audited_at=NOW()（+ remark，见下方「remark 为 null 时不 SET」）；
      * ② approve 才 INSERT store（名称/地址/坐标/服务/联系电话全部取自申请行，
      *    {@code owner_user_id=申请人} 是这家店归属的<b>唯一</b>生产写入点，m18 ⑪ 那段 UPDATE 只是演示库归位种子）；
-     * ③ admin_audit_log（actor={@code admin:<key 摘要 8>}，D-5 把平台侧动作划给这张表）。
+     * ③ admin_audit_log（actor 由 {@link #auditActor} 归一：静态密钥轨={@code admin:<key 摘要 8>}、
+     *    运营 JWT 轨={@code admin_user:<id>}，F-20.9 #1；D-5 把平台侧动作划给这张表）。
      *
      * <p><b>为什么把条件 UPDATE 排在 INSERT store 前面</b：两者在同一事务里，成败都整体回滚，顺序不影响原子性；
      * 先做带 {@code status='pending'} 的那条 UPDATE 可以让「并发二次审核」在第一步就回 0 行短路掉，
@@ -305,7 +311,7 @@ public class AdminServiceImpl implements AdminService {
      */
     @Override
     @Transactional
-    public void auditStoreApply(Long applyId, String action, String remark) {
+    public void auditStoreApply(Long applyId, String action, String remark, String actor) {
         String op = action == null ? "" : action.trim();
         // 动作白名单复用 ALLOWED_AUDIT_ACTIONS（:61 那份，评价审核与本端点共用，不复制第二份集合）
         if (!ALLOWED_AUDIT_ACTIONS.contains(op)) {
@@ -378,7 +384,7 @@ public class AdminServiceImpl implements AdminService {
                 applyId, op, apply.getUserId(), publishedStoreId);
 
         // ③ 审计（写门店与写申请同事务，审计本身是旁路：writeAudit 双层 try-catch 吞异常，绝不打断主事务）
-        writeAudit("admin:" + adminKeyDigest(), "store_apply.audit", "store_apply", String.valueOf(applyId),
+        writeAudit(auditActor(actor), "store_apply.audit", "store_apply", String.valueOf(applyId),
                 "status=" + apply.getStatus(), newSide);
     }
 
@@ -499,6 +505,23 @@ public class AdminServiceImpl implements AdminService {
             sb.append('\uFFFD');
         }
         return sb == null ? value : sb.toString();
+    }
+
+    /**
+     * 审计 actor 归一（F-20.9 #1，收 R-c「审计 actor 失真」；五个写点的旧表达式 {@code "admin:" + adminKeyDigest()}
+     * 就搬到这里，一处不复制）：
+     * <ul>
+     *   <li>{@code caller} 为空 = 本次由<b>静态密钥</b>放行 → 落 {@code admin:<key 摘要 8>}，
+     *       与 Step 3 之前<b>逐字节相同</b>（旧 curl 脚本 / SQL 手册零感知）；</li>
+     *   <li>{@code caller} 非空 = 本次由<b>运营 JWT</b>放行，Controller 已传 {@code admin_user:<id>}，原样采用。</li>
+     * </ul>
+     * 判空用 isBlank 而非 null：闸门只会给 null 或 {@code admin_user:<id>}，但万一将来某个调用方漏传（传成空），
+     * 退化的方向是「回到今天这枚 actor」而不是「审计行写成 null/空串」——列是 NOT NULL，空串会直接 1048 让整行审计写不进。
+     * <p>本参数<b>只来自 Controller 的显式实参</b>：这里不去 request 属性里翻（BE-20-1 起 admin 面压根不注入
+     * 用户属性，翻不到就是翻不到），也不读 ThreadLocal。
+     */
+    private String auditActor(String caller) {
+        return caller == null || caller.isBlank() ? "admin:" + adminKeyDigest() : caller;
     }
 
     /** 管理密钥摘要（R8 敏感清单纪律）：SHA-256 取前 8 位十六进制，绝不明文落库/入日志 */

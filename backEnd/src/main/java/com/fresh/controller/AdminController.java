@@ -35,6 +35,11 @@ import java.util.Map;
  *   （RE 红线：运维 curl 脚本 / SQL 手册零感知）。
  *   AuthInterceptor 权限矩阵不含 /api/admin/**（唯一例外是匿名放行的 POST /api/admin/auth/login），
  *   此处自行校验，各端点方法第一行调 {@link #checkKeyOrOperator}，第二轨的 JWT 解析见 {@link #activeAdminId}。
+ * - 审计可追溯（F-20.9 #1，收 R-c）：闸门除了「放不放行」还要回「本次是哪条轨放的行」，
+ *   该结果包在 {@link AdminGrant} 里，其 {@code actor} 由每个端点显式传给 AdminService 写 admin_audit_log
+ *   ——<b>静态密钥轨 = null（Service 侧沿用既有 admin:&lt;key 摘要 8&gt;）；运营 JWT 轨 = admin_user:&lt;id&gt;</b>。
+ *   不走 ThreadLocal / request 属性（admin 面压根不注入用户属性，见 BE-20-1），也不把密钥明文/口令/token 拼进去。
+ * - v2 只读面（Step 3）：{@code AdminV2Controller} 挂 /api/admin/v2/**，复用本包的 {@link #requireAdminJwtOnly}。
  * - 运营端点：订单核销/取消、商品改价/补库存/上下架（部分更新）、评价审核（T-M4-05 收口：
  *   命中软词 pending 的评价人工过审/驳回，否则列表默认不展示、永久不可见）、
  *   平台代开通商家（F-12/M-05 一期）、入驻申请审核（F-18.12 第 3 条，第五个端点）。
@@ -74,11 +79,11 @@ public class AdminController {
                                      @RequestHeader(value = "Authorization", required = false) String authz,
                                      @PathVariable("id") String id,
                                      @Valid @RequestBody AdminOrderStatusDTO dto) {
-        R<Void> denied = checkKeyOrOperator(key, authz);
-        if (denied != null) {
-            return denied;
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
         }
-        adminService.updateOrderStatus(id, dto.getStatus());
+        adminService.updateOrderStatus(id, dto.getStatus(), grant.actor());
         return R.ok(null, "订单状态已更新");
     }
 
@@ -89,11 +94,11 @@ public class AdminController {
                               @RequestHeader(value = "Authorization", required = false) String authz,
                               @PathVariable Long id,
                               @Valid @RequestBody AdminDishUpdateDTO dto) {
-        R<Void> denied = checkKeyOrOperator(key, authz);
-        if (denied != null) {
-            return denied;
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
         }
-        adminService.updateDish(id, dto);
+        adminService.updateDish(id, dto, grant.actor());
         return R.ok(null, "商品已更新");
     }
 
@@ -104,11 +109,11 @@ public class AdminController {
                                @RequestHeader(value = "Authorization", required = false) String authz,
                                @PathVariable Long id,
                                @Valid @RequestBody AdminReviewAuditDTO dto) {
-        R<Void> denied = checkKeyOrOperator(key, authz);
-        if (denied != null) {
-            return denied;
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
         }
-        adminService.auditReview(id, dto.getAction());
+        adminService.auditReview(id, dto.getAction(), grant.actor());
         return R.ok(null, "评价已审核");
     }
 
@@ -118,11 +123,11 @@ public class AdminController {
     public R<Void> createMerchant(@RequestHeader(value = "X-Admin-Key", required = false) String key,
                                   @RequestHeader(value = "Authorization", required = false) String authz,
                                   @Valid @RequestBody AdminMerchantCreateDTO dto) {
-        R<Void> denied = checkKeyOrOperator(key, authz);
-        if (denied != null) {
-            return denied;
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
         }
-        adminService.createMerchant(dto);   // 同事务 INSERT merchant + merchant_profile(approved) + UPDATE user
+        adminService.createMerchant(dto, grant.actor());   // 同事务 INSERT merchant + merchant_profile(approved) + UPDATE user
         return R.ok(null, "商家已开通");
     }
 
@@ -141,13 +146,14 @@ public class AdminController {
                                    @RequestHeader(value = "Authorization", required = false) String authz,
                                    @PathVariable("id") Long id,
                                    @RequestBody Map<String, String> body) {
-        R<Void> denied = checkKeyOrOperator(key, authz);
-        if (denied != null) {
-            return denied;
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
         }
         adminService.auditStoreApply(id,
                 body == null ? null : body.get("action"),
-                body == null ? null : body.get("remark"));
+                body == null ? null : body.get("remark"),
+                grant.actor());
         return R.ok(null, "申请已审核");
     }
 
@@ -161,31 +167,66 @@ public class AdminController {
      *   <li>③ 两条都不中 → 返回与从前<b>同一枚 401、同一句文案</b>（RE 红线逐字节不变；也不给
      *       「是密钥错还是 JWT 错」的区分信号——③ 是唯一出口，攻击方无法据此探测哪条轨试过）。</li>
      * </ol>
-     * 通过返回 null（调用方 {@code if (denied != null) return denied;} 的老姿势一字未改）。
+     * <p><b>F-20.9 #1 的返回形态</b：判定结果包进 {@link AdminGrant}（原来只回 {@code R<Void>}，
+     * 拒绝才非 null——那足够挡人，却不足以告诉调用方「这次是哪条轨放的行」，而审计 actor 需要这个信息）。
+     * 调用姿势不变：{@code if (grant.denied() != null) return grant.denied();}，随后把 {@code grant.actor()}
+     * 原样交给 AdminService 写审计。
      * <p>BE-20-1 起 AuthInterceptor 对 {@code /api/admin/} 前缀整体提前放行、不再解析用户 claims
      * （typ=admin 反隔离不适用于本面，ATTR_USER_ID 也不注入），本方法是旧 5 端点唯一的服务端闸门。
      */
-    private R<Void> checkKeyOrOperator(String key, String authz) {
+    private AdminGrant checkKeyOrOperator(String key, String authz) {
         if (adminKeyMatches(key)) {
-            return null;
+            return AdminGrant.byKey();
         }
-        if (activeAdminId(authz) != null) {
-            return null;
+        Long adminId = activeAdminId(authz);
+        if (adminId != null) {
+            return AdminGrant.byAdminUser(adminId);
         }
-        return R.fail(R.CODE_UNAUTHORIZED, "管理密钥缺失或错误");
+        return AdminGrant.rejected(R.fail(R.CODE_UNAUTHORIZED, "管理密钥缺失或错误"));
     }
 
     /**
-     * v2 侧闸门（F-20.6 第 6 条；<b>本期只备不调</b>——Step 3 挂 {@code /api/admin/v2/**} 时用它替换上面的双轨调用）：
+     * 双轨闸门的放行结果（F-20.9 #1；契约给的两种形态里选了「小值对象」，因为 actor 与拒绝信封要一起给，
+     * 只回 {@code Long adminId + boolean byKey} 会把「拼 actor 字符串」这件事推到 5 个调用点各拼一遍）。
+     * <ul>
+     *   <li>{@code denied} 非 null = 拒绝，端点原样返回这枚信封（文案逐字节不变，RE）；</li>
+     *   <li>{@code actor} = 本次的审计操作者标识：<b>静态密钥轨传 null</b>（Service 侧
+     *       {@code AdminServiceImpl#auditActor} 沿用既有 {@code admin:<key 摘要 8>}，逐字与从前相同，
+     *       摘要算法因此保持全仓一处真源，不在本类再复制一份 SHA-256）；
+     *       <b>运营 JWT 轨传 {@code admin_user:<id>}</b>（id 就是 {@link #activeAdminId} 查库确认过 active 的那枚，
+     *       与 {@code AdminAuthServiceImpl:293} 登录审计用的同一枚拼法）。
+     *       两个取值都不含密钥明文、口令、token（RD）。</li>
+     * </ul>
+     */
+    private record AdminGrant(String actor, R<Void> denied) {
+
+        static AdminGrant byKey() {
+            return new AdminGrant(null, null);
+        }
+
+        static AdminGrant byAdminUser(Long adminId) {
+            return new AdminGrant("admin_user:" + adminId, null);
+        }
+
+        static AdminGrant rejected(R<Void> envelope) {
+            return new AdminGrant(null, envelope);
+        }
+    }
+
+    /**
+     * v2 侧闸门（F-20.6 第 6 条，<b>Step 3 起由 {@code AdminV2Controller} 挂用</b>：
      * <b>只认运营 JWT，静态密钥在 v2 上一律 401</b>（D-2「防止新代码更弱」：
      * {@code X-Admin-Key} 是全平台共享、无个体身份、可跨环境复用的那枚串，v2 端点要求「谁做的」可追责到
      * {@code admin_user:<id>}，所以 v2 不接受它；旧 5 端点继续双轨是为兼容存量脚本，见 {@link #checkKeyOrOperator}）。
-     * 401 文案沿用 RE 红线那一句，Step 3 若要为 v2 另立新文案须先回报再改。
+     * 401 文案沿用 RE 红线那一句「管理密钥缺失或错误」，<b>逐字节未改</b>，v2 没有另立新文案（Step 3 未获准改文案）。
      *
-     * <p>{@code @SuppressWarnings("unused")}：Step 2 有意留空挂（本期不挂任何 v2 端点），不是漏接。
+     * <p>方法可见性从 private 放宽到<b>包内</b>（同 {@code com.fresh.controller} 的 AdminV2Controller 复用），
+     * 目的是<b>闸门只有一份</b>：三重判定（Bearer 可解析 + typ=admin + 查库存在且 active）一旦复制成第二份，
+     * 将来收紧一处、漏另一处就是洞。不新建独立 guard 组件是因为本期允许的文件清单里没有那个位置。
+     * <p>泛型 {@code <T>}：v2 端点的返回类型是 {@code R<Map<String,Object>>}，而旧 5 端点是 {@code R<Void>}，
+     * 同一枚拒绝信封要能塞进两种返回类型（{@code R.fail} 本来就是泛型静态工厂，这里只是把类型参数透出来）。
      */
-    @SuppressWarnings("unused")
-    private R<Void> requireAdminJwtOnly(String authz) {
+    <T> R<T> requireAdminJwtOnly(String authz) {
         return activeAdminId(authz) != null
                 ? null
                 : R.fail(R.CODE_UNAUTHORIZED, "管理密钥缺失或错误");
