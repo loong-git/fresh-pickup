@@ -98,7 +98,9 @@ const AUDIT_TEXT = {
 // G-03 交付备货单/数据看板时往这里加一行即可，页面模板与点击分支都不用再改
 const ENTRY_ROUTES = {
   goods: '/pages/dishes/dishes',
-  stock: '/pages/pickup-plan/pickup-plan'
+  stock: '/pages/pickup-plan/pickup-plan',
+  dashboard: '/pages/dashboard/dashboard',
+  marketing: '/pages/marketing/marketing'
 }
 
 export default {
@@ -116,12 +118,13 @@ export default {
       refreshAt: 0,
       // onShow 重拉失败但会话已有商家快照时的降级标记：卡片照常展示，只在卡底追加一行重试提示
       refreshFailed: false,
-      // 三入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
+      // 四入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
       // 可点与否由 ENTRY_ROUTES[entry.key] 决定，本页不再持第二个开关字段（两处真值会打架）
       entries: [
         { key: 'goods', icon: '🛒', title: '商品管理', hint: '上新/改价/库存' },
         { key: 'stock', icon: '📦', title: '备货单', hint: '备货/发货' },
-        { key: 'dashboard', icon: '📊', title: '数据看板', hint: '销量/核销' }
+        { key: 'dashboard', icon: '📊', title: '数据看板', hint: '销量/核销' },
+        { key: 'marketing', icon: '📈', title: '营销参与态', hint: '秒杀/免费领' }
       ]
     }
   },
