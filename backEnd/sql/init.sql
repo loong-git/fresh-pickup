@@ -2,8 +2,8 @@
 -- 生鲜配送小程序 - 数据库初始化脚本
 -- 执行方式：mysql -u root -p < init.sql
 -- ================================================
--- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m17-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
--- 无需再跑 m3~m17 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
+-- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m18-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
+-- 无需再跑 m3~m18 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
 --   m3  dish.on_sale + orders.pickup_date + 六类补齐商品种子（category 注释/image 口径同 m3）
 --   m4  store + user_coupon 表 + orders 自提点快照三列 + dish 秒杀六列 + review.audit_status
 --   m5  user.password_hash
@@ -20,6 +20,10 @@
 --   m16 merchant_store + dish.merchant_id + order_item.merchant_id + store.owner_user_id + idx_merchant/idx_owner
 --   m17 orders.pickup_code + uk_pickup_code + order_item.fulfill_status + ops_log
 --       （F-18/G-04 Step 1；存量取货码回填只在 m17-migration.sql 里做，本文件不回填——见 init.sql 订单明细表注释先例）
+--   m18 store 六列 open_time/close_time/daily_capacity/accepting/contact_phone/photos + store_apply
+--       + arrival_batch（uk_store_date）+ arrival_item（含明日/planned 演示批次两条种子，F-18.10/G-04 Step 4a）
+--       （m18 ⑪ 的演示主理人归属归位 UPDATE 不并入本文件：新库无待归位的历史绑定，store 种子直接带 owner_user_id 值即可，
+--        同订单表 pickup_code 回填注释先例；store 种子 INSERT 的列清单加 owner_user_id，既有 5 列数值零改动）
 -- ================================================
 
 CREATE DATABASE IF NOT EXISTS fresh_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -145,7 +149,14 @@ CREATE TABLE order_item (
 
 -- ----------------------------
 -- 自提点门店表（T-M4-01）：lng/lat 列（m12-migration.sql 同步），坐标值高德 GCJ-02 真源（m13-migration.sql 同步）
--- owner_user_id（m16-migration.sql 同步，F-12/G-01 归属层）：主理人 user.id，NULL=平台直营；存量 4 店种子不含该列，零回填
+-- owner_user_id（m16-migration.sql 同步，F-12/G-01 归属层）：主理人 user.id，NULL=平台直营；
+-- 自 m18 起下方种子显式带该列（id=1 → user 1 承包，2/3/4 → NULL 平台直营/停业未入驻），不再是「种子不含该列、零回填」；
+-- 逻辑外键无 FOREIGN KEY 约束（全库惯例），故不依赖 user 表是否已建行
+-- 门店信息六列（m18-migration.sql 同步，F-18.10/G-04 Step 4a）：open_time/close_time（仅展示，不参与 23:00 全局截单=RE 红线）、
+-- daily_capacity（D-8 NULL=不限，一期只展示不自动降级）、accepting（满容/休市细粒度开关，与 status 的 open/closed 正交）、
+-- contact_phone/photos（RD/D-12：GET /api/stores 一律不下发这两列，photos 一期无上传端点 D-18）
+-- m18 ⑪ 的归属归位 UPDATE 不并入本文件——新库无「门禁把 store 1 临时绑到 uid 40/43/45」的待归位状态，
+-- 种子直接带目标值即可（照本文件订单表 pickup_code 回填、订单明细表 merchant_id 回填两处注释先例）
 -- ----------------------------
 DROP TABLE IF EXISTS store;
 CREATE TABLE store (
@@ -157,17 +168,25 @@ CREATE TABLE store (
     lng        DECIMAL(10,6) NULL                    COMMENT '经度（F-06 地图）：高德 GCJ-02 真源，与底图同源',
     lat        DECIMAL(10,6) NULL                    COMMENT '纬度（F-06 地图）：高德 GCJ-02 真源，与底图同源',
     owner_user_id BIGINT     NULL                    COMMENT '主理人 user.id（F-12/m16，逻辑外键）；NULL=平台直营',
+    open_time  VARCHAR(5)    NULL                     COMMENT '营业开始时间 HH:MM（G-04/m18）：仅展示用，不参与 23:00 全局截单裁决（RE 红线，截单链只在服务端 orders 侧）；NULL=未设置',
+    close_time VARCHAR(5)    NULL                     COMMENT '营业结束时间 HH:MM（G-04/m18）：与 open_time 同为展示口径，不产生接单/截单判定；NULL=未设置',
+    daily_capacity INT       NULL                     COMMENT '日接单容量上限（G-04/m18，D-8）：NULL=不限；一期只展示不自动降级，超容仍走 accepting 手工开关',
+    accepting  TINYINT       NOT NULL DEFAULT 1       COMMENT '是否接单细粒度开关（G-04/m18）：1接单/0临时满容或休市；与 status 的 open/closed 正交（status 是门店存续，本列是当日产能）',
+    contact_phone VARCHAR(20) NULL                    COMMENT '门店联系电话（G-04/m18）：长度对齐 orders.phone 的 VARCHAR(20) 惯例（非 CHAR(11)，容纳区号/分机/境外号）；对外只脱敏下发（RD），GET /api/stores 不下发本列（D-12）',
+    photos     VARCHAR(1000) NULL                     COMMENT '门店照片（G-04/m18，D-18）：JSON 数组串（形态对齐 dish.tags 惯例），上限 6 张，每张以 /static/images/uploads/ 开头；一期无上传端点、列先建语义先定，拍照上传与 FileStorageService 抽组件同批留 G-05',
     created_at DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (id),
     INDEX idx_owner (owner_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自提点门店表';
 
 -- 种子 4 家：沿用前端现有自提点数据（3 家营业 + 1 家停业），显式 id 保证快照引用稳定
-INSERT INTO store (id, name, address, service, status) VALUES
-(1, '高黎柱发士多店(请自备袋子谢谢)', '广东省佛山市顺德区容桂高黎环涌西路桥灵坊23号', '支持冷冻/冷藏', 'open'),
-(2, '高黎惠民百货店', '广东省佛山市顺德区容桂高黎惠民路12号', '冷冻冷藏', 'open'),
-(3, '容桂天佑城自提点', '广东省佛山市顺德区容桂街道天佑城B座1层', '冷冻冷藏', 'open'),
-(4, '朝阳社区便利店', '广东省佛山市顺德区容桂朝阳路38号', '冷冻冷藏', 'closed');
+-- owner_user_id（m18-migration.sql 同步，05 册 A2.1 演示主理人形态）：id=1 绑 user 1（主理人工作台演示店），
+-- 2/3 平台直营、4 停业未入驻均为 NULL——与 m18 ⑪ 归位段同口径；既有 5 列数值零改动
+INSERT INTO store (id, name, address, service, status, owner_user_id) VALUES
+(1, '高黎柱发士多店(请自备袋子谢谢)', '广东省佛山市顺德区容桂高黎环涌西路桥灵坊23号', '支持冷冻/冷藏', 'open', 1),
+(2, '高黎惠民百货店', '广东省佛山市顺德区容桂高黎惠民路12号', '冷冻冷藏', 'open', NULL),
+(3, '容桂天佑城自提点', '广东省佛山市顺德区容桂街道天佑城B座1层', '冷冻冷藏', 'open', NULL),
+(4, '朝阳社区便利店', '广东省佛山市顺德区容桂朝阳路38号', '冷冻冷藏', 'closed', NULL);
 
 -- 坐标真源（m13-migration.sql 同步，F-06.7.2 R6）：高德 Geocoder/PlaceSearch 双源实测 2026-10-05，
 -- GCJ-02 与前端高德底图同源（前端门店坐标直用不转换）；id=2 为 PlaceSearch 纠错值
@@ -367,6 +386,67 @@ CREATE TABLE IF NOT EXISTS ops_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运营操作审计（D-5 边界：本表只收商家/主理人现场动作——核销/到货确认/门店信息变更/缺货登记；平台侧动作一律走 admin_audit_log）';
 
 -- ----------------------------
+-- 主理人入驻申请表（F-18.10/G-04 Step 4a，m18-migration.sql 同步，列口径逐字照该文件 ⑦）：
+-- D-20 申请侧端点挂 /api/store-applies/（登录即可、无归属要求）——申请时名下无店，挂 /api/partner/ 会因归属集合为空 403 自锁入口；
+--      审核侧挂 Admin，有店后的维护才挂 /api/partner/（这是对 05 册 A3.2 的必要修正）；
+-- D-21 一用户一期最多 1 条 pending 由应用层校验：rejected 后再提交会产生历史行，且 MySQL 不支持 (user_id, status) 部分唯一约束，
+--      故本表只有 idx_user_status 普通索引、无唯一键；status 三态口径照 m15 merchant_profile.audit_status；
+-- proof_photos 一期无上传端点（D-18，列先建语义先定）；审核动作写 admin_audit_log（D-5 两表边界，不落 ops_log）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS store_apply (
+    id               BIGINT        NOT NULL AUTO_INCREMENT COMMENT '申请ID',
+    user_id          BIGINT        NOT NULL COMMENT '申请人 user.id（逻辑外键 user.id；申请时名下无店，故入口不能挂 /api/partner/ —— D-20）',
+    proposed_name    VARCHAR(100)  NOT NULL COMMENT '拟用门店名称',
+    proposed_address VARCHAR(255)  NOT NULL COMMENT '拟用门店地址',
+    lng              DECIMAL(10,6) NULL COMMENT '经度：高德 GCJ-02 真源，与 store.lng 同口径（F-06）',
+    lat              DECIMAL(10,6) NULL COMMENT '纬度：高德 GCJ-02 真源，与 store.lat 同口径（F-06）',
+    service          VARCHAR(50)   NULL COMMENT '服务说明（如 支持冷冻/冷藏），对齐 store.service',
+    contact_name     VARCHAR(50)   NULL COMMENT '联系人姓名',
+    contact_phone    VARCHAR(20)   NULL COMMENT '联系电话（VARCHAR(20) 同 store.contact_phone 口径）；响应只能脱敏展示（RD）',
+    proof_photos     VARCHAR(1000) NULL COMMENT '凭证照片（D-18）：JSON 数组串，上限 6 张，每张以 /static/images/uploads/ 开头；一期无上传端点',
+    status           VARCHAR(20)   NOT NULL DEFAULT 'pending' COMMENT '审核状态：pending待审核/approved通过/rejected驳回（三态口径照 m15 merchant_profile.audit_status）',
+    audit_remark     VARCHAR(255)  NULL COMMENT '审核意见（驳回原因供申请人展示）',
+    audited_at       DATETIME      NULL COMMENT '审核时间；NULL=未审',
+    created_at       DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+    PRIMARY KEY (id),
+    KEY idx_user_status (user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主理人入驻申请（D-20 申请侧 /api/store-applies/ 登录即可；D-21 同用户最多 1 条 pending 由应用层保证，不建唯一键；审核动作写 admin_audit_log，见 D-5 两表边界）';
+
+-- ----------------------------
+-- 到货批次表（F-18.10/G-04 Step 4a，m18-migration.sql 同步，列口径逐字照该文件 ⑧）：
+-- D-19 一期只做「读 + 确认」（主理人查询/确认端点=Step 4b），批次生成器属运营端 G-05，故本文件同步带一条演示种子（见文件末尾 M18 种子块）；
+-- UNIQUE KEY uk_store_date (store_id, batch_date) 双重作用：一期一店一日一批次 + 让演示种子可 INSERT IGNORE 幂等
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS arrival_batch (
+    id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '批次ID',
+    store_id      BIGINT       NOT NULL COMMENT '自提点ID（逻辑外键 store.id）',
+    batch_date    DATE         NOT NULL COMMENT '批次日期（一期=到货日）',
+    status        VARCHAR(20)  NOT NULL DEFAULT 'planned' COMMENT '批次状态：planned计划/arriving在途/confirmed已到货确认/short短少（D-19 一期只读+确认）',
+    confirm_time  DATETIME     NULL COMMENT '主理人确认到货时间（Step 4b 端点写入，同时落 ops_log）；NULL=未确认',
+    remark        VARCHAR(255) NULL COMMENT '批次备注',
+    supplier_type VARCHAR(20)  NULL COMMENT '供货来源（D-9 预留位，一期恒 NULL）',
+    created_at    DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '批次创建时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_store_date (store_id, batch_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='到货批次（D-19：一期只有读+确认，生成器属运营端 G-05；uk_store_date=一店一日一批次，亦为演示种子幂等依据）';
+
+-- ----------------------------
+-- 到货批次明细表（F-18.10/G-04 Step 4a，m18-migration.sql 同步，列口径逐字照该文件 ⑨）：
+-- 本表无唯一键（同菜品可能多批次多行），故演示种子必须用 WHERE NOT EXISTS 守卫，不能裸 INSERT——
+-- 该写法与 m18 一致，保证新库重建与存量库增量两路都只落 1 行（RC 可重复执行且零破坏）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS arrival_item (
+    id           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '明细ID',
+    batch_id     BIGINT       NOT NULL COMMENT '批次ID（逻辑外键 arrival_batch.id）',
+    dish_id      BIGINT       NULL COMMENT '菜品ID（逻辑外键 dish.id）；NULL=非菜品项预留',
+    expected_qty INT          NOT NULL DEFAULT 0 COMMENT '预计到货数量',
+    actual_qty   INT          NULL COMMENT '实际到货数量；NULL=尚未清点（确认端点写入）',
+    short_reason VARCHAR(255) NULL COMMENT '短少原因（status=short 时填写）',
+    PRIMARY KEY (id),
+    KEY idx_batch (batch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='到货批次明细（D-19 一期只读+确认；本表无唯一键，幂等由上层种子的 WHERE NOT EXISTS 保证）';
+
+-- ----------------------------
 -- 邀请新人关系表（F-01，m9-migration.sql 同步）：uk_invitee 是"一人仅可被邀请一次"的权威约束
 -- （invitee_id 显式 NOT NULL：MySQL UNIQUE 对 NULL 不去重，防刷约束不可空置，对齐 free_claim 惯例）；
 -- status 0→1 由新人首单支付成功后原子置位（影响行数=1 才继续，防并发重复处理）；
@@ -558,3 +638,21 @@ INSERT IGNORE INTO dish_alias (alias, dish_id) VALUES
 -- ================================================
 INSERT IGNORE INTO merchant (id, name, contact_phone, status) VALUES (1, '平台自营', '00000000000', 'active');
 INSERT IGNORE INTO merchant_profile (merchant_id, audit_status, audited_at) VALUES (1, 'approved', NOW());
+
+-- ================================================
+-- M18 到货批次演示种子（与 sql/m18-migration.sql ⑩ 同一套，幂等可重跑，F-18.10/D-19）：
+-- store 1 / 明日 / planned 的批次 + 一条明细（dish 1 预计 5 份）——缺这两行，核销台的「当日未确认」警示条
+-- 在全量重建的演示库里永远演示不出来（Step 4b 主理人查询/确认端点与 Step 5 验收现场都依赖它）；
+-- 批次行靠 uk_store_date 撞唯一键被 IGNORE 吞掉而幂等；arrival_item 无唯一键，故用 NOT EXISTS 守卫（同 m18 形态，二次执行不翻倍）
+-- 注：m18 ⑪ 的演示主理人归属归位 UPDATE 不并入本文件——新库无待归位的历史绑定，store 种子已直接带 owner_user_id（见自提点门店表段）
+-- ================================================
+INSERT IGNORE INTO arrival_batch (store_id, batch_date, status) VALUES (1, DATE_ADD(CURDATE(), INTERVAL 1 DAY), 'planned');
+
+INSERT IGNORE INTO arrival_item (batch_id, dish_id, expected_qty)
+SELECT b.id, 1, 5
+  FROM arrival_batch b
+ WHERE b.store_id = 1
+   AND b.batch_date = DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+   AND NOT EXISTS (
+        SELECT 1 FROM arrival_item ai WHERE ai.batch_id = b.id AND ai.dish_id = 1
+   );
