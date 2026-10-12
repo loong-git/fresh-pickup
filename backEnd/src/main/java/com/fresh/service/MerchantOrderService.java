@@ -76,8 +76,8 @@ public interface MerchantOrderService {
      * <p>停业闸门同 {@link #stat}（D-9）。
      *
      * @return {@code {seckill:{count, items:[{dishId, name, price, seckillPrice, limitBuy, onSale,
-     *         soldCountTotal}]}, freeClaim:{count, items:[{activityId, dishId, name, status,
-     *         dailyQuota, dailyClaimed, threshold, inPool}]}}}。
+     *         soldCountTotal}]}, freeClaim:{count, items:[{activityId, dishId, name, activityStatus,
+     *         dailyQuota, dailyClaimed, threshold}]}}}。
      *         {@code count} 是真总数、{@code items} 上限 20 条（D-6）；
      *         {@code soldCountTotal} 是 dish.sold_count 的**历史累计**、不是本窗口值（D-7 点名的改名列）；
      *         本仓现状 merchant 2/3 两个参与位都是 0 行 → {@code count:0} 且 {@code items:[]}

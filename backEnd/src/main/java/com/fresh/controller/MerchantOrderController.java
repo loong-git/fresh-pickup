@@ -97,7 +97,7 @@ public class MerchantOrderController {
     /**
      * F-19/G-05 营销参与态（契约 D-6/D-7）：本店被平台设置的秒杀件与免费领活动，**只读、本期无报名口**。
      * 出参 {@code {seckill:{count, items:[{dishId,name,price,seckillPrice,limitBuy,onSale,soldCountTotal}]}},
-     * freeClaim:{count, items:[{activityId,dishId,name,status,dailyQuota,dailyClaimed,threshold,inPool}]}}}。
+     * freeClaim:{count, items:[{activityId,dishId,name,activityStatus,dailyQuota,dailyClaimed,threshold}]}}}。
      *
      * <p>无参数（连 days 都没有——营销侧是「当前参与状态」的快照，不是窗口统计，
      * 其中 {@code soldCountTotal} 是历史累计值，D-7 点名不许当窗口数看）。

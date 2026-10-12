@@ -81,7 +81,7 @@
 </template>
 
 <script>
-// 商家工作台占位页（G-01 §3.3）：一期只做「我是谁 + 三个建设中入口」，G-02 起逐页替换。
+// 商家工作台页（G-01 §3.3 建页）：四入口已全部交付在册（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态）；可点与否仍只由 ENTRY_ROUTES 裁决。
 // 数据加载纪律照用户端 front/pages/mine/mine.vue：onShow 每次重拉 me，回页即反映服务端最新状态。
 // 页面不预判角色：role 判定与 401/403 分流全在 api 层（handleEnvelope），本页只按 code 渲染三态。
 import { getMerchantMe, merchantStatusText } from '@/api/index.js'

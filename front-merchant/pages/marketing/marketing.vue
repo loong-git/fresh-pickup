@@ -199,7 +199,7 @@ export default {
       // 重试永远拿回同一枚错误码，故主文案直出后端 message，不再说「请稍后重试」
       if (this.errorCode === 404) return this.errorText
       // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
-      if (this.errorCode === 500) return '经营读数加载失败，服务端处理出错，稍后重试'
+      if (this.errorCode === 500) return '营销参与态加载失败，服务端处理出错，稍后重试'
       // 只有网络层失败（api 层回 code:-1 / '网络异常'）才说「请检查网络后重试」
       if (this.errorCode <= 0) return '营销参与态加载失败，请检查网络后重试'
       // 其余服务端业务码：不猜成因，报「加载失败」＋第二行透出后端 message 原文
