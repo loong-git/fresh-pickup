@@ -35,6 +35,18 @@
       "style": {
         "navigationBarTitleText": "供货明细"
       }
+    },
+    {
+      "path": "pages/dashboard/dashboard",
+      "style": {
+        "navigationBarTitleText": "数据看板"
+      }
+    },
+    {
+      "path": "pages/marketing/marketing",
+      "style": {
+        "navigationBarTitleText": "营销参与态"
+      }
     }
   ],
   "globalStyle": {

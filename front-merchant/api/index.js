@@ -572,3 +572,42 @@ export function getMerchantOrderItems(query) {
   if (src.size) data.size = Number(src.size)
   return request({ url: '/api/merchant/order-items', method: 'GET', data })
 }
+
+// ==================== 数据看板与营销参与态（G-05 / F-19，两张只读卡） ====================
+// 与上方备货单两条同一套纪律：空值不下发（让服务端默认生效）、本层不拼任何归属入参、
+// 返回原信封。区别只在「口径全在后端」：窗口天数与金额位数都在 SQL / Service 定形
+// （MerchantOrderServiceImpl.moneyText() 出两位小数字符串），本层既不加减也不补零
+// ——把口径搬到展示层，G-03 已因此返工过一次。
+
+/**
+ * 数据看板：GET /api/merchant/stat?days=（days 可省）
+ * days 值域 [1,90]、缺省 7（契约 D-3）：越界后端 400「天数需在 1 到 90 之间」，
+ * 本层不夹值也不替页面猜天数（缺省交给 @RequestParam(defaultValue="7")，两处各设默认迟早漂移）；
+ * 窗口起点 windowStart 由 SQL 侧同式取回并回显，页面只显示回显值、不自行推算日期（D-3/D-4）。
+ * 归属由服务端 @RequestAttribute 解析，本层不拼任何归属入参。
+ * 四卡取值逐键用（gmvBeforeCoupon/orderCount/itemCount/refundCount），前端零加减；
+ * top[].amount 与 gmvBeforeCoupon 是两位小数字符串（"61.60"），条宽只用它做比例、不参与展示。
+ * @param {{days?:number}} [query]
+ * @returns {Promise<{code,data:{days:number,windowStart:string,gmvBeforeCoupon:string,orderCount:number,itemCount:number,refundCount:number,top:Array<{dishId:number,dishName:string,quantity:number,amount:string}>},message:string}>}
+ */
+export function getMerchantStat(query) {
+  const src = query && typeof query === 'object' ? query : {}
+  const data = {}
+  // 0/空串/null/undefined 都不下发：本端点缺省就是 7，硬塞 0 只会换回一条 400
+  if (src.days) data.days = Number(src.days)
+  return request({ url: '/api/merchant/stat', method: 'GET', data })
+}
+
+/**
+ * 营销参与态：GET /api/merchant/marketing（无参数，契约 D-6）
+ * 出参 {seckill:{count,items:[{dishId,name,price,seckillPrice,limitBuy,onSale,soldCountTotal}]},
+ *       freeClaim:{count,items:[{activityId,dishId,name,status,dailyQuota,dailyClaimed,threshold,inPool}]}}。
+ * count 是真总数、items 上限 20（不是分页，别在这里凑 page/size）；
+ * 本期零参与位是真实形态（merchant 2 名下秒杀与免费领实测各 0 件），空数组不是降级也不是错误。
+ * dish.seckill / free_activity 均由平台侧设置，本层没有任何写通道（D-6「本期不出报名口」）。
+ * 归属由服务端 @RequestAttribute 解析，本层不拼任何归属入参。
+ * @returns {Promise<{code,data:{seckill:{count:number,items:object[]},freeClaim:{count:number,items:object[]}},message:string}>}
+ */
+export function getMerchantMarketing() {
+  return request({ url: '/api/merchant/marketing', method: 'GET' })
+}

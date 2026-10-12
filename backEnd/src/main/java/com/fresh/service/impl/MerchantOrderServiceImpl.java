@@ -347,10 +347,15 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("dishId", row.get("dishId"));
             item.put("name", row.get("name"));
-            item.put("price", money(row.get("price")));
+            // N-1：列值型金额也出两位小数字符串（DECIMAL 经 Jackson 会掉成 6.6 这种一位小数）。
+            // 与四卡（gmvBeforeCoupon / top[].amount）同一形态，前端就不再需要补零——把口径搬到展示层，
+            // G-03 已因此返工过一次；仍然只走既有的 moneyText()，不另起一份格式化
+            item.put("price", moneyText(row.get("price")));
             // seckill_price 是可空列（init.sql 的 dish.seckill_price NULL）：真为 NULL 就出 null，
-            // 这是「平台只打了标记没填价」的事实形态，兜成 0.00 反而要商家按 0 元理解（不发明修法）
-            item.put("seckillPrice", money(row.get("seckillPrice")));
+            // 这是「平台只打了标记没填价」的事实形态，兜成 0.00 反而要商家按 0 元理解（不发明修法）。
+            // 所以这一列只在有值时定形出串，null 分支保留（F-19.5 裁定 ③「真 NULL 不兜 0」仍然生效）
+            item.put("seckillPrice", row.get("seckillPrice") == null
+                    ? null : moneyText(row.get("seckillPrice")));
             item.put("limitBuy", toInteger(row.get("limitBuy")));
             // onSale/inPool 走 toInteger 而不是直出：tinyint 有被 Connector/J 回成 Boolean 的一档
             // （下方 toInteger 注释同口径），出参必须是数字 0/1，前端才敢做 ===1 判定
@@ -374,7 +379,9 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             item.put("status", row.get("status"));
             item.put("dailyQuota", toInteger(row.get("dailyQuota")));
             item.put("dailyClaimed", toInteger(row.get("dailyClaimed")));
-            item.put("threshold", money(row.get("threshold")));
+            // N-1 同秒杀侧：门槛也出两位小数字符串。free_activity.threshold 是 NOT NULL DEFAULT 50.00
+            // （init.sql:251），不存在「真 NULL」那一档，故不必像 seckillPrice 那样留 null 分支
+            item.put("threshold", moneyText(row.get("threshold")));
             // EXISTS() 回 1/0，按本仓 flag 惯例出数字不出布尔（同 payStatus）
             item.put("inPool", toInteger(row.get("inPool")));
             items.add(item);
@@ -437,10 +444,11 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
     }
 
     /**
-     * 金额定形（契约 F-19.4 #4）：列值（DECIMAL(10,2)）保持数值形态，只把位数钉成 2、HALF_UP，
-     * 于是 JSON 出去是 {@code 12.30} 而不是 {@code 12.3} / {@code 12.300000}。
+     * 金额定形（契约 F-19.4 #4）：把位数钉成 2、HALF_UP，于是 {@code 12.3} / {@code 12.300000} 都变 {@code 12.30}。
      * 走 {@code number.toString()} 再构造，绝不 {@code new BigDecimal(double)}（浮点误差会渗进金额）。
      * null 原样出 null（唯一可达来源是可空列 dish.seckill_price，见调用处注释）。
+     * <p>出参形态由调用方定：本期四个金额读数全部经 {@link #moneyText} 成串出，本方法只承担「定形」这一步
+     * （N-1 之前 marketing 侧用它直出裸数值，实测被序列化成一位小数，故收敛到串）。
      */
     private BigDecimal money(Object value) {
         if (value instanceof BigDecimal decimal) {
@@ -454,11 +462,13 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
 
     /**
      * 聚合金额的出参形态：定形后转字符串（契约 F-19.4 #4 的出参形状里 {@code gmvBeforeCoupon}
-     * 与 {@code top[].amount} 两处就是带引号的 {@code "12.30"}，而列值型金额是裸数字，
-     * 本方法只用于前者）。为什么要成串：SUM 出来的 BigDecimal 位数由 MySQL 决定，
-     * 而看板要的是「永远两位」的展示值；前端拿到串就不再受 JS number 抹尾零的影响（12.30 → 12.3）。
+     * 与 {@code top[].amount} 两处就是带引号的 {@code "12.30"}）。为什么要成串：SUM 出来的 BigDecimal 位数
+     * 由 MySQL 决定，而看板要的是「永远两位」的展示值；前端拿到串就不再受 JS number 抹尾零的影响（12.30 → 12.3）。
+     * <p>N-1 起本方法也是 marketing 侧三个列值型金额（{@code price}/{@code seckillPrice}/{@code threshold}）
+     * 的出串口——DECIMAL 列直接进 JSON 会被写成 {@code 6.6} 这种一位小数，与四卡不同形，
+     * 故一律在此定形后成串，前端不再补零（把口径搬到展示层，G-03 已因此返工过一次）。
      * null 兜 {@code "0.00"}（G5：零单商家不许出 null；SQL 侧 IFNULL 已兜过一层，这里是第二层，
-     * 兜的是「列缺失」而不是「值为 0」，两者出参一致）。
+     * 兜的是「列缺失」而不是「值为 0」，两者出参一致）。可空列要保 null 的调用方自己先判（见 seckillItemList）。
      */
     private String moneyText(Object value) {
         BigDecimal scaled = money(value);
