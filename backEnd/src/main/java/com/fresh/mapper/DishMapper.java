@@ -68,10 +68,12 @@ public interface DishMapper extends BaseMapper<Dish> {
     // F-19/G-05 Step 1 商家端「营销参与态」只读两端点（契约 F-19.4 #2：四条追加在本接口，不起新文件）。
     // 与 OrderItemMapper 的只读组同一套归属纪律：每一条都带 `d.merchant_id = #{merchantId}`（D-2/D-6），
     // 值只来自 AuthInterceptor.ATTR_MERCHANT_ID；不收任何归属入参、没有任何绕过本组的读路径。
-    // 形态说明：这里用的是 d / fa 的**单表与两表 JOIN**，不需要 OrderItemMapper 那条 STRAIGHT_JOIN——
+    // 形态说明：这里用的是 d / fa / fp 的**单表与多表 JOIN**，不需要 OrderItemMapper 那条 STRAIGHT_JOIN——
     // 那条钉驱动表是为了躲 orders.idx_status 的全库 range（G-6/M1），本组两侧都是主键/idx_dish_id 等值，
-    // 契约 D-6 原文写的也是 `free_activity fa JOIN dish d ON d.id = fa.dish_id`，照契约逐字、不做「优化」。
-    // 本期零参与数据（merchant 2/3 实测 seckill=0、free_activity 全属 merchant 1）→ 空集是正常出参，
+    // 没有那种成本面。免费领两条的驱动表在 G-05 找茬里被改过（BE-G5-1，F-19.8 S-1）：契约 D-6 原文那句
+    // `free_activity fa JOIN dish d ON d.id = fa.dish_id` 选错了驱动表（见下方 selectFreeActivities 注释），
+    // 契约本体已由主会话就地订正为以 free_goods_pool 驱动，本组照订正后的原文逐字、不做「优化」。
+    // 本期零参与数据（merchant 2/3 实测 seckill=0、免费领池 6 行全属 merchant 1 平台自营）→ 空集是正常出参，
     // 故 count 与 items 分两条方法：count 给真总数、select 给明细（D-6 的 LIMIT 20 是展示上限，不是分页）。
     // ------------------------------------------------------------------
 
@@ -99,26 +101,53 @@ public interface DishMapper extends BaseMapper<Dish> {
     long countSeckillDishes(@Param("merchantId") Long merchantId);
 
     /**
-     * 免费领参与明细（契约 D-6 第二块，JOIN 与列清单逐字）：免费领没有「商家报名表」，参与位就是
-     * {@code free_activity.dish_id} 落到自家菜品上（故必须 JOIN dish 拿归属，这是唯一的归属来源）；
-     * 活动自身的额度/计数器（daily_quota/daily_date/daily_claimed/threshold/status）都在 free_activity 一侧，
-     * 出参按契约键名给，不取 daily_date（窗口口径与看板无关，且契约未列该键）。
-     * <p>{@code inPool} = D-6 的 EXISTS 子查询原文（该 dish 是否也在 free_goods_pool 候选池里，
-     * 池是 M8 的「今日可领候选」层）。EXISTS 回 1/0，Service 侧按本仓 tinyint/flag 惯例出数字不出布尔。
-     * <p>ORDER BY fa.id ASC LIMIT 20：与秒杀块同一套「固定序 + 展示上限」，单活动模型现库恒 1 行，
-     * 上限只是防未来多活动撑爆移动端。
+     * 免费领参与明细（BE-G5-1 驱动表订正，契约 D-6 已按 F-19.8 S-1 就地改文）：**从 free_goods_pool 出发**。
+     * <p>为什么原来那条（{@code FROM free_activity fa JOIN dish d ON d.id = fa.dish_id}）是错的：
+     * 免费领没有「商家报名表」，C 端真正的可领集合就是候选池 {@code free_goods_pool}——领取闸门
+     * {@code FreeServiceImpl.java:145-147} 判的是「dishId 是否在池内」，下发列表 {@code :302-312} 也是按池取的。
+     * {@code free_activity} 只有 1 行（单活动模型，主菜 dish_id=1），而池实测 6 行、其中 5 行不是活动主菜，
+     * 所以从 fa 出发①平台自营少报 5 件；②更严重的是反向说谎：某商家的菜只在池里 → 本查询 0 行 →
+     * {@code count=0} → 页面逐字念「本店商品未进入免费领池」，而 C 端此刻真能领他家的菜。
+     * <p>归属仍然只来自 dish：{@code JOIN dish d ON d.id = fp.dish_id WHERE d.merchant_id = #{merchantId}}，
+     * 一条池行只对应一个 dish、uk_activity_dish(activity_id, dish_id) 保证一活动一商品只一行，
+     * 再 {@code JOIN free_activity fa ON fa.id = fp.activity_id}（主键等值）不放大行数——
+     * 行数就是本店在池里的商品数，与 countFreeActivities 同 FROM/WHERE 天然对齐（U-2 的标题/行内矛盾由此起）。
+     * <p>出参键变化：{@code inPool} 那列（原 EXISTS 子查询）删掉——驱动表就是池，池行恒「在池」，
+     * 该列恒真即无信息量，而它当时还助长了「卡头说已参与 N 件、行内说不在候选池」的自相矛盾；
+     * 改出 {@code activityStatus = fa.status}（online/offline），让页面如实说明这条池行挂在哪个状态的活动上。
+     * <p>{@code dailyClaimed} 定形（BE-G5-2 跨日谎报）：裸 {@code fa.daily_claimed} 是**计数器所属日**的值，
+     * 跨日不会自己归零——重置只在有人领取时惰性发生（{@code FreeActivityMapper.java:20-24} 那条条件 UPDATE），
+     * C 端自己的口径是 {@code FreeServiceImpl.java:429-443}「daily_date 为 NULL/过去 → 视为满额重置」。
+     * 页面标签写的是「今日已领」，SQL 就必须只在今日口径下给出份数，否则 00:00 之后仍然念出昨天的数。
+     * <b>日期判定只能在 SQL 里做（{@code CURDATE()}），不许搬到 Java</b>：本期 D-3 红线是页面与服务侧都不自推日期，
+     * 挪到 Java 就等于凭空多出第二个窗口口径（应用服务器时区与库时区可能差一天，D-3 纪律见
+     * {@code MerchantOrderServiceImpl} 类注释的时间口径段）。
+     * daily_date 为未来的脏数据/预置未开始同样落 ELSE 0，与领取侧「活动暂未开始」口径一致。
+     * <p>ORDER BY fa.id ASC, fp.id ASC LIMIT 20：与秒杀块同一套「固定序 + 展示上限」（D-6 的 20 是展示上限，
+     * 不是分页）；末尾的 fp.id 是稳定键——fa.id 在本库恒为同一个值（单活动模型），只按它排等于没排，
+     * 池行之间没有任何可依赖的次序，两次刷新就会换序、移动端行会跳。
      */
-    @Select("SELECT fa.id AS activityId, fa.dish_id AS dishId, d.name AS name, fa.status AS status, "
-            + "fa.daily_quota AS dailyQuota, fa.daily_claimed AS dailyClaimed, fa.threshold AS threshold, "
-            + "EXISTS(SELECT 1 FROM free_goods_pool fp WHERE fp.activity_id = fa.id AND fp.dish_id = fa.dish_id) AS inPool "
-            + "FROM free_activity fa JOIN dish d ON d.id = fa.dish_id "
+    @Select("SELECT fa.id AS activityId, fp.dish_id AS dishId, d.name AS name, "
+            + "fa.status AS activityStatus, "
+            + "fa.daily_quota AS dailyQuota, "
+            + "CASE WHEN fa.daily_date = CURDATE() THEN fa.daily_claimed ELSE 0 END AS dailyClaimed, "
+            + "fa.threshold AS threshold "
+            + "FROM free_goods_pool fp "
+            + "JOIN dish d ON d.id = fp.dish_id "
+            + "JOIN free_activity fa ON fa.id = fp.activity_id "
             + "WHERE d.merchant_id = #{merchantId} "
-            + "ORDER BY fa.id ASC "
+            + "ORDER BY fa.id ASC, fp.id ASC "
             + "LIMIT 20")
     List<Map<String, Object>> selectFreeActivities(@Param("merchantId") Long merchantId);
 
-    /** 免费领参与位**真总数**：与上方明细条同 FROM/WHERE，仅去掉 ORDER BY/LIMIT 与选择列 */
-    @Select("SELECT COUNT(*) FROM free_activity fa JOIN dish d ON d.id = fa.dish_id "
+    /**
+     * 免费领参与位**真总数**（D-6「count=真总数」）：FROM/JOIN/WHERE 与上方明细条逐字相同，
+     * 仅去掉选择列与 ORDER BY/LIMIT——同一驱动表、同一归属谓词，卡头数与明细条数不可能再互相打脸
+     * （U-2 那条「已参与 N 件 vs 行内不在候选池」的矛盾，根子在两条 SQL 的 FROM 不同）。
+     */
+    @Select("SELECT COUNT(*) FROM free_goods_pool fp "
+            + "JOIN dish d ON d.id = fp.dish_id "
+            + "JOIN free_activity fa ON fa.id = fp.activity_id "
             + "WHERE d.merchant_id = #{merchantId}")
     long countFreeActivities(@Param("merchantId") Long merchantId);
 }
