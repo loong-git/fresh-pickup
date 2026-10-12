@@ -5,6 +5,9 @@
              「天数需在 1 到 90 之间」），页面放开自由输入就等于造一次注定失败的往返，
              还会多出「输入了 999 但屏上还是 90」这种两套真值 -->
     <view class="card window-card">
+      <!-- 三档 pill 的字段名标签（U-13：两套母版都有这一层，缺了它 pill 就只是三个不知道在切什么的按钮）
+           复用本页既有 .window-line 类，不新增样式 -->
+      <text class="window-line">统计窗口（点选切换下方四卡与 Top 商品）</text>
       <view class="window-tabs">
         <view
           class="window-tab"
@@ -17,7 +20,7 @@
           <text>近 {{ d }} 天</text>
         </view>
       </view>
-      <!-- 窗口起点一句实话：两个值都只认后端回显（见 computed windowLine 与类注释），页内零 new Date() -->
+      <!-- 窗口起点一句实话：两个值都只认后端回显（见 computed windowLine 与类注释），页内不推算任何统计日期 -->
       <text class="window-line">{{ windowLine }}</text>
     </view>
 
@@ -37,11 +40,13 @@
     </view>
 
     <!-- ==================== 4. 错误态（≠ 空态：空态是后端确认「本窗口没有成交」，错误态是根本没拿到数据） ====================
-             两层式照 pickup-plan.vue：主文案是人话，后端 message 原文降为第二行小字 -->
+             两层式照 pickup-plan.vue：主文案是人话，后端 message 原文降为第二行小字。
+             404 例外：主文案就是后端 message 原文（S-7/U-14：404 是「商家不存在」这类确定性失败，
+             说成「稍后重试」是把确定失败伪装成可恢复），此时第二行不再重复印同一句 -->
     <view v-else-if="viewState === 'error'" class="card">
       <view class="error-row">
         <text class="error-lead">{{ errorLeadText }}</text>
-        <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
+        <text v-if="errorText && errorCode !== 404" class="guide-tip">{{ errorText }}</text>
         <text v-if="errorRetryable && !retryLock" class="error-retry" @click="loadStat(true)">点击重试</text>
         <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
@@ -52,7 +57,7 @@
     <template v-else>
       <!-- 四张卡逐键取后端出参（gmvBeforeCoupon / orderCount / itemCount / refundCount），
            页面零加减：把 refundCount 从 GMV 里扣掉、把 itemCount 除成客单价，都会让读数与服务端
-           手工对账（G4）打脸，也会让「被取消订单」这一格白摆（契约 D-4 就是要把坏消息一起摆出来） -->
+           手工对账（G4）打脸，也会让「取消单」这一格白摆（契约 D-4 就是要把坏消息一起摆出来） -->
       <view class="card stat-card">
         <view class="stat-grid">
           <view class="stat-item" v-for="c in statCards" :key="c.key">
@@ -69,7 +74,7 @@
       <view class="card top-card">
         <view class="card-head">
           <text class="card-title">Top 商品</text>
-          <text class="top-note">按成交金额排序，最多 5 行</text>
+          <text class="top-note">按成交金额排序，最多 5 行；其余商品未列出，故合计可小于上方销售额</text>
         </view>
         <view class="top-row" v-for="(r, i) in topRows" :key="rowKey(r, i)">
           <view class="top-head">
@@ -89,16 +94,28 @@
         </view>
       </view>
 
-      <!-- ==================== 口径说明（D-5 硬要求，逐字三行，不可省、不可润色） ==================== -->
+      <!-- ==================== 口径说明（D-5 硬要求，逐字三行不可省、不可润色；第四/五行按 F-19.8 S-4/S-5 逐字补） ==================== -->
       <view class="card caliber-card">
         <text class="card-title">口径说明</text>
         <text class="caliber-line">我的销售额（商品明细·券前）＝ Σ成交单价×数量，含秒杀价，不含券抵扣</text>
         <text class="caliber-line">平台已收款（订单口径）＝ Σ订单应付，含同一订单里其他商家的明细</text>
         <text class="caliber-line">两个数字天然对不平，差额＝券抵扣＋同单其他商家明细。本期不分摊，分摊随结算（m19+）定义。</text>
+        <!-- 第四行（S-4/U-1 逐字）：refundCount 的谓词只有 status='cancelled'，库里 38 笔取消单 37 笔从未支付
+             （merchant 2 近 7 天 19/19 全是未付款自动关单）。这一格与「订单数」同权重并排，缺这一句就会被读成
+             「83% 跑单」；分母差由文字承担，SQL 谓词不动（动了就推翻 F-19.5 G4 已留证的 refund=19） -->
+        <text class="caliber-line">取消单＝窗口内取消的订单，含未付款自动关单，与上方订单数不是同一分母</text>
+        <!-- 第五行（S-5 逐字）：免费领 0 元单 pay_status=1、price=0，进 orderCount/itemCount 而不进 GMV，
+             极端情形是「订单数 2、商品件数 2、销售额 0.00」——上面三行解释不了这个组合 -->
+        <text class="caliber-line">免费领 0 元单不进本看板：它没有成交金额</text>
         <!-- 后端刻意不下发「平台已收款」那个数（那是 G-06 运营大盘的读数），本页也不做减法：
              这一块的用处就是说清「为什么这里只有一个销售额、以及它和平台口径差在哪」，不是给第二个数 -->
         <text class="caliber-foot">本看板只列商品明细口径，不列平台侧金额</text>
       </view>
+
+      <!-- 读数拉取时刻一行（U-9/U-10）：本页 onShow 是静默重拉，没有这一行商家无法判断屏上数字是哪一次拉的；
+           措辞用「拉取」不用「刷新」，也精度到秒（同分钟内两次进页只到分钟会一字不差）。
+           红线：这一行只是"这一次请求成功的时刻"，不参与任何统计日期的推算（窗口起点仍只认后端回显） -->
+      <text v-if="readTimeLine" class="refresh-line">{{ readTimeLine }}</text>
     </template>
 
     <view class="page-bottom-space"></view>
@@ -108,7 +125,8 @@
 <script>
 // 商家端数据看板（G-05 / F-19 只读页）：GET /api/merchant/stat?days= 的四卡 + Top 5 商品 + 口径说明卡。
 // 三条页面纪律：① 四个数逐键取后端出参，页内零加减（D-4）；
-// ② windowStart / days 只显示后端回显值，页内不 new Date() 推算任何日期（D-3，与后端 CURDATE() 同式才算一份真值）；
+// ② windowStart / days 只显示后端回显值，页内不 new Date() 推算任何统计日期（D-3，与后端 CURDATE() 同式才算一份真值）；
+//    唯一例外是 formatClock 把「读数拉取时刻」的 ms 印成 HH:mm:ss（母版 workspace.vue:266-271 同款），它不参与任何计算；
 // ③ 四态单值互斥 loading | ready | forbidden | error，不用多个布尔叠加（照 workspace.vue 的 viewState）。
 // 归属由服务端 @RequestAttribute 解析，本页不发任何 merchantId；401 一律由请求层清态回登录页，本页不判 401。
 // 文案红线（RE）：本页不出现任何资金含义的读数词——mock 支付无资金流，销售额只按「商品明细·券前」口径出。
@@ -154,6 +172,9 @@ export default {
       errorCode: 0,
       // 403 引导态透出后端原文
       forbiddenMessage: '',
+      // 本次 stat 成功时刻（ms），仅驱动「本页读数拉取于 HH:mm:ss」一行；
+      // 它不是统计日期的一部分（窗口起止一律只认后端 windowStart / days 回显，D-3 红线）
+      refreshAt: 0,
       // 429 冷却剩余秒数（>0 时重试按钮点不动）与驱动它的定时器：与 pickup-plan.vue 同口径，
       // 限流态下的「重试」必须有秒级闸门，否则每次点都在给这个桶续命
       retryLock: 0,
@@ -171,13 +192,16 @@ export default {
       return '统计窗口：' + this.windowStart + ' 起 ' + d + ' 天'
     },
     // 四张卡：label 是契约 D-4 的四叫法，value 逐键取后端出参（金额是后端定形的两位小数串，原样显示）
+    // 两张卡的措辞按 F-19.8 逐字改（U-8：同一屏不许出现两个名字——卡片 label 与 D-5 口径行必须是同一个短语，
+    //   被省掉的「商品明细」正是把它与「平台已收款」区分开的那个限定词；
+    //  S-4/U-1：「被取消订单」会被读成"曾成交又退了"，而库里 38 笔取消单 37 笔从未支付，故如实写「含未付款」）
     statCards() {
       return [
-        { key: 'gmv', label: '我的销售额（券前）', unit: '元', value: this.textOf(this.gmvBeforeCoupon), warn: false },
+        { key: 'gmv', label: '我的销售额（商品明细·券前）', unit: '元', value: this.textOf(this.gmvBeforeCoupon), warn: false },
         { key: 'order', label: '订单数', unit: '单', value: this.textOf(this.orderCount), warn: false },
         { key: 'item', label: '商品件数', unit: '件', value: this.textOf(this.itemCount), warn: false },
         // 坏消息与好消息同权重摆出来（D-4 ④）：只报成交不报取消的看板是在替商家美化数据
-        { key: 'refund', label: '被取消订单', unit: '单', value: this.textOf(this.refundCount), warn: true }
+        { key: 'refund', label: '取消单（含未付款）', unit: '单', value: this.textOf(this.refundCount), warn: true }
       ]
     },
     // Top 5 行（含条宽）：条宽是唯一允许的除法，且它除的是「占第一名的比例」，不是金额本身
@@ -199,16 +223,35 @@ export default {
       })
     },
     errorLeadText() {
+      // F-19.8 S-7/U-14 的四路分流（形状照本仓既有分支，只换判据与措辞）：
       if (this.errorCode === 429) return coolingText(this.retryLock)
-      if (this.errorCode === 404) return '看板接口暂不可用，可能是后端服务还没更新，请稍后重试'
-      return '经营读数加载失败，请检查网络后重试'
+      // 404（AuthInterceptor:95-99 注入的 merchant_id 查不到行 →「商家不存在」）是确定性失败，
+      // 重试永远拿回同一枚错误码，故主文案直出后端 message，不再说「请稍后重试」
+      if (this.errorCode === 404) return this.errorText
+      // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
+      if (this.errorCode === 500) return '经营读数加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败（api 层回 code:-1 / '网络异常'）才说「请检查网络后重试」
+      if (this.errorCode <= 0) return '经营读数加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '经营读数加载失败，请稍后重试'
     },
-    // 重试有没有可能成功：403 已单独走 forbidden 态，到这里都是「等一下或修好就能成」
+    // 重试有没有可能成功：403 已单独走 forbidden 态；404 是确定性失败，重试无望（S-7/U-14），
+    // 两枚都不给重试按钮，模板那一行的 !errorRetryable 分支会给「回工作台」出口
     errorRetryable() {
-      return this.errorCode !== 403
+      return this.errorCode !== 403 && this.errorCode !== 404
+    },
+    // 「本页读数拉取于 HH:mm:ss」（U-9/U-10）：精度到秒 —— 母版 workspace.vue:266-271 那句
+    // 「资料刷新于」就是这个精度，理由一致：同一分钟内两次进页若只到分钟，字符串一字不差，
+    // 商家（和验收）就无从判断 onShow 的那一次静默重拉到底发生过没有
+    readTimeLine() {
+      return this.refreshAt ? '本页读数拉取于 ' + this.formatClock(this.refreshAt) : ''
     }
   },
   onShow() {
+    // 429 冷却闸门（U-4）：限流态下 onShow 的静默重拉也一样在给桶续命，判据逐字照
+    // plan-orders.vue:357（那句注释原文：「只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
+    // 把该商家其它读接口一起打死」）——本仓为这条踩过一次，本期不再重犯
+    if (this.retryLock > 0) return
     // 每次进入静默重拉（别的页返回时也保证看到的是当前窗口的真实读数），带 in-flight 守卫防连点；
     // 已是 ready 时不切加载态，避免回页闪一次白卡把上一轮的数盖掉
     this.loadStat()
@@ -221,6 +264,9 @@ export default {
   },
   // #endif
   onUnload() {
+    // 卸载标记（U-5）：在途请求的回包晚于 onUnload 时，下面三处 _unloaded 守卫拦住
+    // 「迟到回包再发一条请求并起一个每秒 setInterval」——页面已销毁，那个定时器没人回收
+    this._unloaded = true
     // #ifdef H5
     if (this._pageWheelHandler) {
       document.removeEventListener('wheel', this._pageWheelHandler)
@@ -236,6 +282,8 @@ export default {
     // @param {boolean} [resetView] 换窗口要立刻退回加载态，让上一窗口的四卡让位（否则会被读成新窗口的数）；
     //                              onShow 的静默重拉不传
     async loadStat(resetView) {
+      // 页面已卸载：回包/重拉都不再有任何意义（U-5），渲染目标已经不存在了
+      if (this._unloaded) return
       // 并发守卫：onShow 重拉 + 窗口三档连点 + 错误卡重试可叠加，慢失败不能盖掉快成功
       if (this._loadingStat) {
         // 在途期间窗口又换了一档：不能吞掉（否则屏上选中 30 天、卡片还是 7 天的），排队等收尾后按最新条件重拉
@@ -271,6 +319,8 @@ export default {
         this.errorText = ''
         this.errorCode = 0
         this.forbiddenMessage = ''
+        // 只在成功回包时记时刻（失败不记，否则「拉取于」会被读成"失败的那一次也算读过"）
+        this.refreshAt = Date.now()
         // 空 top 不改整页态：四张卡 + 「本窗口还没有成交记录」就是零单商家的真实读数（G5 恒回 0/[]，不是错误）
         this.viewState = 'ready'
       } catch (e) {
@@ -298,6 +348,8 @@ export default {
       } finally {
         this._loadingStat = false
         if (this._reloadQueued) {
+          // 卸载后不再排队重发：这一条若回 429，还会经 startRetryLock 起一个无人回收的每秒定时器（U-5）
+          if (this._unloaded) return
           this._reloadQueued = false
           this.loadStat(true)
         }
@@ -305,6 +357,9 @@ export default {
     },
     // ==================== 窗口切换 ====================
     switchDays(d) {
+      // 429 冷却闸门（U-4 实测：打空 30/分桶后进看板，卡正上方三枚 pill 照点，点「近 90 天」就实发
+      // ?days=90 一条、窗口行立刻变、倒计时文案被覆写——闸门被旁路）。判据逐字照 plan-orders.vue:357
+      if (this.retryLock > 0) return
       const next = Number(d)
       if (!Number.isFinite(next) || next === this.days) return
       this.days = next
@@ -326,12 +381,23 @@ export default {
       const id = r && r.dishId
       return (id === null || id === undefined || id === '') ? 'x' + i : 'd' + id
     },
+    // 时间戳 -> HH:mm:ss（母版 workspace.vue:266-271 同款写法；脏值返回空串，模板随之隐藏这一行）。
+    // 红线：这个时刻只用于「读数拉取于」一行，绝不参与统计窗口/日期的任何推算（D-3：窗口只认后端回显）
+    formatClock(ms) {
+      const d = new Date(ms)
+      if (!Number.isFinite(d.getTime())) return ''
+      const p = (n) => String(n).padStart(2, '0')
+      return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    },
     // ==================== 跳转 ====================
     goWorkspace() {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
     // ==================== 429 冷却（照 pickup-plan.vue:328-339，秒级禁用范式） ====================
     startRetryLock() {
+      // 已卸载的页面不给它起定时器（U-5）：迟到回包回 429 时若照常 startRetryLock，
+      // 那个每秒 setInterval 挂在 window 上、onUnload 的清理已经跑完了，永远不会被回收
+      if (this._unloaded) return
       this.stopRetryLock()
       this.retryLock = RETRY_COOLING_SECONDS
       this.retryLockTimer = setInterval(() => {
@@ -388,6 +454,10 @@ export default {
 .window-tab.active { color: #FFFFFF; font-weight: 700; background-color: #E02020; border-color: #E02020; }
 /* 按下反馈（hover-class 目标）：移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
 .pill-hover { color: #B01818; background-color: #FFF7F0; border-color: #B01818; }
+/* 当前档的按下态（U-13）：.window-tab.active 是 (0,2,0)、.pill-hover 只有 (0,1,0)，
+   于是点已选中的那一档毫无视觉反馈，而 switchDays 又对它早退不发请求 —— 看着就像「这页点不动」。
+   这里给同一条规则 (0,3,0) 的权重把它压回去，色值全取本色板已有的 #B01818/#FFFFFF，不引新色 */
+.window-tab.active.pill-hover { color: #FFFFFF; background-color: #B01818; border-color: #B01818; }
 /* 窗口起点那句实话：整行可换行，长日期串不许被截断（这是商家判断「到底统计的哪几天」的唯一线索） */
 .window-line {
   display: block; margin-top: 16rpx;
@@ -447,10 +517,16 @@ export default {
 .top-bar-track { margin-top: 10rpx; height: 12rpx; background-color: #F5F5F5; border-radius: 999rpx; overflow: hidden; }
 .top-bar { height: 12rpx; min-width: 4rpx; background-color: #E02020; border-radius: 999rpx; }
 
-/* ==================== 7. 口径说明（D-5 逐字三行，行序即原文序） ==================== */
+/* ==================== 7. 口径说明（D-5 逐字三行 + S-4/S-5 补的两行，行序即原文序） ==================== */
 .caliber-card { display: flex; flex-direction: column; gap: 12rpx; }
 .caliber-line { font-size: 24rpx; color: #666666; line-height: 1.7; }
 .caliber-foot { font-size: 20rpx; color: #BBBBBB; line-height: 1.6; }
+
+/* ==================== 8. 读数拉取时刻行（与营销页 .refresh-line 同一用途，只在本页 scoped 内定义） ==================== */
+.refresh-line {
+  display: block; margin: 20rpx 24rpx 0;
+  font-size: 20rpx; color: #CCCCCC; line-height: 1.4; text-align: right;
+}
 
 .page-bottom-space { height: 60rpx; }
 </style>
