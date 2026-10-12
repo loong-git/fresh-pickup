@@ -208,9 +208,16 @@ const CODE_HINTS = {
     + '分页请核对：页码从 1 起、每页只能选 10/20/50/100 四档。',
   404: '商品列表接口不可达（后端服务未起或路径已变）。请确认后端服务在运行，再点「重试」。',
   429: '读取过于频繁（只读列表按来源 IP 限流 30 次/分）。请稍候再翻页。',
+  // FE-G6-7（读侧）：500 是服务端接住这一请求之后自己抛的，跟「-1」（请求层自己判定的网络失败/abort）
+  // 是两回事；这一条不许出现「网络异常/超时/检查代理」字样，也不许由 '-1' 那条兜底。
+  500: '服务端内部错误（HTTP 500）：请求已经送达并被服务端接住，这一枚码就是服务端在处理这一条读取时自己抛的。'
+    + '本页这次读数不可信——不要拿这一屏的价格/库存/在售当库内真值用。'
+    + '下一步：稍后点上方「查询」或「重试」重拉本列表核对；若同一条件反复出现这一条，请让运维查服务端日志（本页不猜具体原因）。',
   '-1': '请求未能送达（网络异常或 10s 查询档超时）。请确认后端服务已启动，并用 http://localhost:5177 打开本页面'
     + '（用 127.0.0.1 形态打开会被后端 CORS 全拦，渲染成这一条假故障）。'
 }
+// 未知码走 ''：与 AuditLogs.vue 同一份「宁可不说话也不猜」（FE-G6-7 纪律 4）。
+// 只有 code 恰为 -1 时，CODE_HINTS['-1'] 那条关于链路/超时的文案才被引用。
 const codeHint = computed(() => CODE_HINTS[String(errorCode.value)] || '')
 
 // 写侧 400 的覆盖面：通用两句 + 本端点自己的业务文案 + @Valid 注解文案（三组都可能出现，命中哪一句只看服务端原文）
@@ -226,8 +233,25 @@ const WRITE_CODE_HINTS = {
     + '下一步：用上方「查询」重取列表后再对现存的 ID 操作；不要拿旧 ID 反复重试。',
   429: '写请求过于频繁（Admin 写面按来源 IP 限流 10 次/分，比列表的 30 次/分更紧）。'
     + '请等半分钟再提交；批量改价请分时段，不要连点。',
+  // FE-G6-7（写侧）：500 ≠ 未送达。请求已经打到服务端、被接住、由服务端自己抛的；
+  // 把这一条继续渲染成「请求未能送达」会把运营引向"查网络/重启"的错误方向。
+  500: '服务端内部错误（HTTP 500）：请求已经送达并被服务端接住，这一枚码就是服务端在处理这一笔写动作时自己抛的——不是没送到。'
+    + '⚠ 这一笔到底有没有落库不作数（服务端既然抛了 500，回执不可信）。'
+    + '下一步：点上方「查询」重拉列表核对这一行的价格/库存/在售再决定要不要重做，'
+    + '不要盲目重发（服务端状态机可能已经把这一行推进了，幂等早退会让第二次拿到别的错）。'
+    + '反复出现，请让运维查服务端日志（本页不猜原因）。',
   '-1': '请求未能送达（网络异常或 20s 提交档超时）。⚠ 超时不等于「没生效」：服务端可能已经写完，只是回执没回来。'
     + '下一步：先点上方「查询」重拉列表核对这一行的价格/库存/在售，再决定要不要重做。'
+}
+// FE-G6-7：未知码的兜底<b>不能</b>再指向 WRITE_CODE_HINTS['-1']——那一条只描述请求层自己判定的网络失败/abort，
+// 用它兜 500/501/502… 就是在给运营编造「未送达」这条不存在的因果。
+// 只有 code 恰为 -1（网络失败或主动 abort，见 ../api/index.js 的 request catch）才允许说「未能送达」。
+function writeHintOf(code) {
+  const key = String(Number(code))
+  const known = WRITE_CODE_HINTS[key]
+  if (known !== undefined) return known
+  return '服务端回了本页没有预置说明的码 ' + key + '。本页不猜原因，以「服务端原文」那一行为准；'
+    + '如需核对可点上方「查询」重拉列表再决定下一步。'
 }
 
 async function load() {
@@ -295,14 +319,20 @@ function openDialog(row) {
 }
 
 // 只下发运营<b>实际填过</b>的键：留空的键根本不进 body（服务端「传了才更新」）。
-// 数字串按数字下发；填了非数字（"9.9a" 这类）时把原串照发，让服务端自己给那句诚实的 400，
-// 本页不把它悄悄改成 0、也不本地拦下来猜。
+// FE-G6-8：price/stock <b>不按 Number 下发、原样字符串</b>——
+// Jackson 把 JSON 字符串 "4.40" 绑进 BigDecimal 会保住标度（scale=2），@DecimalMin("0.01") 走 compareTo
+// 与标度无关照常生效，落库值与库里既有值逐字相同；这样 admin_audit_log.detail 里记的 new 才是运营所见的 "4.40"，
+// 而不是 Number 化后丢尾零的 "4.4"（留痕保真：审计面所见 = 运营面所填 = 库里所存）。
+// 非数字串（"9.9a"）同样原样下发，让服务端给那句诚实的 400（Jackson 不能解析 → GlobalExceptionHandler
+// 走 HttpMessageNotReadable 分支，回「参数格式不正确」），本页不拦、不改 0、不猜。
+// stock 是整数列：Integer 从字符串 "50" 反序列化走 Jackson 的标量 coercion（默认允许），值不变、形态更留痕。
+// onSale 是 select（值为 0/1 <b>数字</b>），服务端 @Min/@Max 对 Integer 生效得很，不为"统一"把它改成字符串。
 function buildPatch() {
   const patch = {}
   const price = String(form.value.price == null ? '' : form.value.price).trim()
-  if (price !== '') patch.price = Number.isFinite(Number(price)) ? Number(price) : price
+  if (price !== '') patch.price = price
   const stock = String(form.value.stock == null ? '' : form.value.stock).trim()
-  if (stock !== '') patch.stock = Number.isFinite(Number(stock)) ? Number(stock) : stock
+  if (stock !== '') patch.stock = stock
   const onSale = form.value.onSale
   if (onSale === 0 || onSale === 1) patch.onSale = onSale
   return patch
@@ -386,7 +416,7 @@ async function onSubmit() {
       kind: 'error',
       title: e.code === 403 ? '没有权限执行该动作' : '写操作未完成（未生效）',
       serverText: e.message || '（后端未给出 message）',
-      hint: WRITE_CODE_HINTS[String(Number(e.code))] || WRITE_CODE_HINTS['-1']
+      hint: writeHintOf(e.code)
     }
   } finally {
     submitting.value = false
