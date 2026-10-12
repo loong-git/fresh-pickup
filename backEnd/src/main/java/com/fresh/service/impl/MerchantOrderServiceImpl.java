@@ -3,12 +3,16 @@ package com.fresh.service.impl;
 import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
+import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.service.MerchantOrderService;
+import com.fresh.service.MerchantService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -19,22 +23,37 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * 商家端只读备货单实现（F-17/G-03 Step 1）。纯读、无事务写、不落运营审计（RC 红线，与 G-02 六个端点
- * 「四个写才审计」口径一致），也**不经过**商家侧的写闸门判定——读放行是 G-02 已定口径，
- * 停业商家仍需看自己的历史备货单去收尾备货（契约 F-17.2 #8）。
+ * 商家端只读接口实现：G-03 备货单两页（F-17）＋ G-05 数据看板与营销参与态（F-19）。
+ * 纯读、无事务写、不落运营审计（RC 红线，与 G-02 六个端点
+ * 「四个写才审计」口径一致）。
  *
- * <p>归属（R3 同型，本期为读）：取数只经 OrderItemMapper 那 8 条 @Select（F-17 找茬轮 G-1 加了
- * 带 storeId 的计数孪生条），每一条都恒带
- * {@code oi.merchant_id = #{merchantId}}；本类不存在任何绕过这些方法的读路径，
- * 也没有「merchantId 为空就不加条件」的分支——首行判空直接 403（同 MerchantDishServiceImpl:107-109）。
- * storeId 只作过滤、不作归属。
+ * <p>停业闸门（D-9，本期的口径变化点）：F-19 的两个新方法**读侧也判** {@code merchant.status<>'active'}，
+ * 判据与文案直接调既有的 {@link MerchantService#assertActive}（= MerchantDishServiceImpl 四个写端点用的
+ * 同一条实现：null → 403、查无主体 → 404「商家不存在」、非 active → 403 R.MSG_FORBIDDEN），
+ * 本类不新写任何判据或文案。G-03 的 pickupPlan/orderItems 行为不变——那两个仍是「读放行」
+ * （停业商家仍需看自己的历史备货单去收尾备货，契约 F-17.2 #8）。
+ *
+ * <p>归属（R3 同型，本期为读）：取数只经 OrderItemMapper 那 11 条 @Select（F-17 的 8 条 + F-19 的 3 条）
+ * 与 DishMapper 的 4 条 F-19 @Select，每一条都恒带
+ * {@code oi.merchant_id = #{merchantId}} / {@code d.merchant_id = #{merchantId}}；本类不存在任何绕过这些
+ * 方法的读路径，也没有「merchantId 为空就不加条件」的分支——首行判空直接 403（同 MerchantDishServiceImpl）。
+ * storeId 只作过滤、不作归属；本类也没有任何 merchantId 入参（D-2，值只来自 @RequestAttribute 注入）。
  *
  * <p>分页（RB 红线）：本工程没注册 MP 的内置分页拦截器，用那一套分页对象会静默返回全量且 total=0，
- * 故这里走「页 + 独立 COUNT」两条手写 SQL，offset 自己算（母版是 OrderServiceImpl#getOrders:257 的
+ * 故 G-03 走「页 + 独立 COUNT」两条手写 SQL，offset 自己算（母版是 OrderServiceImpl#getOrders:257 的
  * {@code wrapper.last("LIMIT ...")}，本类改用 @Select 的 {@code LIMIT #{offset}, #{size}} 以便带 JOIN）。
+ * F-19 两个端点干脆没有分页：Top 5 与参与位明细各 LIMIT 20/5 写死，count 由独立 COUNT 给真总数。
  *
  * <p>脱敏（RD 红线）：orders.phone 是明文列，只经 PhoneMask.mask 后以 maskedPhone 出参；
- * 出参 map 是逐键重新拼的，源行的 phone 键**不进**返回体，address/user_id 连查都没查。
+ * 出参 map 是逐键重新拼的（四个方法都是手工白名单 Map，绝不直接吐实体或吐聚合行的原始 Map），
+ * 源行的 phone 键**不进**返回体，address/user_id/pickup_code 连查都没查。
+ *
+ * <p>时间口径（D-3，本类最要紧的一条纪律）：看板窗口只在 SQL 里算
+ * （{@code DATE_SUB(CURDATE(), INTERVAL (#{days}-1) DAY)}），Java 侧零日期运算——
+ * 用 LocalDate.now() 另算一次就等于把窗口交给应用服务器时区，与 CURDATE() 所在库时区可能差一天。
+ * 出参 {@code windowStart} 是同一条 SUM 语句里同式取回的字符串，天然与谓词同步。
+ * 这与 G-03 的 {@code pickup_date}（自提自然日，Service 用 LocalDate 算「明天」）是两套口径，
+ * 契约点名的「不许混用」在本类里就是：看板的 days/windowStart 绝不碰 pickupDate 那条链路。
  */
 @Slf4j
 @Service
@@ -63,8 +82,33 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
     /** 400 文案（RF 红线：逐字复用 GlobalExceptionHandler:51 已有的那条，不新增句子） */
     private static final String BAD_REQUEST_MSG = "请求参数有误，请检查后重试";
 
+    /**
+     * 看板窗口天数（契约 D-3）：缺省 7、值域 [1,90]、越界 400。
+     * 「天数需在 1 到 90 之间」是 D-3 逐字钉死的文案，也是本期唯一新增句（RF 的「不新增句子」
+     * 指的是不复用/不改写既有文案，契约点名的新值域校验必须有新文案，此处照契约原文）。
+     */
+    private static final int DEFAULT_WINDOW_DAYS = 7;
+    private static final int MIN_WINDOW_DAYS = 1;
+    private static final int MAX_WINDOW_DAYS = 90;
+    private static final String DAYS_RANGE_MSG = "天数需在 1 到 90 之间";
+
+    /**
+     * 金额列的展示精度：一律 2 位、HALF_UP（契约 F-19.4 #4）。
+     * DECIMAL(10,2) 的列本已是 2 位，setScale 是给 SUM 结果兜底（MySQL 的 SUM 会把精度加宽），
+     * 并保证绝不出现 {@code 1.0} / {@code 1.000} 这类位数不定的串。
+     */
+    private static final int MONEY_SCALE = 2;
+
     @Autowired
     private OrderItemMapper orderItemMapper;
+
+    /** F-19 营销参与态取数（dish 侧 4 条恒带归属条件的 @Select） */
+    @Autowired
+    private DishMapper dishMapper;
+
+    /** F-19/D-9 读侧停业闸门：复用商家端既有写闸门的判据与文案，本类不重写一遍 */
+    @Autowired
+    private MerchantService merchantService;
 
     @Override
     public Map<String, Object> pickupPlan(Long merchantId, String date, Long storeId) {
@@ -212,6 +256,133 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
     }
 
     /**
+     * 数据看板（F-19/G-05，契约 D-3/D-4）。三个数字 + 取消单数 + Top 5 全部来自 OrderItemMapper
+     * 那三条恒带 {@code oi.merchant_id} 的 @Select，本方法只做「校验 + 白名单重拼 + 金额定形」，
+     * 不参与任何口径计算（尤其不参与日期计算，见类注释的 D-3 段）。
+     */
+    @Override
+    public Map<String, Object> stat(Long merchantId, Integer days) {
+        assertMerchant(merchantId);
+        // D-9：只读侧也判停业（判据/文案复用 MerchantService#assertActive，不另写句子）
+        merchantService.assertActive(merchantId);
+
+        // days 缺省 7 并回显生效值（同 G-03「夹而不拒 + 回显」的防「静默改口径」姿势）；
+        // 越界直接 400（契约 D-3 原文，不夹到边界——窗口口径是商家主动选的，夹了会让「近 90 天」
+        // 与「近 999 天」出同一个数，比报错更难发现）。abc 这类绑不进 Integer 的脏参在进本方法之前
+        // 已由 GlobalExceptionHandler(BE-14) 转 400「参数格式不正确」。
+        int windowDays = days == null ? DEFAULT_WINDOW_DAYS : days;
+        if (windowDays < MIN_WINDOW_DAYS || windowDays > MAX_WINDOW_DAYS) {
+            throw new BizException(R.CODE_BAD_REQUEST, DAYS_RANGE_MSG);
+        }
+
+        Map<String, Object> summary = orderItemMapper.selectStatSummary(merchantId, windowDays);
+        // 无 GROUP BY 的聚合恒回 1 行，null 在这里不可达；留这行只为万一时不把 null 传进下面的取值方法
+        // （绝不用 Java 算日期给 windowStart 兜底——那等于凭空多出第二个窗口口径，D-3 明令禁止）
+        Map<String, Object> row = summary == null ? Map.of() : summary;
+        long refundCount = orderItemMapper.selectStatCancelledCount(merchantId, windowDays);
+        List<Map<String, Object>> topRows = orderItemMapper.selectStatTopDishes(merchantId, windowDays);
+
+        List<Map<String, Object>> top = new ArrayList<>(topRows.size());
+        for (Map<String, Object> line : topRows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("dishId", line.get("dishId"));
+            // dishName 是 order_item 的下单快照列，本方法全程没有 JOIN dish（D-4：改菜名不污染历史单）
+            item.put("dishName", line.get("dishName"));
+            item.put("quantity", toInteger(line.get("quantity")));
+            item.put("amount", moneyText(line.get("amount")));
+            top.add(item);
+        }
+
+        // 键序即契约 F-19.4 #4 出参形状的顺序；LinkedHashMap 保证序列化后逐键对齐（前端下一轮按这个写）
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("days", windowDays);
+        data.put("windowStart", row.get("windowStart"));
+        data.put("gmvBeforeCoupon", moneyText(row.get("gmvBeforeCoupon")));
+        data.put("orderCount", toInteger(row.get("orderCount")));
+        data.put("itemCount", toInteger(row.get("itemCount")));
+        data.put("refundCount", refundCount);
+        data.put("top", top);
+        return data;
+    }
+
+    /**
+     * 营销参与态（F-19/G-05，契约 D-6/D-7）：本店被平台设置的秒杀件与免费领活动，纯只读、零报名口。
+     * count 与 items 来自两条方法（count 是真总数、items 上限 20），count=0 时短路明细条——
+     * 本仓 merchant 2/3 两个参与位实测恒 0 行，空态就是本期真实形态（G8），绝不为了页面好看造数据。
+     */
+    @Override
+    public Map<String, Object> marketing(Long merchantId) {
+        assertMerchant(merchantId);
+        // D-9：同上，读侧也判停业
+        merchantService.assertActive(merchantId);
+
+        long seckillCount = dishMapper.countSeckillDishes(merchantId);
+        List<Map<String, Object>> seckillItems = seckillCount == 0
+                ? List.of()
+                : seckillItemList(dishMapper.selectSeckillDishes(merchantId));
+
+        long freeCount = dishMapper.countFreeActivities(merchantId);
+        List<Map<String, Object>> freeItems = freeCount == 0
+                ? List.of()
+                : freeClaimList(dishMapper.selectFreeActivities(merchantId));
+
+        Map<String, Object> seckill = new LinkedHashMap<>();
+        seckill.put("count", seckillCount);
+        seckill.put("items", seckillItems);
+
+        Map<String, Object> freeClaim = new LinkedHashMap<>();
+        freeClaim.put("count", freeCount);
+        freeClaim.put("items", freeItems);
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("seckill", seckill);
+        data.put("freeClaim", freeClaim);
+        return data;
+    }
+
+    /** 秒杀块白名单重拼（D-6 键清单）：实体/Mapper 行一律不外泄，未列的列（stock/tags/…）天然不出 */
+    private List<Map<String, Object>> seckillItemList(List<Map<String, Object>> rows) {
+        List<Map<String, Object>> items = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("dishId", row.get("dishId"));
+            item.put("name", row.get("name"));
+            item.put("price", money(row.get("price")));
+            // seckill_price 是可空列（init.sql 的 dish.seckill_price NULL）：真为 NULL 就出 null，
+            // 这是「平台只打了标记没填价」的事实形态，兜成 0.00 反而要商家按 0 元理解（不发明修法）
+            item.put("seckillPrice", money(row.get("seckillPrice")));
+            item.put("limitBuy", toInteger(row.get("limitBuy")));
+            // onSale/inPool 走 toInteger 而不是直出：tinyint 有被 Connector/J 回成 Boolean 的一档
+            // （下方 toInteger 注释同口径），出参必须是数字 0/1，前端才敢做 ===1 判定
+            item.put("onSale", toInteger(row.get("onSale")));
+            // D-7：soldCountTotal = dish.sold_count 的**历史累计**，不是本窗口值，
+            // 故改名带 Total 且不与 /stat 的任何数并列比较
+            item.put("soldCountTotal", toInteger(row.get("soldCountTotal")));
+            items.add(item);
+        }
+        return items;
+    }
+
+    /** 免费领块白名单重拼（D-6 键清单）：daily_date 不在契约键清单里，故不取也不出 */
+    private List<Map<String, Object>> freeClaimList(List<Map<String, Object>> rows) {
+        List<Map<String, Object>> items = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("activityId", row.get("activityId"));
+            item.put("dishId", row.get("dishId"));
+            item.put("name", row.get("name"));
+            item.put("status", row.get("status"));
+            item.put("dailyQuota", toInteger(row.get("dailyQuota")));
+            item.put("dailyClaimed", toInteger(row.get("dailyClaimed")));
+            item.put("threshold", money(row.get("threshold")));
+            // EXISTS() 回 1/0，按本仓 flag 惯例出数字不出布尔（同 payStatus）
+            item.put("inPool", toInteger(row.get("inPool")));
+            items.add(item);
+        }
+        return items;
+    }
+
+    /**
      * 归属自守卫（纵深防御，非可达分支）：AuthInterceptor:83-87 已在 merchant_id 为空时收口 403，
      * 控制器拿到的 merchantId 恒非 null；这里留一行是为了万一出现不经 /api/merchant/ 前缀的内部调用时，
      * 也不会退化成「条件为空 = 不加条件」的全表读。403 与拦截器同文案（R.MSG_FORBIDDEN），不新增文案。
@@ -263,5 +434,35 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             return bool ? 1 : 0;
         }
         return null;
+    }
+
+    /**
+     * 金额定形（契约 F-19.4 #4）：列值（DECIMAL(10,2)）保持数值形态，只把位数钉成 2、HALF_UP，
+     * 于是 JSON 出去是 {@code 12.30} 而不是 {@code 12.3} / {@code 12.300000}。
+     * 走 {@code number.toString()} 再构造，绝不 {@code new BigDecimal(double)}（浮点误差会渗进金额）。
+     * null 原样出 null（唯一可达来源是可空列 dish.seckill_price，见调用处注释）。
+     */
+    private BigDecimal money(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        }
+        if (value instanceof Number number) {
+            return new BigDecimal(number.toString()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        }
+        return null;
+    }
+
+    /**
+     * 聚合金额的出参形态：定形后转字符串（契约 F-19.4 #4 的出参形状里 {@code gmvBeforeCoupon}
+     * 与 {@code top[].amount} 两处就是带引号的 {@code "12.30"}，而列值型金额是裸数字，
+     * 本方法只用于前者）。为什么要成串：SUM 出来的 BigDecimal 位数由 MySQL 决定，
+     * 而看板要的是「永远两位」的展示值；前端拿到串就不再受 JS number 抹尾零的影响（12.30 → 12.3）。
+     * null 兜 {@code "0.00"}（G5：零单商家不许出 null；SQL 侧 IFNULL 已兜过一层，这里是第二层，
+     * 兜的是「列缺失」而不是「值为 0」，两者出参一致）。
+     */
+    private String moneyText(Object value) {
+        BigDecimal scaled = money(value);
+        return scaled == null ? BigDecimal.ZERO.setScale(MONEY_SCALE, RoundingMode.HALF_UP).toPlainString()
+                : scaled.toPlainString();
     }
 }
