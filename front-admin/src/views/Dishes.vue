@@ -1,6 +1,10 @@
 <template>
   <div class="page">
-    <h2 class="page-title">商品管理</h2>
+    <!-- FE-G6-10（读写可辨·写页徽标）：徽标常驻页眉、ready 态就可见（原先这类话只写在 state-box 里，出错才看得到）。 -->
+    <div class="page-head">
+      <h2 class="page-title">商品管理</h2>
+      <el-tag type="danger" effect="dark" size="small" class="mode-badge">本页会改数据</el-tag>
+    </div>
     <p class="page-note">
       全量商品列表（运营面，不按商家归属过滤）+ 一个写动作：改价 / 补库存 / 上下架（同一个端点的三个可选字段，<b>部分更新</b>）。<br />
       列表源是<b>只读</b>的 GET /api/admin/v2/dishes：外层恒 {list,total,pageNum,pageSize,filters}，
@@ -61,7 +65,8 @@
     </div>
 
     <template v-else>
-      <el-table :data="rows" border stripe size="small" class="table">
+      <!-- FE-G6-9 表头粘性（理由与 offset 实算见 Orders.vue 同名注释）：表体内部滚动、表头常驻 -->
+      <el-table :data="rows" border stripe size="small" class="table" max-height="calc(100vh - 420px)">
         <template #empty>
           <span class="empty">暂无商品（当前筛选下没有命中）</span>
         </template>

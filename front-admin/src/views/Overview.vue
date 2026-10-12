@@ -1,6 +1,11 @@
 <template>
   <div class="page">
-    <h2 class="page-title">当日大盘</h2>
+    <!-- FE-G6-10（读写可辨）：「本页只读」原先只在 state-box（出错态）里出现，ready 态一个字都不露——
+         运营在日常态读不出这页不会动数据。这里挂常驻徽标（与写页的「本页会改数据」同一套形态、颜色区分）。 -->
+    <div class="page-head">
+      <h2 class="page-title">当日大盘</h2>
+      <el-tag type="info" effect="plain" size="small" class="mode-badge">本页只读</el-tag>
+    </div>
     <p class="page-note">{{ scopeText }}</p>
 
     <div class="toolbar">

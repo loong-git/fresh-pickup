@@ -1,6 +1,10 @@
 <template>
   <div class="page">
-    <h2 class="page-title">入驻审核</h2>
+    <!-- FE-G6-10（读写可辨）：徽标常驻页眉、ready 态就可见。approve 同事务建店并绑主理人、不可翻转，所以常驻「本页会改数据」。 -->
+    <div class="page-head">
+      <h2 class="page-title">入驻审核</h2>
+      <el-tag type="danger" effect="dark" size="small" class="mode-badge">本页会改数据</el-tag>
+    </div>
     <p class="page-note">
       全量入驻申请列表（运营面）+ 一个写动作的两种取值：通过并发布门店（approve）与驳回（reject），两者都可带一句审核意见。<br />
       列表源是<b>只读</b>的 GET /api/admin/v2/store-applies：外层恒 {list,total,pageNum,pageSize,filters}，排序 id DESC（最新在前），
@@ -58,7 +62,8 @@
     </div>
 
     <template v-else>
-      <el-table :data="rows" border stripe size="small" class="table">
+      <!-- FE-G6-9 表头粘性（理由与 offset 实算见 Orders.vue 同名注释）：表体内部滚动、表头常驻 -->
+      <el-table :data="rows" border stripe size="small" class="table" max-height="calc(100vh - 420px)">
         <template #empty>
           <span class="empty">暂无入驻申请（当前筛选下没有命中；现库 store_apply 表本就可能是空的，这不是故障）</span>
         </template>

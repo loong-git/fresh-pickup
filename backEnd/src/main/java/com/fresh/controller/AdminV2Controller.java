@@ -20,8 +20,14 @@ import java.util.Map;
  * 核销台/商品管理/评价审核/入驻审核四个 P0 页的<b>写</b>动作仍走 {@link AdminController} 的旧 5 端点
  * （D-7 明令不在 v2 重复造写接口），本批给它们的是<b>列表数据源</b>，两者不重叠。
  *
- * <p><b>鉴权只认运营 JWT</b>：六条端点第一行调 {@link AdminController#requireAdminJwtOnly}（F-20.6 第 6 条备好的那把闸门，
+ * <p><b>鉴权只认运营 JWT</b>：六条端点<b>方法体</b>第一行调 {@link AdminController#requireAdminJwtOnly}（F-20.6 第 6 条备好的那把闸门，
  * 本期首次派活；闸门方法留在 AdminController 里<b>只有一份</b>，不在此复制三重判定）。
+ * <p><b>如实声明判定时序</b>（F-20.27 A-2 → 登记 L-20-2，本期不改判定顺序）：Spring 的<b>参数绑定与类型转换</b>
+ * （{@code @RequestParam}/{@code @RequestHeader} 解析）发生在方法体执行<b>之前</b>，即闸门调用之前——
+ * 于是匿名调用方可用 400/401 差集枚举参数名与类型（实测 {@code /orders?storeId=abc} → 400「参数格式不正确」、
+ * 裸 {@code /orders} → 401；{@code /reviews?auditStatus=zzz} → 401，Service 层白名单在闸门之后、不外泄）。
+ * 把判定提到绑定之前要动 {@code AuthInterceptor} 的 admin 分支（红线邻域），换到的只是「少暴露几个参数名」，
+ * 得不偿失，故本期只改本注释措辞、不动代码顺序。
  * {@code X-Admin-Key} 静态密钥在 v2 上<b>一律 401</b>（D-2「防止新代码更弱」），401 文案仍是 RE 红线那一句
  * 「管理密钥缺失或错误」，逐字节未变。
  * <p>{@code AuthInterceptor} 对 {@code /api/admin/} 前缀整体提前放行（BE-20-1），v2 天然命中同一条，

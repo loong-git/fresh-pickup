@@ -600,13 +600,27 @@ public class AdminV2ServiceImpl implements AdminV2Service {
      * date 解析照 {@code MerchantOrderServiceImpl#parseDate} 的既有写法：形状不过或形状符但真日期不存在
      * （2026-13-99、2026-02-30）都是 400、同一条文案。用 DateTimeException 兜住 parse，
      * 不让 DateTimeParseException 逃到全局兜底变成 500。
+     * <p><b>年 &ge; 1 下限（F-20.29 BE-G6-4）</b>：Java 的 ISO历接受<b>年 0</b>（0000 按 400 的倍数算闰年），
+     * {@code 0000-02-29} 能过 {@code LocalDate.parse}；但 MySQL DATETIME <b>没有年 0</b>，JDBC 层把 0000
+     * 归一成 0001，而 0001 非闰年 → {@code 0001-02-29} 在库里报
+     * {@code SQLException: Incorrect DATETIME value}——实测 {@code /orders?date=0000-02-29} 因此出 500
+     * （overview 同值当时侥幸 200，两条 SQL 的 {@code #{day}} 绑定路径不同，不指望它）。
+     * 收在 Java 层：{@code getYear() >= 1} 否则 400（复用 {@code BAD_REQUEST_MSG}，不新造文案）——
+     * 年 0 一族（{@code 0000-01-01}、{@code 0000-02-29}…）两面统一变 400；
+     * 其余读数一律不变（{@code 0001-01-01}/{@code 0004-02-29}/{@code 0099-12-31}/{@code 1000-01-01}/
+     * {@code 1582-10-01}/{@code 9999-12-31} 仍 200，{@code 0999-02-29} 仍 400——那枚本来就由 parse 拦）。
      */
     private LocalDate parseDate(String raw) {
         if (!DATE_PATTERN.matcher(raw).matches()) {
             throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
         }
         try {
-            return LocalDate.parse(raw);
+            LocalDate parsed = LocalDate.parse(raw);
+            // BizException 是 RuntimeException，不会被下面的 catch (DateTimeException) 吞掉重包，语义直抵全局兜底 400
+            if (parsed.getYear() < 1) {
+                throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+            }
+            return parsed;
         } catch (DateTimeException e) {
             throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
         }

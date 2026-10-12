@@ -1,6 +1,11 @@
 <template>
   <div class="page">
-    <h2 class="page-title">审计记录</h2>
+    <!-- FE-G6-10（读写可辨）：本页只读（它记录的是**别人的**写动作，自己一个写端点都不调）。
+         常驻徽标与写页同一套形态；下句「Admin 侧写动作的留痕」说的是记录对象，不是本页行为。 -->
+    <div class="page-head">
+      <h2 class="page-title">审计记录</h2>
+      <el-tag type="info" effect="plain" size="small" class="mode-badge">本页只读</el-tag>
+    </div>
     <p class="page-note">
       Admin 侧写动作的留痕（谁、做了什么、对哪一条），按 id 倒序分页；服务端手写 LIMIT/OFFSET + 独立 COUNT。<br />
       可用「操作者 / 动作 / 目标类型 / 目标 ID」四个筛选，<b>均为精确等值（不是模糊搜索），且不区分大小写</b>；
@@ -53,7 +58,8 @@
     </div>
 
     <template v-else>
-      <el-table :data="rows" border stripe size="small" class="table">
+      <!-- FE-G6-9 表头粘性（理由与 offset 实算见 Orders.vue 同名注释）：表体内部滚动、表头常驻 -->
+      <el-table :data="rows" border stripe size="small" class="table" max-height="calc(100vh - 420px)">
         <!-- 空表 → 「暂无审计记录」，不是报错：后端空表回的是 {list:[],total:0}（F-20.10 实测不 500） -->
         <template #empty>
           <span class="empty">暂无审计记录</span>
