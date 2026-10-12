@@ -25,11 +25,13 @@
     </view>
 
     <!-- ==================== 4. 错误态（≠ 空态：空态是后端确认「一个参与位都没有」，错误态是根本没拿到数据） ====================
-             两层式照 pickup-plan.vue：主文案是人话，后端 message 原文降为第二行小字 -->
+             两层式照 pickup-plan.vue：主文案是人话，后端 message 原文降为第二行小字。
+             404 例外：主文案就是后端 message 原文（S-7/U-14：404 是「商家不存在」这类确定性失败，
+             说成「稍后重试」是把确定失败伪装成可恢复），此时第二行不再重复印同一句 -->
     <view v-else-if="viewState === 'error'" class="card">
       <view class="error-row">
         <text class="error-lead">{{ errorLeadText }}</text>
-        <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
+        <text v-if="errorText && errorCode !== 404" class="guide-tip">{{ errorText }}</text>
         <text v-if="errorRetryable && !retryLock" class="error-retry" @click="loadMarketing(true)">点击重试</text>
         <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
@@ -44,9 +46,12 @@
           <text class="card-title">秒杀参与态</text>
           <text class="count-tag">已参与 {{ countText(seckillCount) }} 件</text>
         </view>
-        <!-- count 是真总数、items 上限 20（后端 LIMIT 20，不是分页）：两者不等时必须如实说「只展示前 20 件」，
-             否则商家会把屏上 20 行当成全部参与量 -->
+        <!-- count 是真总数、items 上限 20（后端 LIMIT 20，不是分页）：两者不等时必须如实说明，
+             否则商家会把屏上 20 行当成全部参与量。U-12：不等分两种，判据与措辞都分开——
+             count > items.length 才是「被 LIMIT 裁过」；count < items.length 是出参自相矛盾（脏值/后端短路变更），
+             这时再说「列表展示前 20 件」就输出一句「共 3 件，列表展示前 20 件」的病句，把数据异常说成口误 -->
         <text v-if="seckillTruncated" class="truncate-line">共 {{ seckillCount }} 件，列表展示前 20 件</text>
+        <text v-else-if="seckillInconsistent" class="truncate-line">共 {{ seckillCount }} 件与明细条数不符，以平台数据为准</text>
 
         <view class="mk-item" v-for="(it, i) in seckillItems" :key="rowKey('d', it.dishId, i)">
           <text class="mk-name">{{ nameOf(it.name) }}</text>
@@ -73,22 +78,28 @@
       <view class="card block-card">
         <view class="card-head">
           <text class="card-title">免费领参与态</text>
-          <text class="count-tag">已参与 {{ countText(freeClaimCount) }} 件</text>
+          <!-- U-2/S-1：BE-G5-1 后这个 count 是「本店菜在 free_goods_pool 里且活动在线」的真行数，
+               卡头措辞随之改成「在架可领」——原来那句「已参与」与行内的「活动状态 已下线」在同一屏自相矛盾。
+               秒杀卡头保持「已参与 N 件」（那一块没有这层矛盾） -->
+          <text class="count-tag">在架可领 {{ countText(freeClaimCount) }} 件</text>
         </view>
+        <!-- 同秒杀：判据分 >/< 两句（U-12） -->
         <text v-if="freeClaimTruncated" class="truncate-line">共 {{ freeClaimCount }} 件，列表展示前 20 件</text>
+        <text v-else-if="freeClaimInconsistent" class="truncate-line">共 {{ freeClaimCount }} 件与明细条数不符，以平台数据为准</text>
 
         <view class="mk-item" v-for="(it, i) in freeClaimItems" :key="rowKey('a', it.activityId, i)">
           <text class="mk-name">{{ nameOf(it.name) }}</text>
           <view class="mk-line">
             <!-- 活动状态未知值原样透出（不写死 online/offline 二分支）：脏值要能被当场看见，
-                 前端替后端猜一个中文说法就等于把数据问题藏成"看着挺正常" -->
-            <text class="mk-kv">活动状态 <text class="mk-v">{{ statusText(it.status) }}</text></text>
+                 前端替后端猜一个中文说法就等于把数据问题藏成"看着挺正常"。
+                 键名按 BE-G5-1 后的出参取 activityStatus（值域同 fa.status）；原「候选池」那一格随该键一起删——
+                 免费领改由 pool 驱动后它恒为「在」，一个恒真的列只会稀释行内信息（S-1）-->
+            <text class="mk-kv">活动状态 <text class="mk-v">{{ statusText(it.activityStatus) }}</text></text>
             <text class="mk-kv">今日额度 <text class="mk-v">{{ intText(it.dailyQuota) }}</text> 份</text>
             <text class="mk-kv">今日已领 <text class="mk-v">{{ intText(it.dailyClaimed) }}</text> 份</text>
           </view>
           <view class="mk-line">
             <text class="mk-kv">满额门槛 <text class="mk-v mk-v-price">{{ moneyText(it.threshold) }}</text></text>
-            <text class="mk-kv">候选池 <text class="mk-v">{{ poolText(it.inPool) }}</text></text>
           </view>
         </view>
 
@@ -98,7 +109,9 @@
         </view>
       </view>
 
-      <!-- 刷新时刻一行（与工作台「资料刷新于」同用途）：让商家确认 onShow 的重拉真的发生过 -->
+      <!-- 读数拉取时刻一行（与工作台「资料刷新于」同用途，措辞与精度按 U-9/U-10 统一到「拉取于 HH:mm:ss」）：
+           用「拉取」不用「刷新」，避免被读成"数据截止时间"；这一行只是本次请求成功的时刻，
+           不参与任何统计窗口的推算（本页没有任何日期计算，出参就是快照） -->
       <text v-if="refreshLine" class="refresh-line">{{ refreshLine }}</text>
     </template>
 
@@ -151,7 +164,7 @@ export default {
       errorCode: 0,
       // 403 引导态透出后端原文
       forbiddenMessage: '',
-      // 本次成功时刻（ms），仅驱动「读数刷新于」一行
+      // 本次成功时刻（ms），仅驱动「本页读数拉取于 HH:mm:ss」一行（不参与任何统计窗口的推算）
       refreshAt: 0,
       // 429 冷却剩余秒数（>0 时重试按钮点不动）与驱动它的定时器：与 pickup-plan.vue 同口径，
       // 限流态下的「重试」必须有秒级闸门，否则每次点都在给这个桶续命
@@ -160,30 +173,49 @@ export default {
     }
   },
   computed: {
-    // 「共 N 件，列表展示前 20 件」：count 是真总数、items 是后端 LIMIT 20 的展示条（不是分页），
-    // 两者不等就说明明细被裁过 —— 判据用「不等」而不是「大于」：出参自相矛盾（count < items.length）
-    // 同样得让商家当场看见，藏着等客服来问就成数据问题了
+    // 截断说明的两个判据（U-12 分句）：count 是真总数、items 是后端 LIMIT 20 的展示条（不是分页）。
+    // Truncated = 「总数 > 展示条」，才是真的被裁过明细；Inconsistent = 「总数 < 展示条」，
+    // 是出参自相矛盾（脏值 / 后端短路变更），两句措辞不同、不能共用「展示前 20 件」那一句
     seckillTruncated() {
-      return this.differsFromShown(this.seckillCount, this.seckillItems)
+      return this.countAboveShown(this.seckillCount, this.seckillItems)
+    },
+    seckillInconsistent() {
+      return this.countBelowShown(this.seckillCount, this.seckillItems)
     },
     freeClaimTruncated() {
-      return this.differsFromShown(this.freeClaimCount, this.freeClaimItems)
+      return this.countAboveShown(this.freeClaimCount, this.freeClaimItems)
     },
-    // 「读数刷新于 HH:mm」：这一行存在的意义是让商家（和验收）确认 onShow 的那次静默重拉真发生过
+    freeClaimInconsistent() {
+      return this.countBelowShown(this.freeClaimCount, this.freeClaimItems)
+    },
+    // 「本页读数拉取于 HH:mm:ss」：这一行存在的意义是让商家（和验收）确认 onShow 的那次静默重拉真发生过
     refreshLine() {
-      return this.refreshAt ? '读数刷新于 ' + this.formatClock(this.refreshAt) : ''
+      return this.refreshAt ? '本页读数拉取于 ' + this.formatClock(this.refreshAt) : ''
     },
     errorLeadText() {
+      // F-19.8 S-7/U-14 的四路分流（形状照本仓既有分支，只换判据与措辞）：
       if (this.errorCode === 429) return coolingText(this.retryLock)
-      if (this.errorCode === 404) return '营销参与态接口暂不可用，可能是后端服务还没更新，请稍后重试'
-      return '营销参与态加载失败，请检查网络后重试'
+      // 404（AuthInterceptor:95-99 注入的 merchant_id 查不到行 →「商家不存在」）是确定性失败，
+      // 重试永远拿回同一枚错误码，故主文案直出后端 message，不再说「请稍后重试」
+      if (this.errorCode === 404) return this.errorText
+      // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
+      if (this.errorCode === 500) return '经营读数加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败（api 层回 code:-1 / '网络异常'）才说「请检查网络后重试」
+      if (this.errorCode <= 0) return '营销参与态加载失败，请检查网络后重试'
+      // 其余服务端业务码：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '营销参与态加载失败，请稍后重试'
     },
-    // 重试有没有可能成功：403 已单独走 forbidden 态，到这里都是「等一下或修好就能成」
+    // 重试有没有可能成功：403 已单独走 forbidden 态；404 是确定性失败，重试无望（S-7/U-14），
+    // 两枚都不给重试按钮，模板那一行的 !errorRetryable 分支会给「回工作台」出口
     errorRetryable() {
-      return this.errorCode !== 403
+      return this.errorCode !== 403 && this.errorCode !== 404
     }
   },
   onShow() {
+    // 429 冷却闸门（U-4：限流态下这一路的静默重拉同样在给桶续命，母版会把倒计时文案整个覆写掉）。
+    // 判据逐字照 plan-orders.vue:357 与其注释原文「只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
+    // 把该商家其它读接口一起打死」——本仓为这条踩过一次，本期两页不再重犯
+    if (this.retryLock > 0) return
     // 每次进入静默重拉（平台侧置位改了要回页即可见），带 in-flight 守卫防连点；
     // 已是 ready 时不切加载态，避免回页闪一次白卡把上一轮的数盖掉
     this.loadMarketing()
@@ -196,6 +228,9 @@ export default {
   },
   // #endif
   onUnload() {
+    // 卸载标记（U-5）：在途请求的回包晚于 onUnload 时，下面三处 _unloaded 守卫拦住
+    // 「迟到回包再发一条请求并起一个每秒 setInterval」——页面已销毁，那个定时器没人回收
+    this._unloaded = true
     // #ifdef H5
     if (this._pageWheelHandler) {
       document.removeEventListener('wheel', this._pageWheelHandler)
@@ -210,6 +245,8 @@ export default {
     // ==================== 数据加载 ====================
     // @param {boolean} [forceView] 错误卡重试时强制退回加载态（首屏失败后卡片是空的，不必静默）
     async loadMarketing(forceView) {
+      // 页面已卸载：回包/重拉都不再有任何意义（U-5），渲染目标已经不存在了
+      if (this._unloaded) return
       // 并发守卫：onShow 重拉 + 错误卡重试 + 「点击重试」连点可叠加，慢失败不能盖掉快成功
       if (this._loadingMarketing) {
         this._reloadQueued = true
@@ -255,6 +292,8 @@ export default {
       } finally {
         this._loadingMarketing = false
         if (this._reloadQueued) {
+          // 卸载后不再排队重发：这一条若回 429，还会经 startRetryLock 起一个无人回收的每秒定时器（U-5）
+          if (this._unloaded) return
           const asView = this._queuedView === true
           this._reloadQueued = false
           this._queuedView = false
@@ -268,14 +307,27 @@ export default {
       if (count === null || count === undefined || count === '') return '--'
       return String(count)
     },
-    // 「总数与展示条不等」的判据（两处共用，别在 computed 里各写一遍）：
-    // count 不是有限数（后端没回这一键）时不宣称被截断 —— 那时屏上挂的是 '--'，
-    // 再说一句「共 -- 件，列表展示前 20 件」就是把同一个缺失值解释了两遍
-    differsFromShown(count, items) {
-      if (count === null || count === undefined || count === '') return false
+    // 「总数 vs 展示条」的两枚判据（两块共用，别在 computed 里各写一遍）：
+    // count 不是有限数（后端没回这一键）时两句都不出 —— 那时屏上挂的是 '--'，
+    // 再说一句「共 -- 件，列表展示前 20 件」就是把同一个缺失值解释了两遍。
+    // 页面仍只做比较、不做加减（出参不相乘不相减的原纪律，见类注释①）
+    countAboveShown(count, items) {
+      const n = this.validCount(count)
+      if (n === null) return false
+      return n > this.shownLength(items)
+    },
+    countBelowShown(count, items) {
+      const n = this.validCount(count)
+      if (n === null) return false
+      return n < this.shownLength(items)
+    },
+    validCount(count) {
+      if (count === null || count === undefined || count === '') return null
       const n = Number(count)
-      if (!Number.isFinite(n)) return false
-      return n !== (Array.isArray(items) ? items.length : 0)
+      return Number.isFinite(n) ? n : null
+    },
+    shownLength(items) {
+      return Array.isArray(items) ? items.length : 0
     },
     intText(v) {
       if (v === null || v === undefined || v === '') return '--'
@@ -299,28 +351,24 @@ export default {
       return (v === null || v === undefined || v === '') ? '--' : String(v)
     },
     statusText(v) {
-      // 未知值兜底成原样字符串（不写死二分支）：见 FREE_STATUS_TEXT 的注释
+      // 未知值兜底成原样字符串（不写死二分支）：见 FREE_STATUS_TEXT 的注释。
+      // 入参键名按 BE-G5-1 后是 activityStatus（值域同 fa.status，未知值后端原样透出，这里同样原样透出）
       const s = (v === null || v === undefined) ? '' : String(v)
       if (!s) return '--'
       return FREE_STATUS_TEXT[s] || s
-    },
-    poolText(v) {
-      // inPool 是 EXISTS() 出来的 0/1（后端按本仓 flag 惯例出数字不出布尔）
-      const n = Number(v)
-      if (n === 1) return '在候选池'
-      if (n === 0) return '不在候选池'
-      return '--'
     },
     // 行 key：dishId / activityId 理论上有值；缺失（脏值）时退化到行号，保证 :key 不重复
     rowKey(prefix, id, i) {
       return (id === null || id === undefined || id === '') ? 'x' + prefix + i : prefix + id
     },
+    // 时间戳 -> HH:mm:ss（母版 workspace.vue:266-271 同款精度；脏值返回空串，模板随之隐藏这一行）。
+    // 由原来的 HH:mm 改到秒（U-9/U-10）：同一分钟内两次进页时到分钟的串完全不变，
+    // 「重拉确实发生过」这件事就看不出来了 —— 母版那句「资料刷新于」也是靠到秒才起作用的
     formatClock(ms) {
       const d = new Date(ms)
       if (!Number.isFinite(d.getTime())) return ''
-      const p = (n) => (n < 10 ? '0' : '') + n
-      // 只取到分钟：秒级跳动会让商家以为「页面在自己刷」，而这一行要证明的是 onShow 那一次重拉
-      return p(d.getHours()) + ':' + p(d.getMinutes())
+      const p = (n) => String(n).padStart(2, '0')
+      return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
     },
     // ==================== 跳转 ====================
     goWorkspace() {
@@ -328,6 +376,9 @@ export default {
     },
     // ==================== 429 冷却（照 pickup-plan.vue:328-339，秒级禁用范式） ====================
     startRetryLock() {
+      // 已卸载的页面不给它起定时器（U-5）：迟到回包回 429 时若照常 startRetryLock，
+      // 那个每秒 setInterval 挂在 window 上、onUnload 的清理已经跑完了，永远不会被回收
+      if (this._unloaded) return
       this.stopRetryLock()
       this.retryLock = RETRY_COOLING_SECONDS
       this.retryLockTimer = setInterval(() => {
@@ -414,7 +465,7 @@ export default {
 }
 .mk-v-price { color: #E02020; }
 
-/* ==================== 6. 刷新时刻行（与工作台「资料刷新于」同用途） ==================== */
+/* ==================== 6. 读数拉取时刻行（与工作台「资料刷新于」同用途） ==================== */
 .refresh-line {
   display: block; margin: 20rpx 24rpx 0;
   font-size: 20rpx; color: #CCCCCC; line-height: 1.4; text-align: right;

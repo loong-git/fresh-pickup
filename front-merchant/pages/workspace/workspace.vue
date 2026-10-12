@@ -123,7 +123,7 @@ export default {
       entries: [
         { key: 'goods', icon: '🛒', title: '商品管理', hint: '上新/改价/库存' },
         { key: 'stock', icon: '📦', title: '备货单', hint: '备货/发货' },
-        { key: 'dashboard', icon: '📊', title: '数据看板', hint: '销量/核销' },
+        { key: 'dashboard', icon: '📊', title: '数据看板', hint: '销量/取消' },
         { key: 'marketing', icon: '📈', title: '营销参与态', hint: '秒杀/免费领' }
       ]
     }
@@ -231,7 +231,7 @@ export default {
     entryRoute(entry) {
       return (entry && ENTRY_ROUTES[entry.key]) || ''
     },
-    // 三入口按 key 分支：已交付的页 navigateTo 过去，未在册的仍 toast「建设中」不跳转
+    // 四入口按 key 分支：已交付的页 navigateTo 过去，未在册的仍 toast「建设中」不跳转
     // （G-02 只放开商品管理；备货单/数据看板归 G-03）
     onEntryTap(entry) {
       const url = this.entryRoute(entry)
@@ -325,6 +325,6 @@ export default {
 /* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中红色字） ==================== */
 .cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #E02020; }
 
-/* ==================== 5. 三入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
+/* ==================== 5. 四入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
 .cell-card { margin-top: 24rpx; }
 </style>
