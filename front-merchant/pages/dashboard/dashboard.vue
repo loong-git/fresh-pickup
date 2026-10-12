@@ -74,7 +74,7 @@
       <view class="card top-card">
         <view class="card-head">
           <text class="card-title">Top 商品</text>
-          <text class="top-note">按成交金额排序，最多 5 行；其余商品未列出，故合计可小于上方销售额</text>
+          <text class="top-note">按成交金额排序，按商品聚合，最多 5 行；其余商品未列出，故合计可小于上方销售额</text>
         </view>
         <view class="top-row" v-for="(r, i) in topRows" :key="rowKey(r, i)">
           <view class="top-head">
