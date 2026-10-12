@@ -12,15 +12,13 @@
 // （后端其实活得好好的）。这不是后端问题，是打开页面的方式问题。
 export const BASE_URL = 'http://localhost:3001'
 
-// 分层超时（照本仓三档语义，三档各自对应什么与商家端/主理人端逐字同口径）：
+// 分层超时只两档（本仓语义里的第三档「上传 30s」在本工程不存在：F-20.11 三页全是只读 + 登录，
+// 没有任何上传通道，不为「将来可能」留无人调用的常量）：
 // 查询类 10s —— 大盘、审计分页这类只读请求；
 // 提交类 20s —— 登录（后端验密是 PBKDF2 120k 轮，本机实测约 370ms/次，加锁定读写仍远在 10s 内，
-//              但它不是只读查询，按提交档给余量）；
-// 上传 30s —— 如实登记：本期 front-admin 没有上传通道（F-20.11 三页全是只读 + 登录），
-//              TIMEOUT_UPLOAD 当前无调用方，保留它是为了将来接写侧页时不必再抄一份语义。
+//              但它不是只读查询，按提交档给余量）。
 const TIMEOUT_QUERY = 10000
 const TIMEOUT_SUBMIT = 20000
-const TIMEOUT_UPLOAD = 30000
 
 // 登录态 storage 键：**本仓唯一真源就是这个常量**，其余任何地方（路由守卫、退出登录、401 清态）
 // 一律通过 getStoredToken/clearStoredToken/logout 走，不再出现第二处裸字符串 'admin_token'。
@@ -143,7 +141,7 @@ function request(options) {
   const method = (options.method || 'GET').toUpperCase()
   const loginRequest = options.loginRequest === true
   const isSubmit = method !== 'GET'
-  // 超时档位：登录 20s（提交档）；其余 GET 查询 10s；TIMEOUT_UPLOAD 本期无调用方（见文件头）
+  // 超时档位：登录 20s（提交档）；其余 GET 查询 10s
   const timeoutMs = isSubmit ? TIMEOUT_SUBMIT : TIMEOUT_QUERY
 
   const headers = { 'Content-Type': 'application/json' }

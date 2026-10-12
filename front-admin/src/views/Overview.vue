@@ -10,13 +10,15 @@
         value-format="YYYY-MM-DD"
         format="YYYY-MM-DD"
         :clearable="true"
-        placeholder="默认今日（服务端 CURDATE()）"
+        placeholder="选日期（默认今日）"
         @change="onDateChange"
       />
       <el-button :loading="viewState === 'loading'" @click="load">查询</el-button>
     </div>
 
-    <!-- loading / ready / forbidden / error 四个态互斥，单值 viewState 决定渲染哪一块 -->
+    <!-- loading / ready / forbidden / error 四个态互斥，单值 viewState 决定渲染哪一块。
+         另有 'idle'：仅在 onMounted 里出现一瞬（同一同步 tick 内即被 load() 置回 'loading'），
+         不会单独渲染出来，它存在的唯一理由是别让首屏被 load() 的在飞守卫拦掉。 -->
     <div v-if="viewState === 'loading'" class="state-box">
       <div class="state-title">正在加载</div>
       <div class="state-desc">大盘数据读取中…</div>
@@ -101,6 +103,10 @@ const scopeText = computed(() =>
 )
 
 async function load() {
+  // FE-G6-3 在飞守卫：请求未回时不再发第二条（日期 @change、「查询」与「重试」按钮同守这一条），
+  // 否则乱序回包会把上一个窗口的数字画在当前 caption 下。照 Login.vue:101 的同一精神，
+  // 复用本页已有的单值 viewState，不新增第二个状态变量、不加定时器。
+  if (viewState.value === 'loading') return
   viewState.value = 'loading'
   errorText.value = ''
   try {
@@ -141,6 +147,11 @@ function onDateChange() {
 }
 
 onMounted(() => {
+  // 首屏这一行是必须的：viewState 的初值 'loading' 只用于首屏渲染加载态占位，
+  // 若原样进 load() 会被上面的在飞守卫当成「已在飞」而永久早退（一次请求都不发、页面卡在
+  // 「正在加载」）。这里落到 'idle'，同一同步 tick 内 load() 立刻置回 'loading'，
+  // 浏览器不会在两个值之间绘制，首屏渲染与改动前逐字相同。
+  viewState.value = 'idle'
   load()
 })
 </script>
@@ -151,6 +162,14 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   margin: 16px 0;
+}
+/* FE-G6-1 日期选择器宽度（原先靠 Element Plus 的 --el-date-editor-width: 220px 默认值，
+   实测内层 input 只有 176px：220 −（11px×2 内边距 + 22px 前缀日历图标）= 176，placeholder 尾部被切。
+   取 280px 是因为同一 44px 扣除量对内层 input 生效：280 − 44 = 236，
+   使两种测量口径（根元素 .el-date-editor 280 / 内层 input 236）都落在验收线 220 以上。
+   作用域限定在 .toolbar 内，不污染全局，也不动 vite.config.js。 */
+.toolbar :deep(.el-date-editor) {
+  width: 280px;
 }
 .cards {
   display: grid;
