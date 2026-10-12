@@ -78,8 +78,12 @@ public class MockPayService implements PayService {
             items.forEach(item -> dishMapper.increaseSoldCount(item.getDishId(), item.getQuantity()));
             // 取货码生成（F-18.6/D-3）：与上面的置态+销量累加同事务、同一 if (updated > 0) 支付成功点，
             // 幂等由 OrderMapper.attachPickupCode 的 `pickup_code IS NULL` 条件兜住（二次支付不换码）；
-            // 失败抛 BizException → 本事务整体回滚，不出现「已支付无码」半态
-            attachPickupCode(orderId);
+            // 失败抛 BizException → 本事务整体回滚，不出现「已支付无码」半态。
+            // S3-0（F-18.7 第 3 条裁定的收口）：生成成功要把码回写进**内存里即将返回的那个 order 对象**，
+            // 否则 mock-pay / free/claim 的即时响应 data.pickupCode 恒为 null（库里已有码），
+            // 与 F-18.6 承诺的「C 端拿到码」不一致——C 端首屏读的正是这条响应。
+            String pickupCode = attachPickupCode(orderId);
+            order.setPickupCode(pickupCode);
             // 邀请新人挂钩（F-01.2 / F-04.2；F-05 后现金轨唯一激励）：支付成功事务内调 InviteService.onOrderPaid——
             // 首单（已支付订单数==1）→ invite_relation 原子置位 0→1
             // + 冻结现金入账（cash_flow status 0→1 → 邀请人 balance+5，F-04.2 修订②注册只冻结不入账）
@@ -97,12 +101,15 @@ public class MockPayService implements PayService {
      * 再走条件 UPDATE（WHERE id=#{orderId} AND pickup_code IS NULL）幂等写入——已支付单二次调用不会走到这里
      * （payResult 开头早退 + else 回读两条路径都不重新生成），条件本身也保证并发二次置态不换码。
      * 禁止用订单号尾 6 位替代：可由单号推出 = 可猜。
+     *
+     * @return 实际写进库的那 6 位码（S3-0：调用方把它回写到内存 order，让 mock-pay / free/claim
+     *         的即时响应与库里一致）
      */
-    private void attachPickupCode(String orderId) {
+    private String attachPickupCode(String orderId) {
         for (int i = 0; i < 5; i++) {
             String code = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
             if (orderMapper.countByPickupCode(code) > 0) { continue; }
-            if (orderMapper.attachPickupCode(orderId, code) > 0) { return; }
+            if (orderMapper.attachPickupCode(orderId, code) > 0) { return code; }
         }
         throw new BizException("取货码生成失败，请稍后重试");
     }

@@ -1,8 +1,10 @@
 package com.fresh.interceptor;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fresh.common.JwtUtil;
 import com.fresh.common.R;
 import com.fresh.common.ResponseUtil;
+import com.fresh.entity.Store;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * 认证拦截器（T-M2-02，契约 M2-2/M2-3）：
@@ -28,11 +31,20 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String ATTR_USER_ID = "userId";
     /** request attribute key：当前商家ID（F-12/G-01，/api/merchant/** 分支注入；Controller @RequestAttribute 读取） */
     public static final String ATTR_MERCHANT_ID = "merchantId";
+    /**
+     * request attribute key：当前主理人名下门店ID集合（F-18.8 第 2 条，/api/partner/** 分支注入）。
+     * <p>归属集合<b>唯一可信来源 = 服务端按 token userId 查 {@code store.owner_user_id}</b>，
+     * 本接口不收任何归属入参（RF 红线：/api/partner/** 必须同时满足「登录 + 归属集合」）；
+     * 集合为空时在 preHandle 内直接收口 403，绝不 setAttribute(null)（理由见 merchant 块的同款注释）。
+     */
+    public static final String ATTR_PARTNER_STORE_IDS = "partnerStoreIds";
 
     @Autowired
     private JwtUtil jwtUtil;
     @Autowired
     private com.fresh.mapper.UserMapper userMapper;
+    @Autowired
+    private com.fresh.mapper.StoreMapper storeMapper;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
@@ -85,6 +97,26 @@ public class AuthInterceptor implements HandlerInterceptor {
                 return false;
             }
             request.setAttribute(ATTR_MERCHANT_ID, u.getMerchantId());
+        }
+
+        // F-18.8 第 2 条 主理人归属：/api/partner/** 前缀需「登录 + store.owner_user_id 命中名下门店」双条件（RF 红线）。
+        // 主理人不占 user.role（D-1/A3.1 已定案：商家端与主理人端两套身份不能塞进同一个闸门），
+        // 所以这里查的不是角色而是**归属集合**：只按已解析的 token userId 查 store，不收任何归属入参。
+        // 集合为空即 403（不是 401——token 有效；不是 500——Controller 的 @RequestAttribute 拿到 null
+        // 会先抛 ServletRequestBindingException 被兜底转 500，故与上方 merchant 块 :83-84 同姿势在此收口，
+        // 绝不 setAttribute(name, null)）。typ=admin 反隔离、匿名、无 token 三段判定一字未动。
+        if (path.startsWith("/api/partner/")) {
+            List<Long> storeIds = storeMapper.selectList(new LambdaQueryWrapper<Store>()
+                            .select(Store::getId)
+                            .eq(Store::getOwnerUserId, userId))
+                    .stream()
+                    .map(Store::getId)
+                    .toList();
+            if (storeIds.isEmpty()) {
+                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+                return false;
+            }
+            request.setAttribute(ATTR_PARTNER_STORE_IDS, storeIds);
         }
         return true;
     }
@@ -143,6 +175,8 @@ public class AuthInterceptor implements HandlerInterceptor {
      * POST /api/free/claim、GET /api/free/my-claims（M7 免费领商品：用户维度数据）；
      * GET /api/invite/**（F-01 /api/invite/me + F-04 /api/invite/cash、/api/invite/cash/withdraw：
      * 邀请码/统计/记录与现金余额/提现均用户维度数据，前缀整体登录）；
+     * /api/merchant/**（F-12/G-01 商家端）与 /api/partner/**（F-18.8 主理人端）均前缀整体登录，
+     * 两者在 preHandle 里各自补第二道条件（角色 / 归属集合）；
      * 例外豁免：POST /api/pay/{id}/wx-notify（需求 A，微信服务器回调无 token，匿名可达）；
      * 匿名可读：GET /api/dishes**（含 GET 评价列表）、GET /api/stores（T-M4-01）、
      * GET /api/seckill/current（T-M4-03）、POST /api/auth/**（T-M5 login-password 匿名，仅 set-password 例外）、
@@ -191,6 +225,10 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
         // F-12/G-01 商家端：/api/merchant/** 前缀整体登录（角色双校验在 preHandle 查库定角色，此处只判登录）
         if (path.startsWith("/api/merchant/")) {
+            return true;
+        }
+        // F-18.8 第 2 条 主理人端：/api/partner/** 前缀整体登录（归属集合在 preHandle 查 store 注入，此处只判登录）
+        if (path.startsWith("/api/partner/")) {
             return true;
         }
         // 仅评价提交需登录；GET /api/dishes/{dishId}/reviews 列表保持匿名可读
