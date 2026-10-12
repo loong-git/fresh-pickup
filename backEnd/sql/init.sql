@@ -26,6 +26,10 @@
 --       （m18 ⑪ 的演示主理人归属归位 UPDATE 不并入本文件，且那条链在 m18 里受 @m18_demo_owner 开关控制、默认 0 不执行（BE-1）：
 --        新库无待归位的历史绑定，store 种子直接带 owner_user_id 值即可——分工：迁移侧靠开关、init 侧靠种子带值，
 --        同订单表 pickup_code 回填注释先例；store 种子 INSERT 的列清单加 owner_user_id，既有 5 列数值零改动）
+--   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
+--       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
+--       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
+--       账号由主会话用一次性 SQL 造；两处 CREATE 体逐字一致（同 m17 ops_log / m18 store_apply 的先例，改结构须两处同步）
 -- ================================================
 
 CREATE DATABASE IF NOT EXISTS fresh_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -450,6 +454,27 @@ CREATE TABLE IF NOT EXISTS arrival_item (
     PRIMARY KEY (id),
     KEY idx_batch (batch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='到货批次明细（D-19 一期只读+确认；本表无唯一键，幂等由上层种子的 WHERE NOT EXISTS 保证）';
+
+-- ----------------------------
+-- 运营账号表（F-20/G-06 Step 1，m19-migration.sql ① 同步，列口径逐字照该文件与 F-20.2 D-4）：
+-- 独立于 user 表的运营域账号——零外键、无手机号、无邮箱、不给 user 加 role（D-4 / 07 册 G-06 范围⑧：两域物理隔离）；
+-- admin_user.id 与 user.id 都是 BIGINT 自增、小 id 必然并存，故任何鉴权校验绝不允许只看 JWT subject（D-6，双轨 typ=admin 判定在 Step 2）；
+-- password_hash 复用 common/PasswordUtil.java 的 PBKDF2WithHmacSHA256 现格式（约 69 字符，列宽同 user.password_hash m5），不引入新依赖；
+-- 🔴 本文件**不放任何 admin_user 种子**（连 dev 默认账号也不建，明文口令入仓=RD 红线）：账号由主会话用一次性 SQL 造，口令不入仓不入日志；
+-- 登录动作写 admin_audit_log（m15:89-101，actor=admin_user:<id>，D-5/D-8 两表边界——ops_log 只收商家/主理人/申请人现场动作，不许为「顺手统一」放宽）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS admin_user (
+    id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '运营账号ID（BIGINT 自增）；与 user.id 同为自增、小 id 必然并存（D-6：任何鉴权校验绝不允许只看 JWT subject，必须靠 typ=admin claim + 本表存在性 + status=active 双轨判定）',
+    username      VARCHAR(50)  NOT NULL COMMENT '运营登录名（唯一键 uk_admin_username）：只用于登录定位账号，非 PII；与 user.phone 的 C 端账号域物理无交叉（D-4）',
+    password_hash VARCHAR(128) NOT NULL COMMENT '口令哈希：common/PasswordUtil.java 的 PBKDF2WithHmacSHA256 现格式 base64(salt):base64(hash)（约 69 字符，列宽对齐 user.password_hash m5）；**恒不明文入库、不明文出参**（RD），全仓唯一允许读本列的是 AdminUserMapper.selectByUsername 那一条 @Select',
+    display_name  VARCHAR(50)  NULL COMMENT '展示名（管理界面顶部与审计页显示用）；NULL=未设置，前端回退显示 username；不含手机号/邮箱等 PII（D-4/RD）',
+    status        VARCHAR(20)  NOT NULL DEFAULT 'active' COMMENT '账号状态：active可用/disabled停用（两态，无第三态）；D-2 双轨校验第②条要求 status=active 才放行运营 JWT，disabled=立即失效（可停用而不删行，留审计轨迹）',
+    last_login_at DATETIME     NULL COMMENT '最近登录成功时间（D-5：登录成功链路由 AdminUserMapper.touchLastLogin 写入）；NULL=从未成功登录过；本列是 admin_user 里除 username 外唯一对外可见的时间字段，不再往里塞任何 PII（RD）',
+    create_time   DATETIME     NULL DEFAULT CURRENT_TIMESTAMP COMMENT '账号创建时间：DB DEFAULT 落值，应用侧不填（照本仓 created_at/create_time 无 fill 注解的既有纪律，MetaObjectHandler 只填带 @TableField(fill) 的字段）',
+    update_time   DATETIME     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '行更新时间：DB ON UPDATE 自动维护，改密/停用等动作无需应用侧显式赋值',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_admin_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运营账号（F-20/G-06 Step 1，D-4）：独立于 user 表的运营域账号，零外键零手机号零邮箱；口令仅 PBKDF2 哈希（PasswordUtil 现格式）；**无任何默认种子**，账号由主会话一次性 SQL 造、口令不入仓（RD）；登录动作写 admin_audit_log（D-5/D-8 两表边界，不写 ops_log）';
 
 -- ----------------------------
 -- 邀请新人关系表（F-01，m9-migration.sql 同步）：uk_invitee 是"一人仅可被邀请一次"的权威约束
