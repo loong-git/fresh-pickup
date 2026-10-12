@@ -13,6 +13,7 @@ import com.fresh.service.InviteService;
 import com.fresh.service.impl.OrderServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -108,8 +109,16 @@ public class MockPayService implements PayService {
     private String attachPickupCode(String orderId) {
         for (int i = 0; i < 5; i++) {
             String code = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
-            if (orderMapper.countByPickupCode(code) > 0) { continue; }
-            if (orderMapper.attachPickupCode(orderId, code) > 0) { return code; }
+            // BE-6（F-18.20 F 行）：countByPickupCode 与条件 UPDATE 之间仍可能被并发单抢先占码——
+            // 真撞 uk_pickup_code(1062/DuplicateKeyException) 时继续下一轮重试（D-3 的 5 次重试自此才真正兜得住），
+            // 而不是让未捕获的 DuplicateKeyException 把整笔支付打成 500。1062 只回滚该语句，事务本身可继续。
+            try {
+                if (orderMapper.countByPickupCode(code) > 0) { continue; }
+                if (orderMapper.attachPickupCode(orderId, code) > 0) { return code; }
+            } catch (DuplicateKeyException e) {
+                // 码值本身不进日志（与 ops_log 同口径：pickupCode 属核销凭据）
+                log.warn("取货码撞 uk_pickup_code，换码重试: orderId={}, attempt={}", orderId, i + 1);
+            }
         }
         throw new BizException("取货码生成失败，请稍后重试");
     }

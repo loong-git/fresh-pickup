@@ -17,6 +17,7 @@ import com.fresh.service.PartnerStoreService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DateTimeException;
@@ -302,8 +303,10 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
         return data;
     }
 
+    // 隔离级别显式降为 READ_COMMITTED（同 PartnerOrderServiceImpl#verify）：并发输家的「UPDATE 回 0 行后再读定性」（BE-4）
+    // 必须看到赢家已提交的 confirmed，而 MySQL 默认 REPEATABLE READ 会把这次再读锁在事务快照上；条件 UPDATE 仍用当前读。
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> confirmArrival(Long userId, List<Long> storeIds, Long batchId) {
         assertStoreIds(storeIds);
         if (userId == null) {
@@ -314,8 +317,9 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
         }
 
         // 定性预读（照 PartnerOrderServiceImpl#verify 的两步姿势：先定性再条件 UPDATE，
-        // 「已是目标态」必须走幂等成功而不是靠 UPDATE 的行数猜）
-        Map<String, Object> row = arrivalBatchMapper.selectForConfirm(batchId);
+        // 「已是目标态」必须走幂等成功而不是靠 UPDATE 的行数猜）。
+        // BE-12：预读 SQL 已带 store_id IN (归属集合)（判定在 SQL 里），下面的内存比集合保留作纵深（双保险不互替）。
+        Map<String, Object> row = arrivalBatchMapper.selectForConfirm(batchId, storeIds);
         if (row == null || !storeIds.contains(toLong(row.get("storeId")))) {
             // 他店批次与不存在的批次同码同文案：不泄漏「这个 id 真实存在」
             throw new BizException(R.CODE_NOT_FOUND, BATCH_NOT_FOUND_MSG);
@@ -332,7 +336,14 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
 
         int updated = arrivalBatchMapper.confirmById(batchId, storeIds);
         if (updated == 0) {
-            // 预读说该翻、UPDATE 却回 0 行 = 并发窗口内已被他人确认或状态被改；保守按 404 收口（同 verify 的兜底）
+            // BE-4（F-18.20 D 行，与 verify 同形）：预读说该翻、UPDATE 却回 0 行 = 并发窗口内已被他人确认或状态被改。
+            // 再按 id + 归属集合读一次定性：已是 confirmed → 幂等成功（回 confirmTime，不写 ops_log）；
+            // 其余（short/读不到=被并发改到集合外或删行）维持 404 定性。
+            Map<String, Object> reread = arrivalBatchMapper.selectForConfirm(batchId, storeIds);
+            if (reread != null && BATCH_CONFIRMED.equals(String.valueOf(reread.get("status")))) {
+                log.info("到货确认幂等命中（并发抢先）: batchId={}, operatorUserId={}", batchId, userId);
+                return confirmResult(batchId, reread.get("confirmTime"), true);
+            }
             log.warn("到货确认状态已变化: batchId={}, operatorUserId={}, readStatus={}", batchId, userId, status);
             throw new BizException(R.CODE_NOT_FOUND, BATCH_NOT_FOUND_MSG);
         }
@@ -341,7 +352,7 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
                 "{\"from\":\"" + status + "\",\"to\":\"" + BATCH_CONFIRMED
                         + "\",\"storeId\":" + row.get("storeId") + "}");
         log.info("到货确认成功: batchId={}, storeId={}, operatorUserId={}", batchId, row.get("storeId"), userId);
-        Map<String, Object> fresh = arrivalBatchMapper.selectForConfirm(batchId);
+        Map<String, Object> fresh = arrivalBatchMapper.selectForConfirm(batchId, storeIds);
         return confirmResult(batchId, fresh == null ? null : fresh.get("confirmTime"), false);
     }
 

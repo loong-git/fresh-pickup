@@ -1,13 +1,16 @@
 <template>
   <view class="page-container">
-    <!-- ==================== 1. 到货警示条（可关，F-18.17 §2） ====================
-             数据源：GET /api/partner/arrivals?date=今天（D-9「当日批次未确认」提示的唯一依据）
-             显示条件：list 为空 或 存在 status !== 'confirmed' 的批次
+    <!-- ==================== 1. 到货警示条（可关，F-18.17 §2 + FE-2 逐店聚合） ====================
+             数据源：GET /api/partner/stores 拿名下门店集合 → 逐店 GET /api/partner/arrivals?date=今天&storeId=该店
+             （FE-2：只发一次不带 storeId 的请求 = 服务端 Collections.min 挑一家，而待取清单覆盖名下全部店，
+               别家店没确认就是漏报，所以这里显式逐店查后聚合；D-9「当日批次未确认」的唯一依据不变）
+             显示条件：聚合结果里存在「今日无批次 或 有 status !== 'confirmed' 批次」的门店
+             文案：名下多店 → 「N 家店今日批次未确认，货可能未到」；只有一家 → 保持原句
              请求失败：整条不显示——提示本身一旦「报错还亮着」就会把「没查到」说成「货没到」，
              那就是误导源；故这次失败静默（不打 console、不留 spinner），也绝不并入页面四态
              （清单那两次请求才是本页四态的主人）。 ==================== -->
     <view v-if="alertVisible" class="card alert-card">
-      <text class="alert-text">今日批次未确认，货可能未到</text>
+      <text class="alert-text">{{ alertText }}</text>
       <view class="alert-row">
         <view class="alert-link" hover-class="pill-hover" @click="goArrival">去看批次 ›</view>
         <view class="alert-close" hover-class="pill-hover" @click="dismissAlert">关闭</view>
@@ -139,7 +142,7 @@
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并回登录页）；
 // 403 = token 有效但名下无店，是确定性失败，给「回工作台」而不是重试。
 // 渲染不依赖 store：本页自持一份服务端最新值（workspace.vue 同款纪律）。
-import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals } from '@/api/index.js'
+import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals, getPartnerStores } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -155,6 +158,26 @@ const PAGE_SIZE = 20
 // 批次「已确认」值（PartnerStoreServiceImpl.java:70 BATCH_CONFIRMED 同值）：警示条的唯一判据。
 // 刻意不写 status !== 'confirmed' 之外的组合判断——后端多一个态（如 short）时它天然落进「未确认」
 const BATCH_CONFIRMED = 'confirmed'
+
+// FE-5：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先（BE-5：D-14 枚举锁
+// 把自己的剩余 TTL 如实回传，见 PartnerOrderServiceImpl.java:105 与 :210-215），取不到才回落本地 60
+// （与写侧 @RateLimit 的 60s 窗口同档）。600s 的锁只冷却 60s 就是「锁未解而人反复撞墙」（F-18.20 E 行）。
+const RETRY_FALLBACK_SECONDS = 60
+
+// FE-10：同页 429 只留一句说法（清单加载与提交两支共用），不再「点得太快了」/「操作过于频繁」两套读着像两把锁
+function coolingText(seconds) {
+  const n = Number(seconds)
+  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
+}
+
+// 从 reject 出来的错误对象取 retryAfterSeconds。
+// 载荷来源：请求层 handleEnvelope 的 reject 现在带 data（后端信封原样透传，见 api/index.js），
+// 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。
+function retrySecondsOf(err) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
+}
 
 export default {
   data() {
@@ -188,6 +211,12 @@ export default {
       // ===== 到货警示条 =====
       // null = 还没查/这次没查成（不显示）；true = 今日确有未确认批次（显示）；false = 今日已确认（不显示）
       alertUnconfirmed: null,
+      // FE-2 聚合读数：名下几家店、其中几家「今日无批次或有未确认批次」；两个数都要在条上说话
+      alertStoreTotal: 0,
+      alertPendingCount: 0,
+      // FE-6：「去看批次」这一跳要落到哪个日期——名下确有未确认批次就用那一批的 batchDate，
+      // 今日整日无批次（批次由平台在明日生成）就用明日，避免跳进批次页的今日空态死胡同
+      alertTargetDate: '',
       // 关闭只在本页实例内生效：每次回页都重弹同一条，等于逼主理人再关一次
       alertDismissed: false
     }
@@ -197,14 +226,22 @@ export default {
     alertVisible() {
       return this.alertUnconfirmed === true && !this.alertDismissed
     },
+    // FE-2 文案：名下多店时把「几家没确认」写在条上（只有一家时不必数一遍，保持原句）
+    alertText() {
+      const n = Number(this.alertPendingCount)
+      const total = Number(this.alertStoreTotal)
+      if (total > 1 && n > 0) return n + ' 家店今日批次未确认，货可能未到'
+      return '今日批次未确认，货可能未到'
+    },
     canSubmit() {
       return this.code.length === 6 && !this.verifying && this.retryLock === 0
     },
-    // 常驻反馈文案：cooling 一支的秒数读实时 retryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」）
+    // 常驻反馈文案：cooling 一支的秒数读实时 retryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」），
+    // 句式与清单加载那一支同源（coolingText 唯一实现处）
     feedbackText() {
       if (!this.feedback) return ''
       if (this.feedback.tone === 'cooling') {
-        return this.retryLock > 0 ? '操作过于频繁，请 ' + this.retryLock + 's 后再试' : this.feedback.text
+        return this.retryLock > 0 ? coolingText(this.retryLock) : this.feedback.text
       }
       return this.feedback.text
     },
@@ -216,7 +253,8 @@ export default {
       return Math.max(Number.isFinite(n) && n >= 0 ? n : 0, loaded)
     },
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      // FE-10：429 一支与提交那支同句（冷却秒数读实时 retryLock，不写死 60——FE-5 后它是后端的剩余 TTL）
+      if (this.errorCode === 429) return coolingText(this.retryLock)
       if (this.errorCode === 403) return '暂无权限查看待取清单，请回工作台确认账号状态'
       if (this.errorCode === 404) return '核销清单接口暂不可用，可能是后端服务还没更新，请稍后重试'
       return '待取清单加载失败，请检查网络后重试'
@@ -299,9 +337,12 @@ export default {
         }
         if (code === 429) {
           // D-14 防枚举锁（5 次/10 分钟）或写侧限流（10 次/分）命中：这一支就是枚举锁的可见反馈。
+          // FE-5：冷却秒数按后端 data.retryAfterSeconds 起（锁 10 分钟时本地就该冷却到锁解），
+          // FE-10：文案与清单加载那一支同一句。
           // 冷却期内输入框仍可用，但提交不发请求（上面那道闸门）
-          this.setFeedback('cooling', '操作过于频繁，请稍后再试')
-          this.startRetryLock()
+          const seconds = retrySecondsOf(e)
+          this.setFeedback('cooling', coolingText(seconds))
+          this.startRetryLock(seconds)
           return
         }
         if (code === 404) {
@@ -326,15 +367,16 @@ export default {
       }
     },
     // 成功行的摘要：核销出参只有 {orderId(后6位),status,idempotent}，**没有 dishName**，
-    // 所以从在手的清单行按单号回查；回查不到（清单翻页后不含该单）就退回单号本身，不编商品名
+    // 所以只能从在手的清单行按单号尾号回查。
+    // FE-7：命中不唯一就只报单号——0 条（清单翻页后不含该单）与 >1 条（同尾号的两行 / 一单多商品）
+    // 都不许猜菜名，那会把话说到别人的货上；「等 N 项」这种拼装同样是猜。后端补 dishName 记在 S6-F2，
+    // 到那一天这里只删回查、不改句式。
     orderSummary(data) {
       const tail = String((data && data.orderId) || '')
       if (!tail) return '本单已核销'
       const rows = Array.isArray(this.list) ? this.list.filter((r) => String(r.orderId || '') === tail) : []
-      if (!rows.length) return '单号 …' + tail
-      const first = rows[0]
-      const line = this.dishNameOf(first) + ' × ' + this.countOf(first.quantity)
-      return rows.length > 1 ? line + ' 等 ' + rows.length + ' 项' : line
+      if (rows.length !== 1) return '单号 …' + tail
+      return this.dishNameOf(rows[0]) + ' × ' + this.countOf(rows[0].quantity)
     },
     // 反馈落一处（常驻行 + 同文 toast）：两条通道同一串，防止「toast 说成功、行说失败」的分裂
     setFeedback(tone, text) {
@@ -342,29 +384,79 @@ export default {
       this.showToast(text)
     },
     // ==================== 到货警示条（静默通道：失败不显示、不动四态、不起冷却） ====================
+    // FE-2：名下多店时逐店查后聚合。原来只发一次不带 storeId 的请求，服务端按 Collections.min 挑一家
+    // （PartnerStoreServiceImpl.java:368-371），而待取清单覆盖名下全部门店 → 别家店没确认就是漏报。
+    // 现在先 GET /api/partner/stores 取名下集合，再逐店**显式带 storeId** 查今日批次，聚合成「几家没确认」。
+    // 纪律不变：这一条仍是静默通道——任一次请求没成就整条不亮（宁可少报，也不把「没查到」说成「货没到」），
+    // 不并入页面四态、不起 retryLock（Promise.all 一起 reject 就整体落 catch）。
     async loadAlert() {
-      // 冷却期内不重发（这一条也是 /api/partner/arrivals 的读额度，撞在闸门上只会白烧一次）；
+      // 冷却期内不重发（这几条也是同一账号的读额度，撞在闸门上只会白烧一次）；
       // 保持上一次的成功读数，不因为「这次没查」就把已经确认过的批次说成未确认
       if (this.retryLock > 0) return
+      const today = this.todayStr()
       try {
-        const res = await getPartnerArrivals({ date: this.todayStr() })
-        // 回包晚于页面切换时不纠（本页只按「今天」这一枚固定日期查，无在途条件漂移问题；
-        // 唯一要防的是这一趟请求本身被 401 打断——那种情况请求层已回登录页）
-        const data = (res && res.data) || {}
-        const batches = Array.isArray(data.list) ? data.list : []
-        // 空 list = 今日根本没有批次（批次由平台生成，见 G-05 运营端）：按契约同样出「货可能未到」
-        const unconfirmed = !batches.length || batches.some((b) => (b && b.status) !== BATCH_CONFIRMED)
-        this.alertUnconfirmed = unconfirmed
+        const storesRes = await getPartnerStores()
+        const ids = this.storeIdsOf(storesRes)
+        if (!ids.length) {
+          // 名下读不到门店（403 那一支走不到这里，请求层已 reject）：无从判断，整条不亮
+          this.alertUnconfirmed = null
+          this.alertStoreTotal = 0
+          this.alertPendingCount = 0
+          return
+        }
+        const results = await Promise.all(ids.map((id) => getPartnerArrivals({ date: today, storeId: id })))
+        let pending = 0
+        let firstPendingDate = ''
+        results.forEach((res) => {
+          const data = (res && res.data) || {}
+          const batches = Array.isArray(data.list) ? data.list : []
+          // 空 list = 今日根本没有批次（批次由平台生成，见 G-05 运营端）：按契约同样算「货可能未到」
+          const unconfirmedRows = batches.filter((b) => (b && b.status) !== BATCH_CONFIRMED)
+          if (!batches.length || unconfirmedRows.length) {
+            pending++
+            // 有真批次就用它的 batchDate 作为跳转目标；今日整日无批次才落到明日（FE-6）
+            if (!firstPendingDate && unconfirmedRows.length) {
+              const d = String(unconfirmedRows[0].batchDate || '')
+              if (/^\d{4}-\d{2}-\d{2}$/.test(d)) firstPendingDate = d
+            }
+          }
+        })
+        this.alertStoreTotal = ids.length
+        this.alertPendingCount = pending
+        this.alertUnconfirmed = pending > 0
+        this.alertTargetDate = firstPendingDate || this.stepDayStr(1, today)
       } catch (e) {
         // 静默：提示条不是本页的主数据源，它挂了就把整页拖进错误态，用户会以为「清单也读不到」
         this.alertUnconfirmed = null
       }
     },
+    // 名下门店 id：只认回包里确实是数字/数字串的 id，其余（缺键、null、非数组）一律当「没读到」
+    storeIdsOf(res) {
+      const rows = res && res.data
+      if (!Array.isArray(rows)) return []
+      const ids = []
+      rows.forEach((r) => {
+        const id = r && r.id
+        if (id !== null && id !== undefined && id !== '' && !Number.isNaN(Number(id))) ids.push(id)
+      })
+      return ids
+    },
+    // 相对今天偏移 delta 天的 YYYY-MM-DD（FE-6 的「明日」）：复用本页既有的日期工具，不另起一套
+    stepDayStr(delta, base) {
+      const d = this.parseDate(base || this.todayStr()) || this.newToday()
+      d.setDate(d.getDate() + delta)
+      return this.fmtDate(d)
+    },
     dismissAlert() {
       this.alertDismissed = true
     },
+    // FE-6：这一跳必须带批次日期，否则是死胡同——警示条按「今天」查，而批次由平台在「明日」生成
+    // （后端 arrivals 的 date 缺省也是明日，PartnerStoreServiceImpl.java:251-253），
+    // 不带日期过去就是批次页的今日空态。目标日：名下确有未确认批次 → 那一批的 batchDate；整日无批次 → 明日。
+    // 批次页的空态文案不另加「点『后一天』查看」那句（两处只说一次，避免同一件事两套话）。
     goArrival() {
-      uni.navigateTo({ url: '/pages/arrival/arrival' })
+      const date = this.alertTargetDate || this.todayStr()
+      uni.navigateTo({ url: '/pages/arrival/arrival?date=' + encodeURIComponent(date) })
     },
     // ==================== 待取清单加载（分页手写：本工程无分页插件，RB 红线口径） ====================
     // @param {boolean} reset true = 按当前日期重拉第一页；false = 追加下一页
@@ -440,13 +532,14 @@ export default {
         this.errorText = (e && e.message) || ''
         this.errorCode = Number((e && e.code) || 0)
         // 只有 429 才起冷却锁：其余失败重试是有意义的，不该被秒数拦住
-        if (Number(e && e.code) === 429) this.startRetryLock()
+        if (Number(e && e.code) === 429) this.startRetryLock(retrySecondsOf(e))
         else this.stopRetryLock()
         // 翻页失败（清单在手）不动整页态：保留现场只 toast；首屏/重拉失败才整页换错误卡
         if (reset || !this.list.length) {
           this.viewState = 'error'
         } else {
-          this.showToast(this.errorText || '加载更多失败，请重试')
+          // 429 那一支给统一句式（FE-10）：翻页撞限流与提交撞限流听起来必须是同一把锁
+          this.showToast(this.errorCode === 429 ? coolingText(this.retryLock) : (this.errorText || '加载更多失败，请重试'))
         }
       } finally {
         this.loadingMore = false
@@ -557,12 +650,14 @@ export default {
     showUnpaid(it) {
       return !!(it && it.payStatus != null && Number(it.payStatus) === 0 && it.status !== 'cancelled')
     },
-    // ==================== 429 冷却（照 plan-orders.vue:443-454 同款） ====================
-    startRetryLock() {
+    // ==================== 429 冷却（照 plan-orders.vue:443-454 同款；秒数由调用方按 FE-5 取好） ====================
+    // 只在 code===429 起（页面纪律 ②）：调用点全部在 catch 里判过码，这里不重复判、也不接受别的来源
+    startRetryLock(seconds) {
       this.stopRetryLock()
-      // 本地闸门 60s（与写侧 @RateLimit 的 60s 窗口同档）。D-14 的枚举锁是 10 分钟且后端不回剩余秒数，
-      // 冷却结束再提交仍可能吃一次 429 —— 那一支会把这一行重新写上，反馈不会说谎
-      this.retryLock = 60
+      // FE-5：秒数 = 后端 data.retryAfterSeconds（D-14 锁的剩余 TTL）优先，取不到回落本地 60。
+      // 回落 60 与写侧 @RateLimit 的 60s 窗口同档；冷却结束再提交仍可能吃一次 429，
+      // 那一支会把这一行重新写上，反馈不会说谎
+      this.retryLock = Number(seconds) > 0 ? Number(seconds) : RETRY_FALLBACK_SECONDS
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()

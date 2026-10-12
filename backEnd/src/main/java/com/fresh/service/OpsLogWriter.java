@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Set;
+
 /**
  * ops_log 唯一写入口（F-18.8 第 3 条）：形态逐字照 {@code AdminServiceImpl#writeAudit :270-286} 的
  * **旁路双层 try-catch**——第一趟写完整 detail，任一层原因（1406 超长、字符集、列宽…）失败即退成
@@ -27,6 +29,15 @@ public class OpsLogWriter {
     /** 兜底 detail：完整行装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（照母版 BE-2 硬要求） */
     private static final String MINIMAL_DETAIL = "{\"note\":\"audit detail truncated\"}";
 
+    /**
+     * action 白名单（BE-13，F-18.20 L 行）：submit_store_apply 由 role=user 的申请人写入后，
+     * 「本表=商家/主理人现场动作」的口径已扩为「商家/主理人/申请人现场动作」（m17/init 列注释同批改）。
+     * 白名单之外的 action 说明调用方在造第 6 种现场动作或误用本入口——只告警不落库，
+     * 保住 ops_log 作为「现场动作过滤器」的定性能力（平台侧动作请走 admin_audit_log，D-5）。
+     */
+    private static final Set<String> ALLOWED_ACTIONS = Set.of(
+            "verify_order", "register_shortage", "confirm_arrival", "update_store", "submit_store_apply");
+
     @Autowired
     private OpsLogMapper opsLogMapper;
 
@@ -37,6 +48,11 @@ public class OpsLogWriter {
      * @param detail         无隐私摘要（**不许**放手机号/地址/取货码，RD 红线）；超长自动退成兜底行
      */
     public void write(Long operatorUserId, String action, String targetId, String detail) {
+        // BE-13：白名单收口在唯一写入口——非白名单 action 只告警、不落库（绝不静默扩表语义）
+        if (action == null || !ALLOWED_ACTIONS.contains(action)) {
+            log.warn("ops_log 非白名单 action 被拒绝落库（只告警）: action={}, targetId={}", action, targetId);
+            return;
+        }
         String safeDetail = detail != null && detail.length() <= DETAIL_MAX ? detail : MINIMAL_DETAIL;
         try {
             insert(operatorUserId, action, targetId, safeDetail);

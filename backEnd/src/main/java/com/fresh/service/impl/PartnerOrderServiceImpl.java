@@ -14,6 +14,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -36,7 +37,8 @@ import java.util.regex.Pattern;
  *
  * <p><b>核销（D-6）</b>：定性预读 + 四条件 UPDATE 两步在同一方法里，定性分支按契约逐条给码：
  * 查无此码/非名下门店的单 → 404（他店码不得泄漏「码其实是对的」）；已 completed → 幂等成功且不写日志；
- * cancelled 或未支付 → 400；UPDATE 回 0 行且预读说该翻 → 404（并发被他人抢先的兜底，见方法内注释）。
+ * cancelled 或未支付 → 400；UPDATE 回 0 行时按码再读定性（BE-4）——并发已被他人核销成 completed = 幂等成功且不计数，
+ * 其余维持 404（见方法内注释）。锁定期 429 的 data 带 retryAfterSeconds（BE-5）。
  *
  * <p><b>防枚举（D-14）</b>：按<b>主理人 userId</b> 计失败次数，5 次/10 分钟上锁；锁定期内
  * <b>连正确码也拒</b>（否则枚举可以搭「偶尔猜中」的车续命）；一次成功核销（含幂等成功）即清零。
@@ -98,11 +100,18 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
             .maximumSize(100_000)
             .build();
 
-    /** 锁定期：key=主理人 userId，命中即拒（含正确码）；与计数同 TTL，写入即开始计时 */
-    private final Cache<Long, Boolean> verifyLockouts = Caffeine.newBuilder()
+    /**
+     * 锁定期：key=主理人 userId，命中即拒（含正确码）；与计数同 TTL，写入即开始计时。
+     * BE-5（F-18.20 E 行）：value 由 Boolean 改存<b>上锁时刻（epoch millis）</b>，
+     * 429 信封的 data.retryAfterSeconds 据此按 Caffeine 剩余 TTL 如实回给前端（前端 FE-5 按它起锁）。
+     */
+    private final Cache<Long, Long> verifyLockouts = Caffeine.newBuilder()
             .expireAfterWrite(VERIFY_FAIL_LOCK_TTL)
             .maximumSize(100_000)
             .build();
+
+    /** BE-5 兜底常量：剩余 TTL 取不到（读取与计算之间的竞态）时按锁的全长 600s 回，宁可多等不可反复撞墙 */
+    private static final long LOCK_RETRY_FALLBACK_SECONDS = 600L;
 
     @Autowired
     private PartnerOrderMapper partnerOrderMapper;
@@ -188,16 +197,25 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
     /**
      * 核销（D-6 + D-14）。事务只包「条件 UPDATE」这一步（{@code @Transactional} 覆盖整个方法，
      * 但除 UPDATE 外没有别的写）；ops_log 是旁路，写失败被 OpsLogWriter 吞掉，不回滚核销。
+     * <b>隔离级别显式降为 READ_COMMITTED</b>：并发输家的「按码再读」（BE-4）必须看到赢家已提交的 completed，
+     * 而 MySQL 默认 REPEATABLE READ 会把这次再读锁在事务快照上；条件 UPDATE 仍用当前读，四条件裁决不变。
      */
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> verify(Long userId, List<Long> storeIds, String pickupCode) {
         assertStoreIds(storeIds);
 
-        // 1) D-14 闸门在最前面：锁定期内连正确码也拒（429 文案复用 R.MSG_TOO_MANY_REQUESTS，不新增句子）
-        if (userId != null && verifyLockouts.getIfPresent(userId) != null) {
-            log.warn("核销锁定期内被拒: operatorUserId={}, 剩余锁定时长={}", userId, VERIFY_FAIL_LOCK_TTL);
-            throw new BizException(R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS);
+        // 1) D-14 闸门在最前面：锁定期内连正确码也拒（429 文案复用 R.MSG_TOO_MANY_REQUESTS，不新增句子）。
+        //    BE-5：data 里如实回剩余锁定时长（从上锁时刻与 TTL 推算；取不到按常量 600），文案不动。
+        Long lockedAt = userId == null ? null : verifyLockouts.getIfPresent(userId);
+        if (lockedAt != null) {
+            long remainingMs = VERIFY_FAIL_LOCK_TTL.toMillis() - (System.currentTimeMillis() - lockedAt);
+            long retryAfterSeconds = remainingMs > 0
+                    ? (long) Math.ceil(remainingMs / 1000.0)
+                    : LOCK_RETRY_FALLBACK_SECONDS;
+            log.warn("核销锁定期内被拒: operatorUserId={}, 剩余锁定时长={}s", userId, retryAfterSeconds);
+            throw new BizException(R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS,
+                    Map.of("retryAfterSeconds", retryAfterSeconds));
         }
 
         // 2) 码形状：非 6 位数字 = 参数不对 → 400，且**不计入**枚举失败次数（否则用户口误一次就记一笔）
@@ -237,8 +255,16 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
         // 4) 四条件 UPDATE（D-6 逐字）：归属集合 + 码 + pending_pickup + 已支付
         int updated = partnerOrderMapper.completeByPickupCode(orderId, code, storeIds);
         if (updated == 0) {
-            // 预读说该翻、UPDATE 却回 0 行 = 并发窗口内已被他人核销或状态被改；
-            // 按契约「其余不匹配 → 404」收口，并计一次失败（保守：不给不确定的成功）
+            // BE-4（F-18.20 D 行，🟠）：预读说该翻、UPDATE 却回 0 行 = 并发窗口内已被他人核销或状态被改。
+            // 码在核销成功后不清空（D-4），按码再读一次即可拿到终态定性：
+            // 已 completed → 幂等成功（回 idempotent:true），**不计入枚举失败、不写 ops_log**（两台设备连点不再把自己锁 10 分钟）；
+            // 其余（读不到/被改成别的态）维持原 404 定性并计一次失败。
+            Map<String, Object> reread = partnerOrderMapper.selectForVerify(code);
+            if (reread != null && STATUS_COMPLETED.equals(asString(reread.get("status")))) {
+                clearVerifyState(userId);
+                log.info("核销幂等命中（并发抢先）: orderId={}, operatorUserId={}", orderId, userId);
+                return result(orderId, true);
+            }
             return failAs(userId, R.CODE_NOT_FOUND, NOT_FOUND_MSG, "state_changed_after_read");
         }
 
@@ -301,7 +327,8 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
         }
         int fails = verifyFailCounts.asMap().compute(userId, (key, current) -> current == null ? 1 : current + 1);
         if (fails >= VERIFY_FAIL_LOCK_THRESHOLD) {
-            verifyLockouts.put(userId, Boolean.TRUE);
+            // BE-5：上锁时刻（epoch millis）作为 value——429 信封的 retryAfterSeconds 由它推算剩余 TTL
+            verifyLockouts.put(userId, System.currentTimeMillis());
             verifyFailCounts.invalidate(userId);
             log.warn("取货码防枚举上锁: operatorUserId={}, fails={}, lockFor={}", userId, fails, VERIFY_FAIL_LOCK_TTL);
         }

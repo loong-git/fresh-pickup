@@ -68,7 +68,7 @@
             <text class="item-qty">应收 {{ countOf(it.expectedQty) }}</text>
             <text class="item-qty">实收 {{ actualText(it) }}</text>
             <!-- 短少原因：契约 §3 列了 shortReason，但后端明细 SQL 一条都不出这个键
-                 （ArrivalItemMapper:29-31 只 SELECT 六列），所以「有键才渲染」，不替后端编一个 -->
+                 （ArrivalItemMapper:27-31 只 SELECT 六列），所以「有键才渲染」，不替后端编一个 -->
             <text v-if="shortReasonText(it) !== ''" class="item-short">短少：{{ shortReasonText(it) }}</text>
           </view>
           <view v-if="!itemsOf(b).length" class="item-line">
@@ -77,7 +77,7 @@
         </view>
 
         <!-- 确认到货：仅 status ∈ {planned, arriving} 可点（与后端四条件 UPDATE 的 IN 白名单同集合，
-             ArrivalBatchMapper:56-60）。confirmed 置灰并显确认时间；short 也置灰——后端对它给 400
+             ArrivalBatchMapper:46-49）。confirmed 置灰并显确认时间；short 也置灰——后端对它给 400
              「该批次已登记短少，不可直接确认」（PartnerStoreServiceImpl.java:328-331），按钮留着就是诱骗报错 -->
         <button
           class="btn-main batch-confirm"
@@ -92,6 +92,10 @@
              多批次时不会把上一张卡的结论挪到这一张上 -->
         <text v-if="feedbackOf(b)" class="batch-feedback" :class="'batch-feedback-' + feedbackOf(b).tone">{{ feedbackText(b) }}</text>
       </view>
+
+      <!-- FE-12：确认成功但「只重拉这一条」没成时给一行降级提示——页面不动四态、那张卡的反馈也不撤销，
+           只如实说明屏上这一条可能还是旧值（原来是全静默，看不出来） -->
+      <text v-if="batchRefreshFailed" class="form-hint">最新批次没补拉到，屏上状态可能偏旧；点「今天」或步进日期可重查</text>
     </template>
 
     <view class="page-bottom-space"></view>
@@ -105,15 +109,19 @@
 // ④ 请求全走 @/api/index.js（本页零原生请求）；⑤ 只渲染后端白名单键，缺键就如实不渲染，
 //    绝不为了「页面好看」去前端 JOIN 别的接口补数据。
 // 本表 uk_store_date 保证「一店一日至多一批」，故这一页没有分页（RB 的手写分页在核销台那一页用）。
-// storeId 选择器本页不传：多店切换归 Step 7 门店信息页，两条请求（本页 + 核销台警示条）都留空 →
-// 服务端按「名下 id 最小的一家」解析，两边必然落在同一家店，不会出现「警示条说没确认、这里显示已确认」。
+// storeId 选择器本页不传（FE-3：一期不提供选店，本页没有选店入口）：留空即由服务端按
+// 「名下 id 最小的一家」解析（PartnerStoreServiceImpl.java:368-371 Collections.min），
+// 页内那一行「门店编号 N」就是回包的 data.storeId——显示哪家、确认哪家，永远是那一家。
+// 核销台的到货警示条是另一条通道：它逐店**显式带 storeId** 查后聚合（FE-2），管的是「名下几家没确认」，
+// 与本页「只看一家」各说各的事，不构成同一屏上的矛盾结论。
+// ?date= 是可选入参（FE-6：警示条「去看批次」会带日期过来，因为批次多在明日生成）。
 import { getPartnerArrivals, confirmArrival } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/arrival/arrival'
 
-// 可点「确认到货」的状态集合：与后端条件 UPDATE 的 IN 白名单逐字相同（ArrivalBatchMapper:56-60）
+// 可点「确认到货」的状态集合：与后端条件 UPDATE 的 IN 白名单逐字相同（ArrivalBatchMapper:46-49）
 const CONFIRMABLE_STATUS = ['planned', 'arriving']
 const BATCH_CONFIRMED = 'confirmed'
 const BATCH_SHORT = 'short'
@@ -121,6 +129,27 @@ const BATCH_SHORT = 'short'
 // 批次状态中文说法：字典里没有的值原样透出，不替后端猜中文名（同 plan-orders.vue:120 的纪律）
 const STATUS_TEXT = { planned: '计划到货', arriving: '到货中', confirmed: '已确认', short: '已登记短少' }
 const STATUS_TONE = { planned: 'info', arriving: 'warn', confirmed: 'ok', short: 'err' }
+
+// 入参日期形状：与后端 DATE_PATTERN 同一口径（PartnerOrderServiceImpl.java:56），只用来洗深链带进来的 ?date=
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+// FE-5：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先（BE-5），
+// 取不到才回落本地 60（与读侧 @RateLimit 的 60s 窗口同档）。与核销台同一口径，两处不各写一套算法。
+const RETRY_FALLBACK_SECONDS = 60
+
+// FE-10：同页 429 只留一句说法（清单加载与确认提交两支共用 coolingText 这一处实现）
+function coolingText(seconds) {
+  const n = Number(seconds)
+  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
+}
+
+// 载荷来源：请求层 handleEnvelope 的 reject 现在带 data（后端信封原样透传，见 api/index.js），
+// 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。
+function retrySecondsOf(err) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
+}
 
 export default {
   data() {
@@ -140,6 +169,8 @@ export default {
       confirmingId: null,
       // 每个批次的常驻反馈：{ [批次id字符串]: {tone,text} }；四支（成功/幂等/404/400/429）都落这里
       feedbackMap: {},
+      // FE-12：「只重拉这一条」失败的降级提示位（true = 屏上状态可能偏旧，页尾给一行实话）
+      batchRefreshFailed: false,
       // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清）
       retryLock: 0,
       retryLockTimer: null
@@ -147,7 +178,8 @@ export default {
   },
   computed: {
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      // FE-10：429 一支与确认提交那一支同句，秒数读实时 retryLock（FE-5 后它是后端给的剩余 TTL）
+      if (this.errorCode === 429) return coolingText(this.retryLock)
       if (this.errorCode === 403) return '暂无权限查看到货批次，请回工作台确认账号状态'
       if (this.errorCode === 404) return '到货批次接口暂不可用，可能是后端服务还没更新，请稍后重试'
       return '到货批次加载失败，请检查网络后重试'
@@ -161,8 +193,15 @@ export default {
     storeText() {
       return this.resolvedStoreId === null || this.resolvedStoreId === undefined
         ? ''
-        : '门店编号 ' + this.resolvedStoreId + '（多店切换归 Step 7）'
+        : '本页只显门店 ' + this.resolvedStoreId + ' 的批次，一期不提供选店'
     }
+  },
+  onLoad(options) {
+    // FE-6：核销台的「去看批次」会把目标日期带进来（?date=YYYY-MM-DD，批次多在明日生成）。
+    // 形状不符的一律忽略、由 onShow 回落到「今天」——深链参数不洗形状就入请求，
+    // 后端 DATE_PATTERN 会直接 400（同 store.vue 对 ?storeId= 的姿势）。
+    const d = options && options.date ? String(options.date) : ''
+    if (DATE_RE.test(d)) this.queryDate = d
   },
   onShow() {
     // 每次进入重拉（确认动作在别的页/别的设备做过也要第一时间反映）。
@@ -232,7 +271,7 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = Number((e && e.code) || 0)
-        if (Number(e && e.code) === 429) this.startRetryLock()
+        if (Number(e && e.code) === 429) this.startRetryLock(retrySecondsOf(e))
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -275,8 +314,10 @@ export default {
         const message = (e && e.message) || ''
         if (code === 401) return
         if (code === 429) {
-          this.setFeedback(key, 'cooling', '操作过于频繁，请稍后再试')
-          this.startRetryLock()
+          // FE-5 + FE-10：秒数按后端 data.retryAfterSeconds 起，句式与清单加载那一支同一处生成
+          const seconds = retrySecondsOf(e)
+          this.setFeedback(key, 'cooling', coolingText(seconds))
+          this.startRetryLock(seconds)
           return
         }
         if (code === 404) {
@@ -313,6 +354,7 @@ export default {
     // 已在契约疑点登记），但落到页面上只替换被确认的那一条，其余批次与滚动位置都不动
     async reloadOneBatch(id) {
       if (this.retryLock > 0) return
+      this.batchRefreshFailed = false
       try {
         const res = await getPartnerArrivals({ date: this.queryDate })
         const data = (res && res.data) || {}
@@ -323,8 +365,10 @@ export default {
         if (idx < 0) return
         this.batches.splice(idx, 1, fresh)
       } catch (e) {
-        // 静默：确认动作本身已经成功（上面那张卡的反馈行是准的），
-        // 这次补拉失败绝不能把页面拖进 error 态、也不能撤销刚写下的反馈
+        // FE-12：不再纯静默。确认动作本身已经成功（上面那张卡的反馈行是准的），所以这次补拉失败
+        // 绝不能把页面拖进 error 态、也不能撤销刚写下的反馈；但「屏上这条可能还是旧值」必须说一句——
+        // 姿势照 store 页的常驻提示（状态位 + 一行 hint，不弹 toast 抢掉成功那句的声道）
+        this.batchRefreshFailed = true
       }
     },
     // ==================== 反馈读写 ====================
@@ -338,7 +382,7 @@ export default {
       const fb = this.feedbackOf(b)
       if (!fb) return ''
       if (fb.tone === 'cooling') {
-        return this.retryLock > 0 ? '操作过于频繁，请 ' + this.retryLock + 's 后再试' : fb.text
+        return this.retryLock > 0 ? coolingText(this.retryLock) : fb.text
       }
       return fb.text
     },
@@ -449,7 +493,7 @@ export default {
     itemsOf(b) {
       return (b && Array.isArray(b.items)) ? b.items : []
     },
-    // 明细行商品名：后端 LEFT JOIN dish 带出 dishName（ArrivalItemMapper:29-31），
+    // 明细行商品名：后端 LEFT JOIN dish 带出 dishName（ArrivalItemMapper:27-31），
     // 但 dish 被平台删掉时该列为 NULL —— 此时按契约渲染「商品#<dishId>」，
     // 绝不在前端另发一次商品列表请求去补名（那是把一次 JOIN 换成一次越权查询 + 一笔分叉债）
     itemName(it) {
@@ -475,10 +519,12 @@ export default {
       const s = (it && it.shortReason) == null ? '' : String(it.shortReason).trim()
       return s
     },
-    // ==================== 429 冷却（照 plan-orders.vue:443-454 同款） ====================
-    startRetryLock() {
+    // ==================== 429 冷却（照 plan-orders.vue:443-454 同款；秒数由调用方按 FE-5 取好） ====================
+    // 只在 code===429 起（页面纪律 ②）：两个调用点都在 catch 里判过码
+    startRetryLock(seconds) {
       this.stopRetryLock()
-      this.retryLock = 60
+      // FE-5：秒数优先取后端 429 信封的 data.retryAfterSeconds，取不到回落本地 60（不再硬编码）
+      this.retryLock = Number(seconds) > 0 ? Number(seconds) : RETRY_FALLBACK_SECONDS
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()

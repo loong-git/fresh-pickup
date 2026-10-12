@@ -20,9 +20,11 @@
 --   m16 merchant_store + dish.merchant_id + order_item.merchant_id + store.owner_user_id + idx_merchant/idx_owner
 --   m17 orders.pickup_code + uk_pickup_code + order_item.fulfill_status + ops_log
 --       （F-18/G-04 Step 1；存量取货码回填只在 m17-migration.sql 里做，本文件不回填——见 init.sql 订单明细表注释先例）
---   m18 store 六列 open_time/close_time/daily_capacity/accepting/contact_phone/photos + store_apply
+--   m18 store 六列 open_time/close_time/daily_capacity/accepting/contact_phone/photos + store_apply（含 BE-3 生成列
+--       pending_guard + 唯一键 uk_user_pending(user_id, pending_guard)，防并发双 pending）
 --       + arrival_batch（uk_store_date）+ arrival_item（含明日/planned 演示批次两条种子，F-18.10/G-04 Step 4a）
---       （m18 ⑪ 的演示主理人归属归位 UPDATE 不并入本文件：新库无待归位的历史绑定，store 种子直接带 owner_user_id 值即可，
+--       （m18 ⑪ 的演示主理人归属归位 UPDATE 不并入本文件，且那条链在 m18 里受 @m18_demo_owner 开关控制、默认 0 不执行（BE-1）：
+--        新库无待归位的历史绑定，store 种子直接带 owner_user_id 值即可——分工：迁移侧靠开关、init 侧靠种子带值，
 --        同订单表 pickup_code 回填注释先例；store 种子 INSERT 的列清单加 owner_user_id，既有 5 列数值零改动）
 -- ================================================
 
@@ -156,7 +158,7 @@ CREATE TABLE order_item (
 -- daily_capacity（D-8 NULL=不限，一期只展示不自动降级）、accepting（满容/休市细粒度开关，与 status 的 open/closed 正交）、
 -- contact_phone/photos（RD/D-12：GET /api/stores 一律不下发这两列，photos 一期无上传端点 D-18）
 -- m18 ⑪ 的归属归位 UPDATE 不并入本文件——新库无「门禁把 store 1 临时绑到 uid 40/43/45」的待归位状态，
--- 种子直接带目标值即可（照本文件订单表 pickup_code 回填、订单明细表 merchant_id 回填两处注释先例）
+-- 种子直接带目标值即可，不需要 m18 里的 @m18_demo_owner 开关（该开关只服务存量演示库归位场景，默认 0=不改数据，BE-1）
 -- ----------------------------
 DROP TABLE IF EXISTS store;
 CREATE TABLE store (
@@ -370,27 +372,28 @@ CREATE TABLE IF NOT EXISTS merchant_store (
 
 -- ----------------------------
 -- 现场动作审计表（F-18/G-04，m17-migration.sql:85-99 同步）：D-5 两表边界
--- 本表只收商家/主理人现场动作（核销/到货确认/门店信息变更/缺货登记），operator_user_id 即操作者 userId；
+-- 本表只收商家/主理人/申请人现场动作（核销/到货确认/门店信息变更/缺货登记/入驻申请提交），operator_user_id 即操作者 userId；
 -- 平台侧动作（store_apply 审核、Admin 核销）一律走 admin_audit_log（m15:89-101，actor=admin:<摘要8>）——
 -- 该列是 BIGINT，装不下 'admin:<key摘要>' 字符串，故两表不合并（05 册 C3 注已收窄生效）
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS ops_log (
     id               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '日志ID',
-    operator_user_id BIGINT       NOT NULL COMMENT '操作者 userId（语义收窄：商家/主理人；平台操作员不写本表）',
-    action           VARCHAR(50)  NOT NULL COMMENT 'verify_order/update_dish/audit_review/...',
+    operator_user_id BIGINT       NOT NULL COMMENT '操作者 userId（语义收窄：商家/主理人/申请人现场动作；平台操作员不写本表）',
+    action           VARCHAR(50)  NOT NULL COMMENT '现场动作白名单（BE-13，OpsLogWriter 收口）：verify_order/register_shortage/confirm_arrival/update_store/submit_store_apply',
     target_id        VARCHAR(64)  NOT NULL COMMENT '目标对象ID',
     detail           VARCHAR(500) NULL     COMMENT '变更摘要',
     created_at       DATETIME              DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
     PRIMARY KEY (id),
     KEY idx_target (action, target_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运营操作审计（D-5 边界：本表只收商家/主理人现场动作——核销/到货确认/门店信息变更/缺货登记；平台侧动作一律走 admin_audit_log）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运营操作审计（D-5 边界：本表只收商家/主理人/申请人现场动作——核销/到货确认/门店信息变更/缺货登记/入驻申请提交；平台侧动作一律走 admin_audit_log）';
 
 -- ----------------------------
 -- 主理人入驻申请表（F-18.10/G-04 Step 4a，m18-migration.sql 同步，列口径逐字照该文件 ⑦）：
 -- D-20 申请侧端点挂 /api/store-applies/（登录即可、无归属要求）——申请时名下无店，挂 /api/partner/ 会因归属集合为空 403 自锁入口；
 --      审核侧挂 Admin，有店后的维护才挂 /api/partner/（这是对 05 册 A3.2 的必要修正）；
--- D-21 一用户一期最多 1 条 pending 由应用层校验：rejected 后再提交会产生历史行，且 MySQL 不支持 (user_id, status) 部分唯一约束，
---      故本表只有 idx_user_status 普通索引、无唯一键；status 三态口径照 m15 merchant_profile.audit_status；
+-- D-21 一用户一期最多 1 条 pending = 应用层校验 + BE-3（F-18.20 C 行）库侧闸门双保险：生成列 pending_guard（status='pending' 时为 'p'，
+--      其余 NULL）+ 唯一键 uk_user_pending(user_id, pending_guard)——NULL 不参与唯一性，rejected/approved 历史行仍放行
+--      （「rejected → 再提交」不受影响），但同用户并发第二条 pending 直接 1062，由应用层转 400 文案；
 -- proof_photos 一期无上传端点（D-18，列先建语义先定）；审核动作写 admin_audit_log（D-5 两表边界，不落 ops_log）
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS store_apply (
@@ -405,12 +408,14 @@ CREATE TABLE IF NOT EXISTS store_apply (
     contact_phone    VARCHAR(20)   NULL COMMENT '联系电话（VARCHAR(20) 同 store.contact_phone 口径）；响应只能脱敏展示（RD）',
     proof_photos     VARCHAR(1000) NULL COMMENT '凭证照片（D-18）：JSON 数组串，上限 6 张，每张以 /static/images/uploads/ 开头；一期无上传端点',
     status           VARCHAR(20)   NOT NULL DEFAULT 'pending' COMMENT '审核状态：pending待审核/approved通过/rejected驳回（三态口径照 m15 merchant_profile.audit_status）',
+    pending_guard    VARCHAR(1)    GENERATED ALWAYS AS (IF(status = 'pending', 'p', NULL)) STORED COMMENT '并发防护生成列（BE-3/G-04/m18）：status=pending 时为 p、其余为 NULL；NULL 不参与唯一性，配合 uk_user_pending 封死同用户并发双 pending',
     audit_remark     VARCHAR(255)  NULL COMMENT '审核意见（驳回原因供申请人展示）',
     audited_at       DATETIME      NULL COMMENT '审核时间；NULL=未审',
     created_at       DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
     PRIMARY KEY (id),
-    KEY idx_user_status (user_id, status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主理人入驻申请（D-20 申请侧 /api/store-applies/ 登录即可；D-21 同用户最多 1 条 pending 由应用层保证，不建唯一键；审核动作写 admin_audit_log，见 D-5 两表边界）';
+    KEY idx_user_status (user_id, status),
+    UNIQUE KEY uk_user_pending (user_id, pending_guard)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主理人入驻申请（D-20 申请侧 /api/store-applies/ 登录即可；D-21 同用户最多 1 条 pending=应用层校验 + uk_user_pending 库侧闸门双保险；审核动作写 admin_audit_log，见 D-5 两表边界）';
 
 -- ----------------------------
 -- 到货批次表（F-18.10/G-04 Step 4a，m18-migration.sql 同步，列口径逐字照该文件 ⑧）：
