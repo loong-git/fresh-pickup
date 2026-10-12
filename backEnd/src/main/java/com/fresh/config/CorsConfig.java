@@ -75,7 +75,12 @@ public class CorsConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
                 // 生产域名上线后在此追加，例如 https://fresh.example.com
-                .allowedOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:8080")
+                // 追加 5175/5176（F-18.15 §5，D-12 同口径的加字段式改动，既有三项一字未改）：
+                // 主理人端 front-partner 的 dev 端口。端口不保证——三端（front / front-merchant /
+                // front-partner）同跑时谁先起谁占 5173，最后一个会顺延到 5175 或 5176，
+                // 两个都登记才不会让顺延的那一端所有 XHR 被 CORS 拦成「网络异常」假故障。
+                // 只加不改：5173=C 端、5174=商家端、8080=本地直跑口径照旧。
+                .allowedOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:8080", "http://localhost:5175", "http://localhost:5176")
                 // PUT：T-M3-09 管理端薄版（/api/admin/** 核销/改价/补库存/上下架）
                 .allowedMethods("GET", "POST", "PUT")
                 .allowedHeaders("*")
