@@ -23,8 +23,9 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
     int countByUserIdAndDishId(@Param("userId") Long userId, @Param("dishId") Long dishId);
 
     // ------------------------------------------------------------------
-    // F-17/G-03 商家端只读备货单（三条硬约束，逐条可 grep 核验）：
-    // 1) 归属：下面 8 条 @Select 每一条都带 `oi.merchant_id = #{merchantId}`，值只来自
+    // F-17/G-03 商家端只读备货单（三条硬约束，逐条可 grep 核验；F-19/G-05 追加的 3 条看板 @Select
+    // 沿用同一套约束，见文件末尾那一组）：
+    // 1) 归属：下面每一条 @Select（F-17 的 8 条 + F-19 的 3 条）都带 `oi.merchant_id = #{merchantId}`，值只来自
     //    AuthInterceptor.ATTR_MERCHANT_ID（Controller @RequestAttribute）。不存在不带该条件的读路径。
     //    storeId / date / status 都只是**过滤**条件，绝不替代归属条件。
     // 2) JOIN 键 oi.order_id = o.id（两侧同为 varchar(50) 雪花字符串，逐字照上方
@@ -174,8 +175,84 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
                                  @Param("status") String status);
 
     // ------------------------------------------------------------------
-    // F-18.8/D-15 缺货登记（本接口在一期的**唯一写方法**；上面 8 条 @Select 的只读口径不变，
-    // 上面注释第 1 条「每条都带 oi.merchant_id = #{merchantId}」对这条 UPDATE 同样成立）。
+    // F-19/G-05 Step 1 商家端数据看板（契约 F-19.4 #1：三条 @Select，形态逐字照上方 F-17 那 8 条）：
+    // 恒带 oi.merchant_id = #{merchantId}（D-2 归属只来自注入）、STRAIGHT_JOIN 钉 oi 为驱动表（上方
+    // selectPickupPlan 那条 G-6/M1 注释的理由在本组同样成立：默认计划会用 o.idx_status/o.idx_create_time 驱动，
+    // 成本≈全库订单数且商家间共享）、
+    // JOIN 键不做 CAST（orders.id 是 varchar 雪花串）。时间窗 D-3 只在 SQL 侧算（DATE_SUB(CURDATE(), INTERVAL
+    // (#{days}-1) DAY)，自然日含今日），Java 侧不参与任何日期运算（免服务器时区把窗口算歪）。
+    // 本组仍是只读，上方注释第 1 条「每条都带 oi.merchant_id」对这三条同样成立。
+    // ------------------------------------------------------------------
+
+    /**
+     * 看板汇总（契约 F-19.2 D-4 的 ①②③，一行四列）：
+     * ① {@code gmvBeforeCoupon} = {@code IFNULL(SUM(oi.price*oi.quantity),0)}——**券前**口径：
+     *   {@code oi.price} 是下单时的成交单价快照（秒杀件为秒杀价，OrderServiceImpl:146），
+     *   而 {@code orders.total_price} 是券抵扣后的订单级金额（OrderServiceImpl:161），两者天然差一张券，
+     *   所以本列不叫「已收款」，出参文案随 D-5 口径隔离卡说明。
+     * ② {@code orderCount} = {@code COUNT(DISTINCT oi.order_id)}（明细级去重，一笔多菜订单只算一单；
+     *   上方 countPickupOrdersPerStore 那条注释说过「聚合行里的 dish 级 orderCount 不能当单级数用」，
+     *   这里本来就是单级口径）。
+     * ③ {@code itemCount} = {@code IFNULL(SUM(oi.quantity),0)}。数值列一律 IFNULL 兜 0（G5：零单商家
+     *   必须出 0 不出 null），三列共同 WHERE = 归属 + {@code o.pay_status=1} + {@code o.status<>'cancelled'} + 窗口。
+     * ④ {@code windowStart} = 与 WHERE 里那条窗口谓词**同式**的 DATE_SUB 取回（D-3/F-19.4 #4：窗口口径
+     *   只有一处真源，绝不在 Java 用 LocalDate/时区另算一遍）。外面套 DATE_FORMAT 是为了让 SQL 直接回
+     *   {@code 'YYYY-MM-DD'} 字符串——裸 DATE 经 Map 结果集会拿到 java.sql.Date，Jackson 默认按时间戳序列化，
+     *   G6 的 {@code \d{4}-\d{2}-\d{2}} 断言就会失败（值本身仍是同一天，但出参形状不合契约）。
+     * 无 GROUP BY 的聚合恒回 1 行（零明细时由 IFNULL/COUNT 兜 0），故本方法不会返回空集。
+     */
+    @Select("SELECT IFNULL(SUM(oi.price * oi.quantity), 0) AS gmvBeforeCoupon, "
+            + "COUNT(DISTINCT oi.order_id) AS orderCount, "
+            + "IFNULL(SUM(oi.quantity), 0) AS itemCount, "
+            + "DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL (#{days} - 1) DAY), '%Y-%m-%d') AS windowStart "
+            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.merchant_id = #{merchantId} "
+            + "AND o.pay_status = 1 "
+            + "AND o.status <> 'cancelled' "
+            + "AND o.create_time >= DATE_SUB(CURDATE(), INTERVAL (#{days} - 1) DAY)")
+    Map<String, Object> selectStatSummary(@Param("merchantId") Long merchantId,
+                                          @Param("days") Integer days);
+
+    /**
+     * 看板第四卡 refundCount（契约 D-4 ④）：同归属、同窗口，但取 {@code o.status='cancelled'} 的
+     * 去重单数——「要让商家看到被取消了多少单，别只报好消息」。窗口谓词与上方汇总条逐字同式，
+     * 两卡才是同一个窗口；此处**不加** pay_status 条件（D-4 ④ 原文只换了 status 这一条谓词，
+     * 未支付的取消单同样是一单取消，口径差由 Service 侧文案与 D-5 隔离卡兜住，不自行加严）。
+     * COUNT 回 BIGINT，方法签名用 long（对齐上方 countOrderItemsByDate 的既有写法）。
+     */
+    @Select("SELECT COUNT(DISTINCT oi.order_id) "
+            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.merchant_id = #{merchantId} "
+            + "AND o.status = 'cancelled' "
+            + "AND o.create_time >= DATE_SUB(CURDATE(), INTERVAL (#{days} - 1) DAY)")
+    long selectStatCancelledCount(@Param("merchantId") Long merchantId,
+                                  @Param("days") Integer days);
+
+    /**
+     * 看板 Top 5 商品（契约 D-4 末段逐字口径）：WHERE 与汇总条同一套（归属 + 已支付 + 非取消 + 窗口），
+     * {@code GROUP BY oi.dish_id, oi.dish_name} 里加 dish_name 是 ONLY_FULL_GROUP_BY 下的必要项，
+     * 而 dish_name 本就是 order_item 的下单快照列（init.sql 的 dish_name）——**禁止 JOIN dish 取名**，
+     * 否则商家改名/删品后历史榜单会跟着漂移（上方 selectOrderItemsByDate 同口径）。
+     * ORDER BY 必须两列：{@code amount DESC} 之后用 {@code oi.dish_id ASC} 兜底，
+     * 否则并列 GMV 的两次刷新会换序，看板上的条形图每次跳。LIMIT 5 写死（本期不做 Top 分页，RB 红线）。
+     */
+    @Select("SELECT oi.dish_id AS dishId, oi.dish_name AS dishName, "
+            + "IFNULL(SUM(oi.quantity), 0) AS quantity, "
+            + "IFNULL(SUM(oi.price * oi.quantity), 0) AS amount "
+            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.merchant_id = #{merchantId} "
+            + "AND o.pay_status = 1 "
+            + "AND o.status <> 'cancelled' "
+            + "AND o.create_time >= DATE_SUB(CURDATE(), INTERVAL (#{days} - 1) DAY) "
+            + "GROUP BY oi.dish_id, oi.dish_name "
+            + "ORDER BY amount DESC, oi.dish_id ASC "
+            + "LIMIT 5")
+    List<Map<String, Object>> selectStatTopDishes(@Param("merchantId") Long merchantId,
+                                                  @Param("days") Integer days);
+
+    // ------------------------------------------------------------------
+    // F-18.8/D-15 缺货登记（本接口在一期的**唯一写方法**；上方 F-17 的 8 条与 F-19 的 3 条 @Select
+    // 只读口径不变，注释第 1 条「每条都带 oi.merchant_id = #{merchantId}」对这条 UPDATE 同样成立）。
     // fulfill_status 是 m17 的履约旁路列（normal/shortage），与 orders.status 三态正交（D-10/RE：状态机不动）。
     // ------------------------------------------------------------------
 
