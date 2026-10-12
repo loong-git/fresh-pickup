@@ -1,0 +1,54 @@
+{
+  "app-plus": {
+    "compilerVersion": 3,
+    "distribute": {
+      "android": { "permissions": [] },
+      "ios": {},
+      "sdkConfigs": {}
+    },
+    "modules": {},
+    "nvueStyleCompiler": "uni-app",
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "autoclose": true,
+      "delay": 0,
+      "waiting": true
+    },
+    "usingComponents": true
+  },
+  // appid 按 F-18.15 C-5「appid 等其余键不动」原样沿用商家端拷来的占位串 __UNI__MERCHANT。
+  // 如实登记两件事（已写入本轮回报的契约疑点）：
+  // ① 本值非可发行格式（真实 appid 形如 __UNI__ + 7 位十六进制），HBuilderX 发行 / App 打包前
+  //    必须在 DCloud 开发者中心为「生鲜主理人端」单独申请并替换；
+  // ② 与商家端共用占位串违反 G-01 §3.1「各端不复用同一 appid」的自述口径，仅供 H5 本地运行，
+  //    发行窗口前由主会话决定是否替换为独立占位（本轮不改，遵 C-5 字面约束）。
+  "appid": "__UNI__MERCHANT",
+  "description": "生鲜主理人端（F-18.15：登录 + 工作台占位）",
+  // H5 标题（C-5）：与 index.html 的 <title> 同值，页面 origin 断言靠它辨认——
+  // C 端「生鲜配送」/ 商家端「生鲜商家端」/ 主理人端「生鲜主理人端」
+  "h5": {
+    "title": "生鲜主理人端"
+  },
+  "mp-alipay": { "usingComponents": true },
+  "mp-baidu": { "usingComponents": true },
+  "mp-toutiao": { "usingComponents": true },
+  "mp-weixin": {
+    // 小程序 appid 同样按 C-5 原样沿用拷来的占位串（wx0000000000000001 非可发行格式）：
+    // 微信发行前必须在微信公众平台单独注册「生鲜主理人端」小程序并替换；
+    // 开发阶段可在微信开发者工具导入本项目并选用测试号。当前占位仅供 H5 本地运行。
+    "appid": "wx0000000000000001",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true
+  },
+  "name": "生鲜主理人端",
+  "quickapp": {},
+  "transformPx": false,
+  "uniStatistics": {
+    "enable": false
+  },
+  "versionCode": "100",
+  "versionName": "1.0.0",
+  "vueVersion": "3"
+}

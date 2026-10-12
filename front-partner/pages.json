@@ -1,0 +1,22 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationBarTitleText": "主理人登录"
+      }
+    },
+    {
+      "path": "pages/workspace/workspace",
+      "style": {
+        "navigationBarTitleText": "主理人工作台"
+      }
+    }
+  ],
+  "globalStyle": {
+    "backgroundColor": "#F5F5F5",
+    "navigationBarBackgroundColor": "#E02020",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "生鲜主理人端"
+  }
+}
