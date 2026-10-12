@@ -1,12 +1,16 @@
 package com.fresh.controller;
 
 import com.fresh.annotation.RateLimit;
+import com.fresh.common.JwtUtil;
 import com.fresh.common.R;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminOrderStatusDTO;
 import com.fresh.dto.AdminReviewAuditDTO;
+import com.fresh.entity.AdminUser;
+import com.fresh.mapper.AdminUserMapper;
 import com.fresh.service.AdminService;
+import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,13 +22,19 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Map;
 
 /**
  * 管理端薄版（T-M3-09）：
- * - 鉴权：X-Admin-Key 请求头校验，key 读环境变量 ADMIN_KEY（@Value 占位符默认 admin-dev-key，
- *   生产由环境变量覆盖）；缺失/错误 → 统一信封 401（HTTP 恒 200，码经 body.code 携带）。
- *   AuthInterceptor 权限矩阵不含 /api/admin/**，此处自行校验，不走 JWT。
+ * - 鉴权（F-20/G-06 Step 2 起为<b>双轨</b>，D-2）：{@code X-Admin-Key} 命中静态密钥<b>或</b>
+ *   {@code Authorization: Bearer} 带一枚 typ=admin 且查库 admin_user 存在并 active 的运营 JWT；
+ *   key 读环境变量 ADMIN_KEY（@Value 占位符默认 admin-dev-key，生产由环境变量覆盖）；
+ *   两条都不中 → 统一信封 401（HTTP 恒 200，码经 body.code 携带），文案与从前<b>逐字节相同</b>
+ *   （RE 红线：运维 curl 脚本 / SQL 手册零感知）。
+ *   AuthInterceptor 权限矩阵不含 /api/admin/**（唯一例外是匿名放行的 POST /api/admin/auth/login），
+ *   此处自行校验，各端点方法第一行调 {@link #checkKeyOrOperator}，第二轨的 JWT 解析见 {@link #activeAdminId}。
  * - 运营端点：订单核销/取消、商品改价/补库存/上下架（部分更新）、评价审核（T-M4-05 收口：
  *   命中软词 pending 的评价人工过审/驳回，否则列表默认不展示、永久不可见）、
  *   平台代开通商家（F-12/M-05 一期）、入驻申请审核（F-18.12 第 3 条，第五个端点）。
@@ -41,13 +51,30 @@ public class AdminController {
     @Autowired
     private AdminService adminService;
 
+    /** 双轨第二轨用：解析 Bearer → claims（G-01 起的 parseClaims 通道，本类首次使用；只读 typ 与 subject） */
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    /**
+     * 双轨第二轨用：按 subject 查 admin_user，定「账号还在不在、是否仍 active」。
+     * <p>Controller 直接注 mapper 是本仓既有分层口径（鉴权基础设施类先例：{@code AuthInterceptor:44-47}
+     * 注 UserMapper/StoreMapper 做查库定角色与归属集合）——这一步属于<b>闸门本身</b>，
+     * 塞进 AdminService 反而把闸门挪离闸门。
+     * <p>拿到的实体<b>只读 status 一个字段</b>：它随 {@code BaseMapper.selectById} 的列清单带着
+     * {@code password_hash}，所以 {@link #activeAdminId} 的返回类型是 {@code Long}（账号 id）而不是实体，
+     * 实体不越过这个方法（出参面为零，G4/D-5 纪律）。
+     */
+    @Autowired
+    private AdminUserMapper adminUserMapper;
+
     /** 订单核销/取消：PUT /api/admin/orders/{id}/status，body {status}（completed/cancelled） */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // Admin 端点无 JWT userId，按 IP 维度（§2.10a）
     @PutMapping("/orders/{id}/status")
     public R<Void> updateOrderStatus(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                     @RequestHeader(value = "Authorization", required = false) String authz,
                                      @PathVariable("id") String id,
                                      @Valid @RequestBody AdminOrderStatusDTO dto) {
-        R<Void> denied = checkKey(key);
+        R<Void> denied = checkKeyOrOperator(key, authz);
         if (denied != null) {
             return denied;
         }
@@ -59,9 +86,10 @@ public class AdminController {
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // Admin 端点无 JWT userId，按 IP 维度（§2.10a）
     @PutMapping("/dishes/{id}")
     public R<Void> updateDish(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                              @RequestHeader(value = "Authorization", required = false) String authz,
                               @PathVariable Long id,
                               @Valid @RequestBody AdminDishUpdateDTO dto) {
-        R<Void> denied = checkKey(key);
+        R<Void> denied = checkKeyOrOperator(key, authz);
         if (denied != null) {
             return denied;
         }
@@ -73,9 +101,10 @@ public class AdminController {
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // Admin 端点无 JWT userId，按 IP 维度（§2.10a）
     @PutMapping("/reviews/{id}/audit")
     public R<Void> auditReview(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                               @RequestHeader(value = "Authorization", required = false) String authz,
                                @PathVariable Long id,
                                @Valid @RequestBody AdminReviewAuditDTO dto) {
-        R<Void> denied = checkKey(key);
+        R<Void> denied = checkKeyOrOperator(key, authz);
         if (denied != null) {
             return denied;
         }
@@ -87,8 +116,9 @@ public class AdminController {
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // R6 随建随挂：Admin 新端点必带限流
     @PostMapping("/merchants")
     public R<Void> createMerchant(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                  @RequestHeader(value = "Authorization", required = false) String authz,
                                   @Valid @RequestBody AdminMerchantCreateDTO dto) {
-        R<Void> denied = checkKey(key);
+        R<Void> denied = checkKeyOrOperator(key, authz);
         if (denied != null) {
             return denied;
         }
@@ -108,9 +138,10 @@ public class AdminController {
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // R6 随建随挂：Admin 新端点必带限流
     @PutMapping("/store-applies/{id}/audit")
     public R<Void> auditStoreApply(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                   @RequestHeader(value = "Authorization", required = false) String authz,
                                    @PathVariable("id") Long id,
                                    @RequestBody Map<String, String> body) {
-        R<Void> denied = checkKey(key);
+        R<Void> denied = checkKeyOrOperator(key, authz);
         if (denied != null) {
             return denied;
         }
@@ -120,11 +151,96 @@ public class AdminController {
         return R.ok(null, "申请已审核");
     }
 
-    /** key 校验：通过返回 null；缺失/错误返回 401 信封（与 AuthInterceptor 同一套码表文案风格） */
-    private R<Void> checkKey(String key) {
-        if (key == null || key.isBlank() || !key.equals(adminKey)) {
-            return R.fail(R.CODE_UNAUTHORIZED, "管理密钥缺失或错误");
+    /**
+     * 双轨闸门（F-20/G-06 Step 2，D-2；替换原私有 {@code checkKey(String)}，5 个端点各调一次）：
+     * <ol>
+     *   <li>① {@code X-Admin-Key} 命中静态密钥 → 放行（<b>裁决顺序密钥在前</b>，D-2：curl 脚本 / SQL 手册零感知，
+     *       行为与从前完全一致，只是比对换成了恒定时间，见 {@link #adminKeyMatches}）；</li>
+     *   <li>② 未命中 → 读 {@code Authorization: Bearer}，须 {@code typ=admin} <b>且</b> admin_user 里该 subject
+     *       存在且 {@code status=active} 才放行（{@link #activeAdminId}，D-6 的三重判定）；</li>
+     *   <li>③ 两条都不中 → 返回与从前<b>同一枚 401、同一句文案</b>（RE 红线逐字节不变；也不给
+     *       「是密钥错还是 JWT 错」的区分信号——③ 是唯一出口，攻击方无法据此探测哪条轨试过）。</li>
+     * </ol>
+     * 通过返回 null（调用方 {@code if (denied != null) return denied;} 的老姿势一字未改）。
+     * <p>BE-20-1 起 AuthInterceptor 对 {@code /api/admin/} 前缀整体提前放行、不再解析用户 claims
+     * （typ=admin 反隔离不适用于本面，ATTR_USER_ID 也不注入），本方法是旧 5 端点唯一的服务端闸门。
+     */
+    private R<Void> checkKeyOrOperator(String key, String authz) {
+        if (adminKeyMatches(key)) {
+            return null;
         }
-        return null;
+        if (activeAdminId(authz) != null) {
+            return null;
+        }
+        return R.fail(R.CODE_UNAUTHORIZED, "管理密钥缺失或错误");
+    }
+
+    /**
+     * v2 侧闸门（F-20.6 第 6 条；<b>本期只备不调</b>——Step 3 挂 {@code /api/admin/v2/**} 时用它替换上面的双轨调用）：
+     * <b>只认运营 JWT，静态密钥在 v2 上一律 401</b>（D-2「防止新代码更弱」：
+     * {@code X-Admin-Key} 是全平台共享、无个体身份、可跨环境复用的那枚串，v2 端点要求「谁做的」可追责到
+     * {@code admin_user:<id>}，所以 v2 不接受它；旧 5 端点继续双轨是为兼容存量脚本，见 {@link #checkKeyOrOperator}）。
+     * 401 文案沿用 RE 红线那一句，Step 3 若要为 v2 另立新文案须先回报再改。
+     *
+     * <p>{@code @SuppressWarnings("unused")}：Step 2 有意留空挂（本期不挂任何 v2 端点），不是漏接。
+     */
+    @SuppressWarnings("unused")
+    private R<Void> requireAdminJwtOnly(String authz) {
+        return activeAdminId(authz) != null
+                ? null
+                : R.fail(R.CODE_UNAUTHORIZED, "管理密钥缺失或错误");
+    }
+
+    /**
+     * 静态密钥比对（D-3 收掉 07 册 §待办的「X-Admin-Key 未做恒定时间比较」）：
+     * 原 {@code key.equals(adminKey)} 是短路比较——第 i 个字节不同就返回，响应时延按「猜对了几个前缀字节」增长，
+     * 是个可远程测量的时序侧信道（理论上可按字节前缀爆破）。换成 {@link MessageDigest#isEqual} 逐字节比到底。
+     * <p>key 缺失/空串<b>一律拒</b>（D-3 逐字）；额外把 {@code adminKey} 自身空白也判不匹配——
+     * 与旧行为等价（旧实现里空 key 早已被 {@code key.isBlank()} 挡掉，配了空白密钥本就等于「谁都进不来」），
+     * 但把「宁可全员 401，也不做『空密钥=免登录』兜底」这条写死，防将来 ADMIN_KEY 注入意外为空时静默裸奔。
+     */
+    private boolean adminKeyMatches(String key) {
+        if (key == null || key.isEmpty() || adminKey == null || adminKey.isBlank()) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                adminKey.getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 运营 JWT → 可用的 {@code admin_user.id}；任一环节不合回 null（调用方统一 401，不区分原因）。
+     *
+     * <p><b>三重判定缺一不可</b>（D-6）：
+     * ① {@code Bearer } 前缀在且 token 非空且可验签解析（{@code parseClaims} 对伪造/过期一律 null）；
+     * ② {@code typ=admin}（<b>没有这一步就等于放行 C 端 token</b>：{@code user.id} 与 {@code admin_user.id}
+     *    都是 BIGINT 自增、从 1 起，小 id 必然并存，C 端 token 的 subject 撞上某个运营 id 是完全正常的现象；
+     *    实测断言见门禁 G4 的「C 端用户 token 打旧端点须与无凭证同判」）；
+     * ③ 查库该 subject 在 admin_user 里<b>存在</b>且 {@code status=active}（只验 typ 不查库 → 被停用的账号
+     *    手里那枚 token 能一路签到自然过期，「停用」形同虚设）。
+     * <p>{@code role=admin} claim 本期不参与判定（判据以契约 D-2/D-6 点名的 typ + 查库为准，不自创第四道）。
+     * <p><b>实体只读 status</b>：{@code selectById} 的列清单含 password_hash（Step 1 已登记的继承面），
+     * 本方法的返回类型是 {@code Long}，实体不越过这个方法一行。
+     */
+    private Long activeAdminId(String authz) {
+        if (authz == null || !authz.startsWith("Bearer ")) {
+            return null;
+        }
+        String token = authz.substring(7).trim();
+        if (token.isEmpty()) {
+            return null;
+        }
+        Claims claims = jwtUtil.parseClaims(token);
+        if (claims == null || !"admin".equals(claims.get("typ"))) {
+            return null;
+        }
+        Long adminUserId;
+        try {
+            adminUserId = Long.valueOf(String.valueOf(claims.getSubject()));
+        } catch (IllegalArgumentException e) {
+            // subject 缺失/非数字：与「typ 不合」同一出口（null → 401），不额外给信号
+            return null;
+        }
+        AdminUser account = adminUserMapper.selectById(adminUserId);
+        return account != null && "active".equals(account.getStatus()) ? adminUserId : null;
     }
 }

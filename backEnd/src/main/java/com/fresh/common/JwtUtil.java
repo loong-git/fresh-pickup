@@ -78,4 +78,33 @@ public class JwtUtil {
             return null;
         }
     }
+
+    /**
+     * 签发运营（admin）token（F-20/G-06 Step 2，D-6）：subject={@code admin_user.id} +
+     * {@code typ=admin} + {@code role=admin} + {@code uname=<username>}。
+     * 有效期与签名密钥<b>沿用本类既有配置</b>（{@code expireMillis} / {@code signWith(key)}），与 C 端同参，不新增键。
+     *
+     * <p><b>本方法只加不改</b>：{@link #createToken(Long)} 与 {@link #parseUserId(String)} 一字未动（D-6/C 端链路零影响）。
+     *
+     * <p><b>为什么必须带 typ 而不能只靠 subject</b>：{@code user.id} 与 {@code admin_user.id} 都是 BIGINT 自增、
+     * 从 1 起，小 id 必然并存——只看 subject 等于让 C 端 token 冒充同数值运营账号（07 册 G-06 范围⑧写死的理由，D-6）。
+     * 所以判定侧永远是三件套：{@code typ=admin} claim + 查 {@code admin_user} 存在 + {@code status=active}
+     * （读取侧见 {@code AdminController#activeAdminId}），反向隔离见 {@code AuthInterceptor:66-72}。
+     *
+     * <p>{@code uname} 只是给人看的可读名（排障/界面），<b>不参与任何权限判定</b>；
+     * {@code role=admin} 是给未来「按角色授权」留的位，本期判定不读它（判定只认 typ + 查库）。
+     * 本方法不接收也不写入口令/哈希/密钥：token 本身只进响应体，绝不落库、不落日志（RD）。
+     */
+    public String createAdminToken(Long adminUserId, String username) {
+        long now = System.currentTimeMillis();
+        return Jwts.builder()
+                .subject(String.valueOf(adminUserId))
+                .claim("typ", "admin")
+                .claim("role", "admin")
+                .claim("uname", username)
+                .issuedAt(new Date(now))
+                .expiration(new Date(now + expireMillis))
+                .signWith(key)
+                .compact();
+    }
 }
