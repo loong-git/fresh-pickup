@@ -7,6 +7,31 @@
       「目标 ID」同样是精确等值。筛选后「共 N 条」与列表来自同一 WHERE 的独立 COUNT（同源，D-10）。
     </p>
 
+    <!-- FE-G6-5：工具条住在状态块**之外**，与 Overview.vue 同构——
+         loading / error / forbidden / ready 四种状态都保留筛选条，否则查询失败时
+         运营连改筛选值的输入框都没有，只剩「重试」，只能拿同一个脏值反复撞 400。
+         loading 期间用既有的单值 viewState 把输入框与两个按钮置 disabled（不新增状态变量），
+         但绝不从 DOM 卸载。表格 + 分页器仍只在 ready 态渲染（见下方 v-else）。
+         F-20.16 四个精确等值筛选（文本输入即可，不引新组件）+ 重置。
+         @change 在失焦/回车时触发（不是每次按键），配合下方 onFilterChange 把页码回第 1 页后重查；
+         空串由请求层 withQuery 挡下、不下发（服务端按「不筛」处理）。筛选变化沿用 FE-G6-3 的在飞守卫。 -->
+    <div class="toolbar">
+      <el-input v-model="filters.actor" size="small" class="filter-input" clearable
+                :disabled="viewState === 'loading'"
+                placeholder="操作者（精确，不区分大小写）" @change="onFilterChange" />
+      <el-input v-model="filters.action" size="small" class="filter-input" clearable
+                :disabled="viewState === 'loading'"
+                placeholder="动作（精确，如 dish.update）" @change="onFilterChange" />
+      <el-input v-model="filters.targetType" size="small" class="filter-input" clearable
+                :disabled="viewState === 'loading'"
+                placeholder="目标类型（精确，如 dish）" @change="onFilterChange" />
+      <el-input v-model="filters.targetId" size="small" class="filter-input" clearable
+                :disabled="viewState === 'loading'"
+                placeholder="目标 ID（精确等值）" @change="onFilterChange" />
+      <el-button size="small" type="primary" :disabled="viewState === 'loading'" @click="onFilterChange">查询</el-button>
+      <el-button size="small" :disabled="viewState === 'loading'" @click="onReset">重置</el-button>
+    </div>
+
     <div v-if="viewState === 'loading'" class="state-box">
       <div class="state-title">正在加载</div>
       <div class="state-desc">审计记录读取中…</div>
@@ -28,22 +53,6 @@
     </div>
 
     <template v-else>
-      <!-- F-20.16 四个精确等值筛选（文本输入即可，不引新组件）+ 重置。
-           @change 在失焦/回车时触发（不是每次按键），配合下方 onFilterChange 把页码回第 1 页后重查；
-           空串由请求层 withQuery 挡下、不下发（服务端按「不筛」处理）。筛选变化沿用 FE-G6-3 的在飞守卫。 -->
-      <div class="toolbar">
-        <el-input v-model="filters.actor" size="small" class="filter-input" clearable
-                  placeholder="操作者（精确，不区分大小写）" @change="onFilterChange" />
-        <el-input v-model="filters.action" size="small" class="filter-input" clearable
-                  placeholder="动作（精确，如 dish.update）" @change="onFilterChange" />
-        <el-input v-model="filters.targetType" size="small" class="filter-input" clearable
-                  placeholder="目标类型（精确，如 dish）" @change="onFilterChange" />
-        <el-input v-model="filters.targetId" size="small" class="filter-input" clearable
-                  placeholder="目标 ID（精确等值）" @change="onFilterChange" />
-        <el-button size="small" type="primary" @click="onFilterChange">查询</el-button>
-        <el-button size="small" @click="onReset">重置</el-button>
-      </div>
-
       <el-table :data="rows" border stripe size="small" class="table">
         <!-- 空表 → 「暂无审计记录」，不是报错：后端空表回的是 {list:[],total:0}（F-20.10 实测不 500） -->
         <template #empty>
@@ -107,8 +116,13 @@ const pageSize = ref(20)
 const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 
 // 各码的「下一步」文案：只给本层能确定的建议，不推断业务原因
+// FE-G6-6：400 有**两个**来源（分页越界 / 筛选值脏形状），服务端只回一枚 400、不说明是哪一类，
+// 所以这一条把两种因由**并列**写全，由运营自己逐项核对；前端不猜「到底是哪一个」（猜即编造），
+// 也不按 filters 是否为空来分支文案。
 const CODE_HINTS = {
-  400: '分页参数不在允许范围内（页码从 1 起、每页 10/20/50/100 四档），请调整后重试。',
+  400: '请求参数不在允许范围内（分页与筛选两类都可能触发，服务端不说明是哪一类，请逐项核对）：'
+    + '分页 —— 页码从 1 起、每页只能选 10/20/50/100 四档；'
+    + '筛选值 —— 须为 1~64 个字符，且只含字母、数字、_ . : -，不模糊匹配、不带空格与通配符。',
   404: '审计查询接口没有可达（后端服务未起或路径已变），请确认后端在 3001 端口运行。',
   429: '读取过于频繁（服务端按来源 IP 限流 30 次/分），请稍候再翻页。'
 }
