@@ -10,6 +10,7 @@ import com.fresh.service.MerchantService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -25,7 +26,9 @@ import java.util.regex.Pattern;
 /**
  * 商家端只读接口实现：G-03 备货单两页（F-17）＋ G-05 数据看板与营销参与态（F-19）。
  * 纯读、无事务写、不落运营审计（RC 红线，与 G-02 六个端点
- * 「四个写才审计」口径一致）。
+ * 「四个写才审计」口径一致）。G-05 找茬后 {@code stat}/{@code marketing} 各套一层
+ * {@code @Transactional(readOnly = true)}（BE-G5-5：同一请求内多条聚合 SQL 共用一个快照），
+ * 那是**只读事务**，本类仍然没有任何写语句、也没有改全局隔离级别。
  *
  * <p>停业闸门（D-9，本期的口径变化点）：F-19 的两个新方法**读侧也判** {@code merchant.status<>'active'}，
  * 判据与文案直接调既有的 {@link MerchantService#assertActive}（= MerchantDishServiceImpl 四个写端点用的
@@ -259,8 +262,20 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
      * 数据看板（F-19/G-05，契约 D-3/D-4）。三个数字 + 取消单数 + Top 5 全部来自 OrderItemMapper
      * 那三条恒带 {@code oi.merchant_id} 的 @Select，本方法只做「校验 + 白名单重拼 + 金额定形」，
      * 不参与任何口径计算（尤其不参与日期计算，见类注释的 D-3 段）。
+     * <p>{@code @Transactional(readOnly = true)}（BE-G5-5，F-19.8 S-6）：三条 SQL 收进同一个只读事务后
+     * 共用一个一致性快照，于是卡片之间不再各自看见不同时刻的库状态——原来三条各自自动提交，
+     * 会出现 {@code sum(top) > gmv}、count 与明细条数互相矛盾，以及跨 00:00 的请求里
+     * {@code windowStart} 与实际窗口差一天（每条语句各算一次 CURDATE()）。
+     * <p>如实标注残留面：事务冻住的是**可见行**，{@code CURDATE()} 仍是逐语句取值，
+     * 只有恰好在 00:00:00 那一刻跨语句才会碰到；本期不为此把日期搬进 Java（D-3 红线，搬了就是凭空多出
+     * 第二个窗口口径），三条 SQL 的窗口谓词逐字同式仍是唯一真源。
+     * <p>本批是**纯读**，没有任何「UPDATE 回 0 行后再读定性」的逻辑，所以 readOnly 事务安全，
+     * 不会重演 G-04 那个 RR 快照坑（那条纪律只适用于「条件 UPDATE 命中 0 行后还要再读定性」的写路径，
+     * 见 PartnerOrderServiceImpl/PartnerStoreServiceImpl 的 {@code READ_COMMITTED} 事务）；
+     * 这里不改全局隔离级别、不动 application-*.yml。
      */
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> stat(Long merchantId, Integer days) {
         assertMerchant(merchantId);
         // D-9：只读侧也判停业（判据/文案复用 MerchantService#assertActive，不另写句子）
@@ -309,8 +324,12 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
      * 营销参与态（F-19/G-05，契约 D-6/D-7）：本店被平台设置的秒杀件与免费领活动，纯只读、零报名口。
      * count 与 items 来自两条方法（count 是真总数、items 上限 20），count=0 时短路明细条——
      * 本仓 merchant 2/3 两个参与位实测恒 0 行，空态就是本期真实形态（G8），绝不为了页面好看造数据。
+     * <p>{@code @Transactional(readOnly = true)}（BE-G5-5，F-19.8 S-6）：本方法四条 SQL 同快照，
+     * 「卡头 count=0 的短路」与明细条数不再可能来自库的两个不同时刻（U-2 那类标题与行内自相矛盾，
+     * 根因之一是 count 与 items 各自自动提交）；纯读，理由与 G-04 的坑无关，见 stat() 上那段同口径注释。
      */
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> marketing(Long merchantId) {
         assertMerchant(merchantId);
         // D-9：同上，读侧也判停业
@@ -357,7 +376,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             item.put("seckillPrice", row.get("seckillPrice") == null
                     ? null : moneyText(row.get("seckillPrice")));
             item.put("limitBuy", toInteger(row.get("limitBuy")));
-            // onSale/inPool 走 toInteger 而不是直出：tinyint 有被 Connector/J 回成 Boolean 的一档
+            // onSale 走 toInteger 而不是直出：tinyint 有被 Connector/J 回成 Boolean 的一档
             // （下方 toInteger 注释同口径），出参必须是数字 0/1，前端才敢做 ===1 判定
             item.put("onSale", toInteger(row.get("onSale")));
             // D-7：soldCountTotal = dish.sold_count 的**历史累计**，不是本窗口值，
@@ -368,7 +387,16 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
         return items;
     }
 
-    /** 免费领块白名单重拼（D-6 键清单）：daily_date 不在契约键清单里，故不取也不出 */
+    /**
+     * 免费领块白名单重拼（D-6 键清单，按 F-19.8 S-1/S-2 订正后）：daily_date 不在契约键清单里，故不取也不出。
+     * <p>键位变化两处（与 DishMapper 那两条 SQL 同批）：
+     * ① {@code inPool} 删掉——明细条的驱动表已改成 free_goods_pool，池行恒「在池」，该列恒真即无信息量，
+     * 且它当时还与卡头「已参与 N 件」互相打脸（U-2）；
+     * ② 活动状态键名由 {@code status} 改为 {@code activityStatus}——取的是 {@code fa.status}（online/offline），
+     * 名字里必须带 activity，否则容易被读成池行状态或商品在售状态（页面标签见 FE-G5-4）。
+     * <p>{@code dailyClaimed} 直接取 SQL 里 {@code CASE WHEN fa.daily_date = CURDATE() THEN ... ELSE 0 END}
+     * 的结果（BE-G5-2 跨日谎报）：本类零日期运算（D-3），跨日归零在库里判完，Service 只做取值与定形。
+     */
     private List<Map<String, Object>> freeClaimList(List<Map<String, Object>> rows) {
         List<Map<String, Object>> items = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
@@ -376,14 +404,12 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             item.put("activityId", row.get("activityId"));
             item.put("dishId", row.get("dishId"));
             item.put("name", row.get("name"));
-            item.put("status", row.get("status"));
+            item.put("activityStatus", row.get("activityStatus"));
             item.put("dailyQuota", toInteger(row.get("dailyQuota")));
             item.put("dailyClaimed", toInteger(row.get("dailyClaimed")));
             // N-1 同秒杀侧：门槛也出两位小数字符串。free_activity.threshold 是 NOT NULL DEFAULT 50.00
             // （init.sql:251），不存在「真 NULL」那一档，故不必像 seckillPrice 那样留 null 分支
             item.put("threshold", moneyText(row.get("threshold")));
-            // EXISTS() 回 1/0，按本仓 flag 惯例出数字不出布尔（同 payStatus）
-            item.put("inPool", toInteger(row.get("inPool")));
             items.add(item);
         }
         return items;
