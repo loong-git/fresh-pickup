@@ -601,7 +601,7 @@ export function getMerchantStat(query) {
 /**
  * 营销参与态：GET /api/merchant/marketing（无参数，契约 D-6）
  * 出参 {seckill:{count,items:[{dishId,name,price,seckillPrice,limitBuy,onSale,soldCountTotal}]},
- *       freeClaim:{count,items:[{activityId,dishId,name,status,dailyQuota,dailyClaimed,threshold,inPool}]}}。
+ *       freeClaim:{count,items:[{activityId,dishId,name,activityStatus,dailyQuota,dailyClaimed,threshold}]}}。
  * count 是真总数、items 上限 20（不是分页，别在这里凑 page/size）；
  * 本期零参与位是真实形态（merchant 2 名下秒杀与免费领实测各 0 件），空数组不是降级也不是错误。
  * dish.seckill / free_activity 均由平台侧设置，本层没有任何写通道（D-6「本期不出报名口」）。
