@@ -1,0 +1,729 @@
+<template>
+  <view class="page-container">
+    <!-- ==================== 1. 到货警示条（可关，F-18.17 §2） ====================
+             数据源：GET /api/partner/arrivals?date=今天（D-9「当日批次未确认」提示的唯一依据）
+             显示条件：list 为空 或 存在 status !== 'confirmed' 的批次
+             请求失败：整条不显示——提示本身一旦「报错还亮着」就会把「没查到」说成「货没到」，
+             那就是误导源；故这次失败静默（不打 console、不留 spinner），也绝不并入页面四态
+             （清单那两次请求才是本页四态的主人）。 ==================== -->
+    <view v-if="alertVisible" class="card alert-card">
+      <text class="alert-text">今日批次未确认，货可能未到</text>
+      <view class="alert-row">
+        <view class="alert-link" hover-class="pill-hover" @click="goArrival">去看批次 ›</view>
+        <view class="alert-close" hover-class="pill-hover" @click="dismissAlert">关闭</view>
+      </view>
+    </view>
+
+    <!-- ==================== 2. 输码区 ====================
+             过滤与截断放在 @input（type=number 在部分安卓键盘上仍会漏进非数字，maxlength 只管长度不管字符）；
+             提交期间的单飞锁 verifying 由 finally 复位（照 dishes.vue cancelingId 同款防重姿势）：
+             核销是写操作，重复提交会撞 D-14 枚举锁，第二次点击必须发不出去。 ==================== -->
+    <view class="card verify-card">
+      <text class="block-title">取货码核销</text>
+      <input
+        class="code-input"
+        type="number"
+        maxlength="6"
+        :value="code"
+        placeholder="请输入取货码（6 位数字）"
+        placeholder-style="color:#BBBBBB;"
+        @input="onCodeInput"
+      />
+      <button
+        class="btn-main"
+        :class="{ 'btn-disabled': !canSubmit }"
+        :disabled="!canSubmit"
+        @click="submitVerify"
+      ><text>{{ verifying ? '核销中…' : '核销' }}</text></button>
+      <text v-if="code.length !== 6" class="form-hint">请输入 6 位取货码</text>
+      <text v-else-if="retryLock > 0" class="form-hint">冷却中，{{ retryLock }}s 后可再提交</text>
+      <!-- 常驻反馈行：四支（成功/幂等/404/400/429）都落在这一行，不只 toast——
+           核销现场主理人正低头翻货，toast 一闪而过就等于没反馈。toast 同批发出，文案同一处生成 -->
+      <text v-if="feedback" class="verify-feedback" :class="'verify-feedback-' + feedback.tone">{{ feedbackText }}</text>
+    </view>
+
+    <!-- ==================== 3. 待取清单的日期条 ====================
+             步进基准优先本次请求带出去的 queryDate（照 pickup-plan.vue:239-250 定稿）：
+             慢网下连点时后端回显还是上一轮的日期，以它为准会把第 2、3 次点击算成同一天的 +1（点被吞掉） -->
+    <view class="card date-card">
+      <view class="date-field-row">
+        <!-- 叫法与商家端两页逐字一致（同一枚日期在三端不能三种叫法）；本页语义确实是自提日期：
+             请求参数就是 pickupDate（PartnerController.java:76） -->
+        <text class="date-field-label">自提日期</text>
+      </view>
+      <view class="date-row">
+        <view class="date-step" hover-class="pill-hover" @click="stepDay(-1)">前一天</view>
+        <text class="date-current">{{ effectiveDate || '--' }}</text>
+        <view class="date-step" hover-class="pill-hover" @click="stepDay(1)">后一天</view>
+      </view>
+      <view class="date-sub-row">
+        <view class="date-quick" hover-class="pill-hover" @click="goToday">今天</view>
+        <text class="date-note">清单固定只看「待自提」，已完成/已取消不在这一页</text>
+      </view>
+    </view>
+
+    <!-- ==================== 4. 加载中（首屏与切日期后的重拉都走这一态，避免上一日期的行被读成本日期的） ==================== -->
+    <view v-if="viewState === 'loading'" class="card loading-card">
+      <text class="loading-text">正在加载待取清单…</text>
+    </view>
+
+    <!-- ==================== 5. 错误态（≠ 空态：空态是服务端确认「该日一条都没有」，错误态是根本没拿到数据） ==================== -->
+    <view v-else-if="viewState === 'error'" class="card">
+      <view class="error-row">
+        <text class="error-lead">{{ errorLeadText }}</text>
+        <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
+        <text v-if="errorRetryable && !retryLock" class="error-retry" @click="fetchList(true, true)">点击重试</text>
+        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
+        <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
+      </view>
+    </view>
+
+    <!-- ==================== 6. 空态 ==================== -->
+    <view v-else-if="viewState === 'empty'" class="card empty-card">
+      <view class="empty-row">
+        <text class="empty-text">{{ effectiveDate || '该日' }} 没有待自提的订单</text>
+      </view>
+      <view class="empty-actions">
+        <text class="guide-link" @click="stepDay(-1)">看前一天</text>
+        <text class="guide-link" @click="stepDay(1)">看后一天</text>
+      </view>
+    </view>
+
+    <!-- ==================== 7. 就绪：待取清单（分页 + rowKey 去重） ==================== -->
+    <template v-else>
+      <view class="card list-card">
+        <view class="order-item" v-for="(it, i) in list" :key="rowKey(it, i)">
+          <view class="item-line">
+            <text class="item-dish">{{ dishNameOf(it) }}</text>
+            <text class="item-qty">× {{ countOf(it.quantity) }}</text>
+          </view>
+          <view class="item-line item-sub-line">
+            <text class="item-phone">{{ phoneOf(it) }}</text>
+            <view class="item-unit">
+              <text class="item-dot">·</text>
+              <text class="item-store">{{ storeNameOf(it) }}</text>
+            </view>
+            <view class="item-unit">
+              <text class="item-dot">·</text>
+              <text class="item-sub">{{ timeText(it.createTime) }}</text>
+            </view>
+            <!-- 未支付角标：条件留全（payStatus===0 且非 cancelled），后端清单不过滤 pay_status
+                 （PartnerOrderMapper:51 只排除 cancelled），所以这类行确实可能出现在这一页 -->
+            <text v-if="showUnpaid(it)" class="item-tag item-tag-unpaid">未支付</text>
+          </view>
+          <text v-if="showUnpaid(it)" class="item-unpaid-note">未支付的取货码不可核销（提交会被拒 400）</text>
+        </view>
+      </view>
+
+      <!-- 加载更多：触底自动 + 按钮兜底（照 plan-orders.vue:96-102）；终态「共 N 条」用 max(total, 已加载行数) -->
+      <view class="load-more">
+        <button v-if="hasMore" class="btn-more" :class="{ 'btn-more-cooling': retryLock > 0 }"
+          :disabled="loadingMore || retryLock > 0" @click="loadMore">
+          <text>{{ retryLock > 0 ? retryLock + 's后可重试' : (loadingMore ? '加载中…' : '加载更多') }}</text>
+        </button>
+        <text v-else class="no-more">共 {{ shownTotal }} 条</text>
+      </view>
+    </template>
+
+    <view class="page-bottom-space"></view>
+  </view>
+</template>
+
+<script>
+// 主理人核销台（F-18.17 §2）：输 6 位取货码核销 + 今日待取清单。
+// 三条页面纪律（全部沿用已验收的母版，不新造第二套）：
+// ① 四态单值互斥 loading|error|empty|ready，只由「待取清单」那一次请求决定；
+// ② 冷却锁只在 code===429 起（plan-orders.vue:297 / dishes.vue:378 同判据），其余失败重试是有意义的；
+// ③ 所有请求走 @/api/index.js，页内零原生请求、零自拼 BASE_URL；归属由服务端从 token 解析（RF），
+//    本页不发任何 storeId 之外的归属入参。
+// 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并回登录页）；
+// 403 = token 有效但名下无店，是确定性失败，给「回工作台」而不是重试。
+// 渲染不依赖 store：本页自持一份服务端最新值（workspace.vue 同款纪律）。
+import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals } from '@/api/index.js'
+import '@/styles/common.css'
+
+// 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
+const PAGE_ROUTE = 'pages/verify/verify'
+
+// 清单固定「待自提」：后端 status 白名单 all|pending_pickup|completed（非法值 400，PartnerController.java:70-71）。
+// 已完成不进这一页——核销台要看的就只有一件事：还有谁没提走。
+const LIST_STATUS = 'pending_pickup'
+
+// 每页条数：后端 size 夹到 [1,50]、缺省 20（PartnerOrderServiceImpl.java:50），这里就按缺省给
+const PAGE_SIZE = 20
+
+// 批次「已确认」值（PartnerStoreServiceImpl.java:70 BATCH_CONFIRMED 同值）：警示条的唯一判据。
+// 刻意不写 status !== 'confirmed' 之外的组合判断——后端多一个态（如 short）时它天然落进「未确认」
+const BATCH_CONFIRMED = 'confirmed'
+
+export default {
+  data() {
+    return {
+      // 输码区：@input 已过滤成纯数字且最多 6 位，长度判定因此可直接采信
+      code: '',
+      // 提交单飞锁（写操作专用；finally 复位，失败也不能把它留在 true）
+      verifying: false,
+      // 常驻反馈：{tone:'ok'|'neutral'|'err'|'cooling', text:string}；null = 本次会话还没提交过
+      feedback: null,
+      // ===== 待取清单 =====
+      // 请求要下发的日期（页内永远给值：本页按日核销，不带 date 就等于不限日期）
+      queryDate: '',
+      // 显示用日期：优先后端回显，回显缺失才退回本次请求值（一份真值，不是页内推算）
+      effectiveDate: '',
+      list: [],
+      // 分页三值一律以后端回显为准（回显缺失才退回请求值）
+      page: 1,
+      size: PAGE_SIZE,
+      total: 0,
+      hasMore: false,
+      // 四态互斥：loading | error | empty | ready
+      viewState: 'loading',
+      errorText: '',
+      errorCode: 0,
+      // 仅驱动「加载更多」按钮的加载中文案：翻页失败不该把已加载的清单换成错误卡
+      loadingMore: false,
+      // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清）
+      retryLock: 0,
+      retryLockTimer: null,
+      // ===== 到货警示条 =====
+      // null = 还没查/这次没查成（不显示）；true = 今日确有未确认批次（显示）；false = 今日已确认（不显示）
+      alertUnconfirmed: null,
+      // 关闭只在本页实例内生效：每次回页都重弹同一条，等于逼主理人再关一次
+      alertDismissed: false
+    }
+  },
+  computed: {
+    // 警示条可见性：只有「查成功且确实未确认」才亮；失败（null）与已确认（false）都不亮
+    alertVisible() {
+      return this.alertUnconfirmed === true && !this.alertDismissed
+    },
+    canSubmit() {
+      return this.code.length === 6 && !this.verifying && this.retryLock === 0
+    },
+    // 常驻反馈文案：cooling 一支的秒数读实时 retryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」）
+    feedbackText() {
+      if (!this.feedback) return ''
+      if (this.feedback.tone === 'cooling') {
+        return this.retryLock > 0 ? '操作过于频繁，请 ' + this.retryLock + 's 后再试' : this.feedback.text
+      }
+      return this.feedback.text
+    },
+    // 「共 N 条」给 max(后端 total, 已加载行数)：翻页期间有单被核掉会让 total 收缩，
+    // 屏上已渲染的行又不会凭空消失（口径照 plan-orders.vue:162-168）
+    shownTotal() {
+      const n = Number(this.total)
+      const loaded = Array.isArray(this.list) ? this.list.length : 0
+      return Math.max(Number.isFinite(n) && n >= 0 ? n : 0, loaded)
+    },
+    errorLeadText() {
+      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      if (this.errorCode === 403) return '暂无权限查看待取清单，请回工作台确认账号状态'
+      if (this.errorCode === 404) return '核销清单接口暂不可用，可能是后端服务还没更新，请稍后重试'
+      return '待取清单加载失败，请检查网络后重试'
+    },
+    // 重试有没有可能成功：只有 403（归属集合为空，重试必然还是同一枚错误）判死并给「回工作台」出口
+    errorRetryable() {
+      return this.errorCode !== 403
+    }
+  },
+  onShow() {
+    // 首屏默认今天（本页是「今天来提货的人」这一件事，不像备货单那样让后端缺省顶上来）
+    if (!this.queryDate) this.queryDate = this.todayStr()
+    // 回页重拉要回顶：翻到第 3 页再切回来只剩 20 行，滚动条悬在空处就像数据被吞了
+    this._resetScrollTop = true
+    this.fetchList(true)
+    this.loadAlert()
+  },
+  // 触底自动加载下一页（与「加载更多」按钮同一入口）
+  onReachBottom() {
+    this.loadMore()
+  },
+  // #ifdef H5
+  onReady() {
+    // 页面级滚轮兜底：index.html 锁 html,body overflow:hidden 后 PC 滚轮默认滚动失效，手动接管页面滚动
+    this._pageWheelHandler = (e) => this.onPageWheel(e)
+    document.addEventListener('wheel', this._pageWheelHandler, { passive: false })
+  },
+  // #endif
+  onUnload() {
+    // #ifdef H5
+    // 滚轮监听与 onReady 的注册配对
+    if (this._pageWheelHandler) {
+      document.removeEventListener('wheel', this._pageWheelHandler)
+      this._pageWheelHandler = null
+    }
+    // #endif
+    // 定时器清理：本页只有 429 冷却这一枚 setInterval，必须成对清掉
+    // （挂在 window 上不摘就会在页面销毁后继续每秒写一次已死组件的状态）
+    this.stopRetryLock()
+  },
+  methods: {
+    showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
+    // ==================== 输码 ====================
+    // 过滤非数字 + 截 6 位（后端判据是 ^[0-9]{6}$，PartnerOrderServiceImpl.java:58）：
+    // 让脏字符进不了 data，按钮的 disabled 判定与提交前的长度校验才能共用同一个值
+    onCodeInput(e) {
+      const raw = String((e && e.detail && e.detail.value) || '')
+      this.code = raw.replace(/\D/g, '').slice(0, 6)
+    },
+    // ==================== 核销提交（四支常驻反馈） ====================
+    // 单飞锁 verifying 在 finally 复位；冷却闸门写在方法级第一行——小程序端 disabled 按钮的
+    // click 仍可能触发，只靠模板拦不住（闸门姿势照 plan-orders.vue:354-360 loadMore）
+    async submitVerify() {
+      if (this.retryLock > 0) return
+      if (this.verifying) return
+      const pickupCode = this.code
+      if (pickupCode.length !== 6) return
+      this.verifying = true
+      try {
+        const res = await verifyPartnerOrder(pickupCode)
+        const data = (res && res.data) || {}
+        // 幂等成功（D-6/G4：该码此前已核销）不是失败，也不重复计数——绝不能报成「核销成功」，
+        // 那会让主理人以为又放行了一件货
+        if (data.idempotent === true) {
+          this.setFeedback('neutral', '该码此前已核销，未重复计数')
+        } else {
+          this.setFeedback('ok', '核销成功：' + this.orderSummary(data))
+          this.code = ''
+        }
+        // 静默重拉第 1 页（不传 resetView：清单留在屏上，被核掉的那一行自然消失）。
+        // 幂等那一支也重拉：既然这单在别处已被核掉，屏上就不该还挂着它。
+        // 不 await：清单刷新与核销结果是两件事，等待只会把「核销中…」拉长
+        this.fetchList(true)
+      } catch (e) {
+        const code = Number((e && e.code) || 0)
+        const message = (e && e.message) || ''
+        if (code === 401) {
+          // 请求层已清态并回登录页；这里不写反馈——写任何一支都会把「登录失效」说成「码有问题」
+          return
+        }
+        if (code === 429) {
+          // D-14 防枚举锁（5 次/10 分钟）或写侧限流（10 次/分）命中：这一支就是枚举锁的可见反馈。
+          // 冷却期内输入框仍可用，但提交不发请求（上面那道闸门）
+          this.setFeedback('cooling', '操作过于频繁，请稍后再试')
+          this.startRetryLock()
+          return
+        }
+        if (code === 404) {
+          // 刻意不分「无此码 / 属于别家门店」两支：后端两条判定收敛成同一个 404 同文案
+          // （PartnerOrderServiceImpl.java:212/:221，不泄漏「码本身是对的」），前端跟着分两支就是
+          // 替攻击者把 404 拆成可区分的预言机
+          this.setFeedback('err', '码不存在或不属于你的门店')
+          return
+        }
+        if (code === 400) {
+          // 后端原文（码形状不符/已取消/未支付共用「请求参数有误，请检查后重试」，:77/:206/:231/:234）
+          this.setFeedback('err', message || '请求参数有误，请检查后重试')
+          return
+        }
+        if (code === 403) {
+          this.setFeedback('err', message || '无权限访问')
+          return
+        }
+        this.setFeedback('err', message || '核销失败，请检查网络后重试')
+      } finally {
+        this.verifying = false
+      }
+    },
+    // 成功行的摘要：核销出参只有 {orderId(后6位),status,idempotent}，**没有 dishName**，
+    // 所以从在手的清单行按单号回查；回查不到（清单翻页后不含该单）就退回单号本身，不编商品名
+    orderSummary(data) {
+      const tail = String((data && data.orderId) || '')
+      if (!tail) return '本单已核销'
+      const rows = Array.isArray(this.list) ? this.list.filter((r) => String(r.orderId || '') === tail) : []
+      if (!rows.length) return '单号 …' + tail
+      const first = rows[0]
+      const line = this.dishNameOf(first) + ' × ' + this.countOf(first.quantity)
+      return rows.length > 1 ? line + ' 等 ' + rows.length + ' 项' : line
+    },
+    // 反馈落一处（常驻行 + 同文 toast）：两条通道同一串，防止「toast 说成功、行说失败」的分裂
+    setFeedback(tone, text) {
+      this.feedback = { tone, text }
+      this.showToast(text)
+    },
+    // ==================== 到货警示条（静默通道：失败不显示、不动四态、不起冷却） ====================
+    async loadAlert() {
+      // 冷却期内不重发（这一条也是 /api/partner/arrivals 的读额度，撞在闸门上只会白烧一次）；
+      // 保持上一次的成功读数，不因为「这次没查」就把已经确认过的批次说成未确认
+      if (this.retryLock > 0) return
+      try {
+        const res = await getPartnerArrivals({ date: this.todayStr() })
+        // 回包晚于页面切换时不纠（本页只按「今天」这一枚固定日期查，无在途条件漂移问题；
+        // 唯一要防的是这一趟请求本身被 401 打断——那种情况请求层已回登录页）
+        const data = (res && res.data) || {}
+        const batches = Array.isArray(data.list) ? data.list : []
+        // 空 list = 今日根本没有批次（批次由平台生成，见 G-05 运营端）：按契约同样出「货可能未到」
+        const unconfirmed = !batches.length || batches.some((b) => (b && b.status) !== BATCH_CONFIRMED)
+        this.alertUnconfirmed = unconfirmed
+      } catch (e) {
+        // 静默：提示条不是本页的主数据源，它挂了就把整页拖进错误态，用户会以为「清单也读不到」
+        this.alertUnconfirmed = null
+      }
+    },
+    dismissAlert() {
+      this.alertDismissed = true
+    },
+    goArrival() {
+      uni.navigateTo({ url: '/pages/arrival/arrival' })
+    },
+    // ==================== 待取清单加载（分页手写：本工程无分页插件，RB 红线口径） ====================
+    // @param {boolean} reset true = 按当前日期重拉第一页；false = 追加下一页
+    // @param {boolean} [resetView] 改了日期要立刻退回加载态（否则上一日期的行会被读成本日期的）；
+    //                              onShow 的静默重拉不传，已有清单时保持可见，避免每次回页闪一次白卡
+    async fetchList(reset, resetView) {
+      if (this._loadingList) {
+        this._reloadQueued = true
+        if (reset) this._queuedReset = true
+        if (resetView) this._queuedView = true
+        return
+      }
+      this._loadingList = true
+      const condKey = this.condKey()
+      const targetPage = reset ? 1 : this.page + 1
+      if (!reset) this.loadingMore = true
+      else if (resetView || this.viewState !== 'ready') this.viewState = 'loading'
+      try {
+        const res = await getPartnerOrders({
+          pickupDate: this.queryDate,
+          status: LIST_STATUS,
+          page: targetPage,
+          size: this.size
+        })
+        // 回包晚于条件变更（在途期间又步进了一格日期）：整批丢弃、按最新条件重发。
+        // 把上一日期的行拼进本日期是最要命的一类脏显示
+        if (this.condKey() !== condKey) {
+          this._reloadQueued = true
+          this._queuedReset = true
+          this._queuedView = true
+          return
+        }
+        const data = (res && res.data) || {}
+        const rows = Array.isArray(data.list) ? data.list : []
+        // 分页三值一律以后端回显为准（size 被夹到 [1,50]、page<1 归一 1，都是夹而不拒）：
+        // 用请求值推进页码就会跳过被夹掉的那一段或重复取同一页
+        const echoPage = Number(data.page)
+        const echoSize = Number(data.size)
+        const merged = reset ? rows : this.appendRows(rows)
+        this.list = merged
+        const echoTotal = Number(data.total)
+        this.page = echoPage >= 1 ? echoPage : targetPage
+        this.size = echoSize >= 1 ? echoSize : this.size
+        this.total = Number.isFinite(echoTotal) && echoTotal >= 0 ? echoTotal : merged.length
+        // hasMore 只认真假值；后端没给时才按「已加载条数 < total」兜底，缺字段不等于「没有更多」
+        this.hasMore = data.hasMore === true || data.hasMore === false
+          ? data.hasMore
+          : this.list.length < this.total
+        this.errorText = ''
+        this.errorCode = 0
+        // 日期显示值：orders 端点不回显 date（出参只有 list/page/size/total/hasMore，
+        // PartnerOrderServiceImpl.java:180-184），所以这里回落到本次请求值——仍是「一份真值」
+        this.effectiveDate = String(data.date || this.queryDate || '')
+        this.viewState = this.list.length ? 'ready' : 'empty'
+        if (reset && this._resetScrollTop) {
+          this._resetScrollTop = false
+          // #ifdef H5
+          document.body.scrollTop = 0
+          // #endif
+        }
+      } catch (e) {
+        if (e && e.code === 401) {
+          // 跳转与清态都由请求层做完，这里只停在加载态，不闪现错误卡
+          this.viewState = 'loading'
+          return
+        }
+        if (this.condKey() !== condKey) {
+          this._reloadQueued = true
+          this._queuedReset = true
+          this._queuedView = true
+          return
+        }
+        this.errorText = (e && e.message) || ''
+        this.errorCode = Number((e && e.code) || 0)
+        // 只有 429 才起冷却锁：其余失败重试是有意义的，不该被秒数拦住
+        if (Number(e && e.code) === 429) this.startRetryLock()
+        else this.stopRetryLock()
+        // 翻页失败（清单在手）不动整页态：保留现场只 toast；首屏/重拉失败才整页换错误卡
+        if (reset || !this.list.length) {
+          this.viewState = 'error'
+        } else {
+          this.showToast(this.errorText || '加载更多失败，请重试')
+        }
+      } finally {
+        this.loadingMore = false
+        this._loadingList = false
+        if (this._reloadQueued) {
+          const asReset = this._queuedReset === true
+          const asView = this._queuedView === true
+          this._reloadQueued = false
+          this._queuedReset = false
+          this._queuedView = false
+          this.fetchList(asReset, asView)
+        }
+      }
+    },
+    // 当前生效条件指纹（date + status）：回包时比对，防止旧条件的响应落到新条件的清单上
+    condKey() {
+      return this.queryDate + '|' + LIST_STATUS
+    },
+    // 追加成新数组而不是 push：跨页边界时后端可能把同一行在相邻两页各给一次（新单挤进上一页边界），
+    // 去重后 concat 出新引用，Vue 侧一次替换
+    appendRows(rows) {
+      const seen = {}
+      this.list.forEach((r) => {
+        const k = this.rowKey(r, 0)
+        if (k.charAt(0) === 'i') seen[k] = true
+      })
+      const fresh = rows.filter((r) => {
+        const k = this.rowKey(r, 0)
+        return !(k.charAt(0) === 'i' && seen[k])
+      })
+      return this.list.concat(fresh)
+    },
+    // ==================== 翻页 / 日期步进 ====================
+    loadMore() {
+      // 429 冷却闸门同样要拦住自动触底：只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
+      // 把该主理人其它读接口（批次清单、门店资料）一起打死
+      if (this.retryLock > 0) return
+      if (this._loadingList || !this.hasMore) return
+      this.fetchList(false)
+    },
+    stepDay(delta) {
+      const base = this.queryDate || this.effectiveDate || this.todayStr()
+      const d = this.parseDate(base) || this.newToday()
+      d.setDate(d.getDate() + delta)
+      this.queryDate = this.fmtDate(d)
+      // 步进日期只重拉清单，不动输码区与反馈行：核销现场是「手里正拿着一个码」，
+      // 翻一下日期就把已输的码清掉等于逼主理人重输；上一条反馈也是刚那次提交的事实，不随翻页失效
+      this.fetchList(true, true)
+    },
+    goToday() {
+      this.queryDate = this.todayStr()
+      this.fetchList(true, true)
+    },
+    todayStr() {
+      return this.fmtDate(this.newToday())
+    },
+    newToday() {
+      const n = new Date()
+      return new Date(n.getFullYear(), n.getMonth(), n.getDate())
+    },
+    parseDate(s) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''))
+      if (!m) return null
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+      return Number.isNaN(d.getTime()) ? null : d
+    },
+    fmtDate(d) {
+      return d.getFullYear() + '-' + this.pad2(d.getMonth() + 1) + '-' + this.pad2(d.getDate())
+    },
+    pad2(n) {
+      return (n < 10 ? '0' : '') + n
+    },
+    // ==================== 渲染辅助（只渲染后端白名单键，见 PartnerOrderServiceImpl.java:165-175） ====================
+    // 行指纹：清单出参没有 orderItemId（只有截断后的 orderId 后 6 位），所以按「同一单 + 同一商品快照」
+    // 组指纹去重。同单同名的两条完全相同的行会被并成一条——已登记为契约缺口，不在前端补 JOIN 去猜行 id
+    rowKey(r, i) {
+      const orderId = r && r.orderId
+      if (orderId === null || orderId === undefined || orderId === '') return 'x' + i
+      return 'i' + orderId + '|' + String((r && r.dishName) || '') + '|' + String(r && r.quantity)
+    },
+    dishNameOf(it) {
+      return (it && it.dishName) || '未命名商品'
+    },
+    storeNameOf(it) {
+      return (it && (it.storeName || '未指定自提点')) || '未指定自提点'
+    },
+    phoneOf(it) {
+      // 只出脱敏值 maskedPhone（RD）：清单出参根本没有未脱敏手机号这一列，前端也不做二次加工
+      return (it && it.maskedPhone) || '电话未回显'
+    },
+    // 下单时间：带 '-' 的后端字符串原样透出（把 ISO 的 'T' 换空格、砍到分钟）。
+    // 不走 new Date() 再格式化：那会把无时区的 LocalDateTime 按本地时区平移一次，屏上值就不再是库里那一位
+    timeText(v) {
+      const s = String(v == null ? '' : v).trim()
+      if (!s) return '--'
+      if (s.indexOf('-') > -1) return s.replace('T', ' ').slice(0, 16)
+      const n = Number(s)
+      if (!Number.isFinite(n)) return s
+      const d = new Date(n)
+      if (Number.isNaN(d.getTime())) return s
+      const p = (x) => (x < 10 ? '0' : '') + x
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes())
+    },
+    countOf(v) {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : 0
+    },
+    showUnpaid(it) {
+      return !!(it && it.payStatus != null && Number(it.payStatus) === 0 && it.status !== 'cancelled')
+    },
+    // ==================== 429 冷却（照 plan-orders.vue:443-454 同款） ====================
+    startRetryLock() {
+      this.stopRetryLock()
+      // 本地闸门 60s（与写侧 @RateLimit 的 60s 窗口同档）。D-14 的枚举锁是 10 分钟且后端不回剩余秒数，
+      // 冷却结束再提交仍可能吃一次 429 —— 那一支会把这一行重新写上，反馈不会说谎
+      this.retryLock = 60
+      this.retryLockTimer = setInterval(() => {
+        this.retryLock--
+        if (this.retryLock <= 0) this.stopRetryLock()
+      }, 1000)
+    },
+    stopRetryLock() {
+      if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      this.retryLock = 0
+    },
+    // ==================== 跳转 ====================
+    goWorkspace() {
+      uni.reLaunch({ url: '/pages/workspace/workspace' })
+    },
+    // ==================== H5 页面滚轮兜底 ====================
+    // #ifdef H5
+    // 两道守卫缺一不可（照 plan-orders.vue:459-490）：
+    // ① 栈顶守卫：监听挂在 document 上，navigateTo/reLaunch 都不保证触发本页 onUnload，
+    //    栈里多挂一份 handler 就会一次滚两倍。
+    // ② 弹层与表单控件放行：picker/modal/toast 以及取货码 input 上的滚轮归控件，不能 preventDefault 抢走。
+    onPageWheel(e) {
+      // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
+      let pages = []
+      try {
+        pages = getCurrentPages() || []
+      } catch (err) {
+        return
+      }
+      if (!pages.length || (pages[pages.length - 1] && pages[pages.length - 1].route) !== PAGE_ROUTE) return
+      const t = e.target
+      const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
+      if (el && typeof el.closest === 'function'
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input, uni-textarea, uni-input')) {
+        return
+      }
+      e.preventDefault()
+      document.body.scrollTop += e.deltaY
+      // H5 端原生滚动被上面 preventDefault 吃掉了，uni 的 onReachBottom 不可能触发（小程序端不受影响）。
+      // 触底翻页在这里补上：判定用 body 自己的几何，阈值 50px；闸门全在 loadMore 里
+      // （retryLock / _loadingList / hasMore），所以这里无条件调用是安全的。
+      if (document.body.scrollTop + window.innerHeight >= document.body.scrollHeight - 50) this.loadMore()
+    }
+    // #endif
+  }
+}
+</script>
+
+<style scoped>
+/* 多多红单色板：灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.btn-main/.cell-arrow 取自 common.css，
+   本页只补间距与本页专属的字，不动主题变量、不加新公共类） */
+
+/* ==================== 1. 到货警示条 ==================== */
+.alert-card {
+  margin-top: 24rpx;
+  background-color: #FFF1F0;
+  border: 1rpx solid #E02020;
+  display: flex; flex-direction: column; gap: 12rpx;
+}
+.alert-text { font-size: 28rpx; font-weight: 700; color: #E02020; line-height: 1.5; }
+.alert-row { display: flex; align-items: center; gap: 16rpx; }
+.alert-link {
+  font-size: 24rpx; font-weight: 600; color: #FFFFFF; line-height: 1.4;
+  background-color: #E02020; border-radius: 999rpx; padding: 10rpx 24rpx;
+}
+.alert-close {
+  font-size: 24rpx; color: #E02020; line-height: 1.4;
+  border: 1rpx solid #E02020; border-radius: 999rpx; padding: 10rpx 24rpx;
+}
+.pill-hover { opacity: .82; }
+
+/* ==================== 2. 输码卡 ==================== */
+.verify-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 16rpx; }
+.block-title { font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1.4; }
+.code-input {
+  height: 88rpx; padding: 0 24rpx;
+  font-size: 36rpx; font-weight: 700; color: #333333; letter-spacing: 6rpx;
+  background-color: #F7F7F7; border: 1rpx solid #EEEEEE; border-radius: 12rpx;
+}
+.form-hint { font-size: 22rpx; color: #999999; line-height: 1.5; }
+/* 常驻反馈四支：成功=主红加粗，幂等=中性灰（不是失败就不该穿红），失败=主红，冷却=橙红 */
+.verify-feedback { font-size: 28rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
+.verify-feedback-ok { color: #FFFFFF; background-color: #E02020; }
+.verify-feedback-neutral { color: #666666; background-color: #F5F5F5; }
+.verify-feedback-err { color: #E02020; background-color: #FFF1F0; }
+.verify-feedback-cooling { color: #E02020; background-color: #FFF7F0; }
+
+/* ==================== 3. 日期条（取值口径与 pickup-plan.vue:369-390 同档） ==================== */
+.date-card { display: flex; flex-direction: column; gap: 12rpx; }
+.date-field-row { display: flex; align-items: center; }
+.date-field-label { font-size: 26rpx; color: #999999; line-height: 1.5; }
+.date-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
+.date-step {
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx; padding: 12rpx 24rpx;
+}
+.date-current {
+  flex: 1; min-width: 0; text-align: center;
+  font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.date-sub-row { display: flex; align-items: center; gap: 12rpx; }
+.date-quick {
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #333333; line-height: 1.4;
+  background-color: #F5F5F5; border: 1rpx solid #EEEEEE; border-radius: 999rpx; padding: 12rpx 24rpx;
+}
+.date-note { flex: 1; min-width: 0; font-size: 20rpx; color: #BBBBBB; line-height: 1.4; }
+
+/* ==================== 4/5/6. 三态卡 ==================== */
+.loading-card { display: flex; justify-content: center; }
+.loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
+.empty-card { display: flex; flex-direction: column; align-items: center; }
+.empty-actions { display: flex; gap: 24rpx; }
+
+/* ==================== 7. 清单行 ==================== */
+.list-card { margin-top: 24rpx; padding: 0 24rpx; overflow: hidden; }
+.order-item { padding: 24rpx 0; border-bottom: 1rpx solid #F5F5F5; }
+.order-item:first-child { padding-top: 20rpx; }
+.order-item:last-child { border-bottom: none; }
+.item-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8rpx; }
+.item-sub-line { margin-top: 8rpx; }
+.item-unit { display: flex; align-items: center; min-width: 0; gap: 8rpx; }
+.item-dish {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 30rpx; font-weight: 600; color: #333333; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.item-qty { flex-shrink: 0; font-size: 26rpx; color: #333333; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.item-phone { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: #666666; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.item-dot { flex-shrink: 0; font-size: 24rpx; color: #DDDDDD; line-height: 1.5; }
+.item-store {
+  flex: 0 1 auto; min-width: 0; max-width: 240rpx;
+  font-size: 24rpx; color: #666666; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.item-sub {
+  flex: 0 1 auto; min-width: 0;
+  font-size: 22rpx; color: #999999; line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.item-tag {
+  flex-shrink: 0; margin-left: 8rpx;
+  font-size: 20rpx; font-weight: 600; line-height: 1.4;
+  border-radius: 8rpx; padding: 4rpx 12rpx;
+}
+.item-tag-unpaid { color: #FFFFFF; background-color: #E02020; }
+.item-unpaid-note { display: block; margin-top: 8rpx; font-size: 20rpx; color: #E02020; opacity: .8; line-height: 1.4; }
+
+/* ==================== 8. 加载更多 ==================== */
+.load-more { display: flex; flex-direction: column; align-items: center; margin-top: 24rpx; }
+.btn-more {
+  margin: 0; padding: 0 48rpx;
+  height: 72rpx; line-height: 72rpx;
+  background-color: #FFFFFF; color: #E02020;
+  font-size: 26rpx; font-weight: 600;
+  border: 1rpx solid #E02020; border-radius: 999rpx;
+}
+.btn-more[disabled] { color: #F5B5B0; background-color: #FFFFFF; border-color: #F5B5B0; }
+.btn-more.btn-more-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
+.no-more { font-size: 24rpx; color: #999999; line-height: 1.6; }
+
+.page-bottom-space { height: 60rpx; }
+</style>

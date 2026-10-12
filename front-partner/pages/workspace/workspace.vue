@@ -39,7 +39,7 @@
       <view class="card store-card">
         <view class="store-head">
           <text class="store-name">{{ storeName }}</text>
-          <!-- 多店主理人：本页取列表第一条展示，并把「共 N 家店」如实标出来（切换门店归 Step 6/7，
+          <!-- 多店主理人：本页取列表第一条展示，并把「共 N 家店」如实标出来（切换门店归 Step 7 的门店信息页，
                不给一个看起来能点、其实什么都不做的假标题） -->
           <text v-if="multiStoreText" class="count-tag">{{ multiStoreText }}</text>
         </view>
@@ -68,9 +68,9 @@
         </view>
       </view>
 
-      <!-- 入口逐个替换：已交付的挂路由并给 › 箭头，未交付的保持置灰 + 「建设中」角标（箭头与角标二选一，
+      <!-- 入口逐个替换：已交付的挂路由并给 › 箭头，未交付的保持置灰 + 占位角标（箭头与角标二选一，
            同时给会让用户以为角标那行也能点进去）。可点与否的唯一真源是 ENTRY_ROUTES（模块级常量表），
-           页面不再持第二个开关字段——Step 6/7 只往表里加行，本模板与点击分支一字不改。 ==================== -->
+           页面不再持第二个开关字段——Step 7 只往表里加行，本模板与点击分支一字不改。 ==================== -->
       <view class="card cell-card">
         <view
           class="cell"
@@ -102,7 +102,7 @@
 // ② 状态位：母版是 loading|ready|forbidden|error，本页按 §4 收敛为 loading|error|empty|ready 四态互斥
 //    （单值 viewState，不叠布尔）。母版的 forbidden 在这里就是 empty——名下无店是「没有数据」而不是
 //    「权限报错」，重试永远失败，所以它给的不是重试按钮而是申请入驻/换账号两条去向。
-// ③ 入口：三入口 + 我的入驻申请本轮全部占位（页面归 Step 6/7），可点性由 ENTRY_ROUTES 唯一裁决。
+// ③ 入口：可点与否由 ENTRY_ROUTES 唯一裁决（F-18.17 放开核销台/到货批次两行，门店信息与入驻申请仍占位）。
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并 reLaunch 回登录页）；
 // 403 也不当登录失效（handleEnvelope 只 reject 不跳），本页把它归到 empty 态渲染引导内容。
 // 渲染不依赖 store：本页自持一份服务端最新值（母版同款纪律）。
@@ -110,19 +110,17 @@ import { getPartnerStores, getPartnerStore } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue:99。模块级 const 表，
-// 模板 :120 的置灰判定与 :229 的点击分支两处消费它，页面不持第二个开关字段）。
-// 本轮四个目标页都还没落地（pages.json 只注册 login/workspace 两条），写进表里就是死链——
-// navigateTo 到未注册路由在 H5 下白屏，故表体此刻为空：entryRoute() 一律回空串，
-// 模板走「建设中」置灰分支，点击只 toast 告知。
-// Step 6 交付时加 verify / arrivals 两行，Step 7 交付时加 store / apply 两行，形如：
-//   verify:   '/pages/verify/verify',
-//   arrivals: '/pages/arrivals/arrivals',
-//   store:    '/pages/store/store',
-//   apply:    '/pages/store-apply/store-apply'
-const ENTRY_ROUTES = {}
+// 模板的置灰判定（entryRoute）与点击分支（onEntryTap）两处消费它，页面不持第二个开关字段）。
+// F-18.17 §1.4 放开 verify / arrivals 两行：路径与 pages.json 的注册逐字一致
+// （pages/verify/verify、pages/arrival/arrival——表里写一条没注册的路由，H5 下就是白屏死链）。
+// store / apply 两页归 Step 7，仍不入册：entryRoute() 回空串即走置灰分支，点击只 toast 告知。
+const ENTRY_ROUTES = {
+  verify: '/pages/verify/verify',
+  arrivals: '/pages/arrival/arrival'
+}
 
-// 未交付入口的统一告知文案（§4 指定的串，只在这一处定义）
-const ENTRY_PENDING_TOAST = '该页面在 Step 6/7 交付'
+// 未交付入口的统一告知文案（Step 7 交付 store/apply 后，这一串与置灰分支一起退役）
+const ENTRY_PENDING_TOAST = '该页面在 Step 7 交付'
 
 // 「去申请入驻」按钮的告知文案（与登录页空态按钮同一串口径；pages/apply/apply 归 Step 7，
 // 现在跳过去就是 navigateTo 到未注册路由 = 白屏，故只 toast）
@@ -156,8 +154,8 @@ export default {
       retryLockTimer: null,
       // 四入口（静态列表放 data，与母版 entries 同款）：可点与否由 ENTRY_ROUTES[entry.key] 决定
       entries: [
-        { key: 'verify', icon: '🧾', title: '核销台', hint: '按取货码核销（Step 6）' },
-        { key: 'arrivals', icon: '📦', title: '到货批次', hint: '批次清单与确认（Step 6）' },
+        { key: 'verify', icon: '🧾', title: '核销台', hint: '按取货码核销' },
+        { key: 'arrivals', icon: '📦', title: '到货批次', hint: '批次清单与确认' },
         { key: 'store', icon: '🏪', title: '门店信息', hint: '营业时间/接单开关（Step 7）' },
         { key: 'apply', icon: '📝', title: '我的入驻申请', hint: '审核进度与驳回原因（Step 7）' }
       ]

@@ -354,17 +354,25 @@ export function updatePartnerStore(fields) {
 }
 
 /**
- * 到货批次清单：GET /api/partner/arrivals?date=（F-18.12 第 6 条，读 30/分，缺省=明日）
+ * 到货批次清单：GET /api/partner/arrivals?date=&storeId=（F-18.12 第 6 条，读 30/分）
  * 出参 {storeId,date,list}，list 每行带 confirmed 布尔位（供「当日批次未确认」警示条，D-9）。
- * ⚠ 后端还收 storeId 选择器（PartnerController.java:130），本函数按 §3 的签名只收 date，
- *   缺省走「名下 id 最小的一家」；Step 6 若要多店切换，在本函数补一个可选 storeId 参数即可，
- *   不要在页面里另发一次原生请求（已列为本轮遗留项，非缺陷）。
- * @param {string} [date] YYYY-MM-DD；空值不下发，让服务端默认（明日）生效
- * @returns {Promise<{code,data:object,message:string}>}
+ * 参数名真值（F-18.17 §1.2 已核）：本端点是 `date`（PartnerController.java:131 @RequestParam date），
+ * 与 orders 的 `pickupDate`（:76）**不同名**，两条各拼各的，页面不必记这个差异、更不许互换。
+ * date 缺省不下发 → 服务端默认「明日」（PartnerStoreServiceImpl.java:252-254），本页两页一律显式带 date，
+ * 免得警示条（按今天查）与批次页（按后端缺省查）落在两个不同的日上。
+ * storeId 是 D-22 的「名下多店选一家」选择器（PartnerController.java:130 @RequestParam Long storeId）：
+ * 空值 = 取名下 id 最小的一家；集合外的 id → 404。它既不是归属也不是可改列（RF），归属仍由服务端解析。
+ * F-18.15 登记的遗留项（本函数只收 date、多店切换无入口）到此收口：Step 6/7 要切店直接给 storeId，
+ * 不要在页面里另发一次原生请求。
+ * @param {{date?:string, storeId?:string|number}} [params] date 形如 YYYY-MM-DD，空值不下发
+ * @returns {Promise<{code,data:{storeId:number,date:string,list:Array<object>},message:string}>}
  */
-export function getPartnerArrivals(date) {
+export function getPartnerArrivals(params) {
+  const src = params && typeof params === 'object' ? params : {}
   const data = {}
-  if (date) data.date = date
+  if (src.date) data.date = src.date
+  // storeId=0 是合法值（后端按 id 匹配，命中不了就 404），只有空串/null/undefined 才当「不带这一选择器」
+  if (src.storeId !== '' && src.storeId !== null && src.storeId !== undefined) data.storeId = src.storeId
   return request({ url: '/api/partner/arrivals', method: 'GET', data })
 }
 
