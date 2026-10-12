@@ -63,6 +63,17 @@ public class AuthInterceptor implements HandlerInterceptor {
         // requiresLogin 方法体内 :122-165 的每一个 startsWith/equals/matches 都吃同一个 path。
         String path = mappedPath(request);
 
+        // BE-20-1（F-20 Step 2 门禁实测）：运营面不走用户会话鉴权，在此整体提前放行——它的鉴权在 Controller 层：
+        // 旧 5 端点 = AdminController#checkKeyOrOperator，Step 3 的 /api/admin/v2/** = requireAdminJwtOnly。
+        // ① 因此下方 typ=admin 反隔离段对 admin 面不适用，也绝不能在此注入 ATTR_USER_ID：
+        //    admin_user.id 与 user.id 同域 BIGINT 自增、小 id 必然并存（07 册 G-06 范围⑧），注入了等于
+        //    给未来某个读 ATTR_USER_ID 的 admin 端点埋越权面。
+        // ② POST /api/admin/auth/login 也走这一条（它本就匿名），顺带消掉实测副作用：
+        //    带过期运营 token 重新登录不再被 403 挡住——前端登录请求带不带 Authorization 都安全。
+        if (path.startsWith("/api/admin/")) {
+            return true;
+        }
+
         // F-12/G-01 双向 typ 隔离铁律：全部需登录分支解析 claims 后凡 typ=admin 一律拒
         // （G-06 签发 typ=admin 运营 JWT 后生效；G-01 阶段 C 端 token 无 typ claim，本检查 dormant）
         if (userId != null) {
@@ -185,6 +196,17 @@ public class AuthInterceptor implements HandlerInterceptor {
      * GET /api/free/current（M7 免费领商品，匿名可见今日商品，登录后附已领标记）、GET /api/dict。
      */
     private boolean requiresLogin(String method, String path) {
+        // F-20.6 第 4 条（D-5）：运营登录端点是 Admin 面上唯一匿名可达的一条，故在此**精确匹配**放行。
+        // 判据只用 path.equals，<b>绝不写 path.startsWith("/api/admin")</b>——那等于把
+        // AdminController 的 5 个写端点与后续 /api/admin/v2/** 全变成免登录面（它们的安全前提就是
+        // 自己在方法里调 checkKeyOrOperator；本类一旦整体放行，那层闸门一旦有人漏调就直接裸奔，纵深防御归零）。
+        // 现状默认侧（本类 :20「需登录白名单之外一律匿名可读」）已经让 /api/admin/** 匿名，
+        // 本行的作用是把「登录入口=匿名」这条裁定<b>写死在判定里</b>：将来若给 Admin 面加整体登录闸门，
+        // 登录入口不会被自己锁死（换不到 token 就无法登录、无法登录就换不到 token）。
+        // typ=admin 反隔离段（:66-72）与本方法后面的 merchant/partner 归属段一字未动，本行只做加法。
+        if (path.equals("/api/admin/auth/login")) {
+            return false;
+        }
         // T-M5 密码登录：set-password 属登录态改密需登录（无/失效 token → 401）；
         // login-password 匿名可达（POST /api/auth/** 默认匿名，此处仅显式收窄 set-password）
         if (path.equals("/api/auth/set-password")) {
