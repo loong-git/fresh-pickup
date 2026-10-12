@@ -59,8 +59,9 @@ public class AuthInterceptor implements HandlerInterceptor {
         // 不再用 request.getRequestURI()。旧值给的是未解码 URI，而 Spring MVC 按解码后路径找 handler，
         // 于是 `/api/%6derchant/uploads`（%6d='m'）不命中 /api/merchant/ 分支却照样进 upload ——
         // 主会话实测无 token 真落盘；`/api/%75ser/avatar` 同法绕过 → 证明 /api/** 全系前缀判定都可被编码绕过。
-        // 判定输入只留一个值（混合态等于洞还在）：requiresLogin(:56)、/api/merchant/ 分支(:70)、
-        // requiresLogin 方法体内 :122-165 的每一个 startsWith/equals/matches 都吃同一个 path。
+        // 判定输入只留一个值（混合态等于洞还在）：requiresLogin( 的唯一调用点(:87)、/api/merchant/ 分支(:101)、
+        // requiresLogin 方法体(:198-270)内的每一个 startsWith/equals/matches 都吃同一个 path。
+        // （F-20.29 BE-G6-6 注释修正：上面三处行号指针原写 :56/:70/:122-165，系 BE-1 改造前旧坐标，已按现号改对。）
         String path = mappedPath(request);
 
         // BE-20-1（F-20 Step 2 门禁实测）：运营面不走用户会话鉴权，在此整体提前放行——它的鉴权在 Controller 层：
@@ -204,6 +205,10 @@ public class AuthInterceptor implements HandlerInterceptor {
         // 本行的作用是把「登录入口=匿名」这条裁定<b>写死在判定里</b>：将来若给 Admin 面加整体登录闸门，
         // 登录入口不会被自己锁死（换不到 token 就无法登录、无法登录就换不到 token）。
         // typ=admin 反隔离段（:66-72）与本方法后面的 merchant/partner 归属段一字未动，本行只做加法。
+        // 【诚实声明】（F-20.27 A-5 → F-20.29 BE-G6-6）：本行今天对 admin 面**不可达**——preHandle :73-75 已对
+        // /api/admin/ 前缀整片提前 return true，admin 请求（含登录入口自身）根本走不到 requiresLogin() 的这里。
+        // 保留它只为将来把整体登录闸门收紧到 admin 面时，登录入口不被自己锁死（无 token 无法登录、
+        // 无法登录就无法拿 token，见上一条注释）。纯注释补充，判定逻辑一字未动。
         if (path.equals("/api/admin/auth/login")) {
             return false;
         }

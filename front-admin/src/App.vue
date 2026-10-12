@@ -9,11 +9,13 @@
       <nav class="nav">
         <router-link to="/overview" class="nav-link" :class="{ active: isActive('/overview') }">当日大盘</router-link>
         <router-link to="/audit-logs" class="nav-link" :class="{ active: isActive('/audit-logs') }">审计记录</router-link>
-        <!-- F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 只读列表 + 一个 AdminController 旧写端点） -->
-        <router-link to="/orders" class="nav-link" :class="{ active: isActive('/orders') }">核销台</router-link>
-        <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }">商品管理</router-link>
-        <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }">评价审核</router-link>
-        <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }">入驻审核</router-link>
+        <!-- F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 只读列表 + 一个 AdminController 旧写端点）。
+             FE-G6-10：这四条会改数据，挂橙点区分于前两条只读页，图例跟在最后一条后面。 -->
+        <router-link to="/orders" class="nav-link" :class="{ active: isActive('/orders') }"><span class="nav-dot" title="本页会改数据"></span>核销台</router-link>
+        <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }"><span class="nav-dot" title="本页会改数据"></span>商品管理</router-link>
+        <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
+        <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }"><span class="nav-dot" title="本页会改数据"></span>入驻审核</router-link>
+        <span class="nav-legend" title="橙点入口对应的页面会修改数据，操作前有二次确认">● 会改数据（操作前有二次确认）</span>
       </nav>
       <div class="actions">
         <el-button size="small" @click="onLogout">退出登录</el-button>
@@ -117,6 +119,30 @@ body {
   font-size: 18px;
   font-weight: 600;
   margin: 0 0 4px;
+}
+/* FE-G6-10（读写可辨）：页眉行（标题 + 读/写徽标）。徽标本体是 el-tag，这里只管排布；
+   写页挂 danger「本页会改数据」、只读页挂 info「本页只读」，常驻 ready 态（原先这类话只在出错态出现）。 */
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* 写侧入口的橙点与图例：六个入口平铺，运营不看说明文就读不出「点了就改库」，
+   四条写侧链接挂橙点 + 一条常驻图例，与各页页眉的「本页会改数据」互相印证。 */
+.nav-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e6a23c;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.nav-legend {
+  font-size: 11px;
+  color: #909399;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 .page-note {
   font-size: 12px;

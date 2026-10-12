@@ -1,6 +1,12 @@
 <template>
   <div class="page">
-    <h2 class="page-title">核销台</h2>
+    <!-- FE-G6-10（读写可辨·写页徽标）：徽标挂在<b>页眉</b>而不是 state-box 里——原先「本页只读/会改数据」这类话
+         只在 loading/error/forbidden 块内出现，ready 态一个字都不露，运营在日常态读不出这一页会不会动数据。
+         本页有核销与取消两个写动作，所以常驻「本页会改数据」。 -->
+    <div class="page-head">
+      <h2 class="page-title">核销台</h2>
+      <el-tag type="danger" effect="dark" size="small" class="mode-badge">本页会改数据</el-tag>
+    </div>
     <p class="page-note">
       全量订单列表（运营面，不按门店归属过滤）+ 两个写动作：核销（completed）与取消（cancelled）。<br />
       列表源是<b>只读</b>的 GET /api/admin/v2/orders：外层恒 {list,total,pageNum,pageSize,filters}，
@@ -67,7 +73,11 @@
     </div>
 
     <template v-else>
-      <el-table :data="rows" border stripe size="small" class="table">
+      <!-- FE-G6-9（表头粘性，F-20.28 B2-1 实测裁定）：原先表格无 max-height、根高 1132px、表体不内部滚动，
+           页面滚到底后表头 top=-304 整条离开视口，14 列宽表滚动时对不上列名。
+           设 max-height 后表体在 .el-table 内部滚动、表头常驻；offset 实算：页头 56 + 页眉/说明/工具条 ≈ 343 +
+           分页器 ~48 + 底部余量 ≈ 380，即 100vh-420 在 1440×900 与 1280×800 两档都不把分页器推出视口。 -->
+      <el-table :data="rows" border stripe size="small" class="table" max-height="calc(100vh - 420px)">
         <!-- 空表 / 筛选无命中 → 「暂无订单」，不是报错：后端回的是 {list:[],total:0} -->
         <template #empty>
           <span class="empty">暂无订单（当前筛选下没有命中）</span>
@@ -96,9 +106,13 @@
         <el-table-column label="自提点地址" min-width="220" show-overflow-tooltip>
           <template #default="{ row }"><span :class="{ muted: !row.storeAddress }">{{ row.storeAddress }}</span></template>
         </el-table-column>
-        <el-table-column label="地址（下单快照）" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }"><span :class="{ muted: !row.address }">{{ row.address }}</span></template>
-        </el-table-column>
+        <!-- FE-G6-11 撤掉恒空列（F-20.28 B 路 B2-5 实测裁定）：原先这里有一列「地址（下单快照）」，
+             库里 orders.address 实测 <b>71/71 全是空串</b>（nulls=0、empties=71、valued=0），
+             首屏 20 行该列一律挂 .muted 显示空白——一列固定占 180px 的宽度、却永远没有内容，
+             只会把真正有信息的列挤出横向滚动区。写侧也没有任何路径会给它值：
+             OrderServiceImpl:98 只是透传 C 端 dto.getAddress()（本仓 C 端是自提模式，不下发该字段），
+             FreeServiceImpl:211 直接写死 ""。所以<b>本页不再渲染这一列</b>；
+             后端出参的 address 键照旧下发（不改后端、不改库），页面不读它就是了。 -->
         <el-table-column label="门店 ID" min-width="90">
           <template #default="{ row }"><span class="muted">{{ row.storeId }}</span></template>
         </el-table-column>

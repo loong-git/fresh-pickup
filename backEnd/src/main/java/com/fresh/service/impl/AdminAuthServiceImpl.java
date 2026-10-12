@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 运营口令登录实现（F-20/G-06 Step 2，本期安全等级最高的一步；逐条对位契约 F-20.6 第 2 条）。
@@ -66,6 +67,26 @@ public class AdminAuthServiceImpl implements AdminAuthService {
      * 长度不由本仓 UI 约束，故这里取宽松的 128 只做 DoS 兜底，不做强度裁定）。
      */
     private static final int MAX_PASSWORD_LEN = 128;
+
+    /**
+     * username 入参形状闸门的字符类（F-20.29 BE-G6-3）：长度 1~{@link #MAX_USERNAME_LEN} 且
+     * <b>不含任何控制字符与零宽字符</b>。
+     * <p><b>为什么补这一枚</b>：旧闸门只判「空」与「&gt;50 字符」，实测 46 字符载荷
+     * {@code x\nFORGED-A1D 运营登录成功: adminUserId=2, ip=1.2.3.4}（JSON 里合法转义的真换行）
+     * 过得了闸门，随后被 {@code log.warn("运营登录失败: ip={}, username={}, reason={}", …, name, …)}
+     * 原样打进服务端日志——换行让日志文件凭空多 2 行，其中一行读起来像真「运营登录成功」（日志行伪造）。
+     * <p>字符类沿用 BE-G6-1 已立好的三枚（{@code AdminV2ServiceImpl#CATEGORY_PATTERN} 同款判例）：
+     * {@code \p{Cntrl}}（ASCII 那 33 枚）+ {@code \p{Cc}}（补 C1 段 U+0080~U+009F，含 NEL U+0085）
+     * + {@code \p{Cf}}（零宽一类 U+200B/200D/FEFF）——上一批实测的判例：<b>只写 {@code \p{Cntrl}}
+     * 或 {@code \P{Cntrl}} 会放过零宽</b>，故必须三枚并列。
+     * <p>锚点用 {@code \A…\z} 而非 {@code ^…$}：后者在 Java 里 {@code $} 可落在末尾换行之前，
+     * {@code \z} 是绝对的输入末尾——即便有人日后把 {@code matches()} 换成 {@code find()}，末尾换行也进不来。
+     * <p><b>不合形状后的语义一字不变（D-5 防枚举）</b>：同一句 401 {@link #LOGIN_FAIL_MSG}、同一枚
+     * {@code R.CODE_UNAUTHORIZED}、<b>不计入</b>失败锁定、不查库不验密（见下面「2) 形状校验」原注释，
+     * 该分支本就快，不为等时延改动它）。
+     */
+    private static final Pattern USERNAME_SHAPE_PATTERN =
+            Pattern.compile("\\A[^\\p{Cntrl}\\p{Cc}\\p{Cf}]{1," + MAX_USERNAME_LEN + "}\\z");
 
     /**
      * 等量功占位哈希（BE-20-2 防枚举残余）：账号不存在时也对它跑一次 {@code PasswordUtil.verify}，
@@ -133,7 +154,8 @@ public class AdminAuthServiceImpl implements AdminAuthService {
 
     /**
      * detail 序列化交 Jackson 全量转义（S-4 的教训：手拼 replace 挡不住控制码，写出的审计行 JSON_VALID=0）。
-     * 本类 detail 只有 ip 与 username 两个短字符串，但仍走同一台 mapper——不给「手写转义」留第二次机会。
+     * 本类 detail 只有一个短字符串 username（BE-G6-5 后 ip 键已删，见 {@link #buildLoginAuditDetail}），
+     * 但仍走同一台 mapper——不给「手写转义」留第二次机会。
      */
     private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
 
@@ -174,11 +196,13 @@ public class AdminAuthServiceImpl implements AdminAuthService {
             throw lockedFailure(lockedAt, name);
         }
 
-        // 2) 形状校验（F-20.6 第 2 条末项）：空/超长一律同一句 401，<b>不</b>回「参数格式不正确」——
-        //    后者会与「用户名不存在」区分得开，等于把 D-5 的防枚举目标从侧面捅穿。
+        // 2) 形状校验（F-20.6 第 2 条末项 + F-20.29 BE-G6-3）：空/超长/<b>含控制字符或零宽</b>一律同一句 401，
+        //    <b>不</b>回「参数格式不正确」——后者会与「用户名不存在」区分得开，等于把 D-5 的防枚举目标从侧面捅穿。
+        //    挡控制字符/零宽的理由见 {@link #USERNAME_SHAPE_PATTERN}：不过滤的话它们会随 3) 失败分支的
+        //    log.warn(username={}) 原样进日志文件，换行即伪造日志行（实测 FORGED-A1D 载荷凭空多出 2 行）。
         //    形状不合<b>不计入</b>失败次数（照核销锁 step 2 的取舍：口误/空提交不该记账，见其 :221-225 注释）；
         //    匿名爆破的真正频次上限由端点上的 @RateLimit(5 次/分/IP) 兜住，两层各司其职。
-        if (name.isEmpty() || name.length() > MAX_USERNAME_LEN
+        if (!USERNAME_SHAPE_PATTERN.matcher(name).matches()
                 || rawPassword.isEmpty() || rawPassword.length() > MAX_PASSWORD_LEN) {
             log.warn("运营登录入参形状不合（不计数、不查库）: ip={}, nameLen={}, pwdLen={}",
                     clientIp, name.length(), rawPassword.length());
@@ -195,6 +219,8 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         boolean active = exists && STATUS_ACTIVE.equals(account.getStatus());
         if (!exists || !passwordOk || !active) {
             recordFailure(pairKey);
+            // username={} 打的是过闸后的归一值 name（已经 USERNAME_SHAPE_PATTERN 挡掉控制字符/零宽，
+            // 且长度 ≤50，双保险）——绝不回到请求原值或库里取出的串，日志行伪造没有第二次机会。
             log.warn("运营登录失败: ip={}, username={}, reason={}", clientIp, name,
                     exists ? (passwordOk ? "account_disabled" : "bad_password") : "no_such_account");
             throw new BizException(R.CODE_UNAUTHORIZED, LOGIN_FAIL_MSG);
@@ -211,7 +237,9 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         //    任一步失败都<b>不打断已签出的 token</b>——token 是本次登录的唯一产物。
         touchLastLoginSafely(account.getId());
         writeLoginAudit(account.getId(), account.getUsername(), clientIp);
-        log.info("运营登录成功: adminUserId={}, username={}, ip={}", account.getId(), account.getUsername(), clientIp);
+        // 成功日志的 username={} 同样用过闸后归一值 name（BE-G6-3 双保险）：account.getUsername() 是库里的串，
+        // 理论上是唯一可能藏着异常字符的来源，不再直接进日志（审计行仍写库值——那是 Jackson 全量转义的 DB 落盘，不是日志）。
+        log.info("运营登录成功: adminUserId={}, username={}, ip={}", account.getId(), name, clientIp);
 
         return successData(token, account);
     }
@@ -283,7 +311,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     /**
      * 登录审计（D-5/D-8：Admin 侧动作写 {@code admin_audit_log}，<b>不写 ops_log</b>——BE-13 白名单不许放宽）：
      * actor={@code admin_user:<id>}、action={@code admin.login}、target_type={@code admin_user}、
-     * target_id={@code String.valueOf(id)}、ip=客户端 IP、detail=只有 ip 与 username。
+     * target_id={@code String.valueOf(id)}、ip=客户端 IP、detail=只有 username（BE-G6-5：ip 由列承载，不再进 detail）。
      *
      * <p>写失败<b>旁路吞掉</b>，形态逐字照 {@code OpsLogWriter#write :50-69}（即 AdminServiceImpl#writeAudit :392-408 的
      * 母版）：第一趟完整 detail，任一层原因（1406 超长、字符集、列宽…）失败即退成最小 detail 重试一次，
@@ -292,7 +320,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     private void writeLoginAudit(Long adminUserId, String username, String clientIp) {
         String actor = "admin_user:" + adminUserId;
         String targetId = String.valueOf(adminUserId);
-        String detail = buildLoginAuditDetail(clientIp, username);
+        String detail = buildLoginAuditDetail(username);
         try {
             insertAudit(actor, targetId, detail, clientIp);
             return;
@@ -307,19 +335,21 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     }
 
     /**
-     * detail 组装：{@code {"ip":...,"username":...}} 两键（D-5 逐字），<b>绝不含口令、哈希、token</b>
-     * （本方法连这三样都拿不到：入参只有 ip 与用户名——想泄漏也没有通道）。
+     * detail 组装：只有 {@code {"username":...}} 一键（F-20.29 BE-G6-5，D-5 的「绝不含口令、哈希、token」不变），
+     * <b>ip 键已删</b>——同一枚客户端 IP 本来就写在 {@code admin_audit_log.ip} <b>列</b>里
+     * （实测 13 行 detail 里的 ip 与 ip 列逐字同值），detail 再带一份是零信息增量的冗余，
+     * 还会把「v2 审计面 {@code ip} 连 SELECT 都没有」这条最小暴露断言被写入端自己抵消。
+     * 本方法连口令/哈希/token 都拿不到：入参只有用户名——想泄漏也没有通道。
      * 先序列化再按列宽兜底，产出恒为合法 JSON 且 ≤ VARCHAR(500)。
      */
-    private String buildLoginAuditDetail(String clientIp, String username) {
+    private String buildLoginAuditDetail(String username) {
         Map<String, String> detail = new LinkedHashMap<>();
-        detail.put("ip", clientIp);
         detail.put("username", username);
         try {
             String json = AUDIT_MAPPER.writeValueAsString(detail);
             return json.length() <= AUDIT_DETAIL_MAX ? json : AUDIT_MINIMAL_DETAIL;
         } catch (JsonProcessingException e) {
-            // 两个 String 值实际序列化不可失败；兜底仍是合法 JSON，绝不因为序列化问题把登录审计整行丢掉
+            // String 值实际序列化不可失败；兜底仍是合法 JSON，绝不因为序列化问题把登录审计整行丢掉
             return AUDIT_MINIMAL_DETAIL;
         }
     }
