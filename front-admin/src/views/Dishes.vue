@@ -1,0 +1,488 @@
+<template>
+  <div class="page">
+    <h2 class="page-title">商品管理</h2>
+    <p class="page-note">
+      全量商品列表（运营面，不按商家归属过滤）+ 一个写动作：改价 / 补库存 / 上下架（同一个端点的三个可选字段，<b>部分更新</b>）。<br />
+      列表源是<b>只读</b>的 GET /api/admin/v2/dishes：外层恒 {list,total,pageNum,pageSize,filters}，
+      筛选为<b>精确等值</b>（商家 ID / 在售标记 / 分类），<b>排序 id ASC</b>（升序，不是「新建在前」）；没有关键字搜索。<br />
+      金额（price / seckillPrice）与时间（createTime / updateTime）显示的是<b>服务端定形串</b>，本页不做二次格式化；
+      goodRate 也是服务端算好的字符串（如 94.3%，可为空）。<br />
+      布尔映射（服务端出 0/1 原值，文案由本页映射表给）：onSale 1=上架、0=下架；seckill 1=秒杀、0=非秒杀（非秒杀行 seckillPrice 恒为空）。<br />
+      一期<b>只改不建</b>：平台侧本就没有「新建商品」端点（dish.create 全是商家侧动作），所以本页没有「新建商品」按钮，不是漏做。
+    </p>
+
+    <div class="sql-fallback">
+      <b>SQL 兜底</b>：本页面三个动作在 <code>docs/日常运营SQL手册.md</code> 里各有对应小节——
+      改价见 <b>第二节</b>、补库存见 <b>第三节</b>、上下架见 <b>第四节</b>。手册那三节里「库存是<b>直接置值</b>、不是累加」这一点，
+      与本页面写的是同一件事；两边都改得动，但审计留痕只有本页面这一条有。
+    </div>
+
+    <!-- FE-G6-5 的教训：工具条在状态块之外，四态都留着；loading / 写在飞时 disabled 但不消失。 -->
+    <div class="toolbar">
+      <el-input v-model="filters.merchantId" size="small" class="filter-input" clearable
+                placeholder="商家 ID（精确等值，如 1）"
+                :disabled="viewState === 'loading' || submitting" @change="onFilterChange" />
+      <el-select v-model="filters.onSale" size="small" class="filter-select" clearable
+                 placeholder="在售状态（0/1，精确）"
+                 :disabled="viewState === 'loading' || submitting" @change="onFilterChange">
+        <el-option label="上架 onSale=1" :value="1" />
+        <el-option label="下架 onSale=0" :value="0" />
+      </el-select>
+      <el-input v-model="filters.category" size="small" class="filter-input" clearable
+                placeholder="分类（精确等值，可中文，如 蔬菜）"
+                :disabled="viewState === 'loading' || submitting" @change="onFilterChange" />
+      <el-button size="small" type="primary" :disabled="viewState === 'loading' || submitting" @click="onFilterChange">查询</el-button>
+      <el-button size="small" :disabled="viewState === 'loading' || submitting" @click="onReset">重置</el-button>
+    </div>
+
+    <div v-if="writeResult" class="result-bar" :class="'result-bar-' + writeResult.kind">
+      <div class="result-title">{{ writeResult.title }}</div>
+      <div v-if="writeResult.serverText" class="result-line">服务端原文：{{ writeResult.serverText }}</div>
+      <div v-if="writeResult.hint" class="result-line">{{ writeResult.hint }}</div>
+    </div>
+
+    <div v-if="viewState === 'loading'" class="state-box">
+      <div class="state-title">正在加载</div>
+      <div class="state-desc">商品列表读取中…</div>
+    </div>
+
+    <div v-else-if="viewState === 'forbidden'" class="state-box">
+      <div class="state-title">没有访问权限</div>
+      <div class="state-desc">{{ errorText }}</div>
+      <div class="state-desc">403 与 401 不同义：登录态是有效的，但服务端判定本账号不能读这一面。请核对运营账号的角色与授权。</div>
+      <el-button size="small" @click="load">重试</el-button>
+    </div>
+
+    <div v-else-if="viewState === 'error'" class="state-box">
+      <div class="state-title">读取失败</div>
+      <div class="state-desc">{{ errorText }}</div>
+      <div v-if="codeHint" class="state-desc">{{ codeHint }}</div>
+      <el-button size="small" @click="load">重试</el-button>
+    </div>
+
+    <template v-else>
+      <el-table :data="rows" border stripe size="small" class="table">
+        <template #empty>
+          <span class="empty">暂无商品（当前筛选下没有命中）</span>
+        </template>
+        <el-table-column prop="id" label="ID" min-width="80" />
+        <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="price" label="价格" min-width="90" />
+        <el-table-column label="秒杀" min-width="90">
+          <template #default="{ row }">{{ seckillText(row.seckill) }}</template>
+        </el-table-column>
+        <el-table-column label="秒杀价" min-width="90">
+          <template #default="{ row }"><span :class="{ muted: !row.seckillPrice }">{{ row.seckillPrice }}</span></template>
+        </el-table-column>
+        <el-table-column prop="stock" label="库存" min-width="80" />
+        <el-table-column label="在售" min-width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.onSale === 1 ? 'success' : 'info'" size="small" effect="light">{{ binaryText(row.onSale) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="soldCount" label="销量" min-width="90" />
+        <el-table-column prop="category" label="分类" min-width="110" show-overflow-tooltip />
+        <el-table-column label="单位" min-width="80">
+          <template #default="{ row }"><span class="muted">{{ row.unit }}</span></template>
+        </el-table-column>
+        <el-table-column label="好评率" min-width="100">
+          <template #default="{ row }"><span :class="{ muted: !row.goodRate }">{{ row.goodRate }}</span></template>
+        </el-table-column>
+        <el-table-column label="限购" min-width="80">
+          <template #default="{ row }"><span class="muted">{{ row.limitBuy }}</span></template>
+        </el-table-column>
+        <el-table-column label="商家 ID" min-width="90">
+          <template #default="{ row }"><span class="muted">{{ row.merchantId }}</span></template>
+        </el-table-column>
+        <el-table-column label="图片路径" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }"><span :class="{ muted: !row.image }">{{ row.image }}</span></template>
+        </el-table-column>
+        <el-table-column prop="createTime" label="创建时间" min-width="160" />
+        <el-table-column label="更新时间" min-width="160">
+          <template #default="{ row }"><span class="muted">{{ row.updateTime }}</span></template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" plain
+                       :disabled="viewState === 'loading' || submitting"
+                       @click="openDialog(row)">改价/库存</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="pager">
+        <el-pagination
+          v-model:current-page="pageNum"
+          v-model:page-size="pageSize"
+          :total="total"
+          :page-sizes="PAGE_SIZES"
+          layout="total, sizes, prev, pager, next"
+          background
+          @size-change="onSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+    </template>
+
+    <!-- 更新表单也在状态块之外：提交成功后列表会进 loading 态、表格被卸载，
+         这时表单若挂在 v-else 里会连带消失，把「刚提交了什么」这段上下文一起弄丢。
+         （el-dialog 在 EP 2.14 里 appendTo 默认就是 body，不必再显式写 append-to-body。） -->
+    <el-dialog v-model="dialogVisible" :title="dialogTitle"
+               width="620px" :close-on-click-modal="false">
+      <p class="dialog-note">
+        三个字段<b>都可以留空</b>：服务端语义是「传了才更新」，留空的那一项不会下发、也不会被改动。
+        什么都不填直接提交，服务端会回 400「无更新字段（可传 price / stock / onSale）」（该 400 在写库之前就抛，不动任何数据），
+        本页把这句原文如实显示，不替你判断。
+      </p>
+      <el-form class="dialog-form" label-width="110px" @submit.prevent="onSubmit">
+        <el-form-item :label="'价格（当前 ' + displayOf(editing.price) + '）'">
+          <el-input v-model="form.price" size="small" clearable
+                    placeholder="留空=不改；改则填数字，如 9.90" />
+        </el-form-item>
+        <el-form-item :label="'库存（当前 ' + displayOf(editing.stock) + '）'">
+          <el-input v-model="form.stock" size="small" clearable
+                    placeholder="留空=不改；注意是「直接置为」不是累加" />
+        </el-form-item>
+        <el-form-item :label="'在售（当前 ' + binaryText(editing.onSale) + '）'">
+          <el-select v-model="form.onSale" size="small" clearable placeholder="留空=不改" class="dialog-select">
+            <el-option label="上架（onSale=1）" :value="1" />
+            <el-option label="下架（onSale=0）" :value="0" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="dialogVisible = false">取消（不发出任何请求）</el-button>
+        <el-button size="small" type="primary" :loading="submitting" @click="onSubmit">提交更新</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+// 商品管理（F-20.22 Step 5b-2 四页之一）：
+//   列表 = GET /api/admin/v2/dishes（5b-1 交付；merchantId/onSale/category 三个精确等值筛选，无关键字搜索）
+//   写   = PUT /api/admin/dishes/{id}，body {price?, stock?, onSale?}（AdminController 旧面，运营 JWT 第二轨）
+// 本页最要紧的一条实况：<b>stock 是直接置值，不是在当前值上累加</b>（AdminServiceImpl:180-190 用的是
+// LambdaUpdateWrapper#set，不是 increaseStock），所以表单标题、确认文案两处都要把这层写明白，
+// 否则运营按「补库存」的直觉填 10，会把 50 库存改成 10。
+// 一期只改不建：Admin 面没有「新建商品」端点（F-20.17 事实 3 附注），本页不提供，也不是漏做。
+import { computed, onMounted, ref } from 'vue'
+import { ElMessageBox } from 'element-plus'
+import { getAdminDishes, updateAdminDish } from '../api'
+
+const PAGE_SIZES = [10, 20, 50, 100]
+
+// D-18：0/1 原值的映射表写在页面顶部
+const BINARY_TEXT = { 1: '上架', 0: '下架' }
+const SECKILL_TEXT = { 1: '秒杀', 0: '非秒杀' }
+const binaryText = (v) => BINARY_TEXT[v] || (v == null ? '' : String(v))
+const seckillText = (v) => SECKILL_TEXT[v] || (v == null ? '' : String(v))
+// null / undefined 显示成空串（而不是字符串 "null"）；其余原样透传，不做数字或金额格式化
+const displayOf = (v) => (v == null ? '' : String(v))
+
+const viewState = ref('loading')
+const errorText = ref('')
+const errorCode = ref(0)
+const submitting = ref(false)
+const writeResult = ref(null)
+
+const rows = ref([])
+const total = ref(0)
+const pageNum = ref(1)
+const pageSize = ref(20)
+const filters = ref({ merchantId: '', onSale: '', category: '' })
+
+// 更新表单：editing 存的是服务端上一轮回的整行（只为把「当前值」摆进表单与确认文案，不是本地副本真值）
+const dialogVisible = ref(false)
+const editing = ref({})
+const form = ref({ price: '', stock: '', onSale: '' })
+// 未选中任何行时标题回落成「更新商品」——不显示 #undefined，也不把旧行的 id 留在上面。
+const dialogTitle = computed(() => (editing.value.id === undefined
+  ? '更新商品（只改价格 / 库存 / 在售，三项都可留空）'
+  : '更新商品 #' + editing.value.id + '（' + displayOf(editing.value.name) + '）'))
+
+const CODE_HINTS = {
+  400: '请求参数不在允许范围内。服务端对 400 有两句原文且不说明命中哪一句，本页不猜，以上方后端原文为准：'
+    + '「请求参数有误，请检查后重试」= 值过不了白名单/形状闸门（onSale 不是 0/1、分类或页码形状不合法、页码 <1 或每页超出 1~100）；'
+    + '「参数格式不正确」= 值绑不进目标类型（商家 ID 填了非数字、onSale 填了非整数、pageNum/pageSize 不是整数）。'
+    + '分页请核对：页码从 1 起、每页只能选 10/20/50/100 四档。',
+  404: '商品列表接口不可达（后端服务未起或路径已变）。请确认后端服务在运行，再点「重试」。',
+  429: '读取过于频繁（只读列表按来源 IP 限流 30 次/分）。请稍候再翻页。',
+  '-1': '请求未能送达（网络异常或 10s 查询档超时）。请确认后端服务已启动，并用 http://localhost:5177 打开本页面'
+    + '（用 127.0.0.1 形态打开会被后端 CORS 全拦，渲染成这一条假故障）。'
+}
+const codeHint = computed(() => CODE_HINTS[String(errorCode.value)] || '')
+
+// 写侧 400 的覆盖面：通用两句 + 本端点自己的业务文案 + @Valid 注解文案（三组都可能出现，命中哪一句只看服务端原文）
+const WRITE_CODE_HINTS = {
+  400: '这笔写请求被 400 拒绝。400 不说明命中哪一句，本页不猜。三类可能同时存在：'
+    + '通用两句「请求参数有误，请检查后重试」/「参数格式不正确」（body 里的 price 填了非数字就走前者）；'
+    + '业务校验「无更新字段（可传 price / stock / onSale）」；'
+    + '字段注解「价格必须大于 0」（price < 0.01）、「库存不能为负数」（stock < 0）、「onSale 仅允许 0（下架）或 1（上架）」。'
+    + '具体命中哪一句，以「服务端原文」那一行为准。',
+  403: '登录态有效但服务端判定本账号不能改商品（403 ≠ 登录失效，本页不清登录态）。'
+    + '请核对运营账号的角色与授权；商品价与库存的归属仍是商家侧的，确需变更请让有权限的账号操作。',
+  404: '后端原文应为「菜品不存在」：这一行的菜品 ID 在库里已经没有（被商家删除，或本页列表已过期）。'
+    + '下一步：用上方「查询」重取列表后再对现存的 ID 操作；不要拿旧 ID 反复重试。',
+  429: '写请求过于频繁（Admin 写面按来源 IP 限流 10 次/分，比列表的 30 次/分更紧）。'
+    + '请等半分钟再提交；批量改价请分时段，不要连点。',
+  '-1': '请求未能送达（网络异常或 20s 提交档超时）。⚠ 超时不等于「没生效」：服务端可能已经写完，只是回执没回来。'
+    + '下一步：先点上方「查询」重拉列表核对这一行的价格/库存/在售，再决定要不要重做。'
+}
+
+async function load() {
+  if (viewState.value === 'loading') return
+  viewState.value = 'loading'
+  errorText.value = ''
+  errorCode.value = 0
+  try {
+    const envelope = await getAdminDishes(pageNum.value, pageSize.value, filters.value)
+    const data = envelope.data || {}
+    rows.value = Array.isArray(data.list) ? data.list : []
+    total.value = Number(data.total) || 0
+    if (Number(data.pageNum) > 0) pageNum.value = Number(data.pageNum)
+    if (PAGE_SIZES.indexOf(Number(data.pageSize)) !== -1) pageSize.value = Number(data.pageSize)
+    viewState.value = 'ready'
+  } catch (err) {
+    const e = err || {}
+    if (e.code === 401) {
+      viewState.value = 'error'
+      errorCode.value = 401
+      errorText.value = '登录状态已失效，正在返回登录页…'
+      return
+    }
+    if (e.code === 403) {
+      viewState.value = 'forbidden'
+      errorText.value = e.message || '无权限访问'
+      return
+    }
+    viewState.value = 'error'
+    errorCode.value = Number(e.code) || 0
+    errorText.value = e.message || '商品列表读取失败，请稍后重试'
+  }
+}
+
+function onPageChange() {
+  load()
+}
+
+function onSizeChange() {
+  pageNum.value = 1
+  load()
+}
+
+function onFilterChange() {
+  pageNum.value = 1
+  load()
+}
+
+function onReset() {
+  filters.value.merchantId = ''
+  filters.value.onSale = ''
+  filters.value.category = ''
+  pageNum.value = 1
+  load()
+}
+
+function openDialog(row) {
+  if (submitting.value || viewState.value === 'loading') return
+  // 表单三个值一律从<b>空</b>开始（只有「不改该项」才是安全的默认），
+  // 当前值只显示在 label 里当作参照——不把 price 的定形串 "9.90" 预填进去，
+  // 那会让「原值回写」变成一次隐形改动（金额没变但会新写一条 dish.update 审计）。
+  editing.value = row
+  form.value = { price: '', stock: '', onSale: '' }
+  dialogVisible.value = true
+}
+
+// 只下发运营<b>实际填过</b>的键：留空的键根本不进 body（服务端「传了才更新」）。
+// 数字串按数字下发；填了非数字（"9.9a" 这类）时把原串照发，让服务端自己给那句诚实的 400，
+// 本页不把它悄悄改成 0、也不本地拦下来猜。
+function buildPatch() {
+  const patch = {}
+  const price = String(form.value.price == null ? '' : form.value.price).trim()
+  if (price !== '') patch.price = Number.isFinite(Number(price)) ? Number(price) : price
+  const stock = String(form.value.stock == null ? '' : form.value.stock).trim()
+  if (stock !== '') patch.stock = Number.isFinite(Number(stock)) ? Number(stock) : stock
+  const onSale = form.value.onSale
+  if (onSale === 0 || onSale === 1) patch.onSale = onSale
+  return patch
+}
+
+function patchText(patch) {
+  const lines = []
+  if (patch.price !== undefined) {
+    lines.push('· 改价：单价写为 ' + patch.price + '（当前 ' + displayOf(editing.value.price)
+      + '）。只影响此后新下的订单，已生成的订单金额不受影响。')
+  }
+  if (patch.stock !== undefined) {
+    lines.push('· 补库存：库存将被直接置为 ' + patch.stock + '（当前 ' + displayOf(editing.value.stock)
+      + '）。注意这是「置为」而不是「在当前值上加」——填 10 就是把库存变成 10。')
+  }
+  if (patch.onSale !== undefined) {
+    lines.push(patch.onSale === 1
+      ? '· 上下架：该商品置为「上架」（on_sale=1），C 端可以下单。'
+      : '· 上下架：该商品置为「下架」（on_sale=0），C 端不再能下单该商品；已经生成的订单不受影响。')
+  }
+  if (lines.length === 0) {
+    lines.push('· 本次三个字段都没填：服务端会回 400「无更新字段（可传 price / stock / onSale）」，不改任何数据。')
+  }
+  lines.push('· 未填的字段不会下发，服务端不会改动它们。')
+  lines.push('· 成功后服务端写一条 admin_audit_log（action=dish.update，detail 记 old/new，未提交的列显式记 null——既有留痕口径）。')
+  return lines.join('\n')
+}
+
+async function askConfirm(message) {
+  try {
+    await ElMessageBox.confirm(message, '请确认这笔写操作', {
+      type: 'warning',
+      confirmButtonText: '确认执行',
+      cancelButtonText: '取消（不发出任何请求）',
+      closeOnClickModal: false,
+      distinguishCancelAndClose: true,
+      customClass: 'admin-write-confirm'
+    })
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+async function onSubmit() {
+  if (submitting.value || viewState.value === 'loading') return
+  const patch = buildPatch()
+  const ok = await askConfirm(
+    '将更新商品 ' + editing.value.id + '（' + editing.value.name + '）。\n\n' + patchText(patch)
+      + '\n· 提交成功后本页会重拉列表，不在本地改这一行。'
+  )
+  if (!ok) {
+    writeResult.value = {
+      kind: 'info',
+      title: '已取消，未发出任何请求',
+      serverText: '',
+      hint: '确认框点「取消」/关闭/Esc 只关框：这次更新没有提交，表单还开着，可以继续改填或关掉它。'
+    }
+    return
+  }
+  submitting.value = true
+  writeResult.value = null
+  try {
+    const envelope = await updateAdminDish(editing.value.id, patch)
+    writeResult.value = {
+      kind: 'success',
+      title: '商品更新已提交',
+      serverText: envelope && envelope.message ? envelope.message : '',
+      hint: '列表已按当前筛选重新拉取（本页不本地改行），表单已关闭。请以重拉后的行为准。'
+    }
+    dialogVisible.value = false
+    await load()
+  } catch (err) {
+    const e = err || {}
+    if (e.code === 401) {
+      writeResult.value = { kind: 'error', title: '登录状态已失效', serverText: '', hint: '正在返回登录页…' }
+      return
+    }
+    // 失败：表单保持打开（内容还在），但页面不把行本地回滚、也不假装成功
+    writeResult.value = {
+      kind: 'error',
+      title: e.code === 403 ? '没有权限执行该动作' : '写操作未完成（未生效）',
+      serverText: e.message || '（后端未给出 message）',
+      hint: WRITE_CODE_HINTS[String(Number(e.code))] || WRITE_CODE_HINTS['-1']
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(() => {
+  viewState.value = 'idle'
+  load()
+})
+</script>
+
+<style scoped>
+.sql-fallback {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-left: 3px solid #e6a23c;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #606266;
+}
+.sql-fallback code {
+  font-family: Consolas, Menlo, monospace;
+  background: #f5f6f8;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.result-bar {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  border-left: 3px solid #909399;
+}
+.result-bar-success {
+  border-left-color: #67c23a;
+}
+.result-bar-error {
+  border-left-color: #f56c6c;
+}
+.result-bar-info {
+  border-left-color: #e6a23c;
+}
+.result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+.result-line {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #606266;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.filter-input {
+  width: 210px;
+}
+.filter-select {
+  width: 190px;
+}
+.table {
+  background: #fff;
+  margin-top: 16px;
+}
+.empty {
+  color: #909399;
+  font-size: 13px;
+}
+.muted {
+  color: #909399;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.dialog-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #606266;
+}
+.dialog-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+.dialog-select {
+  width: 220px;
+}
+</style>

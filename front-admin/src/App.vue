@@ -9,6 +9,11 @@
       <nav class="nav">
         <router-link to="/overview" class="nav-link" :class="{ active: isActive('/overview') }">当日大盘</router-link>
         <router-link to="/audit-logs" class="nav-link" :class="{ active: isActive('/audit-logs') }">审计记录</router-link>
+        <!-- F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 只读列表 + 一个 AdminController 旧写端点） -->
+        <router-link to="/orders" class="nav-link" :class="{ active: isActive('/orders') }">核销台</router-link>
+        <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }">商品管理</router-link>
+        <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }">评价审核</router-link>
+        <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }">入驻审核</router-link>
       </nav>
       <div class="actions">
         <el-button size="small" @click="onLogout">退出登录</el-button>
@@ -22,8 +27,8 @@
 </template>
 
 <script setup>
-// 外壳（F-20.11 三页共同要求）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
-// 并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
+// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口）：右上角标明当前是「运营端」（本仓第四端，
+// 与 C 端/商家端/主理人端区分），并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
 // 清态与跳转都走 api 层的 logout()，本组件不各自读 storage（键名真源只有 TOKEN_STORAGE_KEY 一处）。
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
@@ -56,8 +61,11 @@ body {
   display: flex;
   align-items: center;
   gap: 24px;
-  height: 56px;
-  padding: 0 24px;
+  /* F-20.22 顶栏从两条变六条：定高 56px 会在窄屏把导航挤出去，改成 min-height + 可换行，
+     宽屏读数与改动前一致（单行 56px），窄屏则整条 header 自然加高。 */
+  min-height: 56px;
+  padding: 8px 24px;
+  flex-wrap: wrap;
   background: #fff;
   border-bottom: 1px solid var(--admin-border);
   position: sticky;
@@ -75,8 +83,10 @@ body {
 }
 .nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   flex: 1;
+  min-width: 0;
 }
 .nav-link {
   color: #606266;
@@ -128,5 +138,20 @@ body {
 .state-desc {
   font-size: 13px;
   color: #606266;
+}
+/* F-20.22 四个 P0 页写动作的二次确认框（ElMessageBox 挂在 body 下，页面 scoped 样式作用不到，
+   所以这一条只有全局一份；四个页面 customClass 传的是同一个串 'admin-write-confirm'）。
+   为什么要改 white-space：确认文案是「把后果写全」的多行清单（核销/取消/删除/发布门店各自的副作用），
+   默认渲染会把 \n 折成空格、糊成一小块 420px 的单行——运营读不到重点，纪律 2 就只剩形式。
+   这里让换行真的换行、并把框加宽到能读完一行。 */
+.admin-write-confirm {
+  width: 640px;
+  max-width: 92vw;
+}
+.admin-write-confirm .el-message-box__message {
+  white-space: pre-line;
+  line-height: 1.75;
+  font-size: 13px;
+  color: #303133;
 }
 </style>
