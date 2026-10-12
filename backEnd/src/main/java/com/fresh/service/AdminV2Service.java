@@ -28,12 +28,26 @@ public interface AdminV2Service {
 
     /**
      * 审计日志分页（{@code GET /api/admin/v2/audit-logs}）：{@code admin_audit_log}，{@code ORDER BY id DESC}。
-     * 手写「页 + 独立 COUNT」两条 SQL（RB：本工程没装 MP 分页插件）。
+     * 手写「页 + 独立 COUNT」两条 SQL（RB：本工程没装 MP 分页插件），两条 WHERE 逐字相同（F-20.16 D-10）。
+     *
+     * <p>F-20.16（收 G-06 DoD ④）：增四个<b>可选、精确等值</b>筛选 {@code actor}/{@code action}/
+     * {@code targetType}/{@code targetId}（全可 null；null/未传 = 该条件不生效）。等值匹配<b>不区分大小写</b>
+     * （来自列 collation {@code utf8mb4_unicode_ci}，非本层归一）。非 null 的取值先过形状闸门
+     * {@code ^[A-Za-z0-9_.:-]{1,64}$}，不合形状 → 400（复用既有那一句文案，不新造）；形状合但库里没这个值 →
+     * 正常回空，不是 400（F-20.16 D-11）。
      *
      * @param pageNum  缺省 1；<b>下限 1</b>，越界或脏值 → 400（姿势同 G-05 的 days「越界直接 400，不夹到边界」）
      * @param pageSize 缺省 20；值域 [1,100]，越界 → 400
-     * @return {@code {list:[{id, actor, action, targetType, targetId, detail, createdAt}], total, pageNum, pageSize}}；
-     *         <b>不含 ip</b>（RD 最小暴露）；空表 → {@code list:[]} 且 {@code total:0}，不是 500
+     * @param actor     操作者精确等值筛选，可 null（例：{@code admin_user:2}）
+     * @param action    动作精确等值筛选，可 null（例：{@code dish.update}）
+     * @param targetType 目标类型精确等值筛选，可 null（例：{@code dish}）
+     * @param targetId  目标 ID 精确等值筛选，可 null（字符串口径，订单号也走这一列）
+     * @return {@code {list:[{id, actor, action, targetType, targetId, detail, createdAt}], total, pageNum, pageSize, filters}}；
+     *         {@code total} 是<b>同一筛选条件下</b>的独立 COUNT 结果（D-10）；
+     *         {@code filters} 是生效筛选值的回显 {@code {actor, action, targetType, targetId}}，<b>未传的键回 null</b>
+     *         （不是空串、不是缺键，D-12）；既有四键 {@code list/total/pageNum/pageSize} 一字不动。
+     *         <b>不含 ip</b>（RD 最小暴露）；空表 / 无命中 → {@code list:[]} 且 {@code total:0}，不是 500
      */
-    Map<String, Object> auditLogs(Integer pageNum, Integer pageSize);
+    Map<String, Object> auditLogs(Integer pageNum, Integer pageSize,
+                                  String actor, String action, String targetType, String targetId);
 }

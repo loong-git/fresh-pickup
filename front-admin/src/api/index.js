@@ -232,20 +232,33 @@ export function getAdminOverview(date) {
 }
 
 /**
- * 审计日志分页：GET /api/admin/v2/audit-logs?pageNum=&pageSize=
- * 出参 {list, total, pageNum, pageSize}；行内恰七键
- * id/actor/action/targetType/targetId/detail/createdAt（AdminAuditLogMapper:31-35 的 SELECT 清单，
+ * 审计日志分页：GET /api/admin/v2/audit-logs?pageNum=&pageSize=&actor=&action=&targetType=&targetId=
+ * 出参 {list, total, pageNum, pageSize, filters}；行内恰七键
+ * id/actor/action/targetType/targetId/detail/createdAt（AdminAuditLogMapper 的 SELECT 清单，
  * **没有 ip**——SQL 侧连列都没查，RD 最小暴露，页面也不许造这一列）。
  * createdAt 已由后端 DATE_FORMAT 定形成 "YYYY-MM-DD HH:mm:ss" 字符串，页面直接显示、不二次格式化。
  * 越界脏值一律 400 不夹取（pageSize 值域 [1,100]、pageNum ≥1，F-20.10 追认）→
  * **可选页大小只能给 10/20/50/100**，见 AuditLogs.vue 的 PAGE_SIZES。
- * 空表 → {list:[],total:0} 不 500；pageNum 超界 → {list:[],total:定值}。
+ * 空表 / 筛选无命中 → {list:[],total:0} 不 500；pageNum 超界 → {list:[],total:定值}。
+ * <p>F-20.16（收 G-06 DoD ④）filters：四个**精确等值**可选筛选 {actor, action, targetType, targetId}，全非必填。
+ * 走 withQuery 只拼非空值 → 空串/null 一律不下发（服务端把缺省当「不筛」，绝不发空串）；等值匹配**不区分大小写**
+ * （列 collation 决定）。脏形状（含空格/%/超 64 字符）→ 后端 400。出参 filters 是生效筛选的回显，未传的键为 null。
  * @param {number} pageNum 从 1 起
  * @param {number} pageSize ∈ {10,20,50,100}
+ * @param {{actor?:string, action?:string, targetType?:string, targetId?:string}} [filters] 筛选对象，缺省即不筛
  */
-export function getAdminAuditLogs(pageNum, pageSize) {
+export function getAdminAuditLogs(pageNum, pageSize, filters) {
+  // 页面不自拼 URL：筛选值一律经本层 withQuery 收口（只下发非空值），保持向后兼容的 (pageNum, pageSize) 位置调用
+  const f = filters || {}
   return request({
-    url: withQuery('/api/admin/v2/audit-logs', { pageNum, pageSize }),
+    url: withQuery('/api/admin/v2/audit-logs', {
+      pageNum,
+      pageSize,
+      actor: f.actor,
+      action: f.action,
+      targetType: f.targetType,
+      targetId: f.targetId
+    }),
     method: 'GET'
   })
 }

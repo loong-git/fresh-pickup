@@ -76,6 +76,13 @@ public class AdminV2ServiceImpl implements AdminV2Service {
     /** 出参 date 的形状闸门（照 {@code MerchantOrderServiceImpl:73} 等三处既有先例的写法；先形状再交 LocalDate 裁决真日期） */
     private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
+    /**
+     * 审计筛选值的形状闸门（F-20.16 D-11）：四个精确等值筛选 actor/action/targetType/targetId 的取值白名单——
+     * 字母/数字/下划线/点/冒号/短横，1~64 字符；{@code -} 放在字符类<b>末尾</b>免被正则读成范围。
+     * 非 null 的取值不过此形状 → 400；空串（长度 0）也不合 {@code {1,64}} → 400（前端 withQuery 本就不下发空串，这条纪律不绕）。
+     */
+    private static final Pattern FILTER_PATTERN = Pattern.compile("^[A-Za-z0-9_.:-]{1,64}$");
+
     /** 400 文案：复用既有那一句（GlobalExceptionHandler:55 同串），本类不新造句子 */
     private static final String BAD_REQUEST_MSG = "请求参数有误，请检查后重试";
 
@@ -125,7 +132,8 @@ public class AdminV2ServiceImpl implements AdminV2Service {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> auditLogs(Integer pageNum, Integer pageSize) {
+    public Map<String, Object> auditLogs(Integer pageNum, Integer pageSize,
+                                         String actor, String action, String targetType, String targetId) {
         // 越界/脏值 → 400（契约 F-20.9 #3：pageNum 下限 1、pageSize 缺省 20 上限 100）。
         // ?pageNum=abc 这类绑不进 Integer 的脏参在进本方法之前已由 GlobalExceptionHandler 转 400。
         int pageNo = pageNum == null ? DEFAULT_PAGE_NUM : pageNum;
@@ -137,14 +145,23 @@ public class AdminV2ServiceImpl implements AdminV2Service {
             throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
         }
 
-        long total = adminAuditLogMapper.countAuditLogs();
+        // F-20.16 D-11 形状闸门：一个私有方法搞定四个值（不写四遍）。null/未传 → null（该条件 SQL 侧短路不生效）；
+        // 非 null 不过 FILTER_PATTERN → 400（复用 BAD_REQUEST_MSG 那一句，不新造文案）。
+        final String fActor = validatedFilter(actor);
+        final String fAction = validatedFilter(action);
+        final String fTargetType = validatedFilter(targetType);
+        final String fTargetId = validatedFilter(targetId);
+
+        // D-10：total 走「带同一组筛选 WHERE」的独立 COUNT（与页那条逐字相同，见 AdminAuditLogMapper），
+        // 否则会出现「共 0 条」却画着 20 行。
+        long total = adminAuditLogMapper.countAuditLogs(fActor, fAction, fTargetType, fTargetId);
         long offset = (long) (pageNo - 1) * size;
         // offset >= total 直接短路（同 MerchantOrderServiceImpl:219-223 的 G-3/L4 修法）：
         // pageNum 无上限，999999999 会算出巨大 offset，短路就不再白跑一条 LIMIT 查询；
-        // 空表（total=0）时任何页都走这一支 → list:[] 而不是 500。
+        // D-13：短路判据用的是<b>筛选后的 total</b>；空表 / 筛选无命中（total=0）时任何页都走这一支 → list:[] 而不是 500。
         List<Map<String, Object>> rows = offset >= total
                 ? List.of()
-                : adminAuditLogMapper.selectAuditLogsPage(offset, size);
+                : adminAuditLogMapper.selectAuditLogsPage(fActor, fAction, fTargetType, fTargetId, offset, size);
 
         List<Map<String, Object>> list = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
@@ -162,12 +179,40 @@ public class AdminV2ServiceImpl implements AdminV2Service {
             list.add(line);
         }
 
+        // D-12：回显生效筛选值——未传的键回 null（不是空串、不是缺键）。用回显而非让前端自维护第二处真值
+        // （F-20.11 的 overview 不回显 date 已逼出过一次别扭，这次不再犯）。键序 actor/action/targetType/targetId。
+        Map<String, Object> filters = new LinkedHashMap<>();
+        filters.put("actor", fActor);
+        filters.put("action", fAction);
+        filters.put("targetType", fTargetType);
+        filters.put("targetId", fTargetId);
+
+        // 既有四键一字不动（旧前端零感知），filters 是新增的第五键。
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("list", list);
         data.put("total", total);
         data.put("pageNum", pageNo);
         data.put("pageSize", size);
+        data.put("filters", filters);
         return data;
+    }
+
+    /**
+     * 审计筛选值形状闸门（F-20.16 D-11）：一个私有方法搞定四个值，绝不写四遍。
+     * <p>null/未传 → 返回 null（该条件在 SQL 侧 {@code (#{x} IS NULL OR ...)} 短路，不筛）；
+     * 非 null 必须先过 {@code ^[A-Za-z0-9_.:-]{1,64}$}（{@code -} 在字符类末尾），
+     * 不合形状（含空格、含 {@code %}、超 64 字符、空串）→ 400、复用 {@code BAD_REQUEST_MSG} 那一句，本类不新造文案。
+     * <p>形状合但库里没这个值 → 交 SQL 正常回空（{@code {list:[],total:0}}），不在本层拦。
+     * <p><b>不做大小写归一</b>：等值匹配的不区分大小写来自列 collation（见 mapper 注释），本层原样回显、原样绑定。
+     */
+    private String validatedFilter(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (!FILTER_PATTERN.matcher(raw).matches()) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        return raw;
     }
 
     /**

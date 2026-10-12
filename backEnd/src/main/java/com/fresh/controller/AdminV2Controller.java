@@ -71,21 +71,28 @@ public class AdminV2Controller {
     }
 
     /**
-     * 审计日志分页（F-20.9 #3）：{@code GET /api/admin/v2/audit-logs?pageNum=&pageSize=}
-     * → {@code {list:[{id, actor, action, targetType, targetId, detail, createdAt}], total, pageNum, pageSize}}。
+     * 审计日志分页（F-20.9 #3 + F-20.16）：{@code GET /api/admin/v2/audit-logs?pageNum=&pageSize=&actor=&action=&targetType=&targetId=}
+     * → {@code {list:[{id, actor, action, targetType, targetId, detail, createdAt}], total, pageNum, pageSize, filters}}。
      * 手写「页 + 独立 COUNT」（RB）；{@code ORDER BY id DESC} 稳定翻页；
-     * pageNum 下限 1、pageSize 缺省 20 上限 100，越界/脏值 400；空表 {@code {list:[],total:0}} 不 500。
+     * pageNum 下限 1、pageSize 缺省 20 上限 100，越界/脏值 400；空表/无命中 {@code {list:[],total:0}} 不 500。
      * <b>{@code ip} 不下发</b>（RD 最小暴露，SQL 侧连列都没查）。只读动作不写审计（RF 只约束写动作）。
+     * <p>F-20.16（收 G-06 DoD ④）四个<b>可选、精确等值</b>筛选 {@code actor}/{@code action}/{@code targetType}/{@code targetId}：
+     * 一律 {@code @RequestParam(required=false)}、全可缺省（缺省 = 不筛）；形状闸门与非空校验在 Service 层
+     * （脏形状 → 400，复用既有文案）。<b>闸门、限流注解、返回类型一律不动</b>，v2 面仍恰 2 条 {@code @GetMapping}、0 写映射。
      */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     @GetMapping("/audit-logs")
     public R<Map<String, Object>> auditLogs(@RequestHeader(value = "Authorization", required = false) String authz,
                                             @RequestParam(required = false) Integer pageNum,
-                                            @RequestParam(required = false) Integer pageSize) {
+                                            @RequestParam(required = false) Integer pageSize,
+                                            @RequestParam(required = false) String actor,
+                                            @RequestParam(required = false) String action,
+                                            @RequestParam(required = false) String targetType,
+                                            @RequestParam(required = false) String targetId) {
         R<Map<String, Object>> denied = adminController.requireAdminJwtOnly(authz);
         if (denied != null) {
             return denied;
         }
-        return R.ok(adminV2Service.auditLogs(pageNum, pageSize));
+        return R.ok(adminV2Service.auditLogs(pageNum, pageSize, actor, action, targetType, targetId));
     }
 }
