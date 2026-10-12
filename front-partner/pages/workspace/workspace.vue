@@ -39,8 +39,10 @@
       <view class="card store-card">
         <view class="store-head">
           <text class="store-name">{{ storeName }}</text>
-          <!-- 多店主理人：本页取列表第一条展示，并把「共 N 家店」如实标出来（切换门店归 Step 7 的门店信息页，
-               不给一个看起来能点、其实什么都不做的假标题） -->
+          <!-- 多店主理人：本页取列表第一条展示，并把「共 N 家店」如实标出来。
+               一期不做门店切换控件，但把「本页正在展示的这家」的 id 透传给门店信息页（见 onEntryTap），
+               否则 store 页会退回后端缺省「名下 id 最小的一家」（PartnerStoreServiceImpl.java:360-369），
+               多店时两页显示的很可能不是同一家。 ==================== -->
           <text v-if="multiStoreText" class="count-tag">{{ multiStoreText }}</text>
         </view>
         <view class="store-rows">
@@ -68,9 +70,9 @@
         </view>
       </view>
 
-      <!-- 入口逐个替换：已交付的挂路由并给 › 箭头，未交付的保持置灰 + 占位角标（箭头与角标二选一，
-           同时给会让用户以为角标那行也能点进去）。可点与否的唯一真源是 ENTRY_ROUTES（模块级常量表），
-           页面不再持第二个开关字段——Step 7 只往表里加行，本模板与点击分支一字不改。 ==================== -->
+      <!-- 入口逐个替换：四行都已在 ENTRY_ROUTES 在册（F-18.19 交付 store / apply 两页），
+           统一挂 › 箭头并保持可点。可点与否的唯一真源仍是 ENTRY_ROUTES（模块级常量表），
+           模板的置灰判定（entryRoute）与点击分支（onEntryTap）两处消费它，页面不持第二个开关字段。 ==================== -->
       <view class="card cell-card">
         <view
           class="cell"
@@ -82,8 +84,8 @@
           <text class="cell-icon">{{ entry.icon }}</text>
           <text class="cell-title">{{ entry.title }}</text>
           <text class="cell-sub">{{ entry.hint }}</text>
+          <!-- 在册行给箭头；表里没登记路由的行（当前没有）不画箭头，点了给一句实话，不留静默死行 -->
           <text v-if="entryRoute(entry)" class="cell-arrow">›</text>
-          <text v-else class="tag-building">建设中</text>
         </view>
       </view>
     </template>
@@ -102,7 +104,8 @@
 // ② 状态位：母版是 loading|ready|forbidden|error，本页按 §4 收敛为 loading|error|empty|ready 四态互斥
 //    （单值 viewState，不叠布尔）。母版的 forbidden 在这里就是 empty——名下无店是「没有数据」而不是
 //    「权限报错」，重试永远失败，所以它给的不是重试按钮而是申请入驻/换账号两条去向。
-// ③ 入口：可点与否由 ENTRY_ROUTES 唯一裁决（F-18.17 放开核销台/到货批次两行，门店信息与入驻申请仍占位）。
+// ③ 入口：可点与否由 ENTRY_ROUTES 唯一裁决（F-18.17 放开核销台/到货批次两行，F-18.19 放开门店信息与
+//    入驻申请两行——四行全部在册，未交付占位分支随之退役）。
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并 reLaunch 回登录页）；
 // 403 也不当登录失效（handleEnvelope 只 reject 不跳），本页把它归到 empty 态渲染引导内容。
 // 渲染不依赖 store：本页自持一份服务端最新值（母版同款纪律）。
@@ -111,20 +114,14 @@ import '@/styles/common.css'
 
 // 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue:99。模块级 const 表，
 // 模板的置灰判定（entryRoute）与点击分支（onEntryTap）两处消费它，页面不持第二个开关字段）。
-// F-18.17 §1.4 放开 verify / arrivals 两行：路径与 pages.json 的注册逐字一致
-// （pages/verify/verify、pages/arrival/arrival——表里写一条没注册的路由，H5 下就是白屏死链）。
-// store / apply 两页归 Step 7，仍不入册：entryRoute() 回空串即走置灰分支，点击只 toast 告知。
+// F-18.17 §1.4 放开 verify / arrivals 两行，F-18.19 §1 放开 store / apply 两行：
+// 四条路径与 pages.json 的注册逐字一致（表里写一条没注册的路由，H5 下就是白屏死链）。
 const ENTRY_ROUTES = {
   verify: '/pages/verify/verify',
-  arrivals: '/pages/arrival/arrival'
+  arrivals: '/pages/arrival/arrival',
+  store: '/pages/store/store',
+  apply: '/pages/apply/apply'
 }
-
-// 未交付入口的统一告知文案（Step 7 交付 store/apply 后，这一串与置灰分支一起退役）
-const ENTRY_PENDING_TOAST = '该页面在 Step 7 交付'
-
-// 「去申请入驻」按钮的告知文案（与登录页空态按钮同一串口径；pages/apply/apply 归 Step 7，
-// 现在跳过去就是 navigateTo 到未注册路由 = 白屏，故只 toast）
-const APPLY_PENDING_TOAST = '入驻页在 Step 7 交付'
 
 // 门店生命周期状态正常值（init.sql store.status：种子 3 家 open + 1 家 closed，Store.java:17 注）：
 // 只有它不等于该值时才出一行提示，脏值原样展示不替后端猜中文
@@ -152,12 +149,13 @@ export default {
       // 落点与写法照 dishes.vue:170-171（data）/ :378（errorCode===429 才起锁）/ :425（startRetryLock））
       retryLock: 0,
       retryLockTimer: null,
-      // 四入口（静态列表放 data，与母版 entries 同款）：可点与否由 ENTRY_ROUTES[entry.key] 决定
+      // 四入口（静态列表放 data，与母版 entries 同款）：可点与否由 ENTRY_ROUTES[entry.key] 决定，
+      // 四行全部在册（F-18.19 补齐 store / apply），hint 里不再挂「某 Step 交付」的占位话术
       entries: [
         { key: 'verify', icon: '🧾', title: '核销台', hint: '按取货码核销' },
         { key: 'arrivals', icon: '📦', title: '到货批次', hint: '批次清单与确认' },
-        { key: 'store', icon: '🏪', title: '门店信息', hint: '营业时间/接单开关（Step 7）' },
-        { key: 'apply', icon: '📝', title: '我的入驻申请', hint: '审核进度与驳回原因（Step 7）' }
+        { key: 'store', icon: '🏪', title: '门店信息', hint: '营业时间/接单开关' },
+        { key: 'apply', icon: '📝', title: '我的入驻申请', hint: '审核进度与驳回原因' }
       ]
     }
   },
@@ -327,18 +325,27 @@ export default {
     entryRoute(entry) {
       return (entry && ENTRY_ROUTES[entry.key]) || ''
     },
-    // 入口点击：已交付的 navigateTo 过去，未在册的 toast 告知归属 Step
+    // 入口点击：全部在册（ENTRY_ROUTES 四行），走 navigateTo 过去。
+    // store 这一行额外把「本页正在展示的这家」的 id 作为 D-22 选择器透传过去：多店时不带的话，
+    // 门店信息页会退回后端缺省（名下 id 最小的一家），于是工作台显示 A 店、点进去编辑的是 B 店
     onEntryTap(entry) {
-      const url = this.entryRoute(entry)
+      let url = this.entryRoute(entry)
       if (!url) {
-        uni.showToast({ title: ENTRY_PENDING_TOAST, icon: 'none', duration: 1500 })
+        // entries 与 ENTRY_ROUTES 同文件维护，在册表漏一行属于编码疏漏而不是用户状态；
+        // 真漏了也给一句实话，不留「点了没反应」的死行（母版纪律）
+        uni.showToast({ title: '该功能暂未开放', icon: 'none', duration: 1500 })
         return
+      }
+      if (entry && entry.key === 'store' && this.currentStore && this.currentStore.id !== undefined) {
+        url += '?storeId=' + encodeURIComponent(this.currentStore.id)
       }
       uni.navigateTo({ url })
     },
-    // 「去申请入驻」：pages/apply/apply 归 Step 7，本轮只给明确告知，不跳未注册的页（不留白屏死链）
+    // 「去申请入驻」：pages/apply/apply 已在 pages.json 注册（F-18.19），这里给真实跳转。
+    // 申请页只要求登录（D-20 挂 /api/store-applies），所以从 empty 态进来必然可用——
+    // 名下无店的账号正是这一页唯一的目标用户
     goStoreApply() {
-      uni.showToast({ title: APPLY_PENDING_TOAST, icon: 'none', duration: 1500 })
+      uni.navigateTo({ url: '/pages/apply/apply' })
     },
     // 登出/换账号的执行体：清 partner_token 后回登录页换账号
     switchAccount() {
@@ -435,6 +442,7 @@ export default {
 /* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中红色字） ==================== */
 .cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #E02020; }
 
-/* ==================== 5. 四入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
+/* ==================== 5. 四入口列表（.cell/.cell-disabled 均取自 common.css；
+   .tag-building 占位角标已随 F-18.19 交付 store/apply 退役，本页不再引用它） ==================== */
 .cell-card { margin-top: 24rpx; }
 </style>

@@ -23,6 +23,18 @@
       "style": {
         "navigationBarTitleText": "到货批次"
       }
+    },
+    {
+      "path": "pages/store/store",
+      "style": {
+        "navigationBarTitleText": "门店信息"
+      }
+    },
+    {
+      "path": "pages/apply/apply",
+      "style": {
+        "navigationBarTitleText": "入驻申请"
+      }
     }
   ],
   "globalStyle": {
