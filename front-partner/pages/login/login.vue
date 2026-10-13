@@ -134,6 +134,22 @@ import '@/styles/common.css'
 const WORKSPACE_PAGE = '/pages/workspace/workspace'
 const APPLY_PAGE = '/pages/apply/apply'
 
+// F-23/FP-3：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先，取不到才回落本地 60。
+// 回落值口径：它是本页所撞限流档（USER 维度 @RateLimit）的整窗长度，是「后端不给 data 时的保守上限」，
+// 不是回速（回速远小于窗口），两个数不是一回事，别混成一个值。
+const RETRY_FALLBACK_SECONDS = 60
+
+// 已登记的一致性债：与 arrival/store/verify 的同名私有实现待另批一起收敛到 api 层。
+// 本批（F-23/FP-2）刻意不抽共享模块——那是重构，会牵动 arrival/store/verify 三页，
+// 与「补 apply/login 两处漏网」混在一起会让回归面失焦。语义与 arrival.vue:148-152 母版逐字一致。
+// 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
+// 网络异常/信封不可解析时 data 为 null，走上面的本地回落。
+function retrySecondsOf(err) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
+}
+
 export default {
   data() {
     return {
@@ -262,9 +278,10 @@ export default {
       this.loginLock = 0
     },
     // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue:425 startRetryLock 命名）
-    startRetryLock() {
+    // F-23/FP-1：入参改为 catch 到的错误对象，起锁秒数由 retrySecondsOf 转述后端真值，取不到才回落本地 60
+    startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = 60
+      this.retryLock = retrySecondsOf(err)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
@@ -360,7 +377,7 @@ export default {
         if (code === 429) {
           // 「点得太快了」文案与商家端 dishes.vue:210 同串（不另写一份），并起秒级冷却
           this.showToast('点得太快了，请 60 秒后再刷新')
-          this.startRetryLock()
+          this.startRetryLock(e)
           return
         }
         this.showToast((e && e.message) || '网络异常')

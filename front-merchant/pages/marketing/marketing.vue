@@ -126,7 +126,7 @@
 // ③ 四态单值互斥 loading | ready | forbidden | error，不用多个布尔叠加（照 workspace.vue 的 viewState）。
 // 401 一律由请求层清态回登录页，本页不判 401。文案红线（RE）：不出现任何资金含义的读数词——
 // mock 支付无资金流，这里的「门槛/秒杀价」都是平台设置的售卖参数，不是钱款往来。
-import { getMerchantMarketing } from '@/api/index.js'
+import { getMerchantMarketing, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -139,9 +139,12 @@ const ON_SALE_TEXT = { 1: '在售', 0: '已下架' }
 // 值域外/空值一律原样透出（见 methods.statusText），不替后端猜中文名
 const FREE_STATUS_TEXT = { online: '进行中', offline: '已下线' }
 
-// 429 冷却秒数：本端点限流档是 USER 30 次 / 60 秒（契约 D-10），故冷却取窗口长度 60。
-// 为什么不能像主理人端那样按后端 data.retryAfterSeconds 起锁：商家端请求层（RA 红线一字不动）
-// 的 reject 只带 {code,message} 不带 data，页面拿不到后端剩余秒数，本地按窗口取值是唯一不猜的路。
+// 429 冷却秒数的回落档：本端点限流窗口是 60 秒（MerchantOrderController:106 USER 30 次 / 60 秒），故回落取 60。
+// 取值口径：优先转述后端 429 data 里的 retryAfterSeconds（F-22 下发、F-23 起请求层 reject 带 data），
+// 取不到才回落到本常量。回落值选整个窗口是因为它是「不给数时唯一确定的安全上限」，
+// 而回速（30 次/分实测约 2 秒）只是桶回充一格的间隔，不代表重试一定不挨 429 —— 两个数不是一回事。
+// 【历史记录，勿删】F-23 之前请求层有「RA 红线一字不动」的约定、reject 只带 {code,message} 不带 data，
+// 页面拿不到后端剩余秒数，那时「本地按窗口取值」是唯一不猜的路；通道打通后窗口值退居兜底档。
 const RETRY_COOLING_SECONDS = 60
 
 // FE-10 同页 429 只留一句说法（错误卡主文案一处实现；冷却中的重试按钮只显示剩余秒数，不重说一遍句式）
@@ -286,7 +289,7 @@ export default {
         this.errorText = (e && e.message) || ''
         this.errorCode = code
         // 只有 429 起冷却锁（母版 pickup-plan.vue:227-228）：其余失败不锁，避免把网络抖动也锁成 60 秒
-        if (code === 429) this.startRetryLock()
+        if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -375,12 +378,12 @@ export default {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
     // ==================== 429 冷却（照 pickup-plan.vue:328-339，秒级禁用范式） ====================
-    startRetryLock() {
+    startRetryLock(err) {
       // 已卸载的页面不给它起定时器（U-5）：迟到回包回 429 时若照常 startRetryLock，
       // 那个每秒 setInterval 挂在 window 上、onUnload 的清理已经跑完了，永远不会被回收
       if (this._unloaded) return
       this.stopRetryLock()
-      this.retryLock = RETRY_COOLING_SECONDS
+      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()

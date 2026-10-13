@@ -111,7 +111,7 @@
 // 三条页面纪律：① 状态/日期只交后端过滤，页内零过滤；② page/size 以回显值为准（后端「夹而不拒」）；
 // ③ 手机号只显示 maskedPhone 语义的脱敏值，本页干脆不渲染联系电话（备货用不上，少一处明文面）。
 // 归属由服务端 @RequestAttribute 解析，页面不发任何 merchantId；401 由 api 层清态回登录页，本页不处理跳转。
-import { getMerchantOrderItems } from '@/api/index.js'
+import { getMerchantOrderItems, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -119,6 +119,14 @@ const PAGE_ROUTE = 'pages/plan-orders/plan-orders'
 
 // 状态中文说法与 C 端同源（front/pages/order/order.vue:128 STATUS_MAP 同三个键），两端口径不各写一份
 const STATUS_TEXT = { pending_pickup: '待自提', completed: '已完成', cancelled: '已取消' }
+
+// 429 冷却秒数的回落档：本端点（GET /api/merchant/order-items）限流窗口是 60 秒
+// （MerchantOrderController:68 USER 30 次 / 60 秒），故回落取 60。
+// 起锁值优先转述后端 429 data 里的 retryAfterSeconds（F-22 下发、F-23 起请求层 reject 带 data），
+// 取不到才回落到本常量。回落值取整个窗口，因为它是「后端不给数时唯一确定的保守上限」；
+// 回速（30 次/分实测只有 2 秒）是桶回充一格的间隔，不代表重试一定不挨 429 —— 两个数不是一回事，别混用。
+// 本页触底自动加载与「加载更多」都归这枚闸门管，故回落偏保守（锁长一点）比锁短更稳。
+const RETRY_COOLING_SECONDS = 60
 
 export default {
   data() {
@@ -294,7 +302,7 @@ export default {
         this.errorCode = Number((e && e.code) || 0)
         // 429：给秒级冷却闸门（错误卡的重试按钮与触底自动加载都归它管），冷却期内点不动 ——
         // 否则用户每点一次、商家每滚一次都在续这个限流桶，会把该商家后面 1 分钟的全部分额度花光
-        if (Number(e && e.code) === 429) this.startRetryLock()
+        if (Number(e && e.code) === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         // 翻页失败（已有列表在手）不动整页态：保留现场只 toast，商家可再点一次「加载更多」；
         // 首屏/重拉失败才整页换错误卡（照 front/pages/order/order.vue:215-223 的分流）
@@ -440,9 +448,9 @@ export default {
       return Math.round(p * q * 100) / 100
     },
     // ==================== 429 冷却（照 dishes.vue:425-436，同 login.vue 的 loginLock 秒级禁用范式） ====================
-    startRetryLock() {
+    startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = 60
+      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()

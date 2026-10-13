@@ -99,8 +99,15 @@
 // 三条页面纪律：① 生效日期一律用后端回显值渲染（页内不自行推算显示值）；
 // ② 归属由服务端解析，本页不发任何 merchantId；③ 四态单值互斥，不用多个布尔标志叠加（照 dishes.vue 的 viewState）。
 // 401 由 api 层统一清态回登录页，本页不再处理跳转；403/404 是确定性失败，给「回工作台」而非重试。
-import { getMerchantPickupPlan } from '@/api/index.js'
+import { getMerchantPickupPlan, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
+
+// 429 冷却秒数的回落档：本端点（GET /api/merchant/pickup-plan）限流窗口是 60 秒
+// （MerchantOrderController:53 USER 30 次 / 60 秒），故回落取 60。
+// 起锁值优先转述后端 429 data 里的 retryAfterSeconds（F-22 下发、F-23 起请求层 reject 带 data），
+// 取不到才回落到本常量。回落值取整个窗口，因为它是「后端不给数时唯一确定的保守上限」；
+// 回速（30 次/分实测只有 2 秒）是桶回充一格的间隔，不代表重试一定不挨 429 —— 两个数不是一回事，别混用。
+const RETRY_COOLING_SECONDS = 60
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/pickup-plan/pickup-plan'
@@ -224,7 +231,7 @@ export default {
         this.errorCode = Number((e && e.code) || 0)
         // 429：给秒级冷却闸门，冷却期内按钮点不动 —— 否则用户每点一次都在续这个限流桶，
         // 来回几次就把后面 1 分钟的全部分额度花光（照 dishes.vue:376-379）
-        if (Number(e && e.code) === 429) this.startRetryLock()
+        if (Number(e && e.code) === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -325,9 +332,9 @@ export default {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
     // ==================== 429 冷却（照 dishes.vue:425-436，同 login.vue 的 loginLock 秒级禁用范式） ====================
-    startRetryLock() {
+    startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = 60
+      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()

@@ -213,6 +213,22 @@ const STATUS_PENDING = 'pending'
 const STATUS_REJECTED = 'rejected'
 const STATUS_APPROVED = 'approved'
 
+// F-23/FP-3：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先，
+// 取不到才回落本地 60。回落值口径：它是写侧 @RateLimit（POST /api/store-applies 10 次/分）整窗长度，
+// 是「后端不给 data 时的保守上限」，不是回速（回速实测约 6 秒），两者不是一回事。
+const RETRY_FALLBACK_SECONDS = 60
+
+// 已登记的一致性债：与 arrival/store/verify 的同名私有实现待另批一起收敛到 api 层。
+// 本批（F-23/FP-2）刻意不抽共享模块——那是重构，会牵动 arrival/store/verify 三页，
+// 与「补 apply/login 两处漏网」混在一起会让回归面失焦。语义与 arrival.vue:148-152 母版逐字一致。
+// 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
+// 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走上面的本地回落。
+function retrySecondsOf(err) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
+}
+
 export default {
   data() {
     return {
@@ -369,7 +385,7 @@ export default {
         this.errorText = (e && e.message) || ''
         this.errorCode = code
         // 只有 429 才起冷却锁（verify.vue:443 同判据）：其余失败重试是有意义的，不该被秒数拦住
-        if (code === 429) this.startRetryLock()
+        if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -422,7 +438,7 @@ export default {
           }
         }
       } catch (e) {
-        if (Number(e && e.code) === 429) this.startRetryLock()
+        if (Number(e && e.code) === 429) this.startRetryLock(e)
       }
     },
     // ==================== 表单输入（数字栏一律在 @input 里过滤：type=number 在部分安卓键盘上仍会漏进非数字） ====================
@@ -617,7 +633,7 @@ export default {
       }
       if (code === 429) {
         this.setFeedback('cooling', '操作过于频繁，请稍后再试')
-        this.startRetryLock()
+        this.startRetryLock(e)
         return
       }
       if (code === 400) {
@@ -708,12 +724,13 @@ export default {
       }
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
-    // ==================== 429 冷却（照 verify.vue:561-574 同款） ====================
-    startRetryLock() {
+    // ==================== 429 冷却（定时器与闸门照 verify.vue:561-574 同款；起锁秒数自 F-23 起由 retrySecondsOf 取值） ====================
+    startRetryLock(err) {
       this.stopRetryLock()
-      // 本地闸门 60s，与写侧 @RateLimit（POST /api/store-applies 10 次/分）的 60s 窗口同档；
+      // F-23/FP-1：闸门秒数优先转述后端 429 信封的 data.retryAfterSeconds，取不到才回落本地 60
+      // （原先硬锁 60 是把 10 次/分、回速约 6 秒的桶高估了 10 倍）；
       // 冷却结束再点仍可能吃一次 429，那一支会把常驻反馈行重新写上，反馈不会说谎
-      this.retryLock = 60
+      this.retryLock = retrySecondsOf(err)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
