@@ -103,7 +103,7 @@
 // ⚠ pageSize 越界（0 / >100 / 负数）后端是 **400 而不是夹到边界**（F-20.10 追认），
 //   所以可选页大小只能提供 [10,20,50,100]，不给任何越界选项。
 import { computed, onMounted, ref } from 'vue'
-import { getAdminAuditLogs } from '../api'
+import { getAdminAuditLogs, retryAfterText } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -111,6 +111,8 @@ const PAGE_SIZES = [10, 20, 50, 100]
 const viewState = ref('loading')
 const errorText = ref('')
 const errorCode = ref(0)
+// F-22 FE-429-2：429 信封 data 里的 retryAfterSeconds 走这一枚 ref 到 codeHint（其余码不转述秒数）
+const errorData = ref(null)
 
 const rows = ref([])
 const total = ref(0)
@@ -132,7 +134,11 @@ const CODE_HINTS = {
   404: '审计查询接口没有可达（后端服务未起或路径已变），请确认后端在 3001 端口运行。',
   429: '读取过于频繁（服务端按来源 IP 限流 30 次/分），请稍候再翻页。'
 }
-const codeHint = computed(() => CODE_HINTS[errorCode.value] || '')
+// F-22 FE-429-2：只有 429 才把后端如实给的 retryAfterSeconds 接在后面（转述，非推断）；
+// 400/404 与其余码**不拼**——「约 N 秒后可再试」对它们是假信息。缺载荷时 retryAfterText 回 ''，
+// 本条文案与改动前逐字相同。
+const codeHint = computed(() => (CODE_HINTS[errorCode.value] || '')
+  + (errorCode.value === 429 ? retryAfterText(errorData.value) : ''))
 
 async function load() {
   // FE-G6-3 在飞守卫：请求未回时不再发第二条（分页器 @current-change / @size-change、
@@ -142,6 +148,7 @@ async function load() {
   viewState.value = 'loading'
   errorText.value = ''
   errorCode.value = 0
+  errorData.value = null
   try {
     const envelope = await getAdminAuditLogs(pageNum.value, pageSize.value, filters.value)
     const data = envelope.data || {}
@@ -169,6 +176,7 @@ async function load() {
     }
     viewState.value = 'error'
     errorCode.value = Number(e.code) || 0
+    errorData.value = e.data || null
     errorText.value = e.message || '审计记录读取失败，请稍后重试'
   }
 }

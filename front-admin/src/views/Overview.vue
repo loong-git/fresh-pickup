@@ -87,10 +87,13 @@
 //   「服务端 CURDATE()」或用户在页面上选定的那个值——绝不由前端拿本机时钟算出「今天是几号」再显示，
 //   那会变成第二处「今日」的真值（后端 SQL 与前端 JS 时钟可以不一致）。
 import { computed, onMounted, ref } from 'vue'
-import { getAdminOverview } from '../api'
+import { getAdminOverview, retryAfterText } from '../api'
 
 const viewState = ref('loading')
 const errorText = ref('')
+// F-22 FE-429-2：本页没有提示表（提示就是 errorText 那一行），429 的转述在 load() 的错误分支里拼；
+// 这一枚 ref 存 reject 载荷的 e.data，非 429 时不参与渲染。
+const errorData = ref(null)
 // 空串 = 用户没选日期 = 不下发 date 参数（服务端 CURDATE() 决定窗口）
 const pickedDate = ref('')
 
@@ -114,6 +117,7 @@ async function load() {
   if (viewState.value === 'loading') return
   viewState.value = 'loading'
   errorText.value = ''
+  errorData.value = null
   try {
     const envelope = await getAdminOverview(pickedDate.value)
     const data = envelope.data || {}
@@ -143,7 +147,13 @@ async function load() {
     }
     // 400（脏 date）/ 429（IP 30 次/分限流）/ 500 / 网络异常：后端 message 原样透出
     viewState.value = 'error'
-    errorText.value = e.message || '大盘数据读取失败，请稍后重试'
+    const code = Number(e.code) || 0
+    errorData.value = e.data || null
+    // F-22 FE-429-2：**只在 429** 时把后端如实给的 retryAfterSeconds 转述出来（转述、非推断，
+    // 与 views/Login.vue:43 同一口径）；400/500/-1 后面跟一句「约 N 秒后可再试」是错的，所以不拼。
+    // 缺载荷 / 非正数 → retryAfterText 回 ''，本行读数与改动前逐字相同。
+    errorText.value = (e.message || '大盘数据读取失败，请稍后重试')
+      + (code === 429 ? retryAfterText(errorData.value) : '')
   }
 }
 
