@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -70,21 +71,29 @@ public class PaymentSettlement {
      * 结算一笔支付成功（原 MockPayService:66-95 整段）。
      *
      * @param order   调用方已加载并校验过（本人 / 未支付 / 未取消）的订单行
-     * @param payTime 支付成功时间：同一次既写进库（orders.pay_time）也回写进内存 order，响应与库同值
+     * @param payTime 支付成功时间：方法入口先归一到整秒（{@code truncatedTo(ChronoUnit.SECONDS)}），
+     *                落库（orders.pay_time）与回写内存 order 用的是**同一枚归一后的值**，故响应与库逐字同值。
+     *                归一是必需的：{@code orders.pay_time} 是 {@code DATETIME(0)}，而 MySQL 对小数秒是四舍五入
+     *                （L-21-3：带纳秒的 now() 直接落库会出现「响应说 11:28:47.675、库里存 11:28:48」）
      * @return 支付成功后的订单：{@code updated>0} 返回入参 order 本身（已回写 payStatus/payTime/pickupCode）；
      *         {@code updated==0}（并发窗口内已被支付）回读库返回，不重复任何副作用
      */
     public Order settle(Order order, LocalDateTime payTime) {
+        // 精度归一（L-21-3）：orders.pay_time 是 DATETIME(0)，而 MySQL 对小数秒是「四舍五入」不是截断
+        // （实测 CAST('...:47.675' AS DATETIME)=48、'...:47.4'=47），调用方传的 LocalDateTime.now() 带纳秒，
+        // 不归一就会出现「响应 47.675 / 库 48」这种同一事实两个表示互相矛盾；这里截到整秒（不是进位对齐），
+        // 下面落库与回写内存共用这一枚值，两侧表示必然逐字一致。
+        LocalDateTime normalizedPayTime = payTime.truncatedTo(ChronoUnit.SECONDS);
         String orderId = order.getId();
         // 条件更新防并发双击：只有 pay_status=0 才置 1，影响行数 0 说明并发窗口内已被支付 → 幂等返回
         int updated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
                 .eq(Order::getId, orderId)
                 .eq(Order::getPayStatus, 0)
                 .set(Order::getPayStatus, 1)
-                .set(Order::getPayTime, payTime));
+                .set(Order::getPayTime, normalizedPayTime));
         if (updated > 0) {
             order.setPayStatus(1);
-            order.setPayTime(payTime);
+            order.setPayTime(normalizedPayTime);
             // 销量闭环（T-M4-03）：支付成功即按明细累加 sold_count（下单不计销量，取消已支付单按同明细回退）；
             // 置态与累加同事务防"已支付未计销量"半态，行锁同时串行化取消链路的退款判定，未来 wx-notify 同点复用
             List<OrderItem> items = orderItemMapper.selectList(
