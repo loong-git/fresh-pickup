@@ -252,19 +252,23 @@ export default {
       // error 态文案与错误码（决定主文案是「点太快」还是「读取失败」）
       errorText: '',
       errorCode: 0,
-      // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清；口径同 verify.vue:205-207，F-25/P-4 重测）
+      // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清；口径同 verify.vue 的拆锁，F-25/P-4 重测）
+      // X-1 拆锁（母版 dishes.vue catRetryLock）：retryLock = 读侧闸门（loadMine/refreshMineQuiet 撞 mine 读桶），
+      // writeRetryLock = 写侧闸门（submit 撞 POST /store-applies 写桶）。两把独立 @RateLimit 桶各计各的。
       retryLock: 0,
-      retryLockTimer: null
+      retryLockTimer: null,
+      writeRetryLock: 0,
+      writeRetryLockTimer: null
     }
   },
   computed: {
     canSubmit() {
-      return this.applyStatus !== STATUS_PENDING && !this.submitting && this.retryLock === 0
+      return this.applyStatus !== STATUS_PENDING && !this.submitting && this.writeRetryLock === 0
     },
     submitText() {
       if (this.submitting) return '提交中…'
       if (this.applyStatus === STATUS_PENDING) return '审核中，暂不能提交'
-      if (this.retryLock > 0) return '提交冷却中'
+      if (this.writeRetryLock > 0) return '提交冷却中'
       return this.applyStatus === STATUS_REJECTED ? '重新提交（会生成新申请）' : '提交入驻申请'
     },
     statusLabel() {
@@ -308,11 +312,11 @@ export default {
       return '可手填，坐标需与地址一致；点「用当前定位填一下」会自动取浏览器位置并转成 GCJ-02（与库里同一坐标系）。'
         + '拿不到定位时手动填也可以，精度到 6 位小数'
     },
-    // 常驻反馈文案：cooling 一支的秒数读实时 retryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」）
+    // 常驻反馈文案：cooling 一支的秒数读实时写侧闸门 writeRetryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」）
     feedbackText() {
       if (!this.feedback) return ''
       if (this.feedback.tone === 'cooling') {
-        return this.retryLock > 0 ? '操作过于频繁，请 ' + this.retryLock + 's 后再试' : this.feedback.text
+        return this.writeRetryLock > 0 ? '操作过于频繁，请 ' + this.writeRetryLock + 's 后再试' : this.feedback.text
       }
       return this.feedback.text
     },
@@ -344,9 +348,10 @@ export default {
   },
   // #endif
   onUnload() {
-    // 定时器清理：429 冷却这枚 setInterval 必须成对摘掉（挂在 document 上不摘就会在页面销毁后
+    // 定时器清理：X-1 拆锁后有两枚 setInterval（读侧 retryLockTimer / 写侧 writeRetryLockTimer），必须都成对摘掉（挂在 document 上不摘就会在页面销毁后
     // 继续每秒写一次已死组件的状态）
     this.stopRetryLock()
+    this.stopWriteRetryLock()
     // #ifdef H5
     if (this._pageWheelHandler) {
       document.removeEventListener('wheel', this._pageWheelHandler)
@@ -578,8 +583,9 @@ export default {
     // ==================== 提交 ====================
     // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:305-308 同姿势，F-25/P-4 重测）
     async submit() {
-      if (this.retryLock > 0) {
-        this.showToast('操作过于频繁，请 ' + this.retryLock + 's 后再试')
+      // X-1：提交闸门读写侧 writeRetryLock（POST 写桶），与读侧 mine 刷新的 retryLock 互不干扰
+      if (this.writeRetryLock > 0) {
+        this.showToast('操作过于频繁，请 ' + this.writeRetryLock + 's 后再试')
         return
       }
       if (this.applyStatus === STATUS_PENDING) {
@@ -627,8 +633,10 @@ export default {
         return
       }
       if (code === 429) {
+        // 本页 X-3 无病：起锁点本就存不带数字的整句（此处为四页母版），秒数只在 feedbackText 读实时 writeRetryLock 那一处出
+        // X-1：起写侧闸门 writeRetryLock——POST 写桶的冷却与 mine 读闸门互不覆盖
         this.setFeedback('cooling', '操作过于频繁，请稍后再试')
-        this.startRetryLock(e)
+        this.startWriteRetryLock(e)
         return
       }
       if (code === 400) {
@@ -719,7 +727,9 @@ export default {
       }
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
-    // ==================== 429 冷却（定时器与闸门照 verify.vue:653-669 同款，F-25/P-4 重测；起锁秒数自 F-23 起由 retrySecondsOf 取值） ====================
+    // ==================== 429 冷却（定时器与闸门同端母版同款；F-25/P-3 起入参是错误对象，起锁秒数由 retrySecondsOf 取值） ====================
+    // X-1 拆锁：startRetryLock/stopRetryLock 只管读侧闸门 retryLock（loadMine/refreshMineQuiet 撞 mine 读桶）；
+    // 写侧闸门另有 startWriteRetryLock/stopWriteRetryLock 一对，两把锁互不覆盖。
     startRetryLock(err) {
       this.stopRetryLock()
       // F-23/FP-1：闸门秒数优先转述后端 429 信封的 data.retryAfterSeconds，取不到才回落本地 60
@@ -734,6 +744,20 @@ export default {
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
       this.retryLock = 0
+    },
+    // X-1：写侧闸门专用一对——handleSubmitError 撞 POST 写桶的 429 只动这两枚变量，
+    // 读侧任何路径（含 loadMine 非 429 失败的 stopRetryLock）都清不掉它。秒数仍只来自 retrySecondsOf。
+    startWriteRetryLock(err) {
+      this.stopWriteRetryLock()
+      this.writeRetryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      this.writeRetryLockTimer = setInterval(() => {
+        this.writeRetryLock--
+        if (this.writeRetryLock <= 0) this.stopWriteRetryLock()
+      }, 1000)
+    },
+    stopWriteRetryLock() {
+      if (this.writeRetryLockTimer) { clearInterval(this.writeRetryLockTimer); this.writeRetryLockTimer = null }
+      this.writeRetryLock = 0
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5

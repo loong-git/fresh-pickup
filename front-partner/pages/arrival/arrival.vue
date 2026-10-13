@@ -81,11 +81,11 @@
              「该批次已登记短少，不可直接确认」（PartnerStoreServiceImpl.java:328-331），按钮留着就是诱骗报错 -->
         <button
           class="btn-main batch-confirm"
-          :class="{ 'btn-disabled': !canConfirm(b) || confirmingId !== null || retryLock > 0 }"
-          :disabled="!canConfirm(b) || confirmingId !== null || retryLock > 0"
+          :class="{ 'btn-disabled': !canConfirm(b) || confirmingId !== null || writeRetryLock > 0 }"
+          :disabled="!canConfirm(b) || confirmingId !== null || writeRetryLock > 0"
           @click="confirmBatch(b)"
         ><text>{{ confirmLabel(b) }}</text></button>
-        <text v-if="retryLock > 0 && canConfirm(b)" class="form-hint">操作过于频繁，{{ retryLock }}s 后可再确认</text>
+        <text v-if="writeRetryLock > 0 && canConfirm(b)" class="form-hint">操作过于频繁，{{ writeRetryLock }}s 后可再确认</text>
         <text v-else-if="!canConfirm(b) && !isConfirmed(b)" class="form-hint">{{ disabledReason(b) }}</text>
 
         <!-- 常驻反馈（每个批次一行，四支口径同核销台）：写在被点的那张卡里，
@@ -169,8 +169,13 @@ export default {
       // FE-12：「只重拉这一条」失败的降级提示位（true = 屏上状态可能偏旧，页尾给一行实话）
       batchRefreshFailed: false,
       // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清）
+      // X-1 拆锁（母版 dishes.vue catRetryLock）：retryLock = 读侧闸门（loadBatches 撞 arrivals 读桶，
+      // 本页刻意不给读入口装闸门，见 loadBatches 注释），writeRetryLock = 写侧闸门（confirmBatch 撞确认写桶）。
+      // 共用一枚时：读侧一次非 429 失败的 stopRetryLock() 会把写侧闸门清成 0——这正是本页的实病。
       retryLock: 0,
-      retryLockTimer: null
+      retryLockTimer: null,
+      writeRetryLock: 0,
+      writeRetryLockTimer: null
     }
   },
   computed: {
@@ -222,8 +227,9 @@ export default {
       this._pageWheelHandler = null
     }
     // #endif
-    // 定时器清理：本页只有 429 冷却这一枚 setInterval，必须成对清掉
+    // 定时器清理：X-1 拆锁后本页有两枚 setInterval（读侧 retryLockTimer / 写侧 writeRetryLockTimer），都必须成对清掉
     this.stopRetryLock()
+    this.stopWriteRetryLock()
   },
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
@@ -283,8 +289,8 @@ export default {
     async confirmBatch(b) {
       const id = b && b.id
       if (id === null || id === undefined || id === '') return
-      // 冷却闸门写在方法级第一行：模板的 disabled 在小程序端不保证拦住 click
-      if (this.retryLock > 0) return
+      // 冷却闸门写在方法级第一行：模板的 disabled 在小程序端不保证拦住 click（X-1：读写拆锁后闸门只看写侧 writeRetryLock）
+      if (this.writeRetryLock > 0) return
       // 单飞锁：同一批次连点只放行一次；其余批次此刻也共用这一枚锁（一次只做一个写动作，
       // 避免两个确认互相把对方的读数刷掉——本表 uk_store_date 下本来就一日一批，这里只是把规矩立住）
       if (this.confirmingId !== null) return
@@ -311,11 +317,11 @@ export default {
         const message = (e && e.message) || ''
         if (code === 401) return
         if (code === 429) {
-          // FE-5 + FE-10：秒数按后端 data.retryAfterSeconds 起，句式与清单加载那一支同一处生成
-          // F-25/P-3：闸门入参改为错误对象本身（与 apply/login/workspace 同族），文案用的秒数仍在这里取
-          const seconds = retrySecondsOf(e, RETRY_FALLBACK_SECONDS)
-          this.setFeedback(key, 'cooling', coolingText(seconds))
-          this.startRetryLock(e)
+          // X-3：起锁点存不带数字的整句（照 apply.vue:630），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
+          // 免得归零后常驻行永久停在「请 Ns 后再试」（改前存 coolingText(seconds) 把数整句存死了）。
+          // X-1：起写侧闸门 writeRetryLock——确认写桶的冷却与 loadBatches 读闸门互不覆盖。秒数仍只来自 retrySecondsOf。
+          this.setFeedback(key, 'cooling', '操作过于频繁，请稍后再试')
+          this.startWriteRetryLock(e)
           return
         }
         if (code === 404) {
@@ -375,12 +381,13 @@ export default {
       if (id === null || id === undefined || id === '') return null
       return this.feedbackMap[String(id)] || null
     },
-    // cooling 一支的秒数读实时 retryLock：存死的字符串会在冷却结束后仍写着「请 60s 后再试」
+    // cooling 一支的秒数读实时写侧闸门 writeRetryLock：存死的字符串会在冷却结束后仍写着「请 60s 后再试」；
+    // 起锁点（confirmBatch 429 支）存不带数字的整句（X-3，照 apply.vue:630）
     feedbackText(b) {
       const fb = this.feedbackOf(b)
       if (!fb) return ''
       if (fb.tone === 'cooling') {
-        return this.retryLock > 0 ? coolingText(this.retryLock) : fb.text
+        return this.writeRetryLock > 0 ? coolingText(this.writeRetryLock) : fb.text
       }
       return fb.text
     },
@@ -458,7 +465,7 @@ export default {
     },
     confirmLabel(b) {
       // 冷却中的可确认批次：按钮字直接给秒数（置灰但不说为什么置灰 = 用户以为页面坏了）
-      if (this.retryLock > 0 && this.canConfirm(b)) return this.retryLock + 's后可确认'
+      if (this.writeRetryLock > 0 && this.canConfirm(b)) return this.writeRetryLock + 's后可确认'
       if (this.confirmingId !== null && String(this.confirmingId) === String((b && b.id))) return '确认中…'
       if (this.isConfirmed(b)) return '已确认'
       if (!this.canConfirm(b)) return '不可确认'
@@ -517,8 +524,10 @@ export default {
       const s = (it && it.shortReason) == null ? '' : String(it.shortReason).trim()
       return s
     },
-    // ==================== 429 冷却（照 plan-orders.vue:452-463 同款；F-25/P-3 起入参是错误对象） ====================
-    // 只在 code===429 起（页面纪律 ②）：两个调用点都在 catch 里判过码
+    // ==================== 429 冷却（照 plan-orders.vue 同款；F-25/P-3 起入参是错误对象） ====================
+    // 只在 code===429 起（页面纪律 ②）：调用点在 catch 里判过码
+    // X-1 拆锁：startRetryLock/stopRetryLock 只管读侧闸门 retryLock（loadBatches 撞 arrivals 读桶）；
+    // 写侧闸门另有 startWriteRetryLock/stopWriteRetryLock 一对（confirmBatch），两把锁互不覆盖。
     startRetryLock(err) {
       this.stopRetryLock()
       // F-25/P-3：入参由「调用方算好的秒数」改为 catch 到的错误对象，秒数一律由 api 层 retrySecondsOf 取值
@@ -534,6 +543,20 @@ export default {
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
       this.retryLock = 0
+    },
+    // X-1：写侧闸门专用一对——confirmBatch 撞确认写桶的 429 只动这两枚变量，
+    // 读侧任何路径（含 loadBatches 非 429 失败的 stopRetryLock）都清不掉它。秒数仍只来自 retrySecondsOf。
+    startWriteRetryLock(err) {
+      this.stopWriteRetryLock()
+      this.writeRetryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      this.writeRetryLockTimer = setInterval(() => {
+        this.writeRetryLock--
+        if (this.writeRetryLock <= 0) this.stopWriteRetryLock()
+      }, 1000)
+    },
+    stopWriteRetryLock() {
+      if (this.writeRetryLockTimer) { clearInterval(this.writeRetryLockTimer); this.writeRetryLockTimer = null }
+      this.writeRetryLock = 0
     },
     // ==================== 跳转 ====================
     goWorkspace() {

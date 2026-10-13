@@ -39,7 +39,7 @@
         @click="submitVerify"
       ><text>{{ verifying ? '核销中…' : '核销' }}</text></button>
       <text v-if="code.length !== 6" class="form-hint">请输入 6 位取货码</text>
-      <text v-else-if="retryLock > 0" class="form-hint">冷却中，{{ retryLock }}s 后可再提交</text>
+      <text v-else-if="writeRetryLock > 0" class="form-hint">冷却中，{{ writeRetryLock }}s 后可再提交</text>
       <!-- 常驻反馈行：四支（成功/幂等/404/400/429）都落在这一行，不只 toast——
            核销现场主理人正低头翻货，toast 一闪而过就等于没反馈。toast 同批发出，文案同一处生成 -->
       <text v-if="feedback" class="verify-feedback" :class="'verify-feedback-' + feedback.tone">{{ feedbackText }}</text>
@@ -203,8 +203,14 @@ export default {
       // 仅驱动「加载更多」按钮的加载中文案：翻页失败不该把已加载的清单换成错误卡
       loadingMore: false,
       // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清）
+      // X-1 拆锁（母版 dishes.vue 的 catRetryLock）：retryLock = 读侧闸门（fetchList/loadMore/loadAlert，
+      // 撞的是 orders 读桶 USER 档），writeRetryLock = 写侧闸门（submitVerify 撞 D-14 防枚举锁 / 写桶）。
+      // 两把锁是两个独立 @RateLimit 桶，必须各计各的：共用一枚时读侧一次非 429 失败的 stopRetryLock()
+      // 会把写侧 600 秒防枚举闸门清成 0（本页 fetchList 无闸门内判据，onShow/步进都能撞进去）。
       retryLock: 0,
       retryLockTimer: null,
+      writeRetryLock: 0,
+      writeRetryLockTimer: null,
       // ===== 到货警示条 =====
       // null = 还没查/这次没查成（不显示）；true = 今日确有未确认批次（显示）；false = 今日已确认（不显示）
       alertUnconfirmed: null,
@@ -231,14 +237,14 @@ export default {
       return '今日批次未确认，货可能未到'
     },
     canSubmit() {
-      return this.code.length === 6 && !this.verifying && this.retryLock === 0
+      return this.code.length === 6 && !this.verifying && this.writeRetryLock === 0
     },
-    // 常驻反馈文案：cooling 一支的秒数读实时 retryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」），
-    // 句式与清单加载那一支同源（coolingText 唯一实现处）
+    // 常驻反馈文案：cooling 一支的秒数读实时写侧闸门 writeRetryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」），
+    // 句式与清单加载那一支同源（coolingText 唯一实现处）；起锁点存的是不带数字的整句（X-3，照 apply.vue:630）
     feedbackText() {
       if (!this.feedback) return ''
       if (this.feedback.tone === 'cooling') {
-        return this.retryLock > 0 ? coolingText(this.retryLock) : this.feedback.text
+        return this.writeRetryLock > 0 ? coolingText(this.writeRetryLock) : this.feedback.text
       }
       return this.feedback.text
     },
@@ -288,9 +294,10 @@ export default {
       this._pageWheelHandler = null
     }
     // #endif
-    // 定时器清理：本页只有 429 冷却这一枚 setInterval，必须成对清掉
+    // 定时器清理：X-1 拆锁后本页有两枚 setInterval（读侧 retryLockTimer / 写侧 writeRetryLockTimer），都必须成对清掉
     // （挂在 window 上不摘就会在页面销毁后继续每秒写一次已死组件的状态）
     this.stopRetryLock()
+    this.stopWriteRetryLock()
   },
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
@@ -305,7 +312,7 @@ export default {
     // 单飞锁 verifying 在 finally 复位；冷却闸门写在方法级第一行——小程序端 disabled 按钮的
     // click 仍可能触发，只靠模板拦不住（闸门姿势照 plan-orders.vue 的 loadMore 首行）
     async submitVerify() {
-      if (this.retryLock > 0) return
+      if (this.writeRetryLock > 0) return
       if (this.verifying) return
       const pickupCode = this.code
       if (pickupCode.length !== 6) return
@@ -337,10 +344,11 @@ export default {
           // FE-5：冷却秒数按后端 data.retryAfterSeconds 起（锁 10 分钟时本地就该冷却到锁解），
           // FE-10：文案与清单加载那一支同一句。
           // 冷却期内输入框仍可用，但提交不发请求（上面那道闸门）
-          // F-25/P-3：闸门入参改为错误对象本身，文案用的秒数仍在这里取一次（同 err 同函数，值与改前一致）
-          const seconds = retrySecondsOf(e, RETRY_FALLBACK_SECONDS)
-          this.setFeedback('cooling', coolingText(seconds))
-          this.startRetryLock(e)
+          // X-3：起锁点存不带数字的整句（照 apply.vue:630），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
+          // 免得归零后常驻行永久停在「请 Ns 后再试」（改前这里存 coolingText(seconds)，把数整句存死了）。
+          // X-1：起写侧闸门 writeRetryLock——这是 D-14 防枚举锁的前端闸门，读侧冷却（retryLock）再动也碰不到它。
+          this.setFeedback('cooling', '操作过于频繁，请稍后再试')
+          this.startWriteRetryLock(e)
           return
         }
         if (code === 404) {
@@ -650,13 +658,15 @@ export default {
     },
     // ==================== 429 冷却（照 plan-orders.vue:452-463 同款；F-25/P-3 起入参是错误对象） ====================
     // 只在 code===429 起（页面纪律 ②）：调用点全部在 catch 里判过码，这里不重复判、也不接受别的来源
+    // X-1 拆锁：startRetryLock/stopRetryLock 只管读侧闸门 retryLock（fetchList 撞 orders 读桶）；
+    // 写侧闸门另有 startWriteRetryLock/stopWriteRetryLock 一对，两把锁互不覆盖。
     startRetryLock(err) {
       this.stopRetryLock()
       // F-25/P-3：入参由「调用方算好的秒数」改为 catch 到的错误对象，秒数一律由 api 层 retrySecondsOf 取值
       // （与 apply/login/workspace 那一族同形）。原先方法内那道 `Number(seconds) > 0 ? … : RETRY_FALLBACK_SECONDS`
       // 二次兜底已删——回落只能有一个出处。
-      // 秒数 = 后端 data.retryAfterSeconds（D-14 锁的剩余 TTL）优先，取不到回落本地 60。
-      // 回落 60 与写侧 @RateLimit 的 60s 窗口同档；冷却结束再提交仍可能吃一次 429，
+      // 秒数 = 后端 data.retryAfterSeconds（读桶 429 的剩余 TTL）优先，取不到回落本地 60。
+      // 回落 60 与读侧 @RateLimit 的 60s 窗口同档；冷却结束再拉仍可能吃一次 429，
       // 那一支会把这一行重新写上，反馈不会说谎
       this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.retryLockTimer = setInterval(() => {
@@ -667,6 +677,20 @@ export default {
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
       this.retryLock = 0
+    },
+    // X-1：写侧闸门专用一对——submitVerify 撞 D-14 防枚举锁（可达 600s）只动这两枚变量，
+    // 读侧任何失败（含非 429 的 stopRetryLock）都无法把这里的长闸门清掉。秒数仍只来自 retrySecondsOf。
+    startWriteRetryLock(err) {
+      this.stopWriteRetryLock()
+      this.writeRetryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      this.writeRetryLockTimer = setInterval(() => {
+        this.writeRetryLock--
+        if (this.writeRetryLock <= 0) this.stopWriteRetryLock()
+      }, 1000)
+    },
+    stopWriteRetryLock() {
+      if (this.writeRetryLockTimer) { clearInterval(this.writeRetryLockTimer); this.writeRetryLockTimer = null }
+      this.writeRetryLock = 0
     },
     // ==================== 跳转 ====================
     goWorkspace() {
