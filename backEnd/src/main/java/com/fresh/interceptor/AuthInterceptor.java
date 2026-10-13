@@ -219,7 +219,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
         if (path.startsWith("/api/pay/")) {
             // 微信支付回调端点豁免（需求 A）：微信服务器无 token，匿名可达；
-            // 安全性由回调自身的平台证书验签保障（TODO 见 PayController#wxNotify）
+            // 安全性由回调自身的平台证书验签 + APIv3 解密 + 金额三比对保障（见 PayController#wxNotify，F-21.6 Step 2b）
             if (path.matches("^/api/pay/[^/]+/wx-notify$")) {
                 return false;
             }
