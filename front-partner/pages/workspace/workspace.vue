@@ -127,6 +127,26 @@ const ENTRY_ROUTES = {
 // 只有它不等于该值时才出一行提示，脏值原样展示不替后端猜中文
 const STORE_STATUS_OPEN = 'open'
 
+// F-23.2（补 F-23 漏网的第三处同 pattern）：429 冷却时长不再硬编码 60——后端 429 信封的
+// data.retryAfterSeconds 优先，取不到才回落本地 60。
+// 回落值口径：它是本页所撞限流档（GET /api/partner/stores 与 GET /api/partner/store 都是 USER 维度
+// @RateLimit 30 次/分）的整窗长度，是「后端不给 data 时的保守上限」，不是回速（回速实测 2~12 秒，
+// 远小于窗口），两个数不是一回事，别混成一个值。
+const RETRY_FALLBACK_SECONDS = 60
+
+// 已登记的一致性债：本页是 front-partner 内第 6 份同名私有实现（arrival/store/verify/apply/login 各一份），
+// 待另批与 arrival/store/verify/apply/login 一起收敛到 api 层。
+// 本批刻意不抽共享模块——那是重构，会牵动上面五页，与「补 workspace 这一处漏网」混在一起会让回归面失焦。
+// （商家端已收敛：front-merchant/api/index.js:221 导出 retrySecondsOf(err, fallbackSeconds) 两参版；
+//   主理人端 api/index.js 尚未导出同名函数，所以这里仍是页内私有的一参版，语义与 arrival.vue:148-152 逐字一致。）
+// 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
+// 网络异常/信封不可解析时 data 为 null，走上面的本地回落。
+function retrySecondsOf(err) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
+}
+
 export default {
   data() {
     return {
@@ -146,7 +166,8 @@ export default {
       // 已有列表快照时重拉失败（含明细那一次失败）的降级标记：卡片照常展示，只在卡底追加一行重试提示
       refreshFailed: false,
       // 429 冷却剩余秒数（两条 GET 都是 USER 30 次/分，共用这一张冷却表；
-      // 落点与写法照 dishes.vue:170-171（data）/ :378（errorCode===429 才起锁）/ :425（startRetryLock））
+      // 起锁秒数不再硬编码：转述后端 429 信封的 data.retryAfterSeconds，取不到才回落 RETRY_FALLBACK_SECONDS；
+      // 落点与写法照 dishes.vue:177-178（data）/ :385（errorCode===429 才起锁）/ :432（startRetryLock））
       retryLock: 0,
       retryLockTimer: null,
       // 四入口（静态列表放 data，与母版 entries 同款）：可点与否由 ENTRY_ROUTES[entry.key] 决定，
@@ -282,15 +303,16 @@ export default {
         // 会话内已有列表快照：保持 ready 展示，只降级卡底一行重试提示（偶发网络抖动不该把已看到的数据整页换掉）
         if (this.stores.length) {
           this.refreshFailed = true
-          if (code === 429) this.startRetryLock()
+          if (code === 429) this.startRetryLock(e)
           this.viewState = 'ready'
           return
         }
         // 首屏无快照才是整页错误态
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 才起冷却锁（照 dishes.vue:378 的判定：其余失败重试是有意义的，不该被秒数拦住）
-        if (code === 429) this.startRetryLock()
+        // 只有 429 才起冷却锁（照 dishes.vue:385 的判定：其余失败重试是有意义的，不该被秒数拦住）
+        // 把 catch 到的错误对象交给 startRetryLock：冷却秒数由它转述后端 429 信封的真值，本页不再猜 60
+        if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -309,7 +331,7 @@ export default {
         const code = Number((e && e.code) || 0)
         if (code === 401) return // 请求层已接管（回登录页），这里不追加任何提示
         this.refreshFailed = true
-        if (code === 429) this.startRetryLock()
+        if (code === 429) this.startRetryLock(e)
       }
     },
     // empty 态渲染：清掉可能残留的列表/明细快照，避免「已换账号/已解绑」还渲着上一家门店的名字
@@ -367,10 +389,14 @@ export default {
         }
       })
     },
-    // ==================== 429 冷却（照 dishes.vue:425 startRetryLock 的写法） ====================
-    startRetryLock() {
+    // ==================== 429 冷却（照 dishes.vue:432 startRetryLock 的写法 + 本批母版 login.vue:282） ====================
+    // F-23.2：入参改为 catch 到的错误对象，起锁秒数由页内 retrySecondsOf 转述后端 429 信封的
+    // data.retryAfterSeconds，取不到才回落本地窗口长度（RETRY_FALLBACK_SECONDS）。
+    // 闸门语义一行没削弱：retryLock 仍是「冷却期内不重发」的唯一依据
+    // （load() 首行的 retryLock > 0 早退 + 模板三处 !retryLock 判定均未动）。
+    startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = 60
+      this.retryLock = retrySecondsOf(err)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
