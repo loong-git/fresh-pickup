@@ -362,7 +362,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * 合法的清空指令，实测 `PUT /dishes/35 {"category":"","unit":"","name":""}` 三列全变空串；
      * NOT NULL 列被写成空值等于把 C 端卡片渲染成无名无单位。create 侧这三列本就 @NotBlank，同一判定命中不了。
      * <p>文案一律复用既有串（R2 硬红线，不新增 400/403 文案）：形态不合法走
-     * GlobalExceptionHandler:51 的「请求参数有误，请检查后重试」；三列 blank 走 MerchantDishCreateDTO
+     * GlobalExceptionHandler:55 的「请求参数有误，请检查后重试」；三列 blank 走 MerchantDishCreateDTO
      * 里同字段的 @NotBlank message 原文（「商品名称不能为空」「请填写商品单位」「请选择商品分类」）。
      * <p>null（未传）不参与判定：image/bgColor 为 null 是「本次不改这列」，name/unit/category 同理。
      */
