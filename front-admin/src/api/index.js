@@ -140,14 +140,56 @@ function handleEnvelope(res, resolve, reject, loginRequest) {
  *   不向上取整、不 clamp。
  *   载荷缺失 / 非对象 / 不是 >0 的有限数 → 回空串，页面就退回原有的「请稍候再翻页」文案。
  * 键名逐字 `retryAfterSeconds`，与 AdminAuthServiceImpl:276、Login.vue:125、PartnerOrderServiceImpl:106 同拼写。
+ * X-6（F-28.2 片 4）：返回值**自带前导分隔**（一枚空格的 RETRY_AFTER_TEXT_LEAD），拼接点不必再各自补标点。
+ *   病因：后端 429 的整句文案（R.java:26「操作过于频繁，请稍后再试」）**结尾没有句号**，而 Overview.vue 的
+ *   load() 把「后端原文 + 本函数返回值」直连成一行，无分隔时就拼成
+ *   「操作过于频繁，请稍后再试服务端约 2 秒后可再试。」——两词粘连的病句。
+ *   分隔符为什么是空格而不是「。，；」这类标点：本函数只拿得到 data、看不见前一句，
+ *   而另 5 页（Dishes/Orders/Reviews/StoreApplies/AuditLogs）的 CODE_HINTS[429] 与 WRITE_CODE_HINTS[429]
+ *   共 9 处拼接点**句子自带结尾句号**，补任何标点都会在那 9 处拼出「。。」「。；」双标点；
+ *   空格对「有句号的前句」和「没句号的前句」同时成立，且不与后端文案的标点形状发生关系。
+ *   反向禁例（同一条理由）：也不许在页面里判「前一句末字符是不是标点」再决定补不补——
+ *   那会把前端呈现拴在后端文案上，R.java 改一次标点、六页就变一次形。
+ * 与下面 waitDurationText 的分工（别混）：本函数转述的是**后端整句文案里的秒数**，不换算单位、不取整；
+ * waitDurationText 只管登录页锁定倒计时的显示写法。两者互不复用。
  * @param {unknown} data reject 载荷里的 e.data（可为 null / undefined / 非对象）
- * @returns {string} 有如实读数时是「服务端约 N 秒后可再试。」，否则是 ''
+ * @returns {string} 有如实读数时是「 服务端约 N 秒后可再试。」（含前导分隔空格），否则是 ''
  */
+// X-6 的前导分隔：单枚空格、非标点，理由见上；要改成别的分隔符必须连同那 9 处自带句号的拼接点一起看。
+const RETRY_AFTER_TEXT_LEAD = ' '
+
 export function retryAfterText(data) {
   if (!data || typeof data !== 'object') return ''
   const n = Number(data.retryAfterSeconds)
   if (!Number.isFinite(n) || n <= 0) return ''
-  return '服务端约 ' + n + ' 秒后可再试。'
+  return RETRY_AFTER_TEXT_LEAD + '服务端约 ' + n + ' 秒后可再试。'
+}
+
+/**
+ * 等待时长的**显示单位换算**（X-9 / F-28.2 片 4）：只改读数怎么写，不改读数本身。
+ * 入参仍是后端如实给的秒数（Login.vue 的 lockRemaining，源头是 401/429 信封 data.retryAfterSeconds），
+ * 本函数不产生任何新数值、不兜默认时长：
+ *   <60 秒 → 「N 秒」，与换算前逐字同形（本页 <60 的屏上文案一字不变）；
+ *   ≥60 秒 → 「约 M 分钟」，M = Math.ceil(seconds / 60)。
+ * 取整方向选**向上**（ceil）而不是向下，理由：这是「还要等多久才可以再试」，
+ *   floor 会把 90 秒说成「约 1 分钟」，运营按 1 分钟去重试只会再吃一次拒（低估等待＝误导）；
+ *   向上最多让读数比真值大一格，且「约」字已如实标明这是近似值；方向也与本仓另两端的
+ *   retrySecondsOf（front-merchant / front-partner 的 api 层，同为「剩余秒数」换算）的 Math.ceil 一致。
+ *   三个钉死的读数：60 →「约 1 分钟」、90 →「约 2 分钟」、600 →「约 10 分钟」（后者正是
+ *   AdminAuthServiceImpl:112 的 LOGIN_FAIL_LOCK_TTL = 10 分钟刚上锁时的剩余秒数）。
+ * 非有限数 / ≤0 → 回 ''：调用方（Login.vue 的 locked 闸门）此时本就不显示这一行，
+ *   不拿它造一句「约 0 分钟后再试」。
+ * ⚠ 红线（本条契约的原话是「归因文案不许动」）：本函数只碰倒计时那一行的**时长单位**，
+ *   绝不碰同屏那句后端原文（「用户名或密码错误」）。三种失败在服务端本就是同一句（D-5 防枚举），
+ *   页面不许把它改写成「已连续输错 5 次」这类暴露锁定条件的说法。
+ * @param {unknown} seconds 后端给的剩余秒数（可为字符串数字 / null / 非数）
+ * @returns {string} 「N 秒」/「约 M 分钟」/ ''
+ */
+export function waitDurationText(seconds) {
+  const n = Number(seconds)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  if (n < 60) return n + ' 秒'
+  return '约 ' + Math.ceil(n / 60) + ' 分钟'
 }
 
 /**

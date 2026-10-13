@@ -152,6 +152,10 @@ async function load() {
     // F-22 FE-429-2：**只在 429** 时把后端如实给的 retryAfterSeconds 转述出来（转述、非推断，
     // 与 views/Login.vue:43 同一口径）；400/500/-1 后面跟一句「约 N 秒后可再试」是错的，所以不拼。
     // 缺载荷 / 非正数 → retryAfterText 回 ''，本行读数与改动前逐字相同。
+    // X-6（F-28.2 片 4）：这一行的分隔符**不在本页**——由 api 层 retryAfterText 自带前导空格给出。
+    // 本页前段是后端 message 原文（R.java:26「操作过于频繁，请稍后再试」结尾无句号），
+    // 页面若去判「末字符有没有句号」再决定补不补，就把前端呈现拴在了后端文案的标点形状上，属本条禁例；
+    // 也不许在本页补句号——其余 5 页的提示表自带句号，各页各补就会各处长出双标点。
     errorText.value = (e.message || '大盘数据读取失败，请稍后重试')
       + (code === 429 ? retryAfterText(errorData.value) : '')
   }
