@@ -224,6 +224,25 @@ export function retrySecondsOf(err, fallbackSeconds) {
 }
 
 /**
+ * 429 / 锁定 冷却整句的唯一生成处——front-partner 内唯一实现（F-28.5 路 A 收敛，先例是同文件的 retrySecondsOf，
+ * F-25 路把六份页内私有实现并成本层一份；本轮把 verify/store/arrival 各留的一份私有 coolingText 也并了进来）：
+ * 六个页面（apply/arrival/login/store/verify/workspace）一律 import 本函数，页内不再留任何冷却句式。
+ * 句式与单位（X-8 裁定统一到拉丁「s」制：模板的闸门短标签「Ns后可重试」等本来就是 s 制，
+ * 全端 s 制 22 处对「秒」制 1 处，改少数服从多数，也不去碰 sms 那句「Ns后重发」）：
+ *   - 入参是有限正数 → 「操作过于频繁，请 Ns 后再试」（带数支）
+ *   - 无参 / 非有限 / <=0 → 「操作过于频繁，请稍后再试」（不带数整句，即 X-3 起锁点母版那句的原样函数化）
+ * 两条纪律（调用处必须同时满足，否则就把 X-5 改成新 bug）：
+ * ① 带数支只许读**实时闸门值**（writeRetryLock/retryLock 的当前值）——存死的带数整句会在冷却归零后仍挂在屏上；
+ * ② 同一把锁在同一屏只允许一处带数，其余出现处一律走不带数支（无参调用），
+ *    例：错误卡闸门行「Ns后可重试」已带数，同屏的 errorLeadText 与 toast 就用无参形式。
+ * 本函数只生成字符串：秒数的来源与闸门逻辑不归它管（数值仍只能来自 data.retryAfterSeconds，经 retrySecondsOf）。
+ */
+export function coolingText(seconds) {
+  const n = Number(seconds)
+  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
+}
+
+/**
  * 统一请求封装：有 token 才带 Authorization: Bearer <token>；其余判定全在 handleEnvelope
  */
 const request = (options) => {

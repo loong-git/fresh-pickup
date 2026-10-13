@@ -109,7 +109,7 @@
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并 reLaunch 回登录页）；
 // 403 也不当登录失效（handleEnvelope 只 reject 不跳），本页把它归到 empty 态渲染引导内容。
 // 渲染不依赖 store：本页自持一份服务端最新值（母版同款纪律）。
-import { getPartnerStores, getPartnerStore, retrySecondsOf } from '@/api/index.js'
+import { getPartnerStores, getPartnerStore, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue:99。模块级 const 表，
@@ -232,7 +232,9 @@ export default {
     // FF-6 + F-25/P-4：这条指针历史 209-214 → 216-221 → 218-223（每次都只隔着一两次加行），
     // 现值按 dishes.vue 实况重测＝228-233（computed errorLeadText 本体 228、四支 return 229-232、收尾 233）
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
+      // F-28.5 路 A（X-8）：句式收进 coolingText 无参整句——「点得太快了」这一支第三种说法并入全端统一族；
+      // FF-1「这行不带时长」的纪律不变（读侧带数处仍是模板的 retryLock 闸门行）
+      if (this.errorCode === 429) return coolingText()
       // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
       // 承认自己处理出错，同屏第二行透出的正是那句原文，第一行却叫主理人去查网络——因果方向相反
       if (this.errorCode === 500) return '门店资料加载失败，服务端处理出错，稍后重试'

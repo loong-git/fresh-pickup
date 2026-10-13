@@ -183,7 +183,7 @@
 // ④ 冷却锁只在 code===429 起，onUnload 成对清定时器，所有请求走 @/api/index.js（页内零原生请求）。
 // 本页挂 /api/store-applies 而非 /api/partner/**（D-20：申请阶段名下无店，partner 闸门会把自己锁死），
 // 所以 role=user 也能进，403 在这里不是设计内分支（请求层 403 不跳登录页的语义照旧）。
-import { getMyStoreApply, submitStoreApply, retrySecondsOf } from '@/api/index.js'
+import { getMyStoreApply, submitStoreApply, retrySecondsOf, coolingText } from '@/api/index.js'
 import { wgs84ToGcj02 } from '@/utils/gcj02.js'
 import '@/styles/common.css'
 
@@ -313,16 +313,18 @@ export default {
         + '拿不到定位时手动填也可以，精度到 6 位小数'
     },
     // 常驻反馈文案：cooling 一支的秒数读实时写侧闸门 writeRetryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」）
+    // F-28.5 路 A：带数整句不再页内拼，交 api 层唯一的 coolingText（本页 cooling 支原是不 import 收敛的三份私有实现之外的第四份手写拼接，一并收进来）
     feedbackText() {
       if (!this.feedback) return ''
       if (this.feedback.tone === 'cooling') {
-        return this.writeRetryLock > 0 ? '操作过于频繁，请 ' + this.writeRetryLock + 's 后再试' : this.feedback.text
+        return this.writeRetryLock > 0 ? coolingText(this.writeRetryLock) : this.feedback.text
       }
       return this.feedback.text
     },
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次
+    // F-28.5 路 A（X-8）：句式收进 coolingText 无参整句——「点得太快了」这一支第三种说法并入全端统一族
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
+      if (this.errorCode === 429) return coolingText()
       // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
       // 承认自己处理出错，同屏第二行透出的正是那句原文，第一行却叫申请人去查网络——因果方向相反
       if (this.errorCode === 500) return '申请进度读取失败，服务端处理出错，稍后重试'
@@ -592,7 +594,8 @@ export default {
     async submit() {
       // X-1：提交闸门读写侧 writeRetryLock（POST 写桶），与读侧 mine 刷新的 retryLock 互不干扰
       if (this.writeRetryLock > 0) {
-        this.showToast('操作过于频繁，请 ' + this.writeRetryLock + 's 后再试')
+        // F-28.5 路 A（X-5）：被闸门拦下的 toast 不带数——同屏常驻反馈行（feedbackText 读实时 writeRetryLock）是写侧唯一带数处
+        this.showToast(coolingText())
         return
       }
       if (this.applyStatus === STATUS_PENDING) {
@@ -642,7 +645,8 @@ export default {
       if (code === 429) {
         // 本页 X-3 无病：起锁点本就存不带数字的整句（此处为四页母版），秒数只在 feedbackText 读实时 writeRetryLock 那一处出
         // X-1：起写侧闸门 writeRetryLock——POST 写桶的冷却与 mine 读闸门互不覆盖
-        this.setFeedback('cooling', '操作过于频繁，请稍后再试')
+        // F-28.5 路 A：母版那句整句现在的唯一字面出处在 api 层的 coolingText 无参支，本页改调它（字符串逐字不变）
+        this.setFeedback('cooling', coolingText())
         this.startWriteRetryLock(e)
         return
       }

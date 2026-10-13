@@ -85,7 +85,9 @@
           :disabled="!canConfirm(b) || confirmingId !== null || writeRetryLock > 0"
           @click="confirmBatch(b)"
         ><text>{{ confirmLabel(b) }}</text></button>
-        <text v-if="writeRetryLock > 0 && canConfirm(b)" class="form-hint">操作过于频繁，{{ writeRetryLock }}s 后可再确认</text>
+        <!-- F-28.5 路 A（X-5）：写侧闸门在本屏唯一的带数处是那张被点批次的常驻反馈行（feedbackText 读实时 writeRetryLock），
+             这一行与按钮字都不带数——改前「操作过于频繁，Ns 后可再确认」+ 按钮「Ns后可确认」+ 反馈行三处同报一个数 -->
+        <text v-if="writeRetryLock > 0 && canConfirm(b)" class="form-hint">操作过于频繁，请稍后再试</text>
         <text v-else-if="!canConfirm(b) && !isConfirmed(b)" class="form-hint">{{ disabledReason(b) }}</text>
 
         <!-- 常驻反馈（每个批次一行，四支口径同核销台）：写在被点的那张卡里，
@@ -115,7 +117,7 @@
 // 核销台的到货警示条是另一条通道：它逐店**显式带 storeId** 查后聚合（FE-2），管的是「名下几家没确认」，
 // 与本页「只看一家」各说各的事，不构成同一屏上的矛盾结论。
 // ?date= 是可选入参（FE-6：警示条「去看批次」会带日期过来，因为批次多在明日生成）。
-import { getPartnerArrivals, confirmArrival, retrySecondsOf } from '@/api/index.js'
+import { getPartnerArrivals, confirmArrival, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -137,11 +139,9 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 // 取不到才回落本地 60（与读侧 @RateLimit 的 60s 窗口同档）。与核销台同一口径，两处不各写一套算法。
 const RETRY_FALLBACK_SECONDS = 60
 
-// FE-10：同页 429 只留一句说法（清单加载与确认提交两支共用 coolingText 这一处实现）
-function coolingText(seconds) {
-  const n = Number(seconds)
-  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
-}
+// FE-10 + F-28.5 路 A：同页 429 只留一句说法（清单加载与确认提交两支共用），本页不留私有实现——
+// coolingText 唯一实现上提在 api 层（与 retrySecondsOf 同层、同先例），
+// 带数支只读实时闸门，无参支就是 X-3 起锁点那句不带数的整句
 
 // retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
 // 本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
@@ -180,8 +180,9 @@ export default {
   },
   computed: {
     errorLeadText() {
-      // FE-10：429 一支与确认提交那一支同句，秒数读实时 retryLock（FE-5 后它是后端给的剩余 TTL）
-      if (this.errorCode === 429) return coolingText(this.retryLock)
+      // FE-10 + F-28.5 路 A（X-5）：429 这一行不带数——同屏闸门行「{{ retryLock }}s后可重试」是读侧唯一带数处，
+      // 主句走 coolingText 无参整句（与确认提交那一支同句式；姿势照 apply/workspace 的 FF-1）
+      if (this.errorCode === 429) return coolingText()
       if (this.errorCode === 403) return '暂无权限查看到货批次，请回工作台确认账号状态'
       if (this.errorCode === 404) return '到货批次接口暂不可用，可能是后端服务还没更新，请稍后重试'
       // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
@@ -337,7 +338,8 @@ export default {
           // X-3：起锁点存不带数字的整句（照 apply.vue:630），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
           // 免得归零后常驻行永久停在「请 Ns 后再试」（改前存 coolingText(seconds) 把数整句存死了）。
           // X-1：起写侧闸门 writeRetryLock——确认写桶的冷却与 loadBatches 读闸门互不覆盖。秒数仍只来自 retrySecondsOf。
-          this.setFeedback(key, 'cooling', '操作过于频繁，请稍后再试')
+          // FE-10 + F-28.5 路 A：不带数整句不再页内写死，与 coolingText 无参支同一出处（api 层一份）
+          this.setFeedback(key, 'cooling', coolingText())
           this.startWriteRetryLock(e)
           return
         }
@@ -481,8 +483,9 @@ export default {
       return CONFIRMABLE_STATUS.indexOf((b && b.status) || '') > -1
     },
     confirmLabel(b) {
-      // 冷却中的可确认批次：按钮字直接给秒数（置灰但不说为什么置灰 = 用户以为页面坏了）
-      if (this.writeRetryLock > 0 && this.canConfirm(b)) return this.writeRetryLock + 's后可确认'
+      // 冷却中的可确认批次：给不带数的状态词（F-28.5 路 A/X-5，秒数只在该批次反馈行那一处出；
+      // 「置灰但不说为什么置灰 = 用户以为页面坏了」由状态词承担，句式照 apply「提交冷却中」/store「保存冷却中」）
+      if (this.writeRetryLock > 0 && this.canConfirm(b)) return '确认冷却中'
       if (this.confirmingId !== null && String(this.confirmingId) === String((b && b.id))) return '确认中…'
       if (this.isConfirmed(b)) return '已确认'
       if (!this.canConfirm(b)) return '不可确认'

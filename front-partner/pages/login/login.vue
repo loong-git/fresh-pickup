@@ -125,7 +125,7 @@
 // 之类的 C 端启动链（主理人端无「默认自提点」概念，C-7 明令）。
 // redirect 回跳：母版本身就没实现（front-merchant/pages/login/login.vue:112 已注明「登录成功的唯一去处仍是 reLaunch 工作台」），
 // 本页保持同款——契约 §4 把 redirect 列为「照母版」的一项，母版没有即不补，见本轮回报的契约疑点。
-import { sendCode, login, loginPassword, getPartnerStores, retrySecondsOf } from '@/api/index.js'
+import { sendCode, login, loginPassword, getPartnerStores, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 登录成功后的唯一去处（工作台）与入驻申请页路由。
@@ -378,16 +378,13 @@ export default {
           return
         }
         if (code === 429) {
-          // F-23-fix/FF-2：起锁必须先于 toast——startRetryLock 把后端真值写进 this.retryLock，
-          // 顺序反过来 toast 读到的还是 0（「请 0 秒后再刷新」）。本页的时长会出现两处：
-          // 这条一次性 toast 与 :35-36 那条常驻闸门行（{{ retryLock }}s后可重新检查）各读一次同一个 this.retryLock：
-          // 一个是起锁瞬间的快照、一个是 setInterval 每 1000ms 递减的实时值；toast 存活 1500ms（见 :220 showToast），
-          // 故这个窗口内两者允许差 1 秒——是同一枚锁的两个读数（不是两个互不相干的数），差 1 秒不构成误导，行为不改。
-          // F-23-fix/FF-4：原注释称「与商家端 dishes.vue:210 同串（不另写一份）」——:210 是写下它那批的读数（历史值，
-          // 别按现况去那一行找），FF-1 已把商家端
-          // 那句的数字摘掉（F-25/P-4 重测：现 dishes.vue:229），两处不再同串，按实况订正而非留一个假指针。
+          // F-23-fix/FF-2：起锁先于 toast——这一顺序本批一步未动（startRetryLock 仍先把后端真值写进 this.retryLock）。
+          // F-28.5 路 A（X-5 + X-8）：toast 改用 coolingText 无参整句。改前这里「点得太快了，请 N 秒后再刷新」是全端
+          // 唯一一支中文「秒」制、也是同屏两处各报一次同一把读侧锁的源头（快照值与引导态闸门行的实时值，即 X-10 判过
+          // 的那个「两个读数」）——现在本页读侧带数处只剩引导态闸门行「Ns后可重新检查」一处，toast 只说事不说数。
+          // （商家端同类 toast 的数早被 FF-1 摘掉，本页这次跟齐同一纪律；归因与闸门判定逻辑零改动。）
           this.startRetryLock(e)
-          this.showToast('点得太快了，请 ' + this.retryLock + ' 秒后再刷新')
+          this.showToast(coolingText())
           return
         }
         this.showToast((e && e.message) || '网络异常')
