@@ -39,7 +39,7 @@
         <text class="error-lead">{{ errorLeadText }}</text>
         <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
         <text v-if="errorRetryable && !retryLock" class="error-retry" @click="fetchList(true)">点击重试</text>
-        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
+        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryPillText }}</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
       </view>
     </view>
@@ -96,7 +96,7 @@
       <view class="load-more">
         <button v-if="hasMore" class="btn-more" :class="{ 'btn-more-cooling': retryLock > 0 }"
           :disabled="loadingMore || retryLock > 0" @click="loadMore">
-          <text>{{ retryLock > 0 ? retryLock + 's后可重试' : (loadingMore ? '加载中…' : '加载更多') }}</text>
+          <text>{{ retryLock > 0 ? retryPillText : (loadingMore ? '加载中…' : '加载更多') }}</text>
         </button>
         <text v-else class="no-more">共 {{ shownTotal }} 条</text>
       </view>
@@ -111,7 +111,7 @@
 // 三条页面纪律：① 状态/日期只交后端过滤，页内零过滤；② page/size 以回显值为准（后端「夹而不拒」）；
 // ③ 手机号只显示 maskedPhone 语义的脱敏值，本页干脆不渲染联系电话（备货用不上，少一处明文面）。
 // 归属由服务端 @RequestAttribute 解析，页面不发任何 merchantId；401 由 api 层清态回登录页，本页不处理跳转。
-import { getMerchantOrderItems, retrySecondsOf } from '@/api/index.js'
+import { getMerchantOrderItems, retrySecondsOf, coolingFullText, coolingLeadText, cooldownPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -178,8 +178,10 @@ export default {
     // X-2（四路分流，母版 dashboard.vue:236-241）：改前的最后一行是无条件兜底，500/400 都被说成
     // 「请检查网络后重试」，与同屏第二行透出的后端 500 原文（R.java「服务开小差了，请稍后重试」）
     // 因果方向相反；判据：只有网络层失败才说检查网络，500 说服务端处理出错，其余不猜成因
+    // F-28.5 路 B：429 一支并入 api 层冷却文案族（coolingLeadText），点名「供货明细」这把锁；
+    // 「点得太快了，稍后再刷新」是商家端五种说法之一，本批起不再在本页出现
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
+      if (this.errorCode === 429) return coolingLeadText('供货明细')
       if (this.errorCode === 403) return '暂无权限查看供货明细，请回工作台确认账号状态'
       // 列表端点的 404 只有「后端还没更新/路径不通」这一种解释，服务起来后重试就能成，
       // 故不照 dishes.vue（那里 404 = 按 id 取单行取不到）把 404 归入「重试无望」
@@ -196,6 +198,11 @@ export default {
     // 401 走不到这一态（请求层已回登录页），404/429/网络异常都属于「等一下或修好就能成」
     errorRetryable() {
       return this.errorCode !== 403
+    },
+    // 冷却中的时长短式（错误卡胶囊与「加载更多」两处共用同一枚 retryLock，而生成分属两种视图态、
+    // 永不同屏）：句式生成在 api 层 cooldownPillText，归因由同卡 errorLeadText 那一行给出（X-5）
+    retryPillText() {
+      return cooldownPillText(this.retryLock)
     }
   },
   onLoad(query) {
@@ -379,7 +386,7 @@ export default {
     // 屏上选中的 tab 与列表才是同一份真值；③不静默，给带秒数的反馈。返回 true = 本次已拦下，调用方直接 return。
     retryCoolingBlocked() {
       if (this.retryLock <= 0) return false
-      uni.showToast({ title: '供货明细请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
+      uni.showToast({ title: coolingFullText('供货明细', this.retryLock), icon: 'none' })
       return true
     },
     loadMore() {

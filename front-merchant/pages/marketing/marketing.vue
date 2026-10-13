@@ -33,7 +33,7 @@
         <text class="error-lead">{{ errorLeadText }}</text>
         <text v-if="errorText && errorCode !== 404" class="guide-tip">{{ errorText }}</text>
         <text v-if="errorRetryable && !retryLock" class="error-retry" @click="loadMarketing(true)">点击重试</text>
-        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
+        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryPillText }}</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
       </view>
     </view>
@@ -126,7 +126,7 @@
 // ③ 四态单值互斥 loading | ready | forbidden | error，不用多个布尔叠加（照 workspace.vue 的 viewState）。
 // 401 一律由请求层清态回登录页，本页不判 401。文案红线（RE）：不出现任何资金含义的读数词——
 // mock 支付无资金流，这里的「门槛/秒杀价」都是平台设置的售卖参数，不是钱款往来。
-import { getMerchantMarketing, retrySecondsOf } from '@/api/index.js'
+import { getMerchantMarketing, retrySecondsOf, coolingLeadText, cooldownPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -147,11 +147,9 @@ const FREE_STATUS_TEXT = { online: '进行中', offline: '已下线' }
 // 页面拿不到后端剩余秒数，那时「本地按窗口取值」是唯一不猜的路；通道打通后窗口值退居兜底档。
 const RETRY_COOLING_SECONDS = 60
 
-// FE-10 同页 429 只留一句说法（错误卡主文案一处实现；冷却中的重试按钮只显示剩余秒数，不重说一遍句式）
-function coolingText(seconds) {
-  const n = Number(seconds)
-  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
-}
+// FE-10 同页 429 只留一句说法：改前本页私有的 coolingText（「操作过于频繁，请 Ns 后再试」）既无归因、
+// 又与下方「Ns后可重试」胶囊构成同一把锁两处报数。F-28.5 路 B 并入 api 层冷却文案族——
+// 主文案走 coolingLeadText（归因「营销参与态」、不带数），数只在模板 retryPillText 那一处出
 
 export default {
   data() {
@@ -197,7 +195,8 @@ export default {
     },
     errorLeadText() {
       // F-19.8 S-7/U-14 的四路分流（形状照本仓既有分支，只换判据与措辞）：
-      if (this.errorCode === 429) return coolingText(this.retryLock)
+      // F-28.5 路 B：429 一支改走 api 层 coolingLeadText（归因＋不带数），数只留给下方那枚胶囊（X-5）
+      if (this.errorCode === 429) return coolingLeadText('营销参与态')
       // 404（AuthInterceptor:95-99 注入的 merchant_id 查不到行 →「商家不存在」）是确定性失败，
       // 重试永远拿回同一枚错误码，故主文案直出后端 message，不再说「请稍后重试」
       if (this.errorCode === 404) return this.errorText
@@ -212,6 +211,11 @@ export default {
     // 两枚都不给重试按钮，模板那一行的 !errorRetryable 分支会给「回工作台」出口
     errorRetryable() {
       return this.errorCode !== 403 && this.errorCode !== 404
+    },
+    // 冷却中的时长短式：本屏这一把锁（营销参与态）的数只在这一处出现（X-5），归因由同卡 errorLeadText 给；
+    // 句式生成在 api 层 cooldownPillText
+    retryPillText() {
+      return cooldownPillText(this.retryLock)
     }
   },
   onShow() {
