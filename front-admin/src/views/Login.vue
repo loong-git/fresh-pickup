@@ -42,7 +42,7 @@
            不得推断成「锁定中」「账号不存在」这类可区分信号。
            锁定态唯一的例外是后端在 data 里如实给的 retryAfterSeconds——那是既有载荷的转述，不是推断。 -->
       <p v-if="viewState === 'error' || viewState === 'forbidden'" class="error">{{ errorText }}</p>
-      <p v-if="locked" class="lock-tip">请 {{ lockRemaining }} 秒后再试</p>
+      <p v-if="locked" class="lock-tip">请 {{ waitDurationText(lockRemaining) }}后再试</p>
     </div>
   </div>
 </template>
@@ -56,7 +56,7 @@
 //  且真出现 403 时它不能被当登录失效处理——见 api 层 401/403 严格分流那条）。
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { adminLogin, setStoredToken } from '../api'
+import { adminLogin, setStoredToken, waitDurationText } from '../api'
 
 const router = useRouter()
 
