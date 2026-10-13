@@ -70,10 +70,10 @@
             :class="{ 'btn-send-disabled': codeSending || smsCountdown > 0 }"
             :disabled="codeSending || smsCountdown > 0"
             @click="sendSmsCode"
-          ><text>{{ codeSending ? '发送中…' : (smsCountdown > 0 ? smsCountdown + 's后重发' : '获取验证码') }}</text></button>
+          ><text>{{ codeSending ? '发送中…' : (smsCountdown > 0 ? smsResendPillText : '获取验证码') }}</text></button>
         </view>
         <text class="form-hint">开发环境验证码固定为 123456</text>
-        <button class="btn-main" :class="{ 'btn-disabled': smsLogging || loginLock > 0 }" :disabled="smsLogging || loginLock > 0" @click="loginBySms"><text>{{ smsLogging ? '登录中…' : (loginLock > 0 ? loginLock + 's后可重试' : '登录') }}</text></button>
+        <button class="btn-main" :class="{ 'btn-disabled': smsLogging || loginLock > 0 }" :disabled="smsLogging || loginLock > 0" @click="loginBySms"><text>{{ smsLogging ? '登录中…' : (loginLock > 0 ? loginLockPillText : '登录') }}</text></button>
         <text class="form-hint form-hint-loose">未注册手机号验证通过后将自动注册（注册后仍需平台开通商家资质才能进工作台）</text>
       </view>
 
@@ -99,7 +99,7 @@
             placeholder-style="color:#BBBBBB;"
           />
         </view>
-        <button class="btn-main" :class="{ 'btn-disabled': pwdLogging || loginLock > 0 }" :disabled="pwdLogging || loginLock > 0" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : (loginLock > 0 ? loginLock + 's后可重试' : '登录') }}</text></button>
+        <button class="btn-main" :class="{ 'btn-disabled': pwdLogging || loginLock > 0 }" :disabled="pwdLogging || loginLock > 0" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : (loginLock > 0 ? loginLockPillText : '登录') }}</text></button>
         <text class="form-hint form-hint-loose">未设置过密码的账号请用验证码登录</text>
       </view>
     </template>
@@ -112,7 +112,7 @@
 // 不在本期商家端接口清单内，不引）、redirect 回跳（G-02 起本端已有四页 login·workspace·dishes·dish-edit，但登录成功的唯一去处仍是 reLaunch 工作台、编辑页只由列表页带 ?id= 进入，没有「登录后回来源页」要还原，故仍无回跳语义）。
 // 本页的核心改造是「登录成功 ≠ 进工作台」：拿到 token 后必须先 GET /api/merchant/me 判角色，
 // 200/403/401 三分支各走各的（§3.2），而 403 与 401 的可区分性由 api 层 handleEnvelope 保证。
-import { sendCode, login, loginPassword, getMerchantMe, retrySecondsOf } from '@/api/index.js'
+import { sendCode, login, loginPassword, getMerchantMe, retrySecondsOf, cooldownPillText, resendPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // F-23-fix/FF-5：登录按钮冷却的回落秒数。口径按 api 层 retrySecondsOf(err, fallbackSeconds) 的约定——
@@ -159,6 +159,19 @@ export default {
       if (this.smsCooldownPhone && (val || '').trim() !== this.smsCooldownPhone) {
         this.stopSmsCountdown()
       }
+    }
+  },
+  // 本页有两把互不相干的锁同屏（发码倒计时跟手机号/IP 的发码限流，登录冷却跟登录接口的 IP 限流），
+  // 两枚数各自写在**自己那一枚按钮**上，控件本身就是归因（X-5「能看出报的是哪把」），
+  // 所以这里用 api 层的短式而不铺「X请求太频繁」整句——验证码按钮置灰时文案若是「后可重试」会说错事，
+  // 它报的是「什么时候能再要一条码」，故走 resendPillText（动词「后重发」）；登录那枚走 cooldownPillText。
+  // 时长数值一律不动：smsCountdown 仍是 1 分钟 1 码的业务节奏，loginLock 仍是 retrySecondsOf 转述的后端真值
+  computed: {
+    smsResendPillText() {
+      return resendPillText(this.smsCountdown)
+    },
+    loginLockPillText() {
+      return cooldownPillText(this.loginLock)
     }
   },
   onLoad() {

@@ -67,7 +67,7 @@
         <text class="error-lead">{{ errorLeadText }}</text>
         <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
         <text v-if="errorRetryable && !retryLock" class="error-retry" @click="loadDishes(true)">点击重试</text>
-        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
+        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryPillText }}</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
       </view>
     </view>
@@ -129,7 +129,7 @@
 // 数据加载纪律照 workspace.vue：onShow 每次重拉（编辑页改完回页即反映最新值），带 in-flight 守卫防连点。
 // 401 由 api 层统一清态回登录页（并 toast 告知原因），本页不再处理跳转；403 透 message 不清 token（handleEnvelope 语义），
 // 本页对 403/404 这类确定性失败给「回工作台」出口而非重试。
-import { getMerchantDishes, getDishCategories, getMerchantMe, merchantFileUrl, merchantStatusText, retrySecondsOf } from '@/api/index.js'
+import { getMerchantDishes, getDishCategories, getMerchantMe, merchantFileUrl, merchantStatusText, retrySecondsOf, coolingFullText, coolingLeadText, cooldownPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 429 冷却秒数的回落档：本端点（GET /api/merchant/dishes）限流窗口是 60 秒
@@ -229,9 +229,11 @@ export default {
     // 第一行让商家去查 Wi-Fi，第二行是服务端认错。判据：只有网络层失败才许说「检查网络」，
     // 500 说「服务端处理出错」，其余服务端业务码不猜成因
     // F-23-fix/FF-1：429 这行不带时长——同屏的 retryLock 倒计时行（模板 :70）已转述后端真值，
-    // 这里再报一个数就是两处互相矛盾的谎报（截图 f23-c-cooldown.png 的 60 vs 1）
+    // 这里再报一个数就是两处互相矛盾的谎报（截图 f23-c-cooldown.png 的 60 vs 1）。
+    // F-28.5 路 B：句式并入 api 层冷却文案族（coolingLeadText），归因点名「商品列表」这把锁——
+    // 本页屏上还有类目字典那把独立锁，「点得太快了，稍后再刷新」那种无归因说法读不出是哪一把
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
+      if (this.errorCode === 429) return coolingLeadText('商品列表')
       if (this.errorCode === 403) return '暂无权限查看商品，请回工作台确认账号状态'
       if (this.errorCode === 404) return '没有查到商品数据，请回工作台重新进入'
       // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
@@ -247,19 +249,25 @@ export default {
     errorRetryable() {
       return this.errorCode !== 403 && this.errorCode !== 404
     },
+    // 冷却中的「点击重试」位：短式带数（.error-retry 是胶囊，宽度受限），归因由同卡上一行的
+    // errorLeadText 给出——本屏这一把锁的数只在这一处出现（X-5），句式生成在 api 层 cooldownPillText
+    retryPillText() {
+      return cooldownPillText(this.retryLock)
+    },
     // 下拉提示行：退化到内置分类按来源分两句（限流 vs 上游不可达），读取失败一句，
     // 正常字典态返回空串不出这一行
-    // F-24-B/FB-2：括号里的秒数只在「闸门起点确实转述自后端」时才出现。此前这里无条件印
+    // F-24-B/FB-2：时长只在「闸门起点确实转述自后端」时才出现。此前这里无条件印
     // catRetryLock，而它的起点是写死的 60 —— 那是 @RateLimit 的窗口长度，不是等待时长，
     // 印出来就是冒充（裁定 B-1a）。回落态只留文案，与运营端 5 页「无 data 就不出数字」同口径。
+    // F-28.5 路 B：出数那一支从括号制「（Ns）」改成 api 层的 FULL 形（「类目请求太频繁，Ns后可重试」），
+    // 与本页商品列表那把锁的 toast 同一句式——两把独立锁同屏时，各报各的数、各点各的名（X-5）；
+    // 判据（catRetryLock > 0 && catRetryBackendSeconds > 0）与闸门本身一个字没动
     categoriesHint() {
       if (this.categoriesDegraded) {
-        const base = this.categoriesDegradedReason === 'rate-limited'
-          ? '类目请求太频繁，稍后再点重试'
-          : '类目字典暂不可用，当前为内置分类，点击重试'
+        if (this.categoriesDegradedReason !== 'rate-limited') return '类目字典暂不可用，当前为内置分类，点击重试'
         return this.catRetryLock > 0 && this.catRetryBackendSeconds > 0
-          ? base + '（' + this.catRetryLock + 's）'
-          : base
+          ? coolingFullText('类目', this.catRetryLock)
+          : coolingLeadText('类目')
       }
       return this.categoriesError ? '类目加载失败：' + this.categoriesError + '，点击重试' : ''
     }
@@ -348,7 +356,9 @@ export default {
     // （降级结果 api 层刻意不进缓存，所以每次点击都会真的重发一次 —— 闸门只能设在页面侧）
     retryCategories() {
       if (this.catRetryLock > 0) {
-        uni.showToast({ title: '类目请求太频繁，请稍后再试', icon: 'none' })
+        // 这一声刻意不带数（X-5）：类目这把锁的数已经在 categoriesHint 那一行报了，
+        // 一闪而过的 toast 再报一个数就是同屏两处；句式仍是 api 层的 LEAD 形，与那一行的回落态同串
+        uni.showToast({ title: coolingLeadText('类目'), icon: 'none' })
         return
       }
       this.loadCategories()
@@ -463,7 +473,7 @@ export default {
       // 文案点名「商品列表」这枚锁：本页屏上同时存在类目字典的**另一把独立闸门**（catRetryLock，
       // 其提示行 categoriesHint 与 retryCategories 的 toast 说的都是「类目请求太频繁」），不带归因的「太频繁」会让商家以为换类目也被锁着
       // （X-5 定稿判据：每处文案必须能看出它在报哪把锁）
-      uni.showToast({ title: '商品列表请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
+      uni.showToast({ title: coolingFullText('商品列表', this.retryLock), icon: 'none' })
       return true
     },
     applyFilters() {

@@ -34,7 +34,7 @@
         <text class="error-lead">{{ errorLeadText }}</text>
         <text v-if="errorText" class="guide-tip">{{ errorText }}</text>
         <text v-if="errorRetryable && !retryLock" class="error-retry" @click="loadPlan(true)">点击重试</text>
-        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryLock }}s后可重试</text>
+        <text v-else-if="errorRetryable" class="error-retry error-retry-cooling">{{ retryPillText }}</text>
         <text v-if="!errorRetryable" class="guide-link" @click="goWorkspace">回工作台</text>
       </view>
     </view>
@@ -99,7 +99,7 @@
 // 三条页面纪律：① 生效日期一律用后端回显值渲染（页内不自行推算显示值）；
 // ② 归属由服务端解析，本页不发任何 merchantId；③ 四态单值互斥，不用多个布尔标志叠加（照 dishes.vue 的 viewState）。
 // 401 由 api 层统一清态回登录页，本页不再处理跳转；403/404 是确定性失败，给「回工作台」而非重试。
-import { getMerchantPickupPlan, retrySecondsOf } from '@/api/index.js'
+import { getMerchantPickupPlan, retrySecondsOf, coolingFullText, coolingLeadText, cooldownPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 429 冷却秒数的回落档：本端点（GET /api/merchant/pickup-plan）限流窗口是 60 秒
@@ -152,8 +152,9 @@ export default {
     // X-2（四路分流，母版 dashboard.vue:236-241）：改前的最后一行是无条件兜底，500/400 都被说成
     // 「请检查网络后重试」，与同屏第二行透出的后端 500 原文（R.java「服务开小差了，请稍后重试」）
     // 因果方向相反；判据：只有网络层失败才说检查网络，500 说服务端处理出错，其余不猜成因
+    // F-28.5 路 B：429 一支并入 api 层冷却文案族（coolingLeadText），点名「备货单」这把锁
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
+      if (this.errorCode === 429) return coolingLeadText('备货单')
       if (this.errorCode === 403) return '暂无权限查看备货单，请回工作台确认账号状态'
       // 列表端点的 404 只有「后端还没更新/路径不通」这一种解释（本页不按 id 取单行），
       // 服务起来后重试就能成，故不照 dishes.vue 那样把 404 归入「重试无望」
@@ -170,6 +171,10 @@ export default {
     // 401 走不到这一态（请求层已回登录页），404/429/网络异常都属于「等一下或修好就能成」
     errorRetryable() {
       return this.errorCode !== 403
+    },
+    // 冷却中的时长短式：句式生成在 api 层 cooldownPillText，归因由同卡 errorLeadText 那一行给出（X-5）
+    retryPillText() {
+      return cooldownPillText(this.retryLock)
     }
   },
   onShow() {
@@ -264,7 +269,7 @@ export default {
     // ③不静默，给带秒数的反馈。返回 true = 本次已拦下，调用方直接 return。
     retryCoolingBlocked() {
       if (this.retryLock <= 0) return false
-      uni.showToast({ title: '备货单请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
+      uni.showToast({ title: coolingFullText('备货单', this.retryLock), icon: 'none' })
       return true
     },
     // 步进基准优先取本次请求带出去的 queryDate（它是「页面上那枚日期想要的值」，改一步即生效），

@@ -187,7 +187,9 @@ import {
   getMerchantMe,
   merchantStatusText,
   merchantFileUrl,
-  retrySecondsOf
+  retrySecondsOf,
+  coolingFullText,
+  coolingLeadText
 } from '@/api/index.js'
 import '@/styles/common.css'
 
@@ -213,13 +215,19 @@ const SAVE_RETRY_GATE_FALLBACK_SECONDS = CATEGORY_RETRY_GAP_FALLBACK_MS / 1000
 // 这里不再写第三个 60；页内时长出处仍然只有两条：后端 data.retryAfterSeconds 与这枚窗口保守上限。
 const WRITE_GATE_FALLBACK_SECONDS = SAVE_RETRY_GATE_FALLBACK_SECONDS
 
-// 429 那一句说法（X-7）：句式照 front-partner 写侧母版（store.vue / verify.vue / arrival.vue 各自的
-// coolingText），单位 s 与全站模板同制；文案族合并归片 5 的 X-8，这里不另立第三种说法。
-// 秒数只从入参出，入参只能是 retrySecondsOf 转述出来的那一枚——本页零推算、零写死。
-function coolingText(seconds) {
-  const n = Number(seconds)
-  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
+// 429 那一句说法（X-7 → F-28.5 路 B）：本页四把写锁（保存 / 图片上传 / 库存增量 / 上下架）**必须各自点名**——
+// 改前这里是一份页内私有的「操作过于频繁，请 Ns 后再试」，四把锁共用一句无归因的话，
+// 商家分不清「上传被限流」和「保存被限流」，也就不知道另一枚按钮此刻其实还能按。
+// 现在句子由 api 层冷却文案族生成（coolingFullText / coolingLeadText），本页只留这张「锁键 → 锁名」表，
+// 单位与句式全端一处（X-8）；秒数仍只从 retrySecondsOf 转述出来的那一枚实时值出，本页零推算、零写死。
+const COOLING_LOCK_LABEL = {
+  save: '保存',
+  upload: '图片上传',
+  stock: '库存调整',
+  sale: '上下架'
 }
+// 类目字典那把锁的锁名（与列表页 dishes.vue 的 categoriesHint 同一个名字，同一把桶就该同一句说法）
+const COOLING_LABEL_CATEGORY = '类目'
 
 // 降级出参 → 后端给的真值秒数（X-13 顺带登记项：把本页这份「读后端值否则回落」与 api 层
 // retrySecondsOf 的取值口径对齐——同样「有限正数才算数」、同样 Math.ceil 向上取整；单位换算留给下面）：
@@ -331,13 +339,14 @@ export default {
         // X-7 后半：闸门既然按后端真值起，就要把那一个数印进括号（列表页 dishes.vue 的 categoriesHint 同口径）。
         // 只在 categoryRetryBackendSeconds > 0（＝闸门时长确实转述自 data.retryAfterSeconds）时出数字，
         // 回落态一个数都不出——那是窗口长度不是等待时长（F-24.0 裁定 B-1a）。
-        // 与列表页的差别只在形态：那一页印的是实时剩余秒数（catRetryLock 每秒自减），本页这枚闸门按 FB-3
+        // 与列表页的差别只在数值口径：那一页印的是实时剩余秒数（catRetryLock 每秒自减），本页这枚闸门按 FB-3
         // 保持时间戳形态，印的是「这一轮闸门多长」——同一枚后端真值、同一把锁，且剩余只会 ≤ 它，不多催一次点击。
-        // 本屏这一把锁只在这一处报数（X-5 判据），retryCategories 被拦时那句 toast 刻意不带数
+        // 本屏这一把锁只在这一处报数（X-5 判据），retryCategories 被拦时那句 toast 刻意不带数。
+        // F-28.5 路 B：出数那一支从括号制「（Ns）」改成 api 层 FULL 形，与列表页同类目锁同句式、同锁名
         if (this.categoriesRateLimited) {
           return this.categoryRetryBackendSeconds > 0
-            ? '类目请求太频繁，稍后再点重试（' + this.categoryRetryBackendSeconds + 's）'
-            : '类目请求太频繁，稍后再点重试'
+            ? coolingFullText(COOLING_LABEL_CATEGORY, this.categoryRetryBackendSeconds)
+            : coolingLeadText(COOLING_LABEL_CATEGORY)
         }
         return '类目字典暂不可用，当前为内置分类，点击重试'
       }
@@ -384,10 +393,11 @@ export default {
     // 保存支的常驻反馈行文案（X-7）：cooling 一支的秒数只从实时 retryLock 这一处出——
     // 存进带数字的整句会在冷却走完后仍挂着「请 60s 后再试」而按钮早已解禁（那就是 X-3 点名的病，
     // 母版＝front-partner/pages/apply/apply.vue 的 cooling 支，此处照它存不带数字的整句）
+    // F-28.5 路 B：句子改由 api 层生成并点名「保存」这把锁（本页另有上传/库存/上下架三把独立写锁同屏）
     saveFeedbackText() {
       if (!this.saveFeedback) return ''
       if (this.saveFeedback.tone === 'cooling') {
-        return this.retryLock > 0 ? coolingText(this.retryLock) : this.saveFeedback.text
+        return this.retryLock > 0 ? coolingFullText(COOLING_LOCK_LABEL.save, this.retryLock) : this.saveFeedback.text
       }
       return this.saveFeedback.text
     }
@@ -573,12 +583,13 @@ export default {
       this.showToast(text)
     },
     // 该栏的常驻行文案：cooling 一支的秒数只从**那一枚**闸门的实时剩余值现取，存进句子里的是不带数字的整句，
-    // 于是冷却走完时这一行自动回到「请稍后再试」，不会停死在「请 60s 后再试」（X-3 点名的病）
+    // 于是冷却走完时这一行自动回到「稍后再点重试」，不会停死在「请 60s 后再试」（X-3 点名的病）。
+    // 归因取自 COOLING_LOCK_LABEL[key]——三把写锁各自的句子由 key 点名，不共用一句「太频繁」（X-5）
     writeFeedbackText(key) {
       const g = this.writeGates[key]
       if (!g.feedback) return ''
       if (g.feedback.tone === 'cooling') {
-        return g.seconds > 0 ? coolingText(g.seconds) : g.feedback.text
+        return g.seconds > 0 ? coolingFullText(COOLING_LOCK_LABEL[key], g.seconds) : g.feedback.text
       }
       return g.feedback.text
     },
@@ -604,7 +615,7 @@ export default {
     retryCategories() {
       const now = Date.now()
       if (this._categoryRetryAt && now < this._categoryRetryAt) {
-        this.showToast('类目请求太频繁，稍后再点重试')
+        this.showToast(coolingLeadText(COOLING_LABEL_CATEGORY))
         return
       }
       // || 回落不可省：_categoryRetryGapMs 是懒挂的实例属性，本页从未进过限流态时它是 undefined，
@@ -756,7 +767,7 @@ export default {
       // （这一声与那一栏的常驻行同源：同一枚锁的快照与实时值，允许差 1 秒，X-10 裁定）
       const gateLeft = this.writeGateRemaining('upload')
       if (gateLeft > 0) {
-        this.showToast(coolingText(gateLeft))
+        this.showToast(coolingFullText(COOLING_LOCK_LABEL.upload, gateLeft))
         return
       }
       uni.chooseImage({
@@ -797,10 +808,11 @@ export default {
           // X-7b：上传支的三件套（闸门 / 常驻行 / 真值转述），形状逐字照本页保存支的 429 那一段。
           // 这把锁是 MerchantController#upload 那一枚，与保存/库存/上下架三把互不覆盖。
           this.startWriteGate('upload', e)
-          // 存的是不带数字的整句，屏上那个数由 writeFeedbackText 从实时闸门现取（X-3 同纪律）；
-          // coolingText(0) 与后端 429 原文逐字同串，这里既没改写后端文案也没另立说法
-          this.writeGates.upload.feedback = { tone: 'cooling', text: coolingText(0) }
-          this.showToast(coolingText(this.writeGateRemaining('upload')))
+          // 存的是不带数字的整句，屏上那个数由 writeFeedbackText 从实时闸门现取（X-3 同纪律）。
+          // F-28.5 路 B：整句改点名「图片上传」（改前是无归因的「操作过于频繁，请稍后再试」，
+          // 与后端 429 原文同串——但这一支从不渲染 e.message，所以同串只是巧合，换成归因句不与任何原文打架）
+          this.writeGates.upload.feedback = { tone: 'cooling', text: coolingLeadText(COOLING_LOCK_LABEL.upload) }
+          this.showToast(coolingFullText(COOLING_LOCK_LABEL.upload, this.writeGateRemaining('upload')))
           return
         }
         // 400/500/网络异常：后端文案原样透出，并同时落这一栏的常驻行——toast 一闪就没了，
@@ -821,7 +833,7 @@ export default {
       // X-7b：库存增量是第三枚独立桶（MerchantDishController#adjustStock），冷却里再点只会续自己的桶
       const gateLeft = this.writeGateRemaining('stock')
       if (gateLeft > 0) {
-        this.showToast(coolingText(gateLeft))
+        this.showToast(coolingFullText(COOLING_LOCK_LABEL.stock, gateLeft))
         return
       }
       const typed = Number(this.stockDelta)
@@ -864,8 +876,8 @@ export default {
         if (e && e.code === 429) {
           // X-7b：库存支的三件套（闸门 / 常驻行 / 真值转述），形状逐字照本页保存支的 429 那一段
           this.startWriteGate('stock', e)
-          this.writeGates.stock.feedback = { tone: 'cooling', text: coolingText(0) }
-          this.showToast(coolingText(this.writeGateRemaining('stock')))
+          this.writeGates.stock.feedback = { tone: 'cooling', text: coolingLeadText(COOLING_LOCK_LABEL.stock) }
+          this.showToast(coolingFullText(COOLING_LOCK_LABEL.stock, this.writeGateRemaining('stock')))
           return
         }
         // 400/500/网络异常：原文透出 + 落这一栏的常驻行，不再只有一条 1.5s 的 toast
@@ -881,7 +893,7 @@ export default {
       // 同一个方法，因此共用这一把锁是准确的（同一枚桶），与保存/上传/库存那三把互不覆盖
       const gateLeft = this.writeGateRemaining('sale')
       if (gateLeft > 0) {
-        this.showToast(coolingText(gateLeft))
+        this.showToast(coolingFullText(COOLING_LOCK_LABEL.sale, gateLeft))
         return
       }
       this.busySale = true
@@ -904,8 +916,8 @@ export default {
         if (e && e.code === 429) {
           // X-7b：上下架支的三件套（闸门 / 常驻行 / 真值转述），形状逐字照本页保存支的 429 那一段
           this.startWriteGate('sale', e)
-          this.writeGates.sale.feedback = { tone: 'cooling', text: coolingText(0) }
-          this.showToast(coolingText(this.writeGateRemaining('sale')))
+          this.writeGates.sale.feedback = { tone: 'cooling', text: coolingLeadText(COOLING_LOCK_LABEL.sale) }
+          this.showToast(coolingFullText(COOLING_LOCK_LABEL.sale, this.writeGateRemaining('sale')))
           return
         }
         // 400/500/网络异常：原文透出 + 落「在售状态」那一栏的常驻行，不再只有一条 1.5s 的 toast
@@ -1026,7 +1038,7 @@ export default {
       // X-7：429 闸门期内一次请求都不发——限流桶没回满之前再点只会续桶（USER 10 次/60 秒），
       // 而这一声与常驻行那句同源（同一枚锁的快照与实时值，允许差 1 秒，X-10 裁定）
       if (this.retryLock > 0) {
-        this.showToast(coolingText(this.retryLock))
+        this.showToast(coolingFullText(COOLING_LOCK_LABEL.save, this.retryLock))
         return
       }
       if (this.saving || this.leaving) return
@@ -1087,13 +1099,14 @@ export default {
           // X-7：429 从此不再只有一条 duration:1500 的 toast（那是全链唯一漏接真值转述的写路径）。
           // 三件套齐上：① 闸门 startRetryLock（秒数由 api 层 retrySecondsOf 转述后端 data.retryAfterSeconds）
           // ② 常驻行 saveFeedback（存不带数字的整句，屏上那个数由 saveFeedbackText 从实时 retryLock 现取，
-          //    于是冷却走完时这一行自动回到「请稍后再试」而不会停死在「请 60s 后再试」——X-3 点名的病）
-          // ③ 真值转述 coolingText(this.retryLock)。
-          // coolingText(0) 与后端 429 原文逐字同串（R.java:26 MSG_TOO_MANY_REQUESTS），
-          // 所以这里既没改写后端文案、也没有另立第二套说法
+          //    于是冷却走完时这一行自动回到「稍后再点重试」而不会停死在「请 60s 后再试」——X-3 点名的病）
+          // ③ 真值转述（api 层 coolingFullText，点名「保存」这把锁）。
+          // F-28.5 路 B：改前这两句是无归因的「操作过于频繁…」（与后端 429 原文 R.java:26
+          // MSG_TOO_MANY_REQUESTS 同串），但这一支从不渲染 e.message，同串只是巧合；
+          // 换成归因句后商家才读得出「被锁的是保存，不是上传/库存/上下架那三把」
           this.startRetryLock(e)
-          this.saveFeedback = { tone: 'cooling', text: coolingText(0) }
-          this.showToast(coolingText(this.retryLock))
+          this.saveFeedback = { tone: 'cooling', text: coolingLeadText(COOLING_LOCK_LABEL.save) }
+          this.showToast(coolingFullText(COOLING_LOCK_LABEL.save, this.retryLock))
           return
         }
         // 400/500/网络异常：后端文案原样透出（校验口径的最终裁决权在服务端，前端不改写），
