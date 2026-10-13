@@ -130,7 +130,7 @@
 //          pending → audit_status='pending'、visible → audit_status IS NULL）
 //   写   = PUT /api/admin/reviews/{id}/audit，body {action: approve|reject}（AdminController 旧面，运营 JWT 第二轨）
 // 两个必须由页面说清楚的实况：
-//   ① reject 是 <b>物理删除</b>（AdminServiceImpl#auditReview:226 deleteById），不可恢复，且库里因此不存在「已驳回」态；
+//   ① reject 是 <b>物理删除</b>（AdminServiceImpl#auditReview 的 deleteById），不可恢复，且库里因此不存在「已驳回」态；
 //   ② 出参<b>没有 dishName</b>。对齐名称只能拿同批的 dishes 只读列表在前端做 id→名称映射（契约的指定做法），
 //      绝不为此改后端。这一步做成<b>按需点击</b>的：门禁断言「每页首屏恰 1 条列表请求」，
 //      所以首屏只发 reviews 那一条，名称对齐是运营自己点的第二条只读请求。
@@ -329,7 +329,7 @@ async function askConfirm(message) {
   }
 }
 
-// 后果写全（口径来自 AdminServiceImpl#auditReview:209-235）：approve 是置 NULL 恢复展示，reject 是 deleteById 物理删行。
+// 后果写全（口径来自 AdminServiceImpl#auditReview）：approve 是置 NULL 恢复展示，reject 是 deleteById 物理删行。
 // ⚠ 这一段是<b>纯文本</b>（ElMessageBox 没开 dangerouslyUseHTMLString，写了标签会被当字面量显示，
 //   而靠 HTML 串又要拼用户提交的评价内容，那是自己开注入口）——所以强调一律用「」，不用标签。
 function confirmTextOf(row, action) {

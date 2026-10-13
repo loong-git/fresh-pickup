@@ -43,7 +43,7 @@ import java.util.regex.Pattern;
  * storeId 只作过滤、不作归属；本类也没有任何 merchantId 入参（D-2，值只来自 @RequestAttribute 注入）。
  *
  * <p>分页（RB 红线）：本工程没注册 MP 的内置分页拦截器，用那一套分页对象会静默返回全量且 total=0，
- * 故 G-03 走「页 + 独立 COUNT」两条手写 SQL，offset 自己算（母版是 OrderServiceImpl#getOrders:257 的
+ * 故 G-03 走「页 + 独立 COUNT」两条手写 SQL，offset 自己算（母版是 OrderServiceImpl#getOrders 的
  * {@code wrapper.last("LIMIT ...")}，本类改用 @Select 的 {@code LIMIT #{offset}, #{size}} 以便带 JOIN）。
  * F-19 两个端点干脆没有分页：Top 5 与参与位明细各 LIMIT 20/5 写死，count 由独立 COUNT 给真总数。
  *

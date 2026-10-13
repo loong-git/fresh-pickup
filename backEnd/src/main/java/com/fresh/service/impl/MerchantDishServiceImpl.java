@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
  * 2) 单行读写：一律经 findOwned()/`.eq(Dish::getId,..).eq(Dish::getMerchantId,..)` 双条件，
  *    写路径的影响行数判定（rows==0 → 404）就是授权判定本身——绝不在内存里比归属；
  * 3) 审计取旧值所需的读也走同一条双条件查询，不存在 selectById(dishId) 这类无归属读
- *    （反面教材 AdminServiceImpl#updateDish:136-140 对任意 dishId 生效，本类不复制该姿势）。
+ *    （反面教材 AdminServiceImpl#updateDish 对任意 dishId 生效，本类不复制该姿势）。
  *
  * 404 同文案「商品不存在」：他商家商品与不存在的商品不可区分，防存在性成为可枚举信号（契约 F-13.2 错误码口径）。
  */
@@ -181,7 +181,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         // name·unit·category 的「非 null 但 blank」清空，全部在写库之前 400（F-13.10 #3 #4 #6）
         assertDisplayValue(dto.getImage(), dto.getBgColor(), dto.getName(), dto.getUnit(), dto.getCategory());
 
-        // 写路径母版 AdminServiceImpl#updateDish:135-155（逐字段 set + 全空 400），在其之上必须追加归属条件（R3'）
+        // 写路径母版 AdminServiceImpl#updateDish（逐字段 set + 全空 400），在其之上必须追加归属条件（R3'）
         LambdaUpdateWrapper<Dish> wrapper = new LambdaUpdateWrapper<Dish>()
                 .eq(Dish::getId, id)
                 .eq(Dish::getMerchantId, merchantId);

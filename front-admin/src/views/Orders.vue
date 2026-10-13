@@ -347,7 +347,7 @@ async function askConfirm(message) {
   }
 }
 
-// 确认文案：把后果写全（口径逐条来自 AdminServiceImpl#updateOrderStatus:129-176），不写「确定吗？」。
+// 确认文案：把后果写全（口径逐条来自 AdminServiceImpl#updateOrderStatus），不写「确定吗？」。
 function confirmTextOf(id, status) {
   if (status === 'completed') {
     return '将把订单 ' + id + ' 置为「已完成」（核销）。\n\n'

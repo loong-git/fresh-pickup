@@ -19,7 +19,7 @@ import java.util.List;
  * <p><b>D-23（F-18.12 第 2 条裁定，本轮最易翻车处）</b>：m18 给本表加的六列
  * （open_time/close_time/daily_capacity/accepting/contact_phone/photos）在本实体上<b>逐个挂
  * Jackson 的 {@code JsonIgnore} 注解</b>，与 {@link #ownerUserId} 同一先例——唯一的 {@code GET /api/stores}
- * 走的是 StoreServiceImpl#listAll:21 的 {@code storeMapper.selectList(...)}，<b>返回的就是实体本身</b>，
+ * 走的是 StoreServiceImpl#listAll 的 {@code storeMapper.selectList(...)}，<b>返回的就是实体本身</b>，
  * 少挂一个注解就等于把该列直接下发给 C 端（D-12/RD 破口）。
  * 门禁断言：{@code GET /api/stores} 的键集合必须仍等于
  * {@code id,name,address,service,status,lng,lat,createdAt}（8 键）。
