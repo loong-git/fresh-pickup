@@ -135,7 +135,7 @@ public class OrderServiceImpl implements OrderService {
             }
             // T-M4-03 秒杀计价：以本事务读出的 dish 行为准，秒杀件按 seckill_price 与前端购物车同口径，
             // 否则现价；服务端重算原则不变（不信任前端任何金额字段），券门槛金额随秒杀价口径联动。
-            // 销量不在下单时累加：统一在支付成功点（MockPayService updated>0 分支）计，未支付/取消不虚计
+            // 销量不在下单时累加：统一在支付成功点（PaymentSettlement#settle 的 updated>0 分支）计，未支付/取消不虚计
             BigDecimal unitPrice = (dish.getSeckill() != null && dish.getSeckill() == 1 && dish.getSeckillPrice() != null)
                     ? dish.getSeckillPrice() : dish.getPrice();
             totalPrice = totalPrice.add(unitPrice.multiply(BigDecimal.valueOf(quantity)));
@@ -277,7 +277,7 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public int closeTimeoutOrders() {
-        // 只扫待支付单：支付成功只置 pay_status=1 不改 status（MockPayService），已支付单
+        // 只扫待支付单：支付成功只置 pay_status=1 不改 status（PaymentSettlement#settle），已支付单
         // status 仍是 pending_pickup，故必须叠加 pay_status=0，否则会误杀已支付订单
         LocalDateTime deadline = LocalDateTime.now().minusMinutes(ORDER_TIMEOUT_MINUTES);
         List<Order> timeoutOrders = orderMapper.selectList(new LambdaQueryWrapper<Order>()

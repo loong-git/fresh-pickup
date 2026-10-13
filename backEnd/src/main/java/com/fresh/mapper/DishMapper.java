@@ -24,7 +24,7 @@ public interface DishMapper extends BaseMapper<Dish> {
     @Update("UPDATE dish SET stock = stock + #{quantity} WHERE id = #{dishId}")
     int increaseStock(@Param("dishId") Long dishId, @Param("quantity") Integer quantity);
 
-    /** 支付成功累加销量（T-M4-03）：在支付成功点（MockPayService updated>0 分支）按明细调用，未来 wx-notify 同点复用 */
+    /** 支付成功累加销量（T-M4-03）：在支付成功点（PaymentSettlement#settle 的 updated>0 分支）按明细调用，未来 wx-notify 同点复用 */
     @Update("UPDATE dish SET sold_count = sold_count + #{quantity} WHERE id = #{dishId}")
     int increaseSoldCount(@Param("dishId") Long dishId, @Param("quantity") Integer quantity);
 
@@ -81,7 +81,7 @@ public interface DishMapper extends BaseMapper<Dish> {
      * 秒杀参与明细（契约 D-6 逐字列清单）：参与位就是 {@code dish.seckill}（TINYINT，非 is_seckill/seckill_flag）
      * 与 {@code dish.seckill_price}；{@code ORDER BY d.id ASC LIMIT 20}（D-6 原文的固定序 + 展示上限）。
      * <p>{@code soldCountTotal} 这个别名是 D-7 点名的改名列：{@code dish.sold_count} 是**历史累计**销量
-     * （由 MockPayService/退款链路增减，与看板窗口无关），把它当窗口值展示是这类看板最常见的说谎方式，
+     * （由 PaymentSettlement/退款链路增减，与看板窗口无关），把它当窗口值展示是这类看板最常见的说谎方式，
      * 所以键名里直接写死 Total，Service 侧也不再对它做任何窗口解释。
      * <p>不 JOIN order_item：本期只出「平台把我哪些菜设成了秒杀」这一事实，销量口径见上一段。
      */

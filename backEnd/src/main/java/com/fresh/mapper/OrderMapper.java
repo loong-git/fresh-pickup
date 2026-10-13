@@ -33,7 +33,7 @@ public interface OrderMapper extends BaseMapper<Order> {
     int countByPickupCode(@Param("code") String code);
 
     /**
-     * 取货码挂载（F-18.6/D-3，只在 MockPayService 支付成功事务内调用）：
+     * 取货码挂载（F-18.6/D-3，只在 PaymentSettlement#settle 的支付成功事务内调用）：
      * 条件必须带 {@code pickup_code IS NULL} —— 这是幂等的全部依据：重复支付、并发二次置态都不会换码
      * （D-4 核销幂等判定要靠这个码稳定）；影响行数 0 由上层重试、5 次仍失败则抛 BizException 回滚整单支付。
      */
