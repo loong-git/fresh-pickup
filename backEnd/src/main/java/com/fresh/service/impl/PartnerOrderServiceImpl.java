@@ -365,7 +365,7 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
         return value == null ? null : String.valueOf(value);
     }
 
-    /** date 解析照 MerchantOrderServiceImpl#parseDate:227-236：形状不过或真日期不过都 400，同一条文案 */
+    /** date 解析照 MerchantOrderServiceImpl#parseDate：形状不过或真日期不过都 400，同一条文案 */
     private LocalDate parseDate(String raw) {
         if (!DATE_PATTERN.matcher(raw).matches()) {
             throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
@@ -378,7 +378,7 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
     }
 
     /**
-     * 聚合/驱动类型归一（照 MerchantOrderServiceImpl#toInteger:255-263）：
+     * 聚合/驱动类型归一（照 MerchantOrderServiceImpl#toInteger）：
      * SUM 回 BigDecimal、COUNT 回 Long、INT 列回 Integer，tinyint 在 tinyInt1isBit 下可能回 Boolean，
      * 一律 Number/Boolean 判定，不做强转。
      */

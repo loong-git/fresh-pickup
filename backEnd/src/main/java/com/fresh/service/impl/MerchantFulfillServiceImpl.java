@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>归属：条件 UPDATE 恒带 {@code merchant_id = #{merchantId}}，值只来自
  * {@code AuthInterceptor.ATTR_MERCHANT_ID}（前缀分支查库定 role=merchant + merchant_id 为空即 403 后注入），
- * 本类不重复角色判定；首行自守卫判空回 403（照 MerchantOrderServiceImpl#assertMerchant:216-220 的纵深防御）。
+ * 本类不重复角色判定；首行自守卫判空回 403（照 MerchantOrderServiceImpl#assertMerchant 的纵深防御）。
  *
  * <p>定性只有两种出口，且都不泄漏他人行存在性：
  * 影响行数 &gt;0 → 成功 + ops_log；影响行数 =0 → selectById，

@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
  * 主理人门店维护 + 到货批次实现（F-18.12 第 4~6 条）。
  *
  * <p><b>D-23 是本类的存在理由</b>：门店六新列在 {@link Store} 上逐个挂了 {@code @JsonIgnore}
- * （因为 StoreServiceImpl#listAll:21 把实体本身丢给了匿名的 {@code GET /api/stores}），
+ * （因为 StoreServiceImpl#listAll 把实体本身丢给了匿名的 {@code GET /api/stores}），
  * 所以主理人侧要读它们，只能靠下面 {@link #toOwnerView} 这份<b>显式白名单 Map 重建</b>——
  * 键集合写死在代码里，加一列不会自动多出一条泄露面，少一列也不会静默改协议。
  *
@@ -51,7 +51,7 @@ import java.util.regex.Pattern;
  * （F-17.2 #4 实测过的 JdbcType OTHER 报错形态），而定长字面量 NULL 不经参数绑定，零风险零注入面。
  *
  * <p><b>photos 的写入路径</b>：非空数组走 patch 实体（{@code photos} 挂了 JacksonTypeHandler，
- * 只有实体路径才带得上列元信息——照 MerchantDishServiceImpl#update:222-225 对 tags 的同一处理）；
+ * 只有实体路径才带得上列元信息——照 MerchantDishServiceImpl#update 对 tags 的同一处理）；
  * 空数组走 setSql 清空。
  */
 @Slf4j

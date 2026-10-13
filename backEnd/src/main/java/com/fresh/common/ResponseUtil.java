@@ -25,7 +25,7 @@ public final class ResponseUtil {
     }
 
     /**
-     * 带 data 的信封（写法照 GlobalExceptionHandler#handleBiz:31-34：先 R.fail 再 setData，
+     * 带 data 的信封（写法照 GlobalExceptionHandler#handleBiz：先 R.fail 再 setData，
      * data 为 null 时不调 setData，保证与三参版输出逐字节同形）。
      */
     public static void writeJson(HttpServletResponse response, int code, String message, Object data) throws IOException {

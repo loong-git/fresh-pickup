@@ -540,7 +540,7 @@ public class AdminServiceImpl implements AdminService {
         }
     }
 
-    /** 138****1234（逐字复刻 OrderServiceImpl#maskPhone:347-349；代开通 DTO @Pattern 保证 11 位，同既有三份实现不加守卫） */
+    /** 138****1234（逐字复刻 OrderServiceImpl#maskPhone；代开通 DTO @Pattern 保证 11 位，同既有三份实现不加守卫） */
     private String maskPhone(String phone) {
         return phone.substring(0, 3) + "****" + phone.substring(7);
     }

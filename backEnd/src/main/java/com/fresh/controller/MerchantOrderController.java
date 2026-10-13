@@ -28,7 +28,7 @@ import java.util.Map;
  * 契约 F-17.2 #8）；G-05 两条按 D-9 **读侧也判停业**（merchant.status&lt;&gt;'active' → 403），
  * 判据与文案复用 MerchantService#assertActive，本类不加任何新文案。
  *
- * <p>参数绑定用 @RequestParam 而非 DTO：四个都是纯读、0-4 个参数，与 MerchantDishController#list:45-48
+ * <p>参数绑定用 @RequestParam 而非 DTO：四个都是纯读、0-4 个参数，与 MerchantDishController#list
  * 同形态（DTO 是写端点的范式）。归属 merchantId 只从 @RequestAttribute 取，**不收任何归属入参**（R3 同型、
  * F-19 的 D-2 再次钉死）；storeId/date/status/page/size/days 都只是过滤与窗口，不是归属。
  *

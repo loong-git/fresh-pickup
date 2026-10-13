@@ -138,7 +138,7 @@ public class AdminController {
      * （不重复发布门店），申请不存在 404、非法 action 400。
      * <p>请求体用 {@code @RequestBody Map<String, String>} 而非新建 DTO：F-18.12 的「允许新增文件」清单
      * 只点了 StoreApplyCreateDTO / PartnerStoreUpdateDTO 两个 DTO，本端点只读两个键，
-     * 姿势照 PartnerController#verify:77-81 的既有先例（同理由见其类注释）。
+     * 姿势照 PartnerController#verify 的既有先例（同理由见其类注释）。
      */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // R6 随建随挂：Admin 新端点必带限流
     @PutMapping("/store-applies/{id}/audit")
