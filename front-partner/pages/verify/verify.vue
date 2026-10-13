@@ -295,7 +295,7 @@ export default {
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
     // ==================== 输码 ====================
-    // 过滤非数字 + 截 6 位（后端判据是 ^[0-9]{6}$，PartnerOrderServiceImpl.java:58）：
+    // 过滤非数字 + 截 6 位（后端判据是 ^[0-9]{6}$，见 PartnerOrderServiceImpl 的 PICKUP_CODE_PATTERN）：
     // 让脏字符进不了 data，按钮的 disabled 判定与提交前的长度校验才能共用同一个值
     onCodeInput(e) {
       const raw = String((e && e.detail && e.detail.value) || '')
@@ -303,7 +303,7 @@ export default {
     },
     // ==================== 核销提交（四支常驻反馈） ====================
     // 单飞锁 verifying 在 finally 复位；冷却闸门写在方法级第一行——小程序端 disabled 按钮的
-    // click 仍可能触发，只靠模板拦不住（闸门姿势照 plan-orders.vue:354-360 loadMore）
+    // click 仍可能触发，只靠模板拦不住（闸门姿势照 plan-orders.vue 的 loadMore 首行）
     async submitVerify() {
       if (this.retryLock > 0) return
       if (this.verifying) return
@@ -674,7 +674,7 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 两道守卫缺一不可（照 plan-orders.vue:459-490）：
+    // 两道守卫缺一不可（照 plan-orders.vue 的 onPageWheel 与其上方的守卫说明注释）：
     // ① 栈顶守卫：监听挂在 document 上，navigateTo/reLaunch 都不保证触发本页 onUnload，
     //    栈里多挂一份 handler 就会一次滚两倍。
     // ② 弹层与表单控件放行：picker/modal/toast 以及取货码 input 上的滚轮归控件，不能 preventDefault 抢走。

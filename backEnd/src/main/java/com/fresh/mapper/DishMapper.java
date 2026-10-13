@@ -104,7 +104,7 @@ public interface DishMapper extends BaseMapper<Dish> {
      * 免费领参与明细（BE-G5-1 驱动表订正，契约 D-6 已按 F-19.8 S-1 就地改文）：**从 free_goods_pool 出发**。
      * <p>为什么原来那条（{@code FROM free_activity fa JOIN dish d ON d.id = fa.dish_id}）是错的：
      * 免费领没有「商家报名表」，C 端真正的可领集合就是候选池 {@code free_goods_pool}——领取闸门
-     * {@code FreeServiceImpl.java:145-147} 判的是「dishId 是否在池内」，下发列表 {@code :302-312} 也是按池取的。
+     * {@code FreeServiceImpl#claim} 判的是「dishId 是否在池内」，下发列表 {@code FreeServiceImpl#poolDishes} 也是按池取的。
      * {@code free_activity} 只有 1 行（单活动模型，主菜 dish_id=1），而池实测 6 行、其中 5 行不是活动主菜，
      * 所以从 fa 出发①平台自营少报 5 件；②更严重的是反向说谎：某商家的菜只在池里 → 本查询 0 行 →
      * {@code count=0} → 页面逐字念「本店商品未进入免费领池」，而 C 端此刻真能领他家的菜。
@@ -117,7 +117,7 @@ public interface DishMapper extends BaseMapper<Dish> {
      * 改出 {@code activityStatus = fa.status}（online/offline），让页面如实说明这条池行挂在哪个状态的活动上。
      * <p>{@code dailyClaimed} 定形（BE-G5-2 跨日谎报）：裸 {@code fa.daily_claimed} 是**计数器所属日**的值，
      * 跨日不会自己归零——重置只在有人领取时惰性发生（{@code FreeActivityMapper.java:20-24} 那条条件 UPDATE），
-     * C 端自己的口径是 {@code FreeServiceImpl.java:429-443}「daily_date 为 NULL/过去 → 视为满额重置」。
+     * C 端自己的口径是 {@code FreeServiceImpl#remainingOf}「daily_date 为 NULL/过去 → 视为满额重置」。
      * 页面标签写的是「今日已领」，SQL 就必须只在今日口径下给出份数，否则 00:00 之后仍然念出昨天的数。
      * <b>日期判定只能在 SQL 里做（{@code CURDATE()}），不许搬到 Java</b>：本期 D-3 红线是页面与服务侧都不自推日期，
      * 挪到 Java 就等于凭空多出第二个窗口口径（应用服务器时区与库时区可能差一天，D-3 纪律见

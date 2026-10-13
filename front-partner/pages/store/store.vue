@@ -180,7 +180,7 @@
 // 门店信息维护页（F-18.19 §2）：D-7 七项白名单里「本页给输入口」的六项 + photos 只读展示。
 // 四条口径写在这里以免看代码时猜：
 // ① 保存体只带改动过的键（buildChangedBody 一处实现，预览与提交共用）：后端 PUT /api/partner/store 是
-//    逐字段 `if (非 null) set` 的白名单增量更新（PartnerStoreServiceImpl.java:148-218），
+//    逐字段 `if (非 null) set` 的白名单增量更新（PartnerStoreServiceImpl#updateStore 的 ①~⑦ 那串），
 //    「没传=不改」「传空串=清空该列」是两种不同指令，全量下发会把没看的列写成空——那是数据损失，不是显示瑕疵；
 // ② 六项之外一律不发：name/address/lng/lat/status 在 PartnerStoreUpdateDTO 的
 //    @JsonIgnoreProperties(ignoreUnknown = true) 上就被丢掉（不报错也不生效），前端留输入口就是静默假成功；
@@ -584,7 +584,7 @@ export default {
     // ==================== 保存（PUT /api/partner/store，只带改动过的键） ====================
     // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:305-308 同姿势，F-25/P-4 重测）
     async save() {
-      // FE-11：人已决定离开（leaving 总闸）就不再放行写入口——母版 dish-edit.vue:731 同判据，
+      // FE-11：人已决定离开（leaving 总闸）就不再放行写入口——母版 dish-edit.vue 的 save() 里同判据，
       // 避免「弹框之后到页面销毁之间」抢发一次 PUT 把丢弃变成半保存
       if (this.leaving) return
       if (this.retryLock > 0) {
@@ -601,8 +601,8 @@ export default {
       this.errorKey = ''
       const body = this.changedBody
       const keys = Object.keys(body)
-      // 无改动一个请求都不发（母版 dish-edit.vue:756-763 的 FEB-10 结论）：白名单增量更新收到空 body 时
-      // 后端虽也走「无变更」分支回当前视图（PartnerStoreServiceImpl.java:220-225），但那是一次白烧的写额度
+      // 无改动一个请求都不发（母版 dish-edit.vue 的 save() 里 FEB-10 早退）：白名单增量更新收到空 body 时
+      // 后端虽也走「无变更」分支回当前视图（PartnerStoreServiceImpl#updateStore 的 changed.isEmpty() 一支），但那是一次白烧的写额度
       if (!keys.length) {
         this.setFeedback('neutral', '没有需要保存的修改')
         return
@@ -614,7 +614,7 @@ export default {
         const res = await updatePartnerStore(Object.assign({ storeId: this.storeId }, body))
         const data = (res && res.data && typeof res.data === 'object') ? res.data : null
         // 成功用回包整体刷新视图（回包是落库后的权威值，不是「旧值 + 本次入参」的拼装，
-        // PartnerStoreServiceImpl.java:236-241 专门回查过一次），并用新值重设 diff 基线
+        // PartnerStoreServiceImpl#updateStore 在写成功后专门用 findOwnedStore 回查过一次），并用新值重设 diff 基线
         if (data) this.applyDetail(data)
         this.setFeedback('ok', '已保存')
       } catch (e) {
@@ -808,7 +808,7 @@ export default {
 }
 .ro-note { font-size: 22rpx; color: #BBBBBB; line-height: 1.5; }
 
-/* ==================== 4.1 表单行（形状取自母版 dish-edit.vue:845-884，类名换 st- 前缀避免跨页误命中） ==================== */
+/* ==================== 4.1 表单行（形状取自母版 dish-edit.vue 的「2. 表单行」样式段，类名换 st- 前缀避免跨页误命中） ==================== */
 .form-card { margin-top: 24rpx; padding: 8rpx 24rpx 24rpx; }
 .field-row {
   display: flex; align-items: center; gap: 16rpx;

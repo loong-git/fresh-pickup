@@ -222,7 +222,7 @@ export default {
     }
     // #endif
     // 冷却计时器随页销毁一起清：setInterval 挂在 window 上，不摘就会在页面卸载后
-    // 继续每秒写一次已死组件的状态（照 dishes.vue:275-278）
+    // 继续每秒写一次已死组件的状态（照 dishes.vue 的 onUnload 收尾）
     this.stopRetryLock()
   },
   methods: {
@@ -448,7 +448,7 @@ export default {
       const q = Number.isFinite(qty) ? qty : 0
       return Math.round(p * q * 100) / 100
     },
-    // ==================== 429 冷却（照 dishes.vue:425-436，同 login.vue 的 loginLock 秒级禁用范式） ====================
+    // ==================== 429 冷却（照 dishes.vue 的「429 冷却」一节，同 login.vue 的 loginLock 秒级禁用范式） ====================
     startRetryLock(err) {
       this.stopRetryLock()
       this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
