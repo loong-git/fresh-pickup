@@ -135,7 +135,7 @@ const STORE_STATUS_OPEN = 'open'
 const RETRY_FALLBACK_SECONDS = 60
 
 // retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
-// 本页这私有的一参版是第 6 份、也是最后一份，已随 apply/arrival/login/store/verify 一起删除。
+// 本页这份私有的一参版是第 6 份、也是最后一份：F-23.2 起锁时加进来，F-25 路 1 又随 apply/arrival/login/store/verify 那 5 份一起删除（净 diff 里一加一删相消，别据此断言「本页从来没有私有版」）。
 // （商家端更早就收敛了：front-merchant/api/index.js 导出同名两参版 retrySecondsOf——两端形态现在一致。
 //   这里刻意不写商家端那一行的行号：F-25 路 2 正在改那个文件，任何指向它内部的 file:line 都会被同批加行打断。）
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
@@ -159,7 +159,8 @@ export default {
       refreshAt: 0,
       // 已有列表快照时重拉失败（含明细那一次失败）的降级标记：卡片照常展示，只在卡底追加一行重试提示
       refreshFailed: false,
-      // 429 冷却剩余秒数（两条 GET 都是 USER 30 次/分，共用这一张冷却表；
+      // 429 冷却剩余秒数（两条 GET 同档 USER 30 次/分、但各是一枚独立桶——桶身份取「控制器类名 + 方法名」，
+      // 见 RateLimitInterceptor#bucketKey；页内共用这一张冷却表是刻意的保守，不是说它们花同一份额度；
       // 起锁秒数不再硬编码：转述后端 429 信封的 data.retryAfterSeconds，取不到才回落 RETRY_FALLBACK_SECONDS；
       // 落点与写法照 dishes.vue:187-188（data）/ :417（errorCode===429 才起锁）/ :464（startRetryLock）。
       // F-25/P-4：原指针 177-178/385/432 已被商家端加行打断，上面三个是按 dishes.vue 现况逐条重测的读数）
@@ -232,7 +233,15 @@ export default {
     // 现值按 dishes.vue 实况重测＝228-233（computed errorLeadText 本体 228、四支 return 229-232、收尾 233）
     errorLeadText() {
       if (this.errorCode === 429) return '点得太快了，稍后再刷新'
-      return '门店资料加载失败，请检查网络后重试'
+      // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
+      // 承认自己处理出错，同屏第二行透出的正是那句原文，第一行却叫主理人去查网络——因果方向相反
+      if (this.errorCode === 500) return '门店资料加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败才许出现「网络」字样：front-partner/api/index.js 的 request fail 支回 code:-1 /
+      // message「网络异常」，本页 errorCode 因此是 -1；没带码的失败归 0，两支同一条出路
+      if (this.errorCode <= 0) return '门店资料加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文。
+      // 403 走不到这里——它被 load() 归进 empty 态（名下归属集合为空，重试永远失败）
+      return '门店资料加载失败，请稍后重试'
     }
   },
   onShow() {

@@ -62,11 +62,15 @@
                让「方向只有 stockSign 一处真值」这件事在界面上也只看一处（框里打负号会被直接拦下，见 adjustStock） -->
           <text class="stock-sign-echo">{{ stockSign === 'minus' ? '−' : '＋' }}</text>
           <input class="field-input stock-input" v-model="stockDelta" type="number" placeholder="数量" placeholder-style="color:#BBBBBB;" />
-          <button class="btn-sub" :class="{ 'btn-sub-disabled': adjusting || writeBlocked || leaving }" :disabled="adjusting || writeBlocked || leaving" @click="adjustStock">
-            <text>{{ adjusting ? '调整中…' : '调整' }}</text>
+          <button class="btn-sub" :class="{ 'btn-sub-disabled': adjusting || writeBlocked || leaving || writeGates.stock.seconds > 0 }" :disabled="adjusting || writeBlocked || leaving || writeGates.stock.seconds > 0" @click="adjustStock">
+            <text>{{ adjusting ? '调整中…' : (writeGates.stock.seconds > 0 ? '库存冷却中' : '调整') }}</text>
           </button>
         </view>
         <text v-if="isEdit" class="field-hint">商家端只能按增减量改库存（单次 ±1000 以内），要精确改数找平台；数量只填正数，增减方向用 ＋/− 选</text>
+        <!-- 库存支的常驻反馈行（X-7b）：429 冷却与 400/500/网络异常都落这一行，不再只有一条 1.5s 的 toast。
+             秒数只从 writeGates.stock 那一枚现取，这一栏这一把锁只在这一处出现一个数（X-5）；
+             行长在「库存」这一栏下面，说的就是库存那把桶，不是保存/上传/上下架那三把 -->
+        <text v-if="writeFeedbackText('stock')" class="field-hint save-feedback">{{ writeFeedbackText('stock') }}</text>
 
         <view class="field-row de-field-limitBuy" :class="{ 'field-error': errorKey === 'limitBuy' }">
           <text class="field-label">限购</text>
@@ -111,13 +115,16 @@
             <text v-else class="img-emoji">{{ form.emoji || '🥬' }}</text>
           </view>
           <view class="img-btns">
-            <button class="btn-sub" :class="{ 'btn-sub-disabled': uploading || writeBlocked || leaving }" :disabled="uploading || writeBlocked || leaving" @click="chooseImage">
-              <text>{{ uploading ? '上传中…' : (image ? '换一张' : '选图上传') }}</text>
+            <button class="btn-sub" :class="{ 'btn-sub-disabled': uploading || writeBlocked || leaving || writeGates.upload.seconds > 0 }" :disabled="uploading || writeBlocked || leaving || writeGates.upload.seconds > 0" @click="chooseImage">
+              <text>{{ uploading ? '上传中…' : (writeGates.upload.seconds > 0 ? '上传冷却中' : (image ? '换一张' : '选图上传')) }}</text>
             </button>
             <text v-if="image" class="img-clear" @click="clearImage">移除图片</text>
           </view>
           <text v-if="image" class="img-path">入库值：{{ image }}</text>
           <text v-else class="field-hint">jpg/png/webp，5MB 以内；不传图则 C 端与本页都显示上面的表情占位</text>
+          <!-- 上传支的常驻反馈行（X-7b）：429 冷却与 400/500/网络异常都落这一行；
+               秒数只从 writeGates.upload 那一枚现取，行长在「商品图」这一栏下面，报的就是上传那把桶 -->
+          <text v-if="writeFeedbackText('upload')" class="field-hint save-feedback">{{ writeFeedbackText('upload') }}</text>
         </view>
       </view>
 
@@ -127,12 +134,15 @@
         <view class="field-row field-row-flat">
           <text class="field-label">在售状态</text>
           <text class="sale-badge" :class="onSale === 1 ? 'badge-on' : 'badge-off'">{{ onSale === 1 ? '在售' : '已下架' }}</text>
-          <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 1 }" :disabled="writeBlocked || busySale || onSale === 1" @click="changeOnSale(1)"><text>上架</text></button>
-          <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 0 }" :disabled="writeBlocked || busySale || onSale === 0" @click="changeOnSale(0)"><text>下架</text></button>
+          <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 1 || writeGates.sale.seconds > 0 }" :disabled="writeBlocked || busySale || onSale === 1 || writeGates.sale.seconds > 0" @click="changeOnSale(1)"><text>上架</text></button>
+          <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 0 || writeGates.sale.seconds > 0 }" :disabled="writeBlocked || busySale || onSale === 0 || writeGates.sale.seconds > 0" @click="changeOnSale(0)"><text>下架</text></button>
         </view>
         <!-- 语义（后端已改）：on_sale=0 既撤出推荐位，也会被下单链路硬拦
              （OrderServiceImpl:120 拒 on_sale!=1，文案「包含已下架商品，请重新选择」），故 hint 照实说「不能下单」 -->
         <text class="field-hint">下架后该商品不能下单，同时已从推荐位撤出</text>
+        <!-- 上下架支的常驻反馈行（X-7b）：两个按钮点的是同一个方法，因此这一行报的就是同一把锁
+             （MerchantDishController#setOnSale）；秒数只从 writeGates.sale 那一枚现取 -->
+        <text v-if="writeFeedbackText('sale')" class="field-hint save-feedback">{{ writeFeedbackText('sale') }}</text>
       </view>
 
       <view class="card save-card">
@@ -196,6 +206,12 @@ const CATEGORY_RETRY_GAP_FALLBACK_MS = 60 * 1000
 // 这一页保存支的秒数来源只有两条：后端 data.retryAfterSeconds（经 api 层 retrySecondsOf 转述）
 // 与这枚窗口保守上限，页内不再有三个数。
 const SAVE_RETRY_GATE_FALLBACK_SECONDS = CATEGORY_RETRY_GAP_FALLBACK_MS / 1000
+
+// 另外三条写路径（图片上传 / 库存增量 / 上下架）的回落秒数（X-7b）：三枚桶也全是 USER 10 次 / 60 秒
+// （MerchantController#upload、MerchantDishController#adjustStock、MerchantDishController#setOnSale），
+// 与保存支同档，所以直接复用上面那枚换算值——本批红线是「任何情况下不许新增写死的时长字面量」，
+// 这里不再写第三个 60；页内时长出处仍然只有两条：后端 data.retryAfterSeconds 与这枚窗口保守上限。
+const WRITE_GATE_FALLBACK_SECONDS = SAVE_RETRY_GATE_FALLBACK_SECONDS
 
 // 429 那一句说法（X-7）：句式照 front-partner 写侧母版（store.vue / verify.vue / arrival.vue 各自的
 // coolingText），单位 s 与全站模板同制；文案族合并归片 5 的 X-8，这里不另立第三种说法。
@@ -268,6 +284,19 @@ export default {
       retryLockTimer: null,
       // 保存结果的常驻反馈行：{tone:'err'|'cooling', text:string}；null = 本次会话还没点过保存
       saveFeedback: null,
+      // 另外三条写路径各自的 429 闸门与常驻行（X-7b）。key 就是桶身份（upload / stock / sale），
+      // 三把锁互不相干：桶身份取「控制器类名 + 方法名」（见 RateLimitInterceptor#bucketKey），
+      // 保存那把 retryLock 管不到它们，反之亦然（判断与后果见方法区那节注释）。
+      // 每枚的形状：retryAt = 墙上时钟锚点（闸门真值，ms），seconds = 由它派生给模板的剩余秒数，
+      // feedback = 该栏的常驻行 {tone, text}（cooling 一支存的是不带数字的整句，X-3 同纪律）
+      writeGates: {
+        upload: { retryAt: 0, seconds: 0, feedback: null },
+        stock: { retryAt: 0, seconds: 0, feedback: null },
+        sale: { retryAt: 0, seconds: 0, feedback: null }
+      },
+      // 三把闸门共用的一枚定时器（tick 只换算派生值，不各自 setInterval）：onUnload 单点成对清，
+      // 三把全到期时它自己摘（见 tickWriteGates）
+      writeGatesTimer: null,
       categoryIndex: 0,
       categories: [],
       categoriesError: '',
@@ -409,6 +438,11 @@ export default {
     }
     // 保存支 429 闸门（X-7）：setInterval 挂在 window 上，不摘就会在页面卸载后继续每秒写一次已死组件
     this.stopRetryLock()
+    // 另外三条写路径的闸门（X-7b）：这一枚 tick 同时驱动 upload/stock/sale 三把锁，摘一次三把全停表
+    // （与 startWriteGate 里那句「没有表就起一张」成对）；残留的锚点值一并清掉，
+    // 否则下一实例的点击侧会读到上一实例的数字——口径同下面那两行 _categoryRetryAt / _categoryRetryGapMs
+    this.stopWriteGatesTimer()
+    this.resetWriteGates()
     // 类目重试冷却用的是时间戳（没有 setInterval 要清），这里只把残留值置空。
     // _categoryRetryGapMs（FB-3 的闸门时长）一并清：留脏值会让下一实例的点击侧起闸用到上一实例的数字
     // （X-7 新加的 categoryRetryBackendSeconds 是响应式 data，随实例一起销毁，不必在这里清）
@@ -470,6 +504,83 @@ export default {
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
       this.retryLock = 0
+    },
+    // ==================== 另外三条写路径的 429 闸门与常驻行（X-7b） ====================
+    // 为什么不能共用上面那把保存锁（这就是派单要我给的那句结论）：这四条写路径撞的是**四枚互不相干的桶**，
+    // 桶身份是「控制器类名 + 方法名」（见 RateLimitInterceptor#bucketKey），所以
+    // MerchantController#upload（图片上传）、MerchantDishController#adjustStock（库存增量）、
+    // MerchantDishController#setOnSale（上下架，上架/下架两个按钮走同一个方法、因此是同一把锁）、
+    // MerchantDishController#create / #update（保存支）各计各的配额。共用一枚就会反向误锁：
+    // 上传被限流时「调整库存」明明还有额度却按不动，反过来库存的 429 会把保存按钮一起冻住——
+    // 那与 X-1 拆读写锁要修的正是同一个病（一把锁管多桶 = 报出来的时长不是用户等的那把）。
+    // 为什么这里用「墙上时钟锚点 + 派生秒数」而不是保存支的「每秒自减」：一屏最多三把独立闸门在跑，
+    // 三对 setInterval 既难成对清也白耗；而自减在 H5 后台标签页会被浏览器把 interval 压到远慢于 1 秒，
+    // 屏上的数与点击时的判据会越跑越偏。锚点仍只由 retrySecondsOf 转述的后端真值换算，页内零推算时长。
+    startWriteGate(key, err) {
+      const g = this.writeGates[key]
+      // 秒数唯一出处＝api 层 retrySecondsOf 转述的 data.retryAfterSeconds；后端没给数才回落到同档窗口的
+      // 保守上限 WRITE_GATE_FALLBACK_SECONDS（它就是 SAVE_RETRY_GATE_FALLBACK_SECONDS 的别名，不是新数值）
+      g.retryAt = Date.now() + retrySecondsOf(err, WRITE_GATE_FALLBACK_SECONDS) * 1000
+      g.seconds = this.writeGateRemaining(key)
+      if (!this.writeGatesTimer) this.writeGatesTimer = setInterval(() => this.tickWriteGates(), 1000)
+    },
+    // 剩余秒数只从锚点现算（到期回 0，0 同时是模板隐掉冷却态的判据）：这样屏上的数、按钮的判定、
+    // toast 里那句用的是同一个来源，不存在「两处数互相矛盾」
+    writeGateRemaining(key) {
+      const at = this.writeGates[key].retryAt
+      if (!(at > 0)) return 0
+      return Math.max(0, Math.ceil((at - Date.now()) / 1000))
+    },
+    tickWriteGates() {
+      const keys = Object.keys(this.writeGates)
+      let live = 0
+      keys.forEach((k) => {
+        const g = this.writeGates[k]
+        if (!(g.retryAt > 0)) return
+        g.seconds = this.writeGateRemaining(k)
+        if (g.seconds > 0) live++
+        else g.retryAt = 0
+      })
+      // 三把全到期就自己摘表：留一枚每秒空转的 interval 会一直触发重渲染
+      if (!live) this.stopWriteGatesTimer()
+    },
+    stopWriteGatesTimer() {
+      if (this.writeGatesTimer) { clearInterval(this.writeGatesTimer); this.writeGatesTimer = null }
+    },
+    stopWriteGate(key) {
+      const g = this.writeGates[key]
+      g.retryAt = 0
+      g.seconds = 0
+      if (!this.writeGateAnyLive()) this.stopWriteGatesTimer()
+    },
+    writeGateAnyLive() {
+      const keys = Object.keys(this.writeGates)
+      return keys.some((k) => this.writeGates[k].retryAt > Date.now())
+    },
+    // onUnload 用：三把闸门一起清（残留值会让下一实例的点击侧读到上一实例的数字，同 _categoryRetryAt 那条纪律）
+    resetWriteGates() {
+      const keys = Object.keys(this.writeGates)
+      keys.forEach((k) => {
+        this.stopWriteGate(k)
+        this.writeGates[k].feedback = null
+      })
+    },
+    // 三条写路径各自的反馈落点（形状逐字照本页 setSaveFeedback：行与 toast 同一串生成，不会互相矛盾）。
+    // 归属靠行所在的位置给出（商品图 / 库存 / 在售状态三栏各一行），满足 X-5 定稿判据
+    // 「每处文案必须能看出它在报哪把锁」——这一屏四处时长分属四把独立锁，各报各的且各归各栏
+    setWriteFeedback(key, tone, text) {
+      this.writeGates[key].feedback = { tone, text }
+      this.showToast(text)
+    },
+    // 该栏的常驻行文案：cooling 一支的秒数只从**那一枚**闸门的实时剩余值现取，存进句子里的是不带数字的整句，
+    // 于是冷却走完时这一行自动回到「请稍后再试」，不会停死在「请 60s 后再试」（X-3 点名的病）
+    writeFeedbackText(key) {
+      const g = this.writeGates[key]
+      if (!g.feedback) return ''
+      if (g.feedback.tone === 'cooling') {
+        return g.seconds > 0 ? coolingText(g.seconds) : g.feedback.text
+      }
+      return g.feedback.text
     },
     // ==================== 数据加载 ====================
     // store 的 me 快照缺失或非 active 时补拉一次（lockedByStatus 读的就是它）：
@@ -641,6 +752,13 @@ export default {
     // H5 端 tempFilePaths 是 blob 地址、小程序端是本地临时文件，api 层的上传通道两种都吃；
     // 体积/后缀不在这里判（白名单 + 魔数 + ≤5MB 由服务端 R5 校验链唯一裁决，前端只原样 toast 400 文案）
     chooseImage() {
+      // X-7b：闸门判在打开系统选图框**之前**——冷却里还让商家挑完一张图再说「太频繁」，是白走一遍控件
+      // （这一声与那一栏的常驻行同源：同一枚锁的快照与实时值，允许差 1 秒，X-10 裁定）
+      const gateLeft = this.writeGateRemaining('upload')
+      if (gateLeft > 0) {
+        this.showToast(coolingText(gateLeft))
+        return
+      }
       uni.chooseImage({
         count: 1,
         sizeType: ['compressed'],
@@ -654,12 +772,16 @@ export default {
     async uploadImage(filePath) {
       if (this.leaving) return
       this.uploading = true
+      // 上一轮的上传反馈（429 冷却句 / 400 原文）到这一次真发请求时作废：留着就是常驻行在说上一次的事
+      // （口径同保存支的 this.saveFeedback = null）
+      this.writeGates.upload.feedback = null
       try {
         const res = await uploadMerchantImage(filePath)
         const data = (res && res.data) || null
         const path = data && typeof data.path === 'string' ? data.path : ''
         if (!path) {
-          this.showToast('上传返回异常，请重试')
+          // 「200 但没给 path 键」是契约漂移，不是一条转瞬就没的 toast 能打发的：落同一行的常驻反馈
+          this.setWriteFeedback('upload', 'err', '上传返回异常，请重试')
           return
         }
         this.image = path
@@ -671,7 +793,19 @@ export default {
           this.forbiddenMessage = (typeof e.message === 'string' ? e.message : '').trim()
           return
         }
-        if (e && e.code !== 401) this.showToast((e && e.message) || '上传失败')
+        if (e && e.code === 429) {
+          // X-7b：上传支的三件套（闸门 / 常驻行 / 真值转述），形状逐字照本页保存支的 429 那一段。
+          // 这把锁是 MerchantController#upload 那一枚，与保存/库存/上下架三把互不覆盖。
+          this.startWriteGate('upload', e)
+          // 存的是不带数字的整句，屏上那个数由 writeFeedbackText 从实时闸门现取（X-3 同纪律）；
+          // coolingText(0) 与后端 429 原文逐字同串，这里既没改写后端文案也没另立说法
+          this.writeGates.upload.feedback = { tone: 'cooling', text: coolingText(0) }
+          this.showToast(coolingText(this.writeGateRemaining('upload')))
+          return
+        }
+        // 400/500/网络异常：后端文案原样透出，并同时落这一栏的常驻行——toast 一闪就没了，
+        // 商家会以为「按下去什么都没发生」然后连点，那正是 X-7 判的病
+        if (e && e.code !== 401) this.setWriteFeedback('upload', 'err', (e && e.message) || '上传失败')
       } finally {
         this.uploading = false
       }
@@ -684,6 +818,12 @@ export default {
     // ==================== 库存增量（编辑态） ====================
     async adjustStock() {
       if (this.leaving) return
+      // X-7b：库存增量是第三枚独立桶（MerchantDishController#adjustStock），冷却里再点只会续自己的桶
+      const gateLeft = this.writeGateRemaining('stock')
+      if (gateLeft > 0) {
+        this.showToast(coolingText(gateLeft))
+        return
+      }
       const typed = Number(this.stockDelta)
       // FEB-2：这一栏原来是 Math.abs(Number(stockDelta))——数量框 type="number" 能打负号，
       // 打 -5 时符号态还明晃晃停在「＋」上，abs 把 -5 静默翻成 +5 真写进了库（实测审计落 delta=5、stock 180）。
@@ -703,6 +843,8 @@ export default {
       }
       const delta = this.stockSign === 'minus' ? -n : n
       this.adjusting = true
+      // 上一轮的库存反馈到这一次真发请求时作废（口径同保存支）
+      this.writeGates.stock.feedback = null
       try {
         const res = await adjustMerchantDishStock(this.dishId, delta)
         // 返回值是落库后的真实库存：并发下不等于「原库存 + delta」，必须以服务端返回覆盖，页内不自算
@@ -719,7 +861,15 @@ export default {
           this.toastThenBack((e && e.message) || '商品不存在')
           return
         }
-        if (e && e.code !== 401) this.showToast((e && e.message) || '库存调整失败')
+        if (e && e.code === 429) {
+          // X-7b：库存支的三件套（闸门 / 常驻行 / 真值转述），形状逐字照本页保存支的 429 那一段
+          this.startWriteGate('stock', e)
+          this.writeGates.stock.feedback = { tone: 'cooling', text: coolingText(0) }
+          this.showToast(coolingText(this.writeGateRemaining('stock')))
+          return
+        }
+        // 400/500/网络异常：原文透出 + 落这一栏的常驻行，不再只有一条 1.5s 的 toast
+        if (e && e.code !== 401) this.setWriteFeedback('stock', 'err', (e && e.message) || '库存调整失败')
       } finally {
         this.adjusting = false
       }
@@ -727,7 +877,16 @@ export default {
     // ==================== 上下架 ====================
     async changeOnSale(onSale) {
       if (this.leaving) return
+      // X-7b：上下架是第四枚独立桶（MerchantDishController#setOnSale）——「上架」「下架」两个按钮点的是
+      // 同一个方法，因此共用这一把锁是准确的（同一枚桶），与保存/上传/库存那三把互不覆盖
+      const gateLeft = this.writeGateRemaining('sale')
+      if (gateLeft > 0) {
+        this.showToast(coolingText(gateLeft))
+        return
+      }
       this.busySale = true
+      // 上一轮的上下架反馈到这一次真发请求时作废（口径同保存支）
+      this.writeGates.sale.feedback = null
       try {
         const res = await setMerchantDishOnSale(this.dishId, onSale)
         this.onSale = Number(onSale)
@@ -742,7 +901,15 @@ export default {
           this.toastThenBack((e && e.message) || '商品不存在')
           return
         }
-        if (e && e.code !== 401) this.showToast((e && e.message) || '操作失败')
+        if (e && e.code === 429) {
+          // X-7b：上下架支的三件套（闸门 / 常驻行 / 真值转述），形状逐字照本页保存支的 429 那一段
+          this.startWriteGate('sale', e)
+          this.writeGates.sale.feedback = { tone: 'cooling', text: coolingText(0) }
+          this.showToast(coolingText(this.writeGateRemaining('sale')))
+          return
+        }
+        // 400/500/网络异常：原文透出 + 落「在售状态」那一栏的常驻行，不再只有一条 1.5s 的 toast
+        if (e && e.code !== 401) this.setWriteFeedback('sale', 'err', (e && e.message) || '操作失败')
       } finally {
         this.busySale = false
       }

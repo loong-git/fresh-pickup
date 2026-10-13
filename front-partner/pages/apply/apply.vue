@@ -323,7 +323,14 @@ export default {
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次
     errorLeadText() {
       if (this.errorCode === 429) return '点得太快了，稍后再刷新'
-      return '申请进度读取失败，请检查网络后重试'
+      // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
+      // 承认自己处理出错，同屏第二行透出的正是那句原文，第一行却叫申请人去查网络——因果方向相反
+      if (this.errorCode === 500) return '申请进度读取失败，服务端处理出错，稍后重试'
+      // 只有网络层失败才许出现「网络」字样：front-partner/api/index.js 的 request fail 支回 code:-1 /
+      // message「网络异常」，本页 errorCode 因此是 -1；没带码的失败归 0，两支同一条出路
+      if (this.errorCode <= 0) return '申请进度读取失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '申请进度读取失败，请稍后重试'
     }
   },
   watch: {
