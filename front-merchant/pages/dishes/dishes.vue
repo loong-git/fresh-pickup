@@ -555,7 +555,7 @@ export default {
 
 /* ==================== 1. 筛选卡 ==================== */
 .filter-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
-/* 商家状态行（照 workspace.vue:317 .status-tip 同一档字号/颜色：同一状态在两端必须是同一副样子） */
+/* 商家状态行（照 workspace.vue 的 .status-tip 同一档字号/颜色：同一状态在两端必须是同一副样子） */
 .status-tip { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: #E02020; opacity: .8; line-height: 1.5; }
 .search-row { display: flex; align-items: center; gap: 16rpx; }
 .search-input {
@@ -565,7 +565,7 @@ export default {
 }
 .search-go { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: #E02020; padding: 8rpx 4rpx; }
 .search-clear { flex-shrink: 0; font-size: 24rpx; color: #BBBBBB; padding: 8rpx 4rpx; }
-/* 行内新增按钮（取代常驻 fab）：灰度/禁用态照 dish-edit.vue:673-680 .btn-sub 同一套写法，
+/* 行内新增按钮（取代常驻 fab）：灰度/禁用态照 dish-edit.vue 的 .btn-sub/.btn-sub-disabled 同一套写法，
    两处「新增/次级动作」的观感不能各长一个样；.btn-sub-disabled 只做视觉，
    拦截与告知在 goCreate 里（原生 disabled 会把点击整个吞掉，商家就看不到「为什么点不动」） */
 .btn-sub {
@@ -611,7 +611,7 @@ export default {
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
 /* .error-row/.error-text/.error-retry 基类在 common.css；本页只补两个差异件 */
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-/* 后端原文降为第二行：照 workspace.vue:288 .guide-tip 同一档（小字、半透明红），排查时看得见但不顶替人话 */
+/* 后端原文降为第二行：照 workspace.vue 的 .guide-tip 同一档（小字、半透明红），排查时看得见但不顶替人话 */
 .guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }

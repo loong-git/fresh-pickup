@@ -203,7 +203,7 @@ export default {
   onShow() {
     // 每次进入重拉（确认动作在别的页/别的设备做过也要第一时间反映）。
     // 不传 resetView：日期没变就不该把已有卡片整页换成加载态白卡（静默重拉成功后直接覆盖，
-    // 姿势照 pickup-plan.vue:158-161 的 onShow）
+    // 姿势照 pickup-plan.vue 的 onShow）
     if (!this.queryDate) this.queryDate = this.todayStr()
     this.loadBatches()
   },
@@ -235,7 +235,7 @@ export default {
         this._reloadQueued = true
         return
       }
-      // 刻意不在这里 gate retryLock（姿势照 plan-orders.vue:224 的 fetchList：闸门只装在
+      // 刻意不在这里 gate retryLock（姿势照 plan-orders.vue 的 fetchList：闸门只装在
       // 「自动翻页」和「错误卡重试按钮」两处，用户主动改条件必须立刻发请求）：
       // 冷却期里挡掉步进 = 日期条已变、卡片还是上一天，而且 ready 态没有任何重试入口，那点就永久丢了
       this._loadingBatches = true
@@ -295,7 +295,7 @@ export default {
         const res = await confirmArrival(id)
         const data = (res && res.data) || {}
         if (data.idempotent === true) {
-          // 幂等不是失败：这一批此前已确认，且不重复写 ops_log（PartnerStoreServiceImpl.java:324-327）
+          // 幂等不是失败：这一批此前已确认，且不重复写 ops_log（PartnerStoreServiceImpl#confirmArrival 的 BATCH_CONFIRMED 幂等分支）
           this.setFeedback(key, 'neutral', '该批次此前已确认，未重复记录')
         } else {
           this.setFeedback(key, 'ok', '到货已确认：' + this.batchTitle(b))
@@ -320,7 +320,7 @@ export default {
         }
         if (code === 404) {
           // 他店批次与不存在的批次在后端就是同一个 404 同文案（不泄漏行存在性），
-          // 前端跟着拆两支就等于把这枚预言机还回去（PartnerStoreServiceImpl.java:319-322）
+          // 前端跟着拆两支就等于把这枚预言机还回去（PartnerStoreServiceImpl#confirmArrival 两条 BATCH_NOT_FOUND_MSG 出口）
           this.setFeedback(key, 'err', '批次不存在或不属于你的门店')
           return
         }
@@ -389,7 +389,7 @@ export default {
       this.feedbackMap = Object.assign({}, this.feedbackMap, { [key]: { tone, text } })
       this.showToast(text)
     },
-    // ==================== 日期步进（基准优先 queryDate，照 pickup-plan.vue:239-250） ====================
+    // ==================== 日期步进（基准优先 queryDate，照 pickup-plan.vue 的 stepDay） ====================
     stepDay(delta) {
       const base = this.queryDate || this.effectiveDate || this.todayStr()
       const d = this.parseDate(base) || this.newToday()

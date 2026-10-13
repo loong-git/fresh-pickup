@@ -155,7 +155,7 @@
 
       <!-- ==================== 4.3 保存 ==================== -->
       <view class="card save-card">
-        <!-- 刻意不吃 HTML disabled（母版 dish-edit.vue:138 的实测结论）：真 disabled 会吞掉 click，
+        <!-- 刻意不吃 HTML disabled（母版 dish-edit.vue 的 save-card 注释给的实测结论）：真 disabled 会吞掉 click，
              冷却中点上来什么都不发生等于零反馈。这里视觉禁用 + 可点，save() 首行给 toast -->
         <button
           class="btn-main"
@@ -184,7 +184,7 @@
 //    「没传=不改」「传空串=清空该列」是两种不同指令，全量下发会把没看的列写成空——那是数据损失，不是显示瑕疵；
 // ② 六项之外一律不发：name/address/lng/lat/status 在 PartnerStoreUpdateDTO 的
 //    @JsonIgnoreProperties(ignoreUnknown = true) 上就被丢掉（不报错也不生效），前端留输入口就是静默假成功；
-// ③ contactPhone 的回包是 PhoneMask.mask 的脱敏值（RD 红线，PartnerStoreServiceImpl.java:410），
+// ③ contactPhone 的回包是 PhoneMask.mask 的脱敏值（RD 红线，PartnerStoreServiceImpl#toOwnerView 只出 mask 结果），
 //    明文根本到不了本页，所以这一栏的初值恒为空串、留空恒等于「不改」，本页不给「清空电话」这条路（见 phoneHint）；
 // ④ 四态单值互斥 loading|error|empty|ready（照 workspace.vue:147-148 / verify.vue:138 的纪律，不叠布尔；F-25/P-4 重测），
 //    冷却锁只在 code===429 起，onUnload 成对清定时器，所有请求走 @/api/index.js（页内零原生请求）。
@@ -202,7 +202,7 @@ const PAGE_ROUTE = 'pages/store/store'
 // 本页 picker 只产出 HH:MM，不存在「主动清空时间列」这条路，预检只是把脏中间态拦在提交前）
 const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/
 
-// 联系电话形状（StoreApplyServiceImpl.java:42 / PartnerStoreServiceImpl.java:61 同一条规则）
+// 联系电话形状（StoreApplyServiceImpl#PHONE_PATTERN / PartnerStoreServiceImpl#PHONE_PATTERN 同一条规则）
 const PHONE_RE = /^1[3-9]\d{9}$/
 
 // 日接单量取值域（PartnerStoreUpdateDTO.java:46-47 的 @Min/@Max 同口径）
@@ -268,7 +268,7 @@ export default {
       },
       // 增量 diff 的基线：与 form 同形状，applyDetail 每次成功后整体重设（见 changedBody 的注释）
       baseline: null,
-      // 校验/后端 400 命中要落到「哪一栏」（母版 dish-edit.vue:194 errorKey 同款），供描红 + 滚动定位
+      // 校验/后端 400 命中要落到「哪一栏」（母版 dish-edit.vue 的 errorKey 同款），供描红 + 滚动定位
       errorKey: '',
       // 照片加载失败位（按 index 记，失败只把那张换成一句话，不整块隐藏）
       photoFailed: {},
@@ -279,7 +279,7 @@ export default {
       emptyMessage: '',
       // 保存单飞锁（写操作专用，finally 复位；失败也不能留在 true）
       saving: false,
-      // FE-11「未保存离开」守卫的总闸（一枚布尔，写法照母版 dish-edit.vue:199/358 的 leaving，不造第二套状态机）：
+      // FE-11「未保存离开」守卫的总闸（一枚布尔，写法照母版 dish-edit.vue 的 data.leaving 与四个写入口的首行早退，不造第二套状态机）：
       // 置 true 就等于「人已决定走」——本钩子下次进来直接放行（不再弹第二次），save() 也首行早退，
       // 免得 showModal 的回调里再 navigateBack 时自己拦自己形成死循环
       leaving: false,
@@ -679,7 +679,7 @@ export default {
     scrollToField(sel) {
       // #ifdef H5
       // index.html 锁死 html,body overflow:hidden，本页滚动容器是 document.body，
-      // uni.pageScrollTo 滚的是 window，这里会静默无效——照 dish-edit.vue:695-722 用 scrollIntoView
+      // uni.pageScrollTo 滚的是 window，这里会静默无效——照 dish-edit.vue 的 scrollToField 用 scrollIntoView
       try {
         const el = typeof document !== 'undefined' && typeof document.querySelector === 'function'
           ? document.querySelector(sel)
@@ -711,7 +711,7 @@ export default {
     goApply() {
       uni.navigateTo({ url: '/pages/apply/apply' })
     },
-    // FE-11 的「离开」只有一个出口：先置总闸，再判栈退（姿势照母版 dish-edit.vue:342-353 的 goBackToList，
+    // FE-11 的「离开」只有一个出口：先置总闸，再判栈退（姿势照母版 dish-edit.vue 的 goBackToList，
     // 本钩子只多这一枚闸，没有第二套状态机）。判栈是必要的：H5 深链 /pages/store/store?storeId=7 直接打开时
     // 栈里只有本页，navigateBack 退不动（用户点了「丢弃」却哪儿也去不了），此时 reLaunch 回工作台且栈里不留本页。
     leavePage() {
@@ -842,7 +842,7 @@ export default {
 .field-hint { font-size: 22rpx; color: #BBBBBB; line-height: 1.5; }
 .switch-text { flex: 1; min-width: 0; font-size: 26rpx; color: #666666; line-height: 1.4; }
 .accepting-switch { flex-shrink: 0; transform: scale(.9); }
-/* 校验命中栏的描红（母版 dish-edit.vue:880-884 同款）：一句居中 toast 不足以说明「是哪栏拦的」 */
+/* 校验命中栏的描红（母版 dish-edit.vue 的 .field-error 同款）：一句居中 toast 不足以说明「是哪栏拦的」 */
 .field-error {
   box-shadow: inset 0 0 0 2rpx #E02020;
   border-radius: 12rpx;

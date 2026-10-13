@@ -149,7 +149,7 @@ export default {
       const s = this.merchant && this.merchant.profile ? this.merchant.profile.auditStatus : ''
       return AUDIT_TEXT[s] || (s ? '未知状态：' + s : '资质状态未返回')
     },
-    // 商家生命周期状态（后端 me.status，MerchantServiceImpl.java:66）：脏值/未知值原样展示，不替后端猜
+    // 商家生命周期状态（后端 me.status，MerchantServiceImpl#getMe 里的 me.put("status")）：脏值/未知值原样展示，不替后端猜
     status() {
       return (this.merchant && this.merchant.status) || ''
     },

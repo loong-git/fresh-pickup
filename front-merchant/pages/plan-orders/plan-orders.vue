@@ -199,7 +199,7 @@ export default {
   onShow() {
     // 每次进入回到第一页重拉（备货量与状态在别的页可能已变），带 in-flight 守卫防连点
     // 重第一页成功后必须一并回顶（标记由 fetchList 消费）：翻到第 3 页再切标签页回来只剩 20 行，
-    // 滚动条悬在空处就像数据被吞了（同 dishes.vue:246-250 的回顶纪律）
+    // 滚动条悬在空处就像数据被吞了（同 dishes.vue 的 onShow 回顶纪律）
     this._resetScrollTop = true
     this.fetchList(true)
   },

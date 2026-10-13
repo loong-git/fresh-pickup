@@ -551,7 +551,7 @@ export function createMerchantDish(form) {
 /**
  * 编辑商品：PUT /api/merchant/dishes/{id}（部分更新，全部选填；一个字段都没改时后端 400「无更新字段…」，
  * 本层不做本地拦截，口径交服务端唯一裁决——与 updateMerchantProfile 同款）
- * 显式不转发 stock：后端 MerchantDishServiceImpl.java:132-136 见 stock 非 null 就 400
+ * 显式不转发 stock：后端 MerchantDishServiceImpl#update 见 dto.getStock() 非 null 就 400
  * 「库存不能直接填最终值，请用库存调整接口按增减数量修改」（R7'：一期精确 set 库存归 Admin，商家端只开增量）。
  * 后来人若把 stock 加回 DISH_UPDATE_FIELDS，编辑保存就会撞上这条 400——改库存请走 adjustMerchantDishStock()。
  * @param {string|number} id

@@ -813,7 +813,7 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 滚轮接管的两道守卫（照 dishes.vue:490-508 同一套写法，缺一条就是 bug，见各自注释）：
+    // 滚轮接管的两道守卫（照 dishes.vue 的 onPageWheel 与其上方注释，缺一条就是 bug）：
     // ① 栈顶守卫：navigateTo 不触发上一页 onUnload，列表页与本页的监听会同时挂在 document 上，
     //    不在栈顶还接管就是双份驱动滚动
     // ② 弹层放行：弹层打开时滚轮该归弹层，不该 preventDefault 后去滚背景。

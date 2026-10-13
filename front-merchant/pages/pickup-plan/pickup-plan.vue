@@ -231,7 +231,7 @@ export default {
         this.errorText = (e && e.message) || ''
         this.errorCode = Number((e && e.code) || 0)
         // 429：给秒级冷却闸门，冷却期内按钮点不动 —— 否则用户每点一次都在续这个限流桶，
-        // 来回几次就把后面 1 分钟的全部分额度花光（照 dishes.vue:376-379）
+        // 来回几次就把后面 1 分钟的全部分额度花光（照 dishes.vue 的 loadDishes 错误分支）
         if (Number(e && e.code) === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'

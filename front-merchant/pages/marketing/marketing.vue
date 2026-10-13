@@ -216,7 +216,7 @@ export default {
   },
   onShow() {
     // 429 冷却闸门（U-4：限流态下这一路的静默重拉同样在给桶续命，母版会把倒计时文案整个覆写掉）。
-    // 判据逐字照 plan-orders.vue:357 与其注释原文「只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
+    // 判据逐字照 plan-orders.vue 的 loadMore 与其注释原文「只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
     // 把该商家其它读接口一起打死」——本仓为这条踩过一次，本期两页不再重犯
     if (this.retryLock > 0) return
     // 每次进入静默重拉（平台侧置位改了要回页即可见），带 in-flight 守卫防连点；
@@ -288,7 +288,7 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 起冷却锁（母版 pickup-plan.vue:227-228）：其余失败不锁，避免把网络抖动也锁成 60 秒
+        // 只有 429 起冷却锁（母版 pickup-plan.vue 的 loadPlan 错误分支）：其余失败不锁，避免把网络抖动也锁成 60 秒
         if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
@@ -377,7 +377,7 @@ export default {
     goWorkspace() {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
-    // ==================== 429 冷却（照 pickup-plan.vue:328-339，秒级禁用范式） ====================
+    // ==================== 429 冷却（照 pickup-plan.vue 的「429 冷却」一节，秒级禁用范式） ====================
     startRetryLock(err) {
       // 已卸载的页面不给它起定时器（U-5）：迟到回包回 429 时若照常 startRetryLock，
       // 那个每秒 setInterval 挂在 window 上、onUnload 的清理已经跑完了，永远不会被回收

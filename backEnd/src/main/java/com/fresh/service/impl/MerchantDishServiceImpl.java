@@ -85,7 +85,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * 卡片背景色形态白名单（BE-4① / F-13.10 #4）：# + 3/6/8 位十六进制，或空串/null。
      * 为什么 @Size(max=20) 挡不住：C 端 front/pages/detail/detail.vue:28 绑的是 **background 简写**，
      * `url(//a.co/x)` 只有 12 字符、是合法 CSS → 商家可把任意外链塞进背景并让全站访客去请求它。
-     * 正则与商家端 front-merchant/pages/dish-edit/dish-edit.vue:238 的 safeColor 同一字符集
+     * 正则与商家端 front-merchant/pages/dish-edit/dish-edit.vue 的 safeColor（computed）同一字符集
      * （那里写 /^#[0-9a-fA-F]{3,8}$/，本处按简报钉成 3|6|8 三档、并用 CASE_INSENSITIVE 覆盖它的 A-F，
      *  否则前端色块预览通过、后端 400 的形态会让商家一头雾水；放行的取值集合仍是纯十六进制，无 CSS 注入面）。
      */
@@ -355,7 +355,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * 回 index.html，浏览器拿到的是 text/html 不是图片，@error 触发 → C 端**静默退回 emoji 兜底**。
      * 症状「上传成功、库里有值、C 端看起来没图」正是决策①点名的静默假成功形态，且入库侧留着这一档，
      * 任何调用方（含 Admin 之外的脚本）存错前缀都不会得到反馈。商家端前端只写上传出参的 path 键
-     * （front-merchant/pages/dish-edit/dish-edit.vue:532-537），显示另经 api/index.js#merchantFileUrl 换前缀，
+     * （front-merchant/pages/dish-edit/dish-edit.vue 的 uploadImage 只取 data.path），显示另经 api/index.js#merchantFileUrl 换前缀，
      * 故剔除的回归面为零；dev 库实测 dish.image 亦无一行以 /uploads/ 开头（无需回填清洗）。
      * <p><b>bgColor</b>（BE-4①）：见 BG_COLOR_PATTERN 注释——background 简写让 12 字符的 url(...) 过了 @Size(20)。
      * <p><b>name/unit/category</b>（BE-4② / F-13.10 #6）：update 的部分更新语义把「非 null 但 blank」当成
