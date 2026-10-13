@@ -166,7 +166,7 @@
              两处不是各算一遍，因此屏上列出的就是真正下发的键 -->
         <text v-if="changedKeys.length" class="field-hint">将提交 {{ changedKeys.length }} 项改动：{{ changedKeys.join('、') }}</text>
         <text v-else class="field-hint">没有改动时点保存不发请求（后端是白名单增量更新，多传一个空串会真清空那一列）</text>
-        <!-- 常驻反馈行：成功/无改动/400/403/404/429 都落在这一行，不只 toast（母版 verify.vue:40-42 的理由：
+        <!-- 常驻反馈行：成功/无改动/400/403/404/429 都落在这一行，不只 toast（母版 verify.vue:43-45 的理由，F-25/P-4 重测：
              toast 一闪而过就等于没反馈）。toast 同批发出、文案同一处生成 -->
         <text v-if="feedback" class="store-feedback" :class="'store-feedback-' + feedback.tone">{{ feedbackText }}</text>
       </view>
@@ -186,13 +186,13 @@
 //    @JsonIgnoreProperties(ignoreUnknown = true) 上就被丢掉（不报错也不生效），前端留输入口就是静默假成功；
 // ③ contactPhone 的回包是 PhoneMask.mask 的脱敏值（RD 红线，PartnerStoreServiceImpl.java:410），
 //    明文根本到不了本页，所以这一栏的初值恒为空串、留空恒等于「不改」，本页不给「清空电话」这条路（见 phoneHint）；
-// ④ 四态单值互斥 loading|error|empty|ready（照 workspace.vue:136 / verify.vue:179 的纪律，不叠布尔），
+// ④ 四态单值互斥 loading|error|empty|ready（照 workspace.vue:147-148 / verify.vue:138 的纪律，不叠布尔；F-25/P-4 重测），
 //    冷却锁只在 code===429 起，onUnload 成对清定时器，所有请求走 @/api/index.js（页内零原生请求）。
 // ⑤ 「未保存离开」守卫（FE-11）：有改动时返回弹一次 showModal，总闸是一枚 leaving 布尔，
 //    写法照母版 front-merchant/pages/dish-edit/dish-edit.vue 的 leaving（不造第二套状态机）；
 //    它只参与返回与保存两处闸门，不参与四态，也不新增定时器（onUnload 那对清理逻辑一字未动）。
 // 一期不做地图选点（D-24）：本页连坐标都不让改（D-7），搬高德地图块过来只能看不能存，纯增回归面。
-import { getPartnerStore, updatePartnerStore, resolveFileUrl } from '@/api/index.js'
+import { getPartnerStore, updatePartnerStore, resolveFileUrl, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -241,13 +241,10 @@ function coolingText(seconds) {
   return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
 }
 
-// 载荷来源：请求层 handleEnvelope 的 reject 现在带 data（后端信封原样透传，见 api/index.js），
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// 本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
+// 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。
-function retrySecondsOf(err) {
-  const data = (err && err.data) || null
-  const n = Number(data && data.retryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
-}
 
 export default {
   data() {
@@ -288,7 +285,7 @@ export default {
       leaving: false,
       // 常驻反馈：{tone:'ok'|'neutral'|'err'|'cooling', text:string}；null = 本次会话还没点过保存
       feedback: null,
-      // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清；口径同 verify.vue:186-187）
+      // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清；口径同 verify.vue:205-207，F-25/P-4 重测）
       retryLock: 0,
       retryLockTimer: null
     }
@@ -426,7 +423,7 @@ export default {
   // 需要看最新值时走错误/空态那两条显式的「重新检查」出口
   // #ifdef H5
   onReady() {
-    // 页面级滚轮兜底（workspace.vue:226-231 同款）：index.html 锁 html,body overflow:hidden 后
+    // 页面级滚轮兜底（workspace.vue:243-246 同款，F-25/P-4 重测）：index.html 锁 html,body overflow:hidden 后
     // PC 滚轮默认滚动失效，本页是长表单，不接管就够不到保存按钮
     this._pageWheelHandler = (e) => this.onPageWheel(e)
     document.addEventListener('wheel', this._pageWheelHandler, { passive: false })
@@ -484,8 +481,9 @@ export default {
         this.errorCode = code
         // 只有 429 才起冷却锁（本页文件头纪律 ④「冷却锁只在 code===429 起」，核销台 fetchList 同判据）：
         // 其余失败重试是有意义的，不该被秒数拦住
-        // FE-5：秒数交给 retrySecondsOf（后端 data.retryAfterSeconds 优先，取不到回落 60）
-        if (code === 429) this.startRetryLock(retrySecondsOf(e))
+        // FE-5：闸门入参是 catch 到的错误对象，秒数由 api 层 retrySecondsOf 取值（后端 data.retryAfterSeconds
+        // 优先，取不到回落本页 RETRY_FALLBACK_SECONDS=60）——F-25/P-3 与批次页/核销台收敛成同一种签名
+        if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -584,7 +582,7 @@ export default {
       return null
     },
     // ==================== 保存（PUT /api/partner/store，只带改动过的键） ====================
-    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:271-273 同姿势）
+    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:305-308 同姿势，F-25/P-4 重测）
     async save() {
       // FE-11：人已决定离开（leaving 总闸）就不再放行写入口——母版 dish-edit.vue:731 同判据，
       // 避免「弹框之后到页面销毁之间」抢发一次 PUT 把丢弃变成半保存
@@ -635,9 +633,10 @@ export default {
       }
       if (code === 429) {
         // FE-5 + FE-10：秒数按后端 data.retryAfterSeconds 起，句式与加载失败那一支同一处生成
-        const seconds = retrySecondsOf(e)
+        // F-25/P-3：闸门入参改为错误对象本身，文案用的秒数仍在这里取一次（同一 err 同一函数，值与改前一致）
+        const seconds = retrySecondsOf(e, RETRY_FALLBACK_SECONDS)
         this.setFeedback('cooling', coolingText(seconds))
-        this.startRetryLock(seconds)
+        this.startRetryLock(e)
         return
       }
       if (code === 400) {
@@ -729,13 +728,15 @@ export default {
       }
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
-    // ==================== 429 冷却（与核销台/批次页同款写法；秒数由调用方按 FE-5 取好） ====================
-    startRetryLock(seconds) {
+    // ==================== 429 冷却（与核销台/批次页同款写法；F-25/P-3 起入参是错误对象） ====================
+    startRetryLock(err) {
       this.stopRetryLock()
-      // FE-5：秒数优先取后端 429 信封的 data.retryAfterSeconds，取不到回落本地 60，
-      // 与读写两侧 @RateLimit 的 60s 窗口同档；冷却结束再点仍可能吃一次 429，
+      // F-25/P-3：入参由「调用方算好的秒数」改为 catch 到的错误对象，秒数一律由 api 层 retrySecondsOf 取值
+      // （读写两条通道撞限流都走这里，与 apply/login/workspace 那一族同形）。原先方法内那道
+      // `Number(seconds) > 0 ? seconds : RETRY_FALLBACK_SECONDS` 二次兜底已删：回落只能有一个出处。
+      // 回落 60 与读写两侧 @RateLimit 的 60s 窗口同档；冷却结束再点仍可能吃一次 429，
       // 那一支会把常驻反馈行重新写上，反馈不会说谎
-      this.retryLock = Number(seconds) > 0 ? Number(seconds) : RETRY_FALLBACK_SECONDS
+      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
@@ -747,7 +748,7 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 两道守卫缺一不可（照 verify.vue:580-606）：
+    // 两道守卫缺一不可（照 verify.vue:677-697，F-25/P-4 重测）：
     // ① 栈顶守卫：监听挂在 document 上，navigateTo 不触发上一页 onUnload，栈里多挂一份就会一次滚两倍
     // ② 表单控件与弹层放行：picker/input/textarea 上的滚轮归控件，不能 preventDefault 抢走
     //    （本页正文全是 input/textarea/picker，缺这条守卫就等于表单不可用）

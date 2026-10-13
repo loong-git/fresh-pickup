@@ -115,7 +115,7 @@
 // 核销台的到货警示条是另一条通道：它逐店**显式带 storeId** 查后聚合（FE-2），管的是「名下几家没确认」，
 // 与本页「只看一家」各说各的事，不构成同一屏上的矛盾结论。
 // ?date= 是可选入参（FE-6：警示条「去看批次」会带日期过来，因为批次多在明日生成）。
-import { getPartnerArrivals, confirmArrival } from '@/api/index.js'
+import { getPartnerArrivals, confirmArrival, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -143,13 +143,10 @@ function coolingText(seconds) {
   return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
 }
 
-// 载荷来源：请求层 handleEnvelope 的 reject 现在带 data（后端信封原样透传，见 api/index.js），
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// 本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
+// 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。
-function retrySecondsOf(err) {
-  const data = (err && err.data) || null
-  const n = Number(data && data.retryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
-}
 
 export default {
   data() {
@@ -271,7 +268,7 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = Number((e && e.code) || 0)
-        if (Number(e && e.code) === 429) this.startRetryLock(retrySecondsOf(e))
+        if (Number(e && e.code) === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -315,9 +312,10 @@ export default {
         if (code === 401) return
         if (code === 429) {
           // FE-5 + FE-10：秒数按后端 data.retryAfterSeconds 起，句式与清单加载那一支同一处生成
-          const seconds = retrySecondsOf(e)
+          // F-25/P-3：闸门入参改为错误对象本身（与 apply/login/workspace 同族），文案用的秒数仍在这里取
+          const seconds = retrySecondsOf(e, RETRY_FALLBACK_SECONDS)
           this.setFeedback(key, 'cooling', coolingText(seconds))
-          this.startRetryLock(seconds)
+          this.startRetryLock(e)
           return
         }
         if (code === 404) {
@@ -519,12 +517,15 @@ export default {
       const s = (it && it.shortReason) == null ? '' : String(it.shortReason).trim()
       return s
     },
-    // ==================== 429 冷却（照 plan-orders.vue:443-454 同款；秒数由调用方按 FE-5 取好） ====================
+    // ==================== 429 冷却（照 plan-orders.vue:452-463 同款；F-25/P-3 起入参是错误对象） ====================
     // 只在 code===429 起（页面纪律 ②）：两个调用点都在 catch 里判过码
-    startRetryLock(seconds) {
+    startRetryLock(err) {
       this.stopRetryLock()
-      // FE-5：秒数优先取后端 429 信封的 data.retryAfterSeconds，取不到回落本地 60（不再硬编码）
-      this.retryLock = Number(seconds) > 0 ? Number(seconds) : RETRY_FALLBACK_SECONDS
+      // F-25/P-3：入参由「调用方算好的秒数」改为 catch 到的错误对象，秒数一律由 api 层 retrySecondsOf 取值
+      // （与 apply/login/workspace 那一族同形，消除同名方法两种语义）。原先这里那道
+      // `Number(seconds) > 0 ? seconds : RETRY_FALLBACK_SECONDS` 二次兜底已删——回落只能有一个出处，
+      // 两处各算一遍正是「拷一行就静默失效」的源头。闸门值与改前逐 case 等值（见 logs/scratch26 探针）。
+      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()

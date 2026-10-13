@@ -188,6 +188,42 @@ function handleEnvelope(res, resolve, reject) {
 }
 
 /**
+ * 429 / 锁定 冷却闸门的秒数取值——front-partner 内**唯一实现处**（F-25 路 1 收敛）：
+ * 六个页面（apply/arrival/login/store/verify/workspace）一律 import 本函数，不再各留一份私有版本；
+ * 页内 RETRY_FALLBACK_SECONDS 常量保留，作为「后端不给值时本页档位」由调用处传进第二参。
+ * 语义：err.data.retryAfterSeconds 是有限正数才 Math.ceil；拿不到 data（网络异常/信封不可解析）
+ * 或值不合法 → 回 fallbackSeconds。
+ * 【A-3 根治】fallbackSeconds 自己不是有限正数（漏传 / 传 0 / 传字符串 / 传 NaN）时一律回 60 并 console.warn：
+ * 闸门秒数绝不能是 undefined/NaN——`retryLock = undefined` 会让每一处 `retryLock > 0` 恒假（闸门整个敞开），
+ * 而模板的 `!retryLock` 为真还会把冷却那一行藏掉，用户看到的是「能点但永远 429」的死循环。
+ *
+ * 【为什么本函数必须有回落、且绝不能与 front-admin 的 retryAfterText 互换】（B-3）
+ * retryAfterSeconds 全仓有**三个产出点、两种语义**，但它们共用 data 里同一个键名：
+ * ① RateLimitInterceptor.java:79 —— 令牌桶**回速**（NanosToWaitForRefill 向上取整，个位秒，远小于窗口）；
+ * ② AdminAuthServiceImpl.java:276 —— **401**（不是 429）运营登录锁定的剩余 TTL，上限 600 秒
+ *    （LOGIN_FAIL_LOCK_TTL=10 分钟在 :112，取不到剩余时按 LOCK_RETRY_FALLBACK_SECONDS=600 兜底在 :140）；
+ * ③ PartnerOrderServiceImpl.java:211-218 —— D-14 核销枚举锁的剩余 TTL（VERIFY_FAIL_LOCK_TTL=10 分钟在 :95，
+ *    同样 600 秒兜底在 :114），走的是 429 信封。
+ * ①是「再等多久能发下一个」，②③是「锁没解，别再来」——页面侧无法从键名区分，只能转述数值 + 保守回落；
+ * 因此回落值取「该端点 @RateLimit 的整窗长度」（各页常量），它只在后端不给数时充当保守上限。
+ * front-admin/src/api/index.js:146-151 的 retryAfterText 是**纯文案转述**：入参是 e.data（不是 err）、
+ * 无回落无校验、取不到就返回空串。拿它替本函数 → 闸门拿到 ''/undefined → 恒假 → 敞开（同 A-3 事故形态）；
+ * 反过来拿本函数替 retryAfterText → 把 401 那 600 秒锁定当「保守上限」念到运营界面上。
+ * 一头要「数」（驱动闸门），一头要「话」（给人读的整句），语义正交，不可互换、不可合并。
+ */
+export function retrySecondsOf(err, fallbackSeconds) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  if (Number.isFinite(n) && n > 0) return Math.ceil(n)
+  const fb = Number(fallbackSeconds)
+  if (!Number.isFinite(fb) || fb <= 0) {
+    console.warn('[api] retrySecondsOf: fallbackSeconds 不是有限正数（收到 ' + String(fallbackSeconds) + '），按 60 起闸门')
+    return 60
+  }
+  return fb
+}
+
+/**
  * 统一请求封装：有 token 才带 Authorization: Bearer <token>；其余判定全在 handleEnvelope
  */
 const request = (options) => {

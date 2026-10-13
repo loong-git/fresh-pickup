@@ -136,13 +136,13 @@
 // 主理人核销台（F-18.17 §2）：输 6 位取货码核销 + 今日待取清单。
 // 三条页面纪律（全部沿用已验收的母版，不新造第二套）：
 // ① 四态单值互斥 loading|error|empty|ready，只由「待取清单」那一次请求决定；
-// ② 冷却锁只在 code===429 起（plan-orders.vue:297 / dishes.vue:378 同判据），其余失败重试是有意义的；
+// ② 冷却锁只在 code===429 起（plan-orders.vue:306 / dishes.vue:417 同判据，F-25/P-4 按商家端实况重测），其余失败重试是有意义的；
 // ③ 所有请求走 @/api/index.js，页内零原生请求、零自拼 BASE_URL；归属由服务端从 token 解析（RF），
 //    本页不发任何 storeId 之外的归属入参。
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并回登录页）；
 // 403 = token 有效但名下无店，是确定性失败，给「回工作台」而不是重试。
 // 渲染不依赖 store：本页自持一份服务端最新值（workspace.vue 同款纪律）。
-import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals, getPartnerStores } from '@/api/index.js'
+import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals, getPartnerStores, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -170,14 +170,11 @@ function coolingText(seconds) {
   return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
 }
 
-// 从 reject 出来的错误对象取 retryAfterSeconds。
-// 载荷来源：请求层 handleEnvelope 的 reject 现在带 data（后端信封原样透传，见 api/index.js），
+// 从 reject 出来的错误对象取 retryAfterSeconds：retrySecondsOf 已收敛到 api 层（F-25 路 1），
+// front-partner 内唯一实现是 front-partner/api/index.js:214-224，本页档位由上面的
+// RETRY_FALLBACK_SECONDS 作为第二参传进去。
+// 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。
-function retrySecondsOf(err) {
-  const data = (err && err.data) || null
-  const n = Number(data && data.retryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
-}
 
 export default {
   data() {
@@ -340,9 +337,10 @@ export default {
           // FE-5：冷却秒数按后端 data.retryAfterSeconds 起（锁 10 分钟时本地就该冷却到锁解），
           // FE-10：文案与清单加载那一支同一句。
           // 冷却期内输入框仍可用，但提交不发请求（上面那道闸门）
-          const seconds = retrySecondsOf(e)
+          // F-25/P-3：闸门入参改为错误对象本身，文案用的秒数仍在这里取一次（同 err 同函数，值与改前一致）
+          const seconds = retrySecondsOf(e, RETRY_FALLBACK_SECONDS)
           this.setFeedback('cooling', coolingText(seconds))
-          this.startRetryLock(seconds)
+          this.startRetryLock(e)
           return
         }
         if (code === 404) {
@@ -532,7 +530,7 @@ export default {
         this.errorText = (e && e.message) || ''
         this.errorCode = Number((e && e.code) || 0)
         // 只有 429 才起冷却锁：其余失败重试是有意义的，不该被秒数拦住
-        if (Number(e && e.code) === 429) this.startRetryLock(retrySecondsOf(e))
+        if (Number(e && e.code) === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         // 翻页失败（清单在手）不动整页态：保留现场只 toast；首屏/重拉失败才整页换错误卡
         if (reset || !this.list.length) {
@@ -650,14 +648,17 @@ export default {
     showUnpaid(it) {
       return !!(it && it.payStatus != null && Number(it.payStatus) === 0 && it.status !== 'cancelled')
     },
-    // ==================== 429 冷却（照 plan-orders.vue:443-454 同款；秒数由调用方按 FE-5 取好） ====================
+    // ==================== 429 冷却（照 plan-orders.vue:452-463 同款；F-25/P-3 起入参是错误对象） ====================
     // 只在 code===429 起（页面纪律 ②）：调用点全部在 catch 里判过码，这里不重复判、也不接受别的来源
-    startRetryLock(seconds) {
+    startRetryLock(err) {
       this.stopRetryLock()
-      // FE-5：秒数 = 后端 data.retryAfterSeconds（D-14 锁的剩余 TTL）优先，取不到回落本地 60。
+      // F-25/P-3：入参由「调用方算好的秒数」改为 catch 到的错误对象，秒数一律由 api 层 retrySecondsOf 取值
+      // （与 apply/login/workspace 那一族同形）。原先方法内那道 `Number(seconds) > 0 ? … : RETRY_FALLBACK_SECONDS`
+      // 二次兜底已删——回落只能有一个出处。
+      // 秒数 = 后端 data.retryAfterSeconds（D-14 锁的剩余 TTL）优先，取不到回落本地 60。
       // 回落 60 与写侧 @RateLimit 的 60s 窗口同档；冷却结束再提交仍可能吃一次 429，
       // 那一支会把这一行重新写上，反馈不会说谎
-      this.retryLock = Number(seconds) > 0 ? Number(seconds) : RETRY_FALLBACK_SECONDS
+      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
