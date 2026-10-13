@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
  *   havingValue="mock" + matchIfMissing=true，两者互斥——设成 pay.provider=wx 后 mock Bean 自动退场，
  *   PayController 的 {@code @Autowired PayService} 按类型注入只会命中一个实现，NoUniqueBeanDefinitionException
  *   不再发生；不设该键（prod yml 现况）或设为 mock 时装配结果与收口前逐字相同，本类不参与装配；
- * - 回调端点见 PayController#wxNotify（验签 TODO 同样未实现）；
+ * - 回调端点见 PayController#wxNotify（验签/解密/金额三比对已由 F-21.6 Step 2b 实现，本期无商户号故不可联调）；
  * - TODO 邀请新人挂钩（F-01.2）：真实支付置 pay_status=1 时需与 MockPayService 同点补调
  *   InviteService.onOrderPaid(userId)（实现步骤见 payResult 内 TODO 第 5 条），接入时勿遗漏。
  *   F-21.3 Step 1 起「同一个支付成功点」已抽成 pay/PaymentSettlement#settle（置态 + 销量累加 + 取货码 +
