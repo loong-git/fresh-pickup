@@ -363,10 +363,19 @@ export default {
     // ==================== 窗口切换 ====================
     switchDays(d) {
       // 429 冷却闸门（U-4 实测：打空 30/分桶后进看板，卡正上方三枚 pill 照点，点「近 90 天」就实发
-      // ?days=90 一条、窗口行立刻变、倒计时文案被覆写——闸门被旁路）。判据逐字照 plan-orders.vue 的 loadMore
-      if (this.retryLock > 0) return
+      // ?days=90 一条、窗口行立刻变、倒计时文案被覆写——闸门被旁路）。
+      // 无操作先早退、闸门只判真的要换档的点击（同 dishes/plan-orders 的 switchTab）：点已选中的那一档
+      // 本来就不发请求，不该被算成「被闸门拦下」而弹一句「太频繁」（模板 .window-tab.active.pill-hover
+      // 那一段依赖「点当前档不发请求」这一律，故同档判断必须留在闸门之前）。
       const next = Number(d)
       if (!Number.isFinite(next) || next === this.days) return
+      // X-4：这一路改前判了闸门却**静默 return**——pill 是用户主动点击，与 onShow 的自动重拉不同，
+      // 拦而不说就等于「这页点不动」。补一条带秒数的反馈，秒数只读既有 retryLock（数值来自后端
+      // data.retryAfterSeconds 经 retrySecondsOf），不新增第二个闸门状态变量。
+      if (this.retryLock > 0) {
+        uni.showToast({ title: '经营读数请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
+        return
+      }
       this.days = next
       this.loadStat(true)
     },

@@ -222,14 +222,25 @@ export default {
       const m = this.$store.state.merchant
       return !!(m && m.status !== 'active')
     },
-    // 错误卡主文案（人话，第二行才透出后端原文）：按码分派，未知码给通用的「加载失败请检查网络」
+    // 错误卡主文案（人话，第二行才透出后端原文）：按码分派。
+    // X-2（四路分流，母版本页 dashboard.vue:236-241）：改前最后一行是无条件兜底，
+    // 把 500/400 也一并说成「请检查网络后重试」——而同屏第二行透出的后端原文（R.java 的 500
+    // 「服务开小差了，请稍后重试」）正是服务端承认自己处理出错，两行因果方向相反：
+    // 第一行让商家去查 Wi-Fi，第二行是服务端认错。判据：只有网络层失败才许说「检查网络」，
+    // 500 说「服务端处理出错」，其余服务端业务码不猜成因
     // F-23-fix/FF-1：429 这行不带时长——同屏的 retryLock 倒计时行（模板 :70）已转述后端真值，
     // 这里再报一个数就是两处互相矛盾的谎报（截图 f23-c-cooldown.png 的 60 vs 1）
     errorLeadText() {
       if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       if (this.errorCode === 403) return '暂无权限查看商品，请回工作台确认账号状态'
       if (this.errorCode === 404) return '没有查到商品数据，请回工作台重新进入'
-      return '商品加载失败，请检查网络后重试'
+      // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
+      if (this.errorCode === 500) return '商品加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败（api 层 request 的 fail 支回 code:-1 / message「网络异常」，api/index.js:276-279）
+      // 才说「请检查网络后重试」
+      if (this.errorCode <= 0) return '商品加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '商品加载失败，请稍后重试'
     },
     // 重试有没有可能成功：403（角色/写闸门）与 404（行不存在）是确定性失败，重试只是白打一次请求；
     // 429 属于「等一会儿就能成」，故仍给重试但带秒级冷却。401 不会走到这一态（请求层已回登录页）
@@ -261,8 +272,10 @@ export default {
     // 后端 orderByAsc(id) 新行在最末，若退回时仍带「已下架」tab 或关键字，新行既看不见、
     // 空态还会说「还没有商品」，诱导商家再建一条同名 SKU。
     // 标记挂在 this 上：navigateTo 不销毁本页实例，所以它能活到返回（onUnload 才销毁）
+    let returnedFromCreate = false
     if (this._resetFiltersOnReturn) {
       this._resetFiltersOnReturn = false
+      returnedFromCreate = true
       this.tab = 'all'
       this.categoryIndex = 0
       this.keyword = ''
@@ -273,8 +286,12 @@ export default {
       document.body.scrollTop = 0
       // #endif
     }
-    // 每次进入重拉（编辑页保存/上下架/改库存后回页即可见），首屏也由这里发起
-    this.loadDishes()
+    // 每次进入重拉（编辑页保存/上下架/改库存后回页即可见），首屏也由这里发起。
+    // X-4：429 冷却期内这一路静默跳过（判据逐字照 marketing.vue:221 / dashboard.vue:259 的 onShow，
+    // 本仓两处母版都不给 toast——回页不是用户的点击，弹「太频繁」反而莫名；错误卡在手时倒计时行本来就在屏上）。
+    // 唯一例外是从新增页返回：新 SKU 上屏是用户必要的可见性，且上面已把筛选清成无筛选，
+    // 跳过就会被读成「加了商品却显示还没有商品」
+    if (returnedFromCreate || this.retryLock <= 0) this.loadDishes()
     this.syncMerchantSnapshot()
   },
   // #ifdef H5
@@ -432,28 +449,54 @@ export default {
     commitKeyword() {
       this.appliedKeyword = (this.keyword || '').trim()
     },
+    // ==================== 429 冷却闸门覆盖全部出口（X-4）====================
+    // 改前闸门只拦住错误卡上的那颗「点击重试」（模板 :69 的 !retryLock），筛选区与 onShow 全部旁路：
+    // 屏上写着「2s后可重试」，商家在上方点一下「在售」tab 就立刻实发一次、再吃 429、倒计时被覆写回满值，
+    // 他看到的是「这 2 秒永远数不完」。F-23 把闸门值从 60 秒降到 1~2 秒后，原先靠 60 秒兜住旁路的余量没了，
+    // 所以现在必须让这张表覆盖所有出口。
+    // 纪律：①不新增第二个闸门状态，判据读的就是既有 retryLock（它由 startRetryLock 从后端
+    //   data.retryAfterSeconds 换算而来，页内无数值来源）；②调用点必须放在**任何筛选值被改动之前**，
+    //   拦下时 tab/类目/关键字一格没动，屏上选中的条件与列表才是同一份真值；③不静默，给带秒数的反馈。
+    // 返回 true = 本次触发已被拦下，调用方直接 return。
+    retryCoolingBlocked() {
+      if (this.retryLock <= 0) return false
+      // 文案点名「商品列表」这枚锁：本页屏上同时存在类目字典的**另一把独立闸门**（catRetryLock，
+      // 其提示行 :334 说的是「类目请求太频繁」），不带归因的「太频繁」会让商家以为换类目也被锁着
+      // （X-5 定稿判据：每处文案必须能看出它在报哪把锁）
+      uni.showToast({ title: '商品列表请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
+      return true
+    },
     applyFilters() {
+      if (this.retryCoolingBlocked()) return
       this.commitKeyword()
       this.loadDishes(true)
     },
     clearKeyword() {
+      if (this.retryCoolingBlocked()) return
       this.keyword = ''
       this.appliedKeyword = ''
       this.loadDishes(true)
     },
     switchTab(key) {
       if (this.tab === key) return
+      // 同一枚 tab 的重复点击在上面就早退了（它不改变任何条件、本来也不发请求），闸门只判真的要换态的点击
+      if (this.retryCoolingBlocked()) return
       this.commitKeyword()
       this.tab = key
       this.loadDishes(true)
     },
     onCategoryChange(e) {
+      if (this.retryCoolingBlocked()) return
       this.commitKeyword()
       const idx = Number(e && e.detail && e.detail.value)
       this.categoryIndex = Number.isFinite(idx) ? idx : 0
       this.loadDishes(true)
     },
     resetFilters() {
+      // 这里拦下不吞操作：清筛后屏上会显示「无筛选」而列表仍是上一批（两套真值），
+      // 而商家等的只是 1~2 秒；闸门过去后同一颗按钮照常可用，`.picker-value`/`tab` 的显示值都绑本页
+      // state，未被改动即保持原样，不会出现「下拉框显示新类目、列表是旧条件」的错位
+      if (this.retryCoolingBlocked()) return
       this.tab = 'all'
       this.categoryIndex = 0
       this.keyword = ''
