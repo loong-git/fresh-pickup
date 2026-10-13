@@ -38,8 +38,10 @@
         :disabled="!canSubmit"
         @click="submitVerify"
       ><text>{{ verifying ? '核销中…' : '核销' }}</text></button>
+      <!-- F-28.5 路 A（X-5）：写侧闸门在本屏唯一的带数处是下方常驻反馈行（feedbackText 读实时 writeRetryLock），
+           冷却分支只给不带数的状态词——改前「冷却中，Ns 后可再提交」与反馈行同屏各报一次同一个数 -->
       <text v-if="code.length !== 6" class="form-hint">请输入 6 位取货码</text>
-      <text v-else-if="writeRetryLock > 0" class="form-hint">冷却中，{{ writeRetryLock }}s 后可再提交</text>
+      <text v-else-if="writeRetryLock > 0" class="form-hint">提交冷却中</text>
       <!-- 常驻反馈行：四支（成功/幂等/404/400/429）都落在这一行，不只 toast——
            核销现场主理人正低头翻货，toast 一闪而过就等于没反馈。toast 同批发出，文案同一处生成 -->
       <text v-if="feedback" class="verify-feedback" :class="'verify-feedback-' + feedback.tone">{{ feedbackText }}</text>
@@ -142,7 +144,7 @@
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并回登录页）；
 // 403 = token 有效但名下无店，是确定性失败，给「回工作台」而不是重试。
 // 渲染不依赖 store：本页自持一份服务端最新值（workspace.vue 同款纪律）。
-import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals, getPartnerStores, retrySecondsOf } from '@/api/index.js'
+import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals, getPartnerStores, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -164,11 +166,9 @@ const BATCH_CONFIRMED = 'confirmed'
 // （与写侧 @RateLimit 的 60s 窗口同档）。600s 的锁只冷却 60s 就是「锁未解而人反复撞墙」（F-18.20 E 行）。
 const RETRY_FALLBACK_SECONDS = 60
 
-// FE-10：同页 429 只留一句说法（清单加载与提交两支共用），不再「点得太快了」/「操作过于频繁」两套读着像两把锁
-function coolingText(seconds) {
-  const n = Number(seconds)
-  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
-}
+// FE-10 + F-28.5 路 A：同页 429 只留一句说法（清单加载与提交两支共用），且本页不再私藏实现——
+// coolingText 唯一实现上提在 api 层（与 retrySecondsOf 同层、同先例），本页句子全部由它出：
+// 带数支只读实时闸门，无参支就是 X-3 起锁点那句不带数的整句
 
 // 从 reject 出来的错误对象取 retryAfterSeconds：retrySecondsOf 已收敛到 api 层（F-25 路 1），
 // front-partner 内唯一实现是 front-partner/api/index.js:214-224，本页档位由上面的
@@ -240,7 +240,7 @@ export default {
       return this.code.length === 6 && !this.verifying && this.writeRetryLock === 0
     },
     // 常驻反馈文案：cooling 一支的秒数读实时写侧闸门 writeRetryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」），
-    // 句式与清单加载那一支同源（coolingText 唯一实现处）；起锁点存的是不带数字的整句（X-3，照 apply.vue:630）
+    // 句式与清单加载那一支同源（coolingText 在 api 层一份，F-28.5 路 A）；起锁点存的是不带数字的整句（X-3，照 apply.vue 的 cooling 支）
     feedbackText() {
       if (!this.feedback) return ''
       if (this.feedback.tone === 'cooling') {
@@ -256,8 +256,9 @@ export default {
       return Math.max(Number.isFinite(n) && n >= 0 ? n : 0, loaded)
     },
     errorLeadText() {
-      // FE-10：429 一支与提交那支同句（冷却秒数读实时 retryLock，不写死 60——FE-5 后它是后端的剩余 TTL）
-      if (this.errorCode === 429) return coolingText(this.retryLock)
+      // FE-10 + F-28.5 路 A（X-5）：429 这一行不带时长——同屏闸门行「{{ retryLock }}s后可重试」是本屏读侧唯一带数处，
+      // 主句走 coolingText 的无参整句（与提交那支同一句式、同一实现，只是不带数；apply/workspace 的 FF-1 早就是这个姿势）
+      if (this.errorCode === 429) return coolingText()
       if (this.errorCode === 403) return '暂无权限查看待取清单，请回工作台确认账号状态'
       if (this.errorCode === 404) return '核销清单接口暂不可用，可能是后端服务还没更新，请稍后重试'
       // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
@@ -365,7 +366,8 @@ export default {
           // X-3：起锁点存不带数字的整句（照 apply.vue:630），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
           // 免得归零后常驻行永久停在「请 Ns 后再试」（改前这里存 coolingText(seconds)，把数整句存死了）。
           // X-1：起写侧闸门 writeRetryLock——这是 D-14 防枚举锁的前端闸门，读侧冷却（retryLock）再动也碰不到它。
-          this.setFeedback('cooling', '操作过于频繁，请稍后再试')
+          // FE-10 + F-28.5 路 A：不带数整句不再页内写死，与 coolingText 无参支同一出处（api 层一份）
+          this.setFeedback('cooling', coolingText())
           this.startWriteRetryLock(e)
           return
         }
@@ -563,8 +565,9 @@ export default {
         if (reset || !this.list.length) {
           this.viewState = 'error'
         } else {
-          // 429 那一支给统一句式（FE-10）：翻页撞限流与提交撞限流听起来必须是同一把锁
-          this.showToast(this.errorCode === 429 ? coolingText(this.retryLock) : (this.errorText || '加载更多失败，请重试'))
+          // 429 那一支给统一句式（FE-10）：翻页撞限流与提交撞限流听起来必须是同一把锁；
+          // F-28.5 路 A（X-5）：toast 不带数——同屏「加载更多」按钮的闸门标签（Ns后可重试）才是读侧带数处
+          this.showToast(this.errorCode === 429 ? coolingText() : (this.errorText || '加载更多失败，请重试'))
         }
       } finally {
         this.loadingMore = false

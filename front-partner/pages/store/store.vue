@@ -192,7 +192,7 @@
 //    写法照母版 front-merchant/pages/dish-edit/dish-edit.vue 的 leaving（不造第二套状态机）；
 //    它只参与返回与保存两处闸门，不参与四态，也不新增定时器（onUnload 那对清理逻辑一字未动）。
 // 一期不做地图选点（D-24）：本页连坐标都不让改（D-7），搬高德地图块过来只能看不能存，纯增回归面。
-import { getPartnerStore, updatePartnerStore, resolveFileUrl, retrySecondsOf } from '@/api/index.js'
+import { getPartnerStore, updatePartnerStore, resolveFileUrl, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -235,11 +235,9 @@ const STORE_ID_RE = /^\d+$/
 // 与核销台/批次页同一口径；本页两条通道（读门店明细、写门店维护）都不自己另算一套。
 const RETRY_FALLBACK_SECONDS = 60
 
-// FE-10：同页 429 只留一句说法（加载失败卡与保存反馈两支共用 coolingText 这一处实现）
-function coolingText(seconds) {
-  const n = Number(seconds)
-  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
-}
+// FE-10 + F-28.5 路 A：同页 429 只留一句说法（加载失败卡与保存反馈两支共用），本页不留私有实现——
+// coolingText 唯一实现上提在 api 层（与 retrySecondsOf 同层、同先例），
+// 带数支只读实时闸门，无参支就是 X-3 起锁点那句不带数的整句
 
 // retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
 // 本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
@@ -370,8 +368,9 @@ export default {
       return this.changedKeys.length ? '保存 ' + this.changedKeys.length + ' 项改动' : '保存修改'
     },
     errorLeadText() {
-      // FE-10：与保存那一支同一句（秒数读实时 retryLock，不再写死 60）
-      if (this.errorCode === 429) return coolingText(this.retryLock)
+      // FE-10 + F-28.5 路 A（X-5）：与保存那一支同一句式，但这一行不带数——同屏闸门行「{{ retryLock }}s后可重试」
+      // 才是读侧唯一带数处（改前这里 coolingText(this.retryLock) 与闸门行同屏各报一次同一个数；姿势照 apply/workspace 的 FF-1）
+      if (this.errorCode === 429) return coolingText()
       // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
       // 承认自己处理出错，同屏第二行透出的正是那句原文（「服务开小差了，请稍后重试」），
       // 第一行却叫主理人去查网络——两行因果方向相反，500 这支单独说「服务端处理出错」
@@ -606,7 +605,8 @@ export default {
       if (this.leaving) return
       // X-1：保存闸门读写侧 writeRetryLock（PUT /store 桶），与读侧资料刷新的 retryLock 互不干扰
       if (this.writeRetryLock > 0) {
-        this.showToast(coolingText(this.writeRetryLock))
+        // F-28.5 路 A（X-5）：被闸门拦下时的 toast 不带数——同屏常驻反馈行（feedbackText 读实时 writeRetryLock）是写侧唯一带数处
+        this.showToast(coolingText())
         return
       }
       if (this.saving) return
@@ -653,7 +653,8 @@ export default {
         // X-3：起锁点存不带数字的整句（照 apply.vue:630），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
         // 免得归零后常驻行永久停在「请 Ns 后再试」（改前存 coolingText(seconds) 把数整句存死了）。
         // X-1：起写侧闸门 writeRetryLock——PUT /store 的冷却与 GET 读闸门互不覆盖。秒数仍只来自 retrySecondsOf。
-        this.setFeedback('cooling', '操作过于频繁，请稍后再试')
+        // FE-10 + F-28.5 路 A：不带数整句不再页内写死，与 coolingText 无参支同一出处（api 层一份）
+        this.setFeedback('cooling', coolingText())
         this.startWriteRetryLock(e)
         return
       }
