@@ -7,6 +7,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.ConsumptionProbe;
 import io.github.bucket4j.Refill;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -19,12 +20,17 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * 限流拦截器（T-M2-06，契约 M2-6）：读取控制器方法上的 @RateLimit，按维度取令牌桶判定。
  * - 桶按 key（userId 或 IP+路径）隔离，Caffeine 缓存 10 分钟不访问自动回收 + 总量上限，防内存无界增长；
  * - 超限 → 统一信封 429（写 response JSON，与 AuthInterceptor 401 同一套路）；
- * - 注册在 AuthInterceptor 之后：需登录接口的 userId attribute 已就绪，匿名接口（如字典）天然走 IP 维度。
+ * - 注册在 AuthInterceptor 之后：需登录接口的 userId attribute 已就绪，匿名接口（如字典）天然走 IP 维度；
+ * - F-22：429 的 data 现在带 {@code retryAfterSeconds}，语义是「桶回速下最早可再试的整秒数（向上取整，下限 1）」。
+ *   注意它取自 bucket4j 的 NanosToWaitForRefill（回速维度）而非 Reset（整窗重置维度），
+ *   而本仓的桶是 {@code Refill.greedy}（30/60 ⇒ 约每 2 秒回 1 枚），故该值<b>通常远小于 windowSeconds</b>——
+ *   页面/运营若按「要等一分钟」理解就是错的，照实转述这个数字即可。
  */
 @Slf4j
 @Component
@@ -60,12 +66,34 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         String key = bucketKey(rl, request, handlerMethod);
         Bucket bucket = buckets.get(key, k -> newBucket(rl));
         // 拦截时 WARN（含 key 便于定位滥用来源）；放行不打日志，避免高频接口刷日志
-        if (bucket != null && !bucket.tryConsume(1)) {
-            log.warn("[RateLimit] 限流拦截: {} {} key={}", request.getMethod(), request.getRequestURI(), key);
-            ResponseUtil.writeJson(response, R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS);
-            return false;
+        // F-22：改用 tryConsumeAndReturnRemaining，把「桶回速下最早可再试的整秒数」经 data.retryAfterSeconds
+        // 如实下发（同一通道：AdminAuthServiceImpl#lockedFailure + GlobalExceptionHandler#handleBiz），
+        // 页面不再猜「稍后」是几秒。取的是 Refill 字段（NanosToWaitForRefill）而非 Reset：greedy 下它远小于 windowSeconds。
+        if (bucket != null) {
+            ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+            if (probe != null && !probe.isConsumed()) {
+                long seconds = retryAfterSeconds(probe.getNanosToWaitForRefill());
+                log.warn("[RateLimit] 限流拦截: {} {} key={} retryAfterSeconds={}",
+                        request.getMethod(), request.getRequestURI(), key, seconds);
+                ResponseUtil.writeJson(response, R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS,
+                        Map.of("retryAfterSeconds", seconds));
+                return false;
+            }
         }
         return true;
+    }
+
+    /**
+     * 纳秒 → 「还要等几秒」的向上取整改写（F-22，静态方法便于离线单测：不起容器、不 mock servlet）。
+     * <b>下限是 1</b>：nanos<=0 也回 1——回 0 等于告诉调用方「现在就能再试」，而 probe 非 consumed
+     * 恰恰说明此刻不能试，那是骗人。向上取整（ceil）而非四舍五入：0.1s 报 1s 只会让运营提前重试一次，
+     * 0.6s 报 0/1 之外报小了才误导。
+     */
+    static long retryAfterSeconds(long nanosToWaitForRefill) {
+        if (nanosToWaitForRefill <= 0) {
+            return 1L;
+        }
+        return (nanosToWaitForRefill + 999_999_999L) / 1_000_000_000L;
     }
 
     /**

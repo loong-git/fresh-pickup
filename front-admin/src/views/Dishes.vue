@@ -173,7 +173,7 @@
 // 一期只改不建：Admin 面没有「新建商品」端点（F-20.17 事实 3 附注），本页不提供，也不是漏做。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { getAdminDishes, updateAdminDish } from '../api'
+import { getAdminDishes, updateAdminDish, retryAfterText } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -188,6 +188,8 @@ const displayOf = (v) => (v == null ? '' : String(v))
 const viewState = ref('loading')
 const errorText = ref('')
 const errorCode = ref(0)
+// F-22 FE-429-2：读侧 429 的 e.data（只为转述 retryAfterSeconds；写侧直接把 e.data 递给 writeHintOf）
+const errorData = ref(null)
 const submitting = ref(false)
 const writeResult = ref(null)
 
@@ -223,7 +225,10 @@ const CODE_HINTS = {
 }
 // 未知码走 ''：与 AuditLogs.vue 同一份「宁可不说话也不猜」（FE-G6-7 纪律 4）。
 // 只有 code 恰为 -1 时，CODE_HINTS['-1'] 那条关于链路/超时的文案才被引用。
-const codeHint = computed(() => CODE_HINTS[String(errorCode.value)] || '')
+// F-22 FE-429-2：读侧只有 429 才追加工具层转述的那句「服务端约 N 秒后可再试。」；
+// 400/404/500/-1 一律不拼（对它们是假信息），缺载荷时 retryAfterText 回 '' → 本条与改动前逐字相同。
+const codeHint = computed(() => (CODE_HINTS[String(errorCode.value)] || '')
+  + (errorCode.value === 429 ? retryAfterText(errorData.value) : ''))
 
 // 写侧 400 的覆盖面：通用两句 + 本端点自己的业务文案 + @Valid 注解文案（三组都可能出现，命中哪一句只看服务端原文）
 const WRITE_CODE_HINTS = {
@@ -251,10 +256,14 @@ const WRITE_CODE_HINTS = {
 // FE-G6-7：未知码的兜底<b>不能</b>再指向 WRITE_CODE_HINTS['-1']——那一条只描述请求层自己判定的网络失败/abort，
 // 用它兜 500/501/502… 就是在给运营编造「未送达」这条不存在的因果。
 // 只有 code 恰为 -1（网络失败或主动 abort，见 ../api/index.js 的 request catch）才允许说「未能送达」。
-function writeHintOf(code) {
+// F-22 FE-429-2：写侧多收一枚 data（reject 载荷原样递进来），**只在 code === 429** 时把后端如实给的
+// retryAfterSeconds 转述追加上去（Admin 写面 IP 10/分，写侧 429 是真会发生的）。
+// 400/403/404/500/-1 不拼——「约 N 秒后可再试」对它们是假信息；缺载荷时 retryAfterText 回 ''。
+// 末句的未知码兜底不拼：429 已在 WRITE_CODE_HINTS 表内，走到那句的码必然不是 429。
+function writeHintOf(code, data) {
   const key = String(Number(code))
   const known = WRITE_CODE_HINTS[key]
-  if (known !== undefined) return known
+  if (known !== undefined) return known + (Number(code) === 429 ? retryAfterText(data) : '')
   return '服务端回了本页没有预置说明的码 ' + key + '。本页不猜原因，以「服务端原文」那一行为准；'
     + '如需核对可点上方「查询」重拉列表再决定下一步。'
 }
@@ -264,6 +273,7 @@ async function load() {
   viewState.value = 'loading'
   errorText.value = ''
   errorCode.value = 0
+  errorData.value = null
   try {
     const envelope = await getAdminDishes(pageNum.value, pageSize.value, filters.value)
     const data = envelope.data || {}
@@ -287,6 +297,7 @@ async function load() {
     }
     viewState.value = 'error'
     errorCode.value = Number(e.code) || 0
+    errorData.value = e.data || null
     errorText.value = e.message || '商品列表读取失败，请稍后重试'
   }
 }
@@ -421,7 +432,7 @@ async function onSubmit() {
       kind: 'error',
       title: e.code === 403 ? '没有权限执行该动作' : '写操作未完成（未生效）',
       serverText: e.message || '（后端未给出 message）',
-      hint: writeHintOf(e.code)
+      hint: writeHintOf(e.code, e.data)
     }
   } finally {
     submitting.value = false

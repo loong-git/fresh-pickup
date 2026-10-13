@@ -132,6 +132,25 @@ function handleEnvelope(res, resolve, reject, loginRequest) {
 }
 
 /**
+ * 429 限流剩余秒数的**转述**（F-22 FE-429-1，收 L-16 / L-20-1）。
+ * 后端（BE-429-2 起）在 429 信封的 data 里下发 `retryAfterSeconds`（整数秒、下限 1），
+ * 本函数只做一件事：把那一枚数原样念成一句话。
+ * ⚠ 纪律（照 views/Login.vue:43 的同一口径——「那是既有载荷的转述，不是推断」）：
+ *   函数内**零本地推算**——不兜默认秒数（不许给「猜一个 60」留任何余地）、不按 windowSeconds 估、
+ *   不向上取整、不 clamp。
+ *   载荷缺失 / 非对象 / 不是 >0 的有限数 → 回空串，页面就退回原有的「请稍候再翻页」文案。
+ * 键名逐字 `retryAfterSeconds`，与 AdminAuthServiceImpl:276、Login.vue:125、PartnerOrderServiceImpl:106 同拼写。
+ * @param {unknown} data reject 载荷里的 e.data（可为 null / undefined / 非对象）
+ * @returns {string} 有如实读数时是「服务端约 N 秒后可再试。」，否则是 ''
+ */
+export function retryAfterText(data) {
+  if (!data || typeof data !== 'object') return ''
+  const n = Number(data.retryAfterSeconds)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  return '服务端约 ' + n + ' 秒后可再试。'
+}
+
+/**
  * 统一请求封装：只有 admin_token 存在时才带 Authorization: Bearer <token>；
  * 登录请求传 loginRequest:true → **强制不带 Authorization**（F-20.11 写死，防未来回退：
  * 后端 BE-20-1 后带了也不会 403，但「匿名端点不该出现凭证」这条纪律不依赖后端行为）。
