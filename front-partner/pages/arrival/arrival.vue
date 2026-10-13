@@ -184,7 +184,14 @@ export default {
       if (this.errorCode === 429) return coolingText(this.retryLock)
       if (this.errorCode === 403) return '暂无权限查看到货批次，请回工作台确认账号状态'
       if (this.errorCode === 404) return '到货批次接口暂不可用，可能是后端服务还没更新，请稍后重试'
-      return '到货批次加载失败，请检查网络后重试'
+      // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
+      // 承认自己处理出错，同屏第二行透出的正是它那句原文，第一行却叫主理人去查网络——因果方向相反
+      if (this.errorCode === 500) return '到货批次加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败才许出现「网络」字样：front-partner/api/index.js 的 request fail 支回 code:-1 /
+      // message「网络异常」，本页 errorCode 因此是 -1；没带码的失败归 0，两支同一条出路
+      if (this.errorCode <= 0) return '到货批次加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '到货批次加载失败，请稍后重试'
     },
     // 重试有没有可能成功：只有 403（归属集合为空）判死并给「回工作台」出口；401 走不到这一态
     errorRetryable() {
@@ -210,6 +217,16 @@ export default {
     // 不传 resetView：日期没变就不该把已有卡片整页换成加载态白卡（静默重拉成功后直接覆盖，
     // 姿势照 pickup-plan.vue 的 onShow）
     if (!this.queryDate) this.queryDate = this.todayStr()
+    // X-4b：回页重拉要过读侧闸门。onShow 属「页面自己发的请求」而不是用户的点击，所以它没有旁路资格——
+    // 批次页与核销台来回切几次就是在往 arrivals 读桶（PartnerController#arrivals，USER 30/60）连续续发。
+    // 闸门只加在**这一处调用点**，loadBatches 本体保持无闸门（那条豁免是刻意的：用户主动步进/回到今天
+    // 必须立发，否则日期条已变、卡片还是上一天，而 ready 态没有重试入口，那一下就永久丢了）。
+    // 被拦时静默、不给 toast（dishes/marketing/dashboard 三页的 onShow 母版同形；冷却中的秒数本来就写在屏上：
+    // 错误卡那一行与「加载更多/重试」那两处）。
+    // 刻意不复制商家端 dishes 页的「刚从新增页返回」例外：本页没有写页可跳（确认就在页内做，
+    // 成功后已经 patchBatch 就地变色 + reloadOneBatch 补拉），唯一的外跳是 403 时 reLaunch 回工作台，
+    // 那条路上没有任何「回页必须立刻重拉」的新写入。
+    if (this.retryLock > 0) return
     this.loadBatches()
   },
   // #ifdef H5

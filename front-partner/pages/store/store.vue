@@ -372,7 +372,16 @@ export default {
     errorLeadText() {
       // FE-10：与保存那一支同一句（秒数读实时 retryLock，不再写死 60）
       if (this.errorCode === 429) return coolingText(this.retryLock)
-      return '门店资料加载失败，请检查网络后重试'
+      // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
+      // 承认自己处理出错，同屏第二行透出的正是那句原文（「服务开小差了，请稍后重试」），
+      // 第一行却叫主理人去查网络——两行因果方向相反，500 这支单独说「服务端处理出错」
+      if (this.errorCode === 500) return '门店资料加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败才许出现「网络」字样：front-partner/api/index.js 的 request fail 支回 code:-1 /
+      // message「网络异常」，本页 errorCode 因此是 -1；没带码的失败归 0，两支同一条出路
+      if (this.errorCode <= 0) return '门店资料加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文。
+      // 403/404 走不到这里——它们是确定性失败，load() 已经把页面归到空态而不是错误态
+      return '门店资料加载失败，请稍后重试'
     }
   },
   watch: {

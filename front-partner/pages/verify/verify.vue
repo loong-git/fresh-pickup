@@ -260,7 +260,15 @@ export default {
       if (this.errorCode === 429) return coolingText(this.retryLock)
       if (this.errorCode === 403) return '暂无权限查看待取清单，请回工作台确认账号状态'
       if (this.errorCode === 404) return '核销清单接口暂不可用，可能是后端服务还没更新，请稍后重试'
-      return '待取清单加载失败，请检查网络后重试'
+      // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
+      // 承认自己处理出错——同屏第二行透出的小字正是它那句原文（「服务开小差了，请稍后重试」），
+      // 第一行却叫主理人去查 Wi-Fi，两行因果方向相反。500 说「服务端处理出错」，不再借网络那句
+      if (this.errorCode === 500) return '待取清单加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败才许出现「网络」字样：front-partner/api/index.js 的 request fail 支回 code:-1 /
+      // message「网络异常」，页面侧 errorCode 因此是 -1；没带码的失败归 0，两支同一条出路
+      if (this.errorCode <= 0) return '待取清单加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '待取清单加载失败，请稍后重试'
     },
     // 重试有没有可能成功：只有 403（归属集合为空，重试必然还是同一枚错误）判死并给「回工作台」出口
     errorRetryable() {
@@ -270,6 +278,16 @@ export default {
   onShow() {
     // 首屏默认今天（本页是「今天来提货的人」这一件事，不像备货单那样让后端缺省顶上来）
     if (!this.queryDate) this.queryDate = this.todayStr()
+    // X-4b：回页重拉要过读侧闸门。裁定口径同商家端本轮定稿——onShow 是「页面重新显示时自己发的请求」，
+    // 不是用户的点击，所以它没有旁路闸门的资格：主理人在核销台/批次页之间来回几次，
+    // 每次都在往 orders 读桶（PartnerController#orders，USER 30/60）里续一发，额度就是这么花光的。
+    // 被拦时刻意不给 toast（母版姿势一致：dishes/marketing/dashboard 三页的 onShow 都静默跳过——
+    // 回页弹一句「太频繁」没人知道为什么，而冷却中的倒计时本来就写在屏上：错误卡那一行与「加载更多」按钮）。
+    // 刻意不加商家端那种「刚从写页返回」的强制刷新例外：本页唯一的写（核销）就在页内做，
+    // 成功后已经就地静默重拉第 1 页（submitVerify 里那次 fetchList(true)），不经过 onShow；
+    // 页内唯一的外跳 goArrival 落到只读的批次页，返回时没有任何「必须立刻显形」的新写入。
+    // loadAlert 首句自持同一枚 retryLock 判定，这里早退与它自己的判定同结果，不算新增覆盖。
+    if (this.retryLock > 0) return
     // 回页重拉要回顶：翻到第 3 页再切回来只剩 20 行，滚动条悬在空处就像数据被吞了
     this._resetScrollTop = true
     this.fetchList(true)
@@ -396,7 +414,8 @@ export default {
     // 纪律不变：这一条仍是静默通道——任一次请求没成就整条不亮（宁可少报，也不把「没查到」说成「货没到」），
     // 不并入页面四态、不起 retryLock（Promise.all 一起 reject 就整体落 catch）。
     async loadAlert() {
-      // 冷却期内不重发（这几条也是同一账号的读额度，撞在闸门上只会白烧一次）；
+      // 冷却期内不重发（F-28.3 注释订正：这几条与待取清单同账号但不同桶——桶身份取「控制器类名 + 方法名」，见
+      // RateLimitInterceptor#bucketKey，#stores/#arrivals 各有各的配额；借 retryLock 只是页内保守纪律「整页在读冷却里不补发任何读」）；
       // 保持上一次的成功读数，不因为「这次没查」就把已经确认过的批次说成未确认
       if (this.retryLock > 0) return
       const today = this.todayStr()
