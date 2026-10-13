@@ -13,11 +13,16 @@ import org.springframework.stereotype.Service;
  *   本类不参与装配（MockPayService 及 /api/pay/{orderId}/mock-pay 链路原样保留，不受影响）；
  * - 应用配置（application-dev.yml 占位空值，申请流程见该文件注释）：
  *   wxpay.mchid 商户号 / wxpay.appid 小程序 AppID / wxpay.cert-path 商户 API 证书路径 / wxpay.api-v3-key APIv3 密钥；
- * - 注意：未来切换 pay.provider=wx 前，需同步处理与 MockPayService 的 Bean 装配关系
- *   （本骨架期不改动 MockPayService，两个 PayService 实现并存会引发按类型注入歧义）；
+ * - 装配歧义已由 matchIfMissing 收口（F-21.3/D-21-2）：本类条件为 havingValue="wx"，MockPayService 条件为
+ *   havingValue="mock" + matchIfMissing=true，两者互斥——设成 pay.provider=wx 后 mock Bean 自动退场，
+ *   PayController 的 {@code @Autowired PayService} 按类型注入只会命中一个实现，NoUniqueBeanDefinitionException
+ *   不再发生；不设该键（prod yml 现况）或设为 mock 时装配结果与收口前逐字相同，本类不参与装配；
  * - 回调端点见 PayController#wxNotify（验签 TODO 同样未实现）；
  * - TODO 邀请新人挂钩（F-01.2）：真实支付置 pay_status=1 时需与 MockPayService 同点补调
  *   InviteService.onOrderPaid(userId)（实现步骤见 payResult 内 TODO 第 5 条），接入时勿遗漏。
+ *   F-21.3 Step 1 起「同一个支付成功点」已抽成 pay/PaymentSettlement#settle（置态 + 销量累加 + 取货码 +
+ *   邀请挂钩 + 内存回写五件事都在里面，userId 从订单行取），回调侧无需再逐件手写、在自己的
+ *   {@code @Transactional} 内调 settlement.settle(order, payTime) 即自动生效——勿绕过它直接 UPDATE pay_status。
  */
 @Slf4j
 @Service
@@ -61,7 +66,8 @@ public class WxPayService implements PayService {
         //     调用 InviteService.onOrderPaid(userId)——首单判定 + invite_relation 原子置位 +
         //     邀请现金入账（F-04.2 冻结流水 status 0→1 → balance+5，F-05 后现金轨唯一激励，
         //     已在 onOrderPaid 内实现，随挂钩自动生效，接入时勿遗漏）；
-        //     回调端点见 PayController#wxNotify，挂在其置态事务内。
+        //     回调端点见 PayController#wxNotify，挂在其置态事务内；置态本身已由 F-21.3 抽成
+        //     PaymentSettlement#settle（置态 + 销量累加 + 取货码 + 本条邀请挂钩一体），回调侧调它即含本条。
         throw new BizException("微信支付未配置，请联系管理员");
     }
 }
