@@ -213,8 +213,10 @@ export default {
       return !!(m && m.status !== 'active')
     },
     // 错误卡主文案（人话，第二行才透出后端原文）：按码分派，未知码给通用的「加载失败请检查网络」
+    // F-23-fix/FF-1：429 这行不带时长——同屏的 retryLock 倒计时行（模板 :70）已转述后端真值，
+    // 这里再报一个数就是两处互相矛盾的谎报（截图 f23-c-cooldown.png 的 60 vs 1）
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       if (this.errorCode === 403) return '暂无权限查看商品，请回工作台确认账号状态'
       if (this.errorCode === 404) return '没有查到商品数据，请回工作台重新进入'
       return '商品加载失败，请检查网络后重试'
@@ -318,6 +320,11 @@ export default {
       }
       this.loadCategories()
     },
+    // F-23-fix/FF-3 登记（不修）：这里裸写 60 是「第 6 枚锁」，但它转述不了后端真值——
+    // 触发源 :305 读的是 getDishCategories() 的降级 resolve（degradedReason==='rate-limited'），
+    // api 层已把 429 的 reject 转成 resolve，页面手里没有带 data 的错误对象。
+    // 要收口必须先改 api 层降级出参把 retryAfterSeconds 透出（跨 api/index.js 的降级契约），
+    // 那是「改降级出参形状」不是「改文案」，本批刻意不混做 → 另开 F-23-fix2。
     startCatRetryLock() {
       this.stopCatRetryLock()
       this.catRetryLock = 60
@@ -428,7 +435,7 @@ export default {
       this.appliedKeyword = ''
       this.loadDishes(true)
     },
-    // ==================== 429 冷却（照 login.vue:227-236 loginLock 的秒级禁用范式） ====================
+    // ==================== 429 冷却（照 login.vue:236-247 loginLock 的秒级禁用范式） ====================
     startRetryLock(err) {
       this.stopRetryLock()
       this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)

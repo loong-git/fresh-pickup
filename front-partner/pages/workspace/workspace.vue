@@ -231,9 +231,11 @@ export default {
     refreshText() {
       return this.refreshAt ? this.formatClock(this.refreshAt) : ''
     },
-    // 错误态主文案（两层式照母版与 dishes.vue:209-214 的 errorLeadText 口径：主文案是人话，后端原文降为第二行小字）
+    // 错误态主文案（两层式照母版与 dishes.vue:218-223 的 errorLeadText 口径：主文案是人话，后端原文降为第二行小字）
+    // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次；
+    // FF-6：上面原写 dishes.vue:209-214，F-23 位移 +7 后是 216-221，本批又在其上方加了 2 行注释 → 现值 218-223
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       return '门店资料加载失败，请检查网络后重试'
     }
   },

@@ -322,8 +322,9 @@ export default {
       }
       return this.feedback.text
     },
+    // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       return '申请进度读取失败，请检查网络后重试'
     }
   },
