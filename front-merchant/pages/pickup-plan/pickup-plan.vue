@@ -149,13 +149,22 @@ export default {
         .join('\n')
     },
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次
+    // X-2（四路分流，母版 dashboard.vue:236-241）：改前的最后一行是无条件兜底，500/400 都被说成
+    // 「请检查网络后重试」，与同屏第二行透出的后端 500 原文（R.java「服务开小差了，请稍后重试」）
+    // 因果方向相反；判据：只有网络层失败才说检查网络，500 说服务端处理出错，其余不猜成因
     errorLeadText() {
       if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       if (this.errorCode === 403) return '暂无权限查看备货单，请回工作台确认账号状态'
       // 列表端点的 404 只有「后端还没更新/路径不通」这一种解释（本页不按 id 取单行），
       // 服务起来后重试就能成，故不照 dishes.vue 那样把 404 归入「重试无望」
       if (this.errorCode === 404) return '备货单接口暂不可用，可能是后端服务还没更新，请稍后重试'
-      return '备货单加载失败，请检查网络后重试'
+      // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
+      if (this.errorCode === 500) return '备货单加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败（api 层 request 的 fail 支回 code:-1 / message「网络异常」，api/index.js:276-279）
+      // 才说「请检查网络后重试」
+      if (this.errorCode <= 0) return '备货单加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '备货单加载失败，请稍后重试'
     },
     // 重试有没有可能成功：只有 403（角色闸门，重试必然还是同一枚错误）判死并给「回工作台」出口；
     // 401 走不到这一态（请求层已回登录页），404/429/网络异常都属于「等一下或修好就能成」
@@ -164,6 +173,11 @@ export default {
     }
   },
   onShow() {
+    // X-4：429 冷却期内这一路静默跳过（判据逐字照 marketing.vue:221 / dashboard.vue:259 与本页同批的
+    // plan-orders.vue onShow；回页不是用户的点击，弹「太频繁」反而莫名，且错误卡在手时倒计时行本来就在屏上）。
+    // 改前这一路是全页唯一没被闸门覆盖的自动重拉口：日期步进与错误卡重试都拦了，唯独每次回到本页
+    // 都会无条件 loadPlan，限流窗口内反复进出就是在给这个桶续命、并把倒计时覆写回满值。
+    if (this.retryLock > 0) return
     // 每次进入重拉（明细页/别的页返回时也保证看到的是当前真实待备货量），带 in-flight 守卫防连点
     this.loadPlan()
   },
@@ -244,12 +258,22 @@ export default {
       }
     },
     // ==================== 日期步进 ====================
+    // X-4：闸门要覆盖全部出口（改前只拦住错误卡的「点击重试」，日期步进与 onShow 全旁路）。
+    // 纪律三条：①不新增第二个闸门状态，读的就是既有 retryLock（数值只来自后端 data.retryAfterSeconds，
+    // 经 startRetryLock→retrySecondsOf）；②调用点放在 queryDate 被改动之前，拦下时页面上那枚日期不动；
+    // ③不静默，给带秒数的反馈。返回 true = 本次已拦下，调用方直接 return。
+    retryCoolingBlocked() {
+      if (this.retryLock <= 0) return false
+      uni.showToast({ title: '备货单请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
+      return true
+    },
     // 步进基准优先取本次请求带出去的 queryDate（它是「页面上那枚日期想要的值」，改一步即生效），
     // 回显值 effectiveDate 只在成功时更新：慢网下连点时它还是上一轮的日期，
     // 以它为基准会把第 2、3 次点击算成同一天的 +1，三次点击只前进一格（点被吞掉）；
     // 两者都没有（首屏就失败、queryDate 仍为空）才退到本地今天——这个值只进请求，
     // 屏幕上的日期仍然只认回显
     stepDay(delta) {
+      if (this.retryCoolingBlocked()) return
       const base = this.queryDate || this.effectiveDate || this.todayStr()
       const d = this.parseDate(base) || this.newToday()
       d.setDate(d.getDate() + delta)
@@ -257,6 +281,7 @@ export default {
       this.loadPlan(true)
     },
     goToday() {
+      if (this.retryCoolingBlocked()) return
       this.queryDate = this.todayStr()
       this.loadPlan(true)
     },

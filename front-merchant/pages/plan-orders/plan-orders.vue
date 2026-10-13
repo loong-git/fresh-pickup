@@ -175,13 +175,22 @@ export default {
       return Math.max(Number.isFinite(n) && n >= 0 ? n : 0, loaded)
     },
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次
+    // X-2（四路分流，母版 dashboard.vue:236-241）：改前的最后一行是无条件兜底，500/400 都被说成
+    // 「请检查网络后重试」，与同屏第二行透出的后端 500 原文（R.java「服务开小差了，请稍后重试」）
+    // 因果方向相反；判据：只有网络层失败才说检查网络，500 说服务端处理出错，其余不猜成因
     errorLeadText() {
       if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       if (this.errorCode === 403) return '暂无权限查看供货明细，请回工作台确认账号状态'
       // 列表端点的 404 只有「后端还没更新/路径不通」这一种解释，服务起来后重试就能成，
       // 故不照 dishes.vue（那里 404 = 按 id 取单行取不到）把 404 归入「重试无望」
       if (this.errorCode === 404) return '供货明细接口暂不可用，可能是后端服务还没更新，请稍后重试'
-      return '供货明细加载失败，请检查网络后重试'
+      // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
+      if (this.errorCode === 500) return '供货明细加载失败，服务端处理出错，稍后重试'
+      // 只有网络层失败（api 层 request 的 fail 支回 code:-1 / message「网络异常」，api/index.js:276-279）
+      // 才说「请检查网络后重试」
+      if (this.errorCode <= 0) return '供货明细加载失败，请检查网络后重试'
+      // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
+      return '供货明细加载失败，请稍后重试'
     },
     // 重试有没有可能成功：只有 403（角色闸门，重试必然还是同一枚错误）判死并给「回工作台」出口；
     // 401 走不到这一态（请求层已回登录页），404/429/网络异常都属于「等一下或修好就能成」
@@ -197,6 +206,10 @@ export default {
     this.date = this.isValidDateStr(raw) ? raw : ''
   },
   onShow() {
+    // X-4：429 冷却期内这一路静默跳过（判据逐字照 marketing.vue:221 / dashboard.vue:259 的 onShow；
+    // 回页不是用户的点击，且这一路的错误卡在手时倒计时行本来就在屏上）。
+    // 闸门放在最前面，_resetScrollTop 也一并别置——不重拉就不该有「拉到第一页后回顶」的待办
+    if (this.retryLock > 0) return
     // 每次进入回到第一页重拉（备货量与状态在别的页可能已变），带 in-flight 守卫防连点
     // 重第一页成功后必须一并回顶（标记由 fetchList 消费）：翻到第 3 页再切标签页回来只剩 20 行，
     // 滚动条悬在空处就像数据被吞了（同 dishes.vue 的 onShow 回顶纪律）
@@ -360,19 +373,33 @@ export default {
       return this.list.concat(fresh)
     },
     // ==================== 筛选交互 ====================
+    // X-4：闸门要覆盖全部出口（改前只拦住错误卡的「点击重试」与 loadMore，tab/日期/清筛全旁路）。
+    // 纪律三条：①不新增第二个闸门状态，读的就是既有 retryLock（数值只来自后端 data.retryAfterSeconds，
+    // 经 startRetryLock→retrySecondsOf）；②调用点放在**任何筛选值被改动之前**，拦下时 status/date 一格没动，
+    // 屏上选中的 tab 与列表才是同一份真值；③不静默，给带秒数的反馈。返回 true = 本次已拦下，调用方直接 return。
+    retryCoolingBlocked() {
+      if (this.retryLock <= 0) return false
+      uni.showToast({ title: '供货明细请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
+      return true
+    },
     loadMore() {
       // 429 冷却闸门同样要拦住自动触底：只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
       // 把该商家其它读接口（备货单、商品列表）一起打死
+      // 这一路刻意**不走 retryCoolingBlocked**（不给 toast）：它由触底/滚轮自动触发（:498、onReachBottom），
+      // 用户没有点击行为，弹「太频繁」是莫名其妙；手动那一颗在模板 :97-99 已置灰并把秒数写在按钮文案上，
+      // 反馈并不缺
       if (this.retryLock > 0) return
       if (this._loadingList || !this.hasMore) return
       this.fetchList(false)
     },
     switchTab(key) {
       if (this.status === key) return
+      if (this.retryCoolingBlocked()) return
       this.status = key
       this.fetchList(true, true)
     },
     onDateChange(e) {
+      if (this.retryCoolingBlocked()) return
       const v = String((e && e.detail && e.detail.value) || '')
       // 与 onLoad 的深链校验同一把尺子（形状 + 确有其日），免得两处各验一半、口径漂移
       this.date = this.isValidDateStr(v) ? v : ''
@@ -380,10 +407,12 @@ export default {
     },
     clearDate() {
       if (!this.date) return
+      if (this.retryCoolingBlocked()) return
       this.date = ''
       this.fetchList(true, true)
     },
     resetFilters() {
+      if (this.retryCoolingBlocked()) return
       this.status = 'all'
       this.date = ''
       this.fetchList(true, true)
