@@ -217,11 +217,42 @@ function handleEnvelope(res, resolve, reject) {
  * 有限正数才 Math.ceil；拿不到 data（网络异常/信封不可解析）或值不合法时回落到调用方给的 fallbackSeconds。
  * fallbackSeconds 的口径＝该端点 @RateLimit 的 windowSeconds（整个窗口），它是后端不给时的保守上限，
  * 不是回速（30 次/分 档的回速实测只有 2 秒）——两个数不是一回事，页内常量别混用。
+ *
+ * 第二参是必传项，且必须是有限正数（A-3 的根治）：改前这一支直接 `return fallbackSeconds`，漏传就回
+ * undefined → 页面 `this.retryLock = undefined` → 所有 `retryLock > 0` 判定恒假 → **闸门敞开不拦**；
+ * 更阴的是模板 `!retryLock` 此时为真，冷却整行被藏掉，用户看不到任何异常、控制台也没有声音。
+ * 现在非有限正数一律回硬保守值 RETRY_GATE_MIN_SECONDS 并 console.warn 留痕——闸门宁可多关一会儿，
+ * 也不能因为一行拷贝就把「等待」这件事整个取消。六个调用点（dashboard/dishes/marketing/pickup-plan/
+ * plan-orders/login）都显式传了 60，改动对它们是逐字等价的。
+ *
+ * data.retryAfterSeconds 全仓有三个产出点、两种语义，本函数只取数值不认语义，三处都能喂进来但含义不同：
+ * - backEnd/src/main/java/com/fresh/interceptor/RateLimitInterceptor.java:79 —— 桶的回速
+ *   （NanosToWaitForRefill 向上取整、下限 1，实测个位秒），绝大多数 429 出自这里，也是 fallbackSeconds
+ *   要对标的档位；
+ * - backEnd/src/main/java/com/fresh/service/impl/AdminAuthServiceImpl.java:276 —— **401**（不是 429）
+ *   运营登录防枚举锁定的剩余 TTL，上限 600 秒（LOGIN_FAIL_LOCK_TTL=10 分钟）；
+ * - backEnd/src/main/java/com/fresh/service/impl/PartnerOrderServiceImpl.java:217 —— 核销枚举锁的剩余
+ *   TTL，同为 600 秒封顶。
+ * 为什么不能与 front-admin/src/api/index.js:146-151 的 retryAfterText 互换（两者只是长得像）：
+ * retryAfterText 是纯文案转述，函数内零本地推算、拿不到就回空串闭嘴，服务的是「服务端约 N 秒后可再试」
+ * 那一句；本函数服务的是闸门，必须永远交出一个能起闸的正数。两个方向拿错都会出事——
+ * 拿 retryAfterText 替闸门：空串让 `retryLock > 0` 恒假，等于上面那条敞闸；
+ * 拿本函数替文案：后端没给读数时把猜出来的 60 当事实念给用户，撞上 admin 那条 401 时更会把
+ * 600 秒的锁定剩余时长当成「保守上限」报出去。所以两边各留各的回落纪律，不许合并。
  */
+// 第二参不合法时的硬保守值：全仓 @RateLimit 的 windowSeconds 实测只有 60 一档，兜到它＝按最长那档起闸
+const RETRY_GATE_MIN_SECONDS = 60
+
 export function retrySecondsOf(err, fallbackSeconds) {
   const data = (err && err.data) || null
   const n = Number(data && data.retryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : fallbackSeconds
+  if (Number.isFinite(n) && n > 0) return Math.ceil(n)
+  const f = Number(fallbackSeconds)
+  if (!Number.isFinite(f) || f <= 0) {
+    console.warn('[api] retrySecondsOf: 调用方漏传了该页档位的窗口长度（fallbackSeconds=' + String(fallbackSeconds) + '），已按保守值 ' + RETRY_GATE_MIN_SECONDS + ' 起闸')
+    return RETRY_GATE_MIN_SECONDS
+  }
+  return fallbackSeconds
 }
 
 /**
@@ -405,7 +436,8 @@ export function uploadMerchantImage(filePath) {
  * 11 类只选不建（F-13.4）：词条 definition 形如 'code:meat'，code 即 dish.category 列取值（init.sql:67 列注释）。
  * 分组名只能是 dish_category——后端 GROUP_ID 只登记了四个键（DictServiceImpl.java:36-39），
  * 写成 'category' 会 400「字典分组不存在」（契约 F-13.4 那句 group=category 是错值，已列契约疑点回报）。
- * 模块级缓存的理由：/api/dict 限流是 IP 维度 10 次/分（DictController.java:29），而列表页与编辑页各要一份下拉，
+ * 模块级缓存的理由：/api/dict 限流是 IP 维度 10 次/分（DictController.java:28 的
+ * `@RateLimit(keyType = IP, limit = 10, windowSeconds = 60)`），而列表页与编辑页各要一份下拉，
  * 每次进入都打一次的话来回切几页就吃 429、下拉静默变空；只缓存成功结果，失败不写缓存以便下次重试
  * （缓存策略同用户端 front/api/dict.js，本端只需内存一级）。
  * 拉不到时（reject 或成功但空列表）回内置 11 类并标 degraded：category 是后端 @NotBlank 必填，
