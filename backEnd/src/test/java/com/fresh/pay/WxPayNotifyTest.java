@@ -20,8 +20,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.security.KeyPair;
@@ -34,9 +37,12 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -52,8 +58,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * 微信支付回调端点端到端单测（F-21.6 Step 2b / D-21-3 断言集，**全部离线、不连库、不起 Spring 容器**）：
- * 测试代码扮演「微信服务器」，把 PayController#wxNotify 当普通方法直接打。
+ * 微信支付回调链路端到端单测（F-21.6 Step 2b / D-21-3 断言集 + F-21.8 Step 2c 的 C-2/C-3/C-4 断言集，
+ * **全部离线、不连库、不起 Spring 容器**）：测试代码扮演「微信服务器」，
+ * 把 {@code PayController#wxNotify} 当普通方法直接打（HTTP 码断言留在 controller 层）；
+ * Step 2c 下沉出来的 {@link WxPayNotifyService} 也可直接 {@code new} 出来只测判定（payTime 口径就测在这一层）。
  *
  * 测试床（D-21-3 修订版：密钥一律运行时自造，src/test/resources 里不落任何 PEM/密钥文件）：
  * - 两对运行时生成的 2048 位 RSA：一对扮**平台证书**（签回调、{@link WxPayCertificateSource} 供公钥），
@@ -65,8 +73,11 @@ import static org.mockito.Mockito.when;
  *   这样「重放同一条通知 → 幂等、零二次副作用」不是断言 mock 调用次数，而是**跑到了接缝的条件更新上**；
  * - 假库：{@code dbRow} 就是那一行 orders，条件更新语义由 {@code pay_status==0 才生效} 复刻，
  *   销量增量、取货码写入都只在真语句走到时才动，于是「订单状态/销量/取货码一字不变」是可读的断言。
+ * - 装配（Step 2c 改造，C-6）：{@code new WxPayNotifyService(orderMapper, settlement, certificateSource)}
+ *   而两枚配置（mchid / api-v3-key）**走方法入参**；controller 用 {@code new PayController()} 反射注入
+ *   {@code notifyService} 与那两枚 {@code @Value} —— Step 2b 往 controller 塞的 5 个字段随编排下沉减到 3 个。
  *
- * 断言集（逐条对应 D-21-3 与 F-21.6 的官方纠偏）：
+ * 断言集（逐条对应 D-21-3、F-21.6 的官方纠偏与 F-21.8 的 C-1b/C-2/C-3/C-4）：
  * ① 合法通知 → HTTP 200 且**不带业务 JSON**、结算四件事各恰一次；
  * ② 重放同一条 → 幂等（接缝被再次调用但 {@code updated==0} 回读、销量/取货码/payTime 一个都不再变）；
  * ③ 篡改 {@code amount.total} → 真实 4xx 且订单一字不变；
@@ -78,10 +89,22 @@ import static org.mockito.Mockito.when;
  * ⑩ 未配置（mchid 或 api-v3-key 空）→ **真实 4xx，绝不 200**（骨架期那条 R.fail(400) 走 HTTP 200 正是丢单根因）；
  * ⑪ 平台证书取不到 / 查单与结算瞬时故障 → 真实 5xx（可让微信重投），同样不是 200；
  * ⑫ 金额算法：DECIMAL 右移两位（8.80 必须等于 880 分，double×100 会得 879/881）；
- *   库内出现三位小数 → 报错而不是悄悄舍入（{@code RoundingMode.UNNECESSARY}）。
+ *   库内出现三位小数 → 报错而不是悄悄舍入（{@code RoundingMode.UNNECESSARY}）；
+ * ⑬（C-3）时间戳新鲜度窗口：{@code +60s} 与 {@code -300s}（恰等于容忍值 → 不拒）放行，
+ *   {@code ±301s} 与非数字串一律真实 400「微信支付回调时间戳超出允许范围」且零副作用；
+ * ⑭（C-4）{@code payTime} 取渠道 {@code success_time}：{@code +08:00} 与 {@code Z} 两种形态各解析成对应本地值；
+ *   字段缺失 / 畸形串 → **不拒收**，回落服务器时间且结算照常完成（丢单比时刻不准更贵，这是取舍不是不严格）；
+ * ⑮（C-1b / C-2 / C-1）形态核对：{@code accept} 失败抛的是**带 HTTP 码的受控异常**
+ *   {@link WxPayNotifyRejectException}（不是 null 哨兵、不是 BizException）；
+ *   {@code @Transactional} 只标在 {@code settleInTransaction} 且是 Spring 那枚、{@code accept} 上没有；
+ *   {@link WxPayNotifyService} 是恒装配的普通 {@code @Service}（带 {@code @ConditionalOnProperty} 会让容器起不来）。
  *
- * 未测成（如实登记）：与 api.mch.weixin.qq.com 的真联调、真实平台证书下载/轮换、
- * {@code wechatpay-java} 之外的报文实样、@Transactional 回滚语义（本批回调链路未标该注解，见 wxNotify 注释④）。
+ * 未测成（如实登记，绝不写成「已通过」）：与 api.mch.weixin.qq.com 的真联调、真实平台证书下载/轮换、
+ * {@code wechatpay-java} 之外的报文实样；**容器级代理是否真的接住了 {@code @Transactional}**——
+ * 纯 {@code new} 出来的对象没有代理，{@code TransactionSynchronizationManager.isActualTransactionActive()}
+ * 在离线单测里恒 {@code false}，所以本类只做反射核对（⑮），真回滚语义由主会话门禁的
+ * {@code @SpringBootTest} 容器探针证（F-21.8「门禁」节，含摘掉注解必须变红的变异自验）；
+ * 真实 MySQL 上的事务回滚也未测（本批全程 mock mapper，不连库）。
  */
 class WxPayNotifyTest {
 
@@ -100,6 +123,11 @@ class WxPayNotifyTest {
     private static final int QUANTITY = 2;
     /** 合法通知的应付分数（与 unpaidOrder 的 15.00 元一一对应） */
     private static final int CORRECT_FEN = 1500;
+    /**
+     * 业务报文里 {@code success_time} 的默认片段（带结尾逗号，便于整段替换成「缺字段」）。
+     * C-4 之后这个值就是 payTime 的来源，不再由服务器时间决定。
+     */
+    private static final String DEFAULT_SUCCESS_TIME_FIELD = "\"success_time\":\"2026-10-13T10:06:30+08:00\",";
 
     private static KeyPair merchantKeyPair;
     private static KeyPair platformKeyPair;
@@ -193,17 +221,29 @@ class WxPayNotifyTest {
         return it;
     }
 
+    /**
+     * 被测服务（C-1 的落点）：纯 {@code new}，不起容器、不连库。
+     * 三枚协作者构造器注入，两枚配置值（mchid / api-v3-key）留在方法入参上——
+     * 正因为本类不依赖 {@code @Value}，离线单测才能直接传常量制造「未配置」那条分支。
+     */
+    private WxPayNotifyService service() {
+        return new WxPayNotifyService(orderMapper, settlement, certificateSource);
+    }
+
     private PayController controller() {
         return controller(MCHID, API_V3_KEY);
     }
 
+    /**
+     * controller 层装配（C-6）：Step 2b 往本类反射塞 5 个字段（2 枚配置 + 3 枚协作者），
+     * 编排下沉后协作者归服务，controller 只剩 {@code notifyService} + 2 枚 {@code @Value} = 3 个字段。
+     * HTTP 状态码断言仍留在这一层（映射层负责的就是状态码），判定层的口径另测（见 payTime 那组）。
+     */
     private PayController controller(String mchid, String apiV3Key) {
         PayController c = new PayController();
+        ReflectionTestUtils.setField(c, "notifyService", service());
         ReflectionTestUtils.setField(c, "wxpayMchid", mchid);
         ReflectionTestUtils.setField(c, "wxpayApiV3Key", apiV3Key);
-        ReflectionTestUtils.setField(c, "orderMapper", orderMapper);
-        ReflectionTestUtils.setField(c, "settlement", settlement);
-        ReflectionTestUtils.setField(c, "certificateSource", certificateSource);
         return c;
     }
 
@@ -216,17 +256,68 @@ class WxPayNotifyTest {
         return notification(outTradeNo, amountFen, tradeState, API_V3_KEY, platformKeyPair.getPrivate());
     }
 
+    private Notification notification(String outTradeNo, int amountFen, String tradeState,
+                                      String encryptKey, PrivateKey signingKey) throws Exception {
+        return build(outTradeNo, amountFen, tradeState, encryptKey, signingKey,
+                DEFAULT_SUCCESS_TIME_FIELD, currentTimestamp());
+    }
+
+    /**
+     * 只换 {@code Wechatpay-Timestamp}（C-3 用）：时间戳是验签名串的**第一行**，改它必须**重新签名**，
+     * 否则测到的是「验签失败」而不是「新鲜度超窗」——这两条分支的 HTTP 码与文案都不同，混了就白测。
+     */
+    private Notification notificationWithTimestamp(long offsetSeconds) throws Exception {
+        return notificationWithTimestamp(String.valueOf(currentEpochSecondAfterAligning() + offsetSeconds));
+    }
+
+    /** 时间戳头给任意原文（{@code "abc"} 一类非数字形态就走 NumberFormatException 分支） */
+    private Notification notificationWithTimestamp(String rawTimestamp) throws Exception {
+        return build(ORDER_ID, CORRECT_FEN, "SUCCESS", API_V3_KEY, platformKeyPair.getPrivate(),
+                DEFAULT_SUCCESS_TIME_FIELD, rawTimestamp);
+    }
+
+    /** 只换业务报文里的 {@code success_time} 片段（C-4 用）：传 {@code ""} 即造「字段缺失」 */
+    private Notification notificationWithSuccessTime(String successTimeField) throws Exception {
+        return build(ORDER_ID, CORRECT_FEN, "SUCCESS", API_V3_KEY, platformKeyPair.getPrivate(),
+                successTimeField, currentTimestamp());
+    }
+
+    private String currentTimestamp() {
+        return String.valueOf(Instant.now().getEpochSecond());
+    }
+
+    /**
+     * 边界值（{@code -300} / {@code +301}）为什么要把执行时刻对齐到整秒之后：
+     * 代码里的判定是 {@code skew > 300}，而 {@code skew} 用的是 {@code accept} 内**那一刻**的
+     * {@code Instant.now()}；从构造时间戳到那一刻若跨过一个整秒，{@code -300} 会变成 301（该放的拒了）、
+     * {@code +301} 会变成 300（该拒的放了）→ 假红/假绿。对齐到整秒后 headroom 有 ~900ms，
+     * 而 RSA 签名 + AES 加密只有毫秒级开销，判定因此是确定的。
+     */
+    private long currentEpochSecondAfterAligning() throws InterruptedException {
+        for (int i = 0; i < 100; i++) {
+            long nano = Instant.now().getNano();
+            if (nano < 100_000_000L) {
+                return Instant.now().getEpochSecond();
+            }
+            Thread.sleep(10);
+        }
+        return Instant.now().getEpochSecond();
+    }
+
     /**
      * 扮演微信服务器：业务 JSON → APIv3 密钥 AES-256-GCM 加密进 {@code resource.ciphertext} →
      * 外层通知报文 → 平台私钥签「时间戳\n随机串\n原始报文\n」。
+     * 全参形态：{@code successTimeField} 原样插进业务 JSON（含结尾逗号，传 "" 造缺字段），
+     * {@code timestamp} 同时用于签名与回头的事务参数（保证「签名与报文自洽」这条前提不被破坏）。
      */
-    private Notification notification(String outTradeNo, int amountFen, String tradeState,
-                                      String encryptKey, PrivateKey signingKey) throws Exception {
+    private Notification build(String outTradeNo, int amountFen, String tradeState,
+                               String encryptKey, PrivateKey signingKey,
+                               String successTimeField, String timestamp) throws Exception {
         String transaction = "{\"appid\":\"wxtestappid000000000\",\"mchid\":\"" + MCHID + "\","
                 + "\"out_trade_no\":\"" + outTradeNo + "\","
                 + "\"transaction_id\":\"420000202610131006000001\","
                 + "\"trade_state\":\"" + tradeState + "\",\"trade_state_desc\":\"支付成功\","
-                + "\"success_time\":\"2026-10-13T10:06:30+08:00\","
+                + successTimeField
                 + "\"amount\":{\"total\":" + amountFen + ",\"payer_total\":" + amountFen + ",\"currency\":\"CNY\"},"
                 + "\"payer\":{\"openid\":\"o-test-openid\"}}";
         String ciphertext = WxpayAead.encrypt(encryptKey, RESOURCE_NONCE, AAD, transaction);
@@ -236,10 +327,15 @@ class WxPayNotifyTest {
                 + "\"resource\":{\"original_type\":\"transaction\",\"algorithm\":\"AEAD_AES_256_GCM\","
                 + "\"ciphertext\":\"" + ciphertext + "\","
                 + "\"associated_data\":\"" + AAD + "\",\"nonce\":\"" + RESOURCE_NONCE + "\"}}";
-        String timestamp = String.valueOf(Instant.now().getEpochSecond());
         String signature = WxpaySignature.sign(
                 WxpaySignature.buildVerifyMessage(timestamp, RESOURCE_NONCE, body), signingKey);
         return new Notification(body, timestamp, RESOURCE_NONCE, signature, SERIAL);
+    }
+
+    /** 调用服务层判定的样板（C-4 / C-1b 那两条直测 accept 的断言用，配置走方法入参） */
+    private WxPayNotifyService.Accepted accept(Notification n) {
+        return service().accept(ORDER_ID, n.body(), n.timestamp(), n.nonce(), n.signature(), n.serial(),
+                MCHID, API_V3_KEY);
     }
 
     private ResponseEntity<Map<String, String>> post(String pathOrderId, Notification n) {
@@ -577,7 +673,10 @@ class WxPayNotifyTest {
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR.value(), response.getStatusCode().value());
         assertFailBody(response, "微信支付回调处理失败");
-        // 结算没成 → 一行都没写成（本批回调链路未标 @Transactional，见类注释「未测成」段与 wxNotify 注释④）
+        // 结算没成 → 一行都没写成。Step 2c 起事务入口真实存在（settleInTransaction 上标了 @Transactional）：
+        // 底层 QueryTimeoutException 在事务方法内被包成 WxPayNotifyRejectException **穿出代理边界**
+        // → 代理先回滚 → controller 才 catch 成 500（离线单测里代理不存在，故这里能证的只有「回读不到就一行不写」
+        //   与「应答码是真实 500」；回滚本身归主会话的容器探针，见类注释「未测成」段）
         verify(orderMapper, times(1)).update(isNull(), any());
         assertEquals(0, soldCountDelta.get());
         verify(inviteService, never()).onOrderPaid(any());
@@ -597,5 +696,188 @@ class WxPayNotifyTest {
 
         Method mockPay = PayController.class.getMethod("mockPay", String.class, Long.class);
         assertEquals(com.fresh.common.R.class, mockPay.getReturnType(), "其余端点的统一信封一律不动");
+    }
+
+    // —— ⑬ C-3：时间戳新鲜度窗口（官方防重放 5 分钟；判定位置在验签之后、解密之前）——
+
+    /**
+     * +60s：远在 300s 窗口内 → 必须放行并结算。
+     * 这一条同时是「窗口没把正常通知挡掉」的证据（时钟略有偏差是常态，防重放不能做成防自己）。
+     */
+    @Test
+    void timestampSixtySecondsAheadIsInsideTheWindowAndSettles() throws Exception {
+        ResponseEntity<Map<String, String>> response = post(ORDER_ID, notificationWithTimestamp(60));
+
+        assertEquals(HttpStatus.OK.value(), response.getStatusCode().value(), "+60s 在窗口内，绝不能拒");
+        assertEquals(Integer.valueOf(1), dbRow.getPayStatus());
+        verify(inviteService, times(1)).onOrderPaid(USER_ID);
+    }
+
+    /** -300s：**恰好等于**容忍值（代码是 {@code skew > 300} 才拒）→ 边界内侧，必须放行 */
+    @Test
+    void timestampExactlyThreeHundredSecondsBehindIsStillInsideTheWindow() throws Exception {
+        ResponseEntity<Map<String, String>> response = post(ORDER_ID, notificationWithTimestamp(-300));
+
+        assertEquals(HttpStatus.OK.value(), response.getStatusCode().value(), "-300s 是边界内侧（>300 才拒），必须放行");
+        assertEquals(Integer.valueOf(1), dbRow.getPayStatus());
+    }
+
+    /** -301s：越界一秒 → 真实 400 + 新文案，且**零副作用**（此刻连解密都还没发生） */
+    @Test
+    void timestampThreeHundredAndOneSecondsBehindIsRejectedWithZeroSideEffects() throws Exception {
+        ResponseEntity<Map<String, String>> response = post(ORDER_ID, notificationWithTimestamp(-301));
+
+        assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatusCode().value());
+        assertFailBody(response, "微信支付回调时间戳超出允许范围");
+        assertOrderUntouched();
+    }
+
+    /** +301s（未来时刻）：同样越界 → 同一句 400。窗口是绝对值，不是「只挡过去」 */
+    @Test
+    void timestampThreeHundredAndOneSecondsAheadIsRejectedWithZeroSideEffects() throws Exception {
+        ResponseEntity<Map<String, String>> response = post(ORDER_ID, notificationWithTimestamp(301));
+
+        assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatusCode().value());
+        assertFailBody(response, "微信支付回调时间戳超出允许范围");
+        assertOrderUntouched();
+    }
+
+    /**
+     * 时间戳根本不是秒级 epoch（{@code "abc"}）→ 无从判定新鲜度 → 400 同一句文案。
+     * 注意签名是**拿这个畸形时间戳算出来的**（平台私钥自洽），所以走到这一步说明「窗口确实挡在验签之后」，
+     * 而不是把畸形头降级成 401 验签失败。
+     */
+    @Test
+    void nonNumericTimestampIsRejectedAndNeverReachesDecrypting() throws Exception {
+        ResponseEntity<Map<String, String>> response = post(ORDER_ID, notificationWithTimestamp("abc"));
+
+        assertEquals(HttpStatus.BAD_REQUEST.value(), response.getStatusCode().value());
+        assertFailBody(response, "微信支付回调时间戳超出允许范围");
+        assertOrderUntouched();
+        // 位置核对：超窗/畸形时间戳在解密之前被拒，out_trade_no 一次都不该被比对（不查库）
+        verify(orderMapper, never()).selectById(any());
+    }
+
+    // —— ⑭ C-4：payTime 取解密出的 success_time（渠道权威时刻）——
+
+    /** {@code +08:00} 形态：{@code OffsetDateTime.parse(...).toLocalDateTime()} → 本地墙钟 10:06:30 */
+    @Test
+    void payTimeIsSuccessTimeWithPlusEightOffset() throws Exception {
+        WxPayNotifyService.Accepted accepted = accept(notification(ORDER_ID, CORRECT_FEN, "SUCCESS"));
+
+        assertEquals(LocalDateTime.of(2026, 10, 13, 10, 6, 30), accepted.payTime(),
+                "payTime 必须来自 success_time，不再是服务器时间（C-4）");
+        assertSame(dbRow, accepted.order(), "accept 交出的就是查到的那一行，结算不重新查库");
+    }
+
+    /** {@code Z}（UTC）形态：按偏移量折算后的本地值 02:06:30（JDK 17 实测口径） */
+    @Test
+    void payTimeIsSuccessTimeExpressedInUtc() throws Exception {
+        WxPayNotifyService.Accepted accepted =
+                accept(notificationWithSuccessTime("\"success_time\":\"2026-10-13T02:06:30Z\","));
+
+        assertEquals(LocalDateTime.of(2026, 10, 13, 2, 6, 30), accepted.payTime(),
+                "Z 形态要按 UTC 折算，不能把 02:06:30 当成东八区墙钟");
+    }
+
+    /**
+     * **缺** {@code success_time}：不得拒收（支付事实已由验签 + 三比对认定，拒了等于把真实扣款打成丢单），
+     * 回落服务器时间且结算照常完成。这条兜底看着像「不严格」，实为取舍——别顺手改成拒收。
+     */
+    @Test
+    void missingSuccessTimeFallsBackToServerTimeAndStillSettles() throws Exception {
+        Notification n = notificationWithSuccessTime("");
+        LocalDateTime before = LocalDateTime.now();
+
+        WxPayNotifyService.Accepted accepted = accept(n);
+        LocalDateTime after = LocalDateTime.now();
+
+        assertNotNull(accepted.payTime(), "缺字段也要有一个可用时刻（回落 now）");
+        assertFalse(accepted.payTime().isBefore(before) || accepted.payTime().isAfter(after),
+                "回落的必须是服务器时间，实际 " + accepted.payTime());
+        // 仍然结算成功：一条真实支付绝不能因为渠道少发了一个字段而丢
+        service().settleInTransaction(accepted.order(), accepted.payTime());
+        assertEquals(Integer.valueOf(1), dbRow.getPayStatus());
+        assertNotNull(dbRow.getPickupCode());
+        assertEquals(QUANTITY, soldCountDelta.get());
+        verify(inviteService, times(1)).onOrderPaid(USER_ID);
+    }
+
+    /** 畸形 {@code success_time}（{@code "not-a-time"}）：与缺失同处置——不拒收、回落 now、结算照常 */
+    @Test
+    void unparseableSuccessTimeFallsBackToServerTimeAndStillSettles() throws Exception {
+        Notification n = notificationWithSuccessTime("\"success_time\":\"not-a-time\",");
+        LocalDateTime before = LocalDateTime.now();
+
+        WxPayNotifyService.Accepted accepted = accept(n);
+        LocalDateTime after = LocalDateTime.now();
+
+        assertNotNull(accepted.payTime());
+        assertFalse(accepted.payTime().isBefore(before) || accepted.payTime().isAfter(after),
+                "解析失败必须回落服务器时间，实际 " + accepted.payTime());
+        ResponseEntity<Map<String, String>> response = post(ORDER_ID, n);
+        assertEquals(HttpStatus.OK.value(), response.getStatusCode().value(), "解析失败绝不是拒收理由");
+    }
+
+    // —— ⑮ C-1b / C-2 / C-1 的形态核对（结构即契约，改坏了这里就红）——
+
+    /**
+     * {@code accept} 的失败只能由**受控异常**承载（带 HTTP 码 + 钉死文案），绝不返回 null 表示失败；
+     * controller 只 catch 这一枚具体类型，才有「先回滚、再应答」的顺序（C-5）。
+     */
+    @Test
+    void acceptFailuresAreCarriedByTheControlledRejectExceptionNeverNull() throws Exception {
+        Notification forged = notification(ORDER_ID, CORRECT_FEN, "SUCCESS", API_V3_KEY, merchantKeyPair.getPrivate());
+
+        WxPayNotifyRejectException signatureFailure = assertThrows(WxPayNotifyRejectException.class,
+                () -> service().accept(ORDER_ID, forged.body(), forged.timestamp(), forged.nonce(),
+                        forged.signature(), forged.serial(), MCHID, API_V3_KEY));
+        assertEquals(HttpStatus.UNAUTHORIZED, signatureFailure.getHttpStatus(), "应答表：验签失败 = 401");
+        assertEquals("微信支付回调验签失败", signatureFailure.getMessage(), "文案逐字沿用，不许新造");
+
+        WxPayNotifyRejectException configurationFailure = assertThrows(WxPayNotifyRejectException.class,
+                () -> service().accept(ORDER_ID, forged.body(), forged.timestamp(), forged.nonce(),
+                        forged.signature(), forged.serial(), "", API_V3_KEY));
+        assertEquals(HttpStatus.BAD_REQUEST, configurationFailure.getHttpStatus());
+        assertEquals("微信支付未配置", configurationFailure.getMessage());
+        assertOrderUntouched();
+    }
+
+    /**
+     * 事务边界的**形状**（C-2 的可测部分）：{@code @Transactional} 只许标在 {@code settleInTransaction} 上，
+     * 且必须是 Spring 那枚（全仓 13 处统一 {@code org.springframework.transaction.annotation.Transactional}）；
+     * {@code accept} 上必须没有——把整段判定包进事务会让 5xx 应答落进回滚歧义。
+     * 代理是否真的接住了它不属本批断言集（纯 new 无代理），归主会话的容器探针。
+     */
+    @Test
+    void transactionAnnotationSitsOnSettleMethodOnly() throws Exception {
+        Method settle = WxPayNotifyService.class.getMethod("settleInTransaction", Order.class, LocalDateTime.class);
+        assertNotNull(settle.getAnnotation(Transactional.class),
+                "回调链路必须有事务入口（Step 2b 缺的正是它：settle 多条 UPDATE 之间宕机就是半态）");
+        for (Annotation present : settle.getAnnotations()) {
+            if ("Transactional".equals(present.annotationType().getSimpleName())) {
+                assertEquals("org.springframework.transaction.annotation.Transactional",
+                        present.annotationType().getName(), "注解类型必须是 Spring 那枚，不是 javax/jakarta 的");
+            }
+        }
+        Method accept = WxPayNotifyService.class.getMethod("accept", String.class, String.class, String.class,
+                String.class, String.class, String.class, String.class, String.class);
+        assertNull(accept.getAnnotation(Transactional.class), "accept 只判定不写库，标了事务反而把 5xx 拖进回滚歧义");
+    }
+
+    /**
+     * 恒装配（C-1 红线，F-21.7 实测过的坑）：{@code WxPayService} 正因带 {@code pay.provider=wx} 条件，
+     * 默认 {@code provider=mock} 下 Bean 不存在；回调编排服务若照抄那枚注解，容器直接起不来
+     * （{@code wx-notify} 端点恒存在，默认配置下要能回「微信支付未配置」那条 400）。
+     */
+    @Test
+    void notifyServiceIsPlainServiceNeverConditionallyWired() {
+        assertTrue(WxPayNotifyService.class.isAnnotationPresent(Service.class), "普通 @Service");
+        for (Annotation present : WxPayNotifyService.class.getAnnotations()) {
+            assertNotEquals("org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+                    present.annotationType().getName(),
+                    "带上条件注解 = 默认 provider=mock 下按类型注入的 controller 起不来");
+            assertNotEquals("ConditionalOnProperty", present.annotationType().getSimpleName());
+        }
     }
 }
