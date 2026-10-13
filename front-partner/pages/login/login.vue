@@ -123,9 +123,9 @@
 // ③ 429 多了 retryLock 冷却（「重新检查」是反复打 /api/partner/stores 的入口，USER 30 次/分）。
 // C 端专属逻辑一律不引进来：邀请码横幅与 inviteCode 透传、头像入 store、设置密码卡区、syncPickupFromServer
 // 之类的 C 端启动链（主理人端无「默认自提点」概念，C-7 明令）。
-// redirect 回跳：母版本身就没实现（login.vue:112 已注明「登录成功的唯一去处仍是 reLaunch 工作台」），
+// redirect 回跳：母版本身就没实现（front-merchant/pages/login/login.vue:112 已注明「登录成功的唯一去处仍是 reLaunch 工作台」），
 // 本页保持同款——契约 §4 把 redirect 列为「照母版」的一项，母版没有即不补，见本轮回报的契约疑点。
-import { sendCode, login, loginPassword, getPartnerStores } from '@/api/index.js'
+import { sendCode, login, loginPassword, getPartnerStores, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 登录成功后的唯一去处（工作台）与入驻申请页路由。
@@ -139,16 +139,10 @@ const APPLY_PAGE = '/pages/apply/apply'
 // 不是回速（回速远小于窗口），两个数不是一回事，别混成一个值。
 const RETRY_FALLBACK_SECONDS = 60
 
-// 已登记的一致性债：与 arrival/store/verify 的同名私有实现待另批一起收敛到 api 层。
-// 本批（F-23/FP-2）刻意不抽共享模块——那是重构，会牵动 arrival/store/verify 三页，
-// 与「补 apply/login 两处漏网」混在一起会让回归面失焦。语义与 arrival.vue:148-152 母版逐字一致。
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// 页内私有副本已删；本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 网络异常/信封不可解析时 data 为 null，走上面的本地回落。
-function retrySecondsOf(err) {
-  const data = (err && err.data) || null
-  const n = Number(data && data.retryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
-}
 
 export default {
   data() {
@@ -179,9 +173,10 @@ export default {
       forbiddenMessage: '',
       // 「重新检查」的 429 冷却剩余秒数（GET /api/partner/stores 是 USER 30 次/分，RateLimit 默认 KeyType.USER）
       // 与 loginLock 分表计时：一个跟登录接口的 IP 维度限流走（与账号无关），一个跟身份判定的用户维度限流走
-      // （换账号就换桶）——合并成一个会把两件事的冷却互相污染。落点与写法照 dishes.vue:177-178/392/439。
-      // F-23-fix/FF-6：原指针 170-171/378/425 已被 F-23(+7) 与本批 dishes.vue(+2/+5) 两次位移打断——
-      // 按旧读数去看现命中 viewState 声明(170-171)、成功清码 errorCode=0(378)、onCategoryChange(425)，全不是本行所指
+      // （换账号就换桶）——合并成一个会把两件事的冷却互相污染。落点与写法照 dishes.vue:187-188（data）/417（429 才起锁）/464（startRetryLock）。
+      // F-23-fix/FF-6 + F-25/P-4：这串指针被商家端连续加行打断过两次（170-171/378/425 → 177-178/392/439），
+      // 现值按 front-merchant/pages/dishes/dishes.vue 当前实况逐条重测：retryLock 在 data 的 187-188、
+      // errorCode===429 才起锁在 417、startRetryLock 方法在 464。
       retryLock: 0,
       retryLockTimer: null
     }
@@ -267,13 +262,13 @@ export default {
       this.smsCooldownPhone = ''
     },
     // 登录按钮冷却：与验证码倒计时分表计时（一个跟手机号/IP 的发码限流走，一个跟登录接口的 IP 限流走）
-    // F-23-fix/FF-5：秒数不再裸写 60，改由 retrySecondsOf(err) 转述后端 data.retryAfterSeconds
+    // F-23-fix/FF-5：秒数不再裸写 60，改由 retrySecondsOf(err, RETRY_FALLBACK_SECONDS) 转述后端 data.retryAfterSeconds
     // （POST /api/auth/login 与 /login-password 同档 @RateLimit(IP, limit=5, windowSeconds=60)，
     // AuthController.java:45/:53），取不到真值才回落页内 RETRY_FALLBACK_SECONDS=60。
     // 入参 err 由两个 429 分支透传，闸门判定仍是 loginLock > 0（未动）。
     startLoginLock(err) {
       this.stopLoginLock()
-      this.loginLock = retrySecondsOf(err)
+      this.loginLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.loginLockTimer = setInterval(() => {
         this.loginLock--
         if (this.loginLock <= 0) this.stopLoginLock()
@@ -283,11 +278,11 @@ export default {
       if (this.loginLockTimer) { clearInterval(this.loginLockTimer); this.loginLockTimer = null }
       this.loginLock = 0
     },
-    // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue:439 startRetryLock 命名）
+    // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue:464 startRetryLock 命名）
     // F-23/FP-1：入参改为 catch 到的错误对象，起锁秒数由 retrySecondsOf 转述后端真值，取不到才回落本地 60
     startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err)
+      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
@@ -355,7 +350,7 @@ export default {
     // GET /api/partner/stores 的四条分支（三分支 + 限流）：
     // - 200 且数组非空 → 名下有店 → reLaunch 工作台（多店也进同一个工作台，切换归 Step 6/7）
     // - 200 但数组为空 → 后端集合为空时直接回 403（走不到这里），仍按「无店」渲染引导态、绝不放行：
-    //   这是防契约漂移的兜底闸，与母版 workspace.vue:198「不放水」同口径
+    //   这是防契约漂移的兜底闸，与母版 front-merchant/pages/workspace/workspace.vue:201-202「不放水」同口径（F-25/P-4 重测）
     // - 403（token 有效但名下无店）→ 渲染引导态 + 透出后端原文，停在登录页，不清登录态也不跳工作台
     // - 401（token 失效）→ 请求层 rejectUnauthorized 已清 partner_token 并回登录页，本页清态停留让用户重登
     // - 429（USER 30 次/分撞限流）→ 人话文案 + retryLock 秒级冷却，不当成「无店」误判
@@ -387,8 +382,9 @@ export default {
           // 顺序反过来 toast 读到的还是 0（「请 0 秒后再刷新」）。本页的时长会出现两处：
           // 这条一次性 toast 与 :35-36 那条常驻闸门行（{{ retryLock }}s后可重新检查）各一次，
           // 两者同源（同一个 this.retryLock）同值，不是两个互不相干的数。
-          // F-23-fix/FF-4：原注释称「与商家端 dishes.vue:210 同串（不另写一份）」——FF-1 已把商家端
-          // 那句的数字摘掉（现 dishes.vue:219），两处不再同串，按实况订正而非留一个假指针。
+          // F-23-fix/FF-4：原注释称「与商家端 dishes.vue:210 同串（不另写一份）」——:210 是写下它那批的读数（历史值，
+          // 别按现况去那一行找），FF-1 已把商家端
+          // 那句的数字摘掉（F-25/P-4 重测：现 dishes.vue:229），两处不再同串，按实况订正而非留一个假指针。
           this.startRetryLock(e)
           this.showToast('点得太快了，请 ' + this.retryLock + ' 秒后再刷新')
           return

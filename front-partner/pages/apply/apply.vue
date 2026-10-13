@@ -157,7 +157,7 @@
           :class="{ 'btn-disabled': !canSubmit }"
           @click="submit"
         ><text>{{ submitText }}</text></button>
-        <!-- 常驻反馈行：成功/400/429/其余失败都落在这一行，不只 toast（verify.vue:40-42 同理由）；
+        <!-- 常驻反馈行：成功/400/429/其余失败都落在这一行，不只 toast（verify.vue:43-45 同理由，F-25/P-4 重测）；
              400 一支显示后端原文——它已按字段给文案，前端不改写 -->
         <text v-if="feedback" class="apply-feedback" :class="'apply-feedback-' + feedback.tone">{{ feedbackText }}</text>
       </view>
@@ -174,7 +174,7 @@
 //    rejected → 状态卡显 auditRemark 并允许改后重提（会产生新申请行）；approved → 「已开通」+ 去工作台；
 //    无记录 → 空白表单。四态单值互斥 loading|error|empty|ready（empty 唯一来源是 approved 这个服务端事实），
 //    ready 内部再按 applyStatus 这个「服务端事实枚举」分可编辑/只读两支——它不是第二个布尔开关，
-//    与 workspace.vue:136 / verify.vue:179 的「不叠布尔」纪律不冲突；
+//    与 workspace.vue:147-148 / verify.vue:138 的「不叠布尔」纪律不冲突（两处读数按 F-25/P-4 重测）；
 // ② 坐标：库里 store_apply.lng/lat 存的是 GCJ-02 真源（init.sql:401-402），而 uni.getLocation 在 H5 端
 //    对 type:'gcj02' 并不做本地转换，而是把转换委托给地图 SDK（引证见 locatePosition 的注释）。
 //    本工程按 D-24 一期不配高德，那条路必然 reject，所以这里取 type:'wgs84'（原生返回、零 SDK 依赖）
@@ -183,7 +183,7 @@
 // ④ 冷却锁只在 code===429 起，onUnload 成对清定时器，所有请求走 @/api/index.js（页内零原生请求）。
 // 本页挂 /api/store-applies 而非 /api/partner/**（D-20：申请阶段名下无店，partner 闸门会把自己锁死），
 // 所以 role=user 也能进，403 在这里不是设计内分支（请求层 403 不跳登录页的语义照旧）。
-import { getMyStoreApply, submitStoreApply } from '@/api/index.js'
+import { getMyStoreApply, submitStoreApply, retrySecondsOf } from '@/api/index.js'
 import { wgs84ToGcj02 } from '@/utils/gcj02.js'
 import '@/styles/common.css'
 
@@ -218,16 +218,10 @@ const STATUS_APPROVED = 'approved'
 // 是「后端不给 data 时的保守上限」，不是回速（回速实测约 6 秒），两者不是一回事。
 const RETRY_FALLBACK_SECONDS = 60
 
-// 已登记的一致性债：与 arrival/store/verify 的同名私有实现待另批一起收敛到 api 层。
-// 本批（F-23/FP-2）刻意不抽共享模块——那是重构，会牵动 arrival/store/verify 三页，
-// 与「补 apply/login 两处漏网」混在一起会让回归面失焦。语义与 arrival.vue:148-152 母版逐字一致。
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// 页内不再留私有副本；本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走上面的本地回落。
-function retrySecondsOf(err) {
-  const data = (err && err.data) || null
-  const n = Number(data && data.retryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
-}
 
 export default {
   data() {
@@ -258,7 +252,7 @@ export default {
       // error 态文案与错误码（决定主文案是「点太快」还是「读取失败」）
       errorText: '',
       errorCode: 0,
-      // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清；口径同 verify.vue:186-187）
+      // 429 冷却剩余秒数与驱动它的定时器（onUnload 成对清；口径同 verify.vue:205-207，F-25/P-4 重测）
       retryLock: 0,
       retryLockTimer: null
     }
@@ -298,7 +292,7 @@ export default {
     },
     // 申请时间：带 '-' 的后端字符串原样透出（把 ISO 的 T 换空格、砍到分钟）。
     // 不走 new Date() 再格式化：那会把无时区的 LocalDateTime 按本地时区平移一次，屏上值就不再是库里那一位
-    // （同一支渲染逻辑见 verify.vue:542-552）
+    // （同一支渲染逻辑见 verify.vue:631-643 timeText，F-25/P-4 重测）
     createdAtText() {
       const s = this.textOr(this.apply && this.apply.createdAt, '')
       if (!s) return ''
@@ -343,7 +337,7 @@ export default {
   },
   // #ifdef H5
   onReady() {
-    // 页面级滚轮兜底（workspace.vue:226-231 同款）：index.html 锁 html,body overflow:hidden 后
+    // 页面级滚轮兜底（workspace.vue:243-246 同款，F-25/P-4 重测）：index.html 锁 html,body overflow:hidden 后
     // PC 滚轮默认滚动失效，本页是长表单，不接管就够不到提交按钮
     this._pageWheelHandler = (e) => this.onPageWheel(e)
     document.addEventListener('wheel', this._pageWheelHandler, { passive: false })
@@ -385,7 +379,7 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 才起冷却锁（verify.vue:443 同判据）：其余失败重试是有意义的，不该被秒数拦住
+        // 只有 429 才起冷却锁（verify.vue:533 同判据，F-25/P-4 重测）：其余失败重试是有意义的，不该被秒数拦住
         if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
@@ -422,7 +416,7 @@ export default {
       this.applyStatus = 'none'
     },
     // 提交成功后的静默纠偏：只为把 createdAt/historyCount 这类本地拿不到的值对齐服务端。
-    // 这是一条静默通道（同 verify.vue:344-362 loadAlert 的纪律）：失败不动四态、不清已有反馈、
+    // 这是一条静默通道（同 verify.vue:384-389 loadAlert 的纪律，F-25/P-4 重测）：失败不动四态、不清已有反馈、
     // 不起 toast——「已提交」这件事已经由 POST 的回包定死，这一趟没跑成不该把它说成失败
     async refreshMineQuiet() {
       if (this.retryLock > 0) return
@@ -582,7 +576,7 @@ export default {
       return body
     },
     // ==================== 提交 ====================
-    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:271-273 同姿势）
+    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:305-308 同姿势，F-25/P-4 重测）
     async submit() {
       if (this.retryLock > 0) {
         this.showToast('操作过于频繁，请 ' + this.retryLock + 's 后再试')
@@ -725,13 +719,13 @@ export default {
       }
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
-    // ==================== 429 冷却（定时器与闸门照 verify.vue:561-574 同款；起锁秒数自 F-23 起由 retrySecondsOf 取值） ====================
+    // ==================== 429 冷却（定时器与闸门照 verify.vue:653-669 同款，F-25/P-4 重测；起锁秒数自 F-23 起由 retrySecondsOf 取值） ====================
     startRetryLock(err) {
       this.stopRetryLock()
       // F-23/FP-1：闸门秒数优先转述后端 429 信封的 data.retryAfterSeconds，取不到才回落本地 60
       // （原先硬锁 60 是把 10 次/分、回速约 6 秒的桶高估了 10 倍）；
       // 冷却结束再点仍可能吃一次 429，那一支会把常驻反馈行重新写上，反馈不会说谎
-      this.retryLock = retrySecondsOf(err)
+      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
@@ -743,7 +737,7 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 两道守卫缺一不可（照 verify.vue:580-606）：
+    // 两道守卫缺一不可（照 verify.vue:677-697，F-25/P-4 重测）：
     // ① 栈顶守卫：监听挂在 document 上，navigateTo 不触发上一页 onUnload，栈里多挂一份就会一次滚两倍
     // ② 表单控件与弹层放行：input/textarea 上的滚轮归控件，不能 preventDefault 抢走
     onPageWheel(e) {
@@ -837,7 +831,7 @@ export default {
 
 /* ==================== 4.2 提交卡 ==================== */
 .submit-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
-/* 常驻反馈四支：成功=主红底白字，失败=主红底，冷却=橙红（母版 verify.vue:644-649 同一档） */
+/* 常驻反馈四支：成功=主红底白字，失败=主红底，冷却=橙红（母版 verify.vue:740-745 同一档，F-25/P-4 重测） */
 .apply-feedback { font-size: 28rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
 .apply-feedback-ok { color: #FFFFFF; background-color: #E02020; }
 .apply-feedback-neutral { color: #666666; background-color: #F5F5F5; }

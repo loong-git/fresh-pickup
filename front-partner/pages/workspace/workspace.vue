@@ -58,7 +58,7 @@
         </view>
         <!-- 每次 onShow 重拉的成功时刻（门店资料改了、刚被绑定新店后回页即可见，验收时用它辨认刷新确实发生） -->
         <text v-if="refreshText" class="refresh-tip">资料刷新于 {{ refreshText }}</text>
-        <!-- 会话内已有列表快照时，重拉失败降级为卡底这一行，不把整页换成错误卡（母版 workspace.vue:49 同款） -->
+        <!-- 会话内已有列表快照时，重拉失败降级为卡底这一行，不把整页换成错误卡（母版 front-merchant/pages/workspace/workspace.vue:49 同款） -->
         <text v-if="refreshFailed && !retryLock" class="refresh-fail" @click="load(true)">资料刷新失败，点击重试</text>
         <text v-else-if="refreshFailed" class="refresh-fail refresh-fail-cooling">资料刷新失败，{{ retryLock }}s后可重试</text>
       </view>
@@ -109,7 +109,7 @@
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并 reLaunch 回登录页）；
 // 403 也不当登录失效（handleEnvelope 只 reject 不跳），本页把它归到 empty 态渲染引导内容。
 // 渲染不依赖 store：本页自持一份服务端最新值（母版同款纪律）。
-import { getPartnerStores, getPartnerStore } from '@/api/index.js'
+import { getPartnerStores, getPartnerStore, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue:99。模块级 const 表，
@@ -134,18 +134,12 @@ const STORE_STATUS_OPEN = 'open'
 // 远小于窗口），两个数不是一回事，别混成一个值。
 const RETRY_FALLBACK_SECONDS = 60
 
-// 已登记的一致性债：本页是 front-partner 内第 6 份同名私有实现（arrival/store/verify/apply/login 各一份），
-// 待另批与 arrival/store/verify/apply/login 一起收敛到 api 层。
-// 本批刻意不抽共享模块——那是重构，会牵动上面五页，与「补 workspace 这一处漏网」混在一起会让回归面失焦。
-// （商家端已收敛：front-merchant/api/index.js:221 导出 retrySecondsOf(err, fallbackSeconds) 两参版；
-//   主理人端 api/index.js 尚未导出同名函数，所以这里仍是页内私有的一参版，语义与 arrival.vue:148-152 逐字一致。）
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// 本页这私有的一参版是第 6 份、也是最后一份，已随 apply/arrival/login/store/verify 一起删除。
+// （商家端更早就收敛了：front-merchant/api/index.js 导出同名两参版 retrySecondsOf——两端形态现在一致。
+//   这里刻意不写商家端那一行的行号：F-25 路 2 正在改那个文件，任何指向它内部的 file:line 都会被同批加行打断。）
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 网络异常/信封不可解析时 data 为 null，走上面的本地回落。
-function retrySecondsOf(err) {
-  const data = (err && err.data) || null
-  const n = Number(data && data.retryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : RETRY_FALLBACK_SECONDS
-}
 
 export default {
   data() {
@@ -167,7 +161,8 @@ export default {
       refreshFailed: false,
       // 429 冷却剩余秒数（两条 GET 都是 USER 30 次/分，共用这一张冷却表；
       // 起锁秒数不再硬编码：转述后端 429 信封的 data.retryAfterSeconds，取不到才回落 RETRY_FALLBACK_SECONDS；
-      // 落点与写法照 dishes.vue:177-178（data）/ :385（errorCode===429 才起锁）/ :432（startRetryLock））
+      // 落点与写法照 dishes.vue:187-188（data）/ :417（errorCode===429 才起锁）/ :464（startRetryLock）。
+      // F-25/P-4：原指针 177-178/385/432 已被商家端加行打断，上面三个是按 dishes.vue 现况逐条重测的读数）
       retryLock: 0,
       retryLockTimer: null,
       // 四入口（静态列表放 data，与母版 entries 同款）：可点与否由 ENTRY_ROUTES[entry.key] 决定，
@@ -231,16 +226,18 @@ export default {
     refreshText() {
       return this.refreshAt ? this.formatClock(this.refreshAt) : ''
     },
-    // 错误态主文案（两层式照母版与 dishes.vue:218-223 的 errorLeadText 口径：主文案是人话，后端原文降为第二行小字）
+    // 错误态主文案（两层式照母版与 dishes.vue:228-233 的 errorLeadText 口径：主文案是人话，后端原文降为第二行小字）
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次；
-    // FF-6：上面原写 dishes.vue:209-214，F-23 位移 +7 后是 216-221，本批又在其上方加了 2 行注释 → 现值 218-223
+    // FF-6 + F-25/P-4：这条指针历史 209-214 → 216-221 → 218-223（每次都只隔着一两次加行），
+    // 现值按 dishes.vue 实况重测＝228-233（computed errorLeadText 本体 228、四支 return 229-232、收尾 233）
     errorLeadText() {
       if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       return '门店资料加载失败，请检查网络后重试'
     }
   },
   onShow() {
-    // 每次进入重拉（对齐母版 workspace.vue:160 的 onShow 惯例）：换绑门店、改了营业时间都能第一时间反映
+    // 每次进入重拉（对齐母版 front-merchant/pages/workspace/workspace.vue:163 的 onShow 惯例，F-25/P-4 重测）：
+    // 换绑门店、改了营业时间都能第一时间反映
     this.load()
   },
   // #ifdef H5
@@ -269,7 +266,7 @@ export default {
     // 静默的 onShow 重拉保持当前视图，成功再覆盖，失败只追加一行降级提示（不把整页换成错误卡）。
     async load(resetView) {
       // 并发守卫：重试/重新检查/刷新区/每次 onShow 都可能撞上，同一时刻只放行一个请求序列，
-      // 慢失败不能盖掉快成功（母版 workspace.vue:190 同款）
+      // 慢失败不能盖掉快成功（母版 front-merchant/pages/workspace/workspace.vue:191-193 同款，F-25/P-4 重测）
       if (this._loading) return
       // 冷却期内不重发：本页所有重试入口共用 retryLock 这一张表
       if (this.retryLock > 0) return
@@ -280,7 +277,8 @@ export default {
         const list = (res && Array.isArray(res.data)) ? res.data : []
         if (!list.length) {
           // 200 但空数组：后端归属集合为空时直接回 403，走不到这里；留这一道闸是为了
-          // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 workspace.vue:198 不放水同口径）
+          // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 front-merchant/pages/workspace/workspace.vue:201-202
+          // 的「不放水」同口径，F-25/P-4 重测）
           this.showEmpty('名下没有可用的自提点')
           return
         }
@@ -312,7 +310,7 @@ export default {
         // 首屏无快照才是整页错误态
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 才起冷却锁（照 dishes.vue:385 的判定：其余失败重试是有意义的，不该被秒数拦住）
+        // 只有 429 才起冷却锁（照 dishes.vue:417 的判定：其余失败重试是有意义的，不该被秒数拦住）
         // 把 catch 到的错误对象交给 startRetryLock：冷却秒数由它转述后端 429 信封的真值，本页不再猜 60
         if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
@@ -391,14 +389,14 @@ export default {
         }
       })
     },
-    // ==================== 429 冷却（照 dishes.vue:432 startRetryLock 的写法 + 本批母版 login.vue:282） ====================
-    // F-23.2：入参改为 catch 到的错误对象，起锁秒数由页内 retrySecondsOf 转述后端 429 信封的
-    // data.retryAfterSeconds，取不到才回落本地窗口长度（RETRY_FALLBACK_SECONDS）。
+    // ==================== 429 冷却（照 dishes.vue:464 startRetryLock 的写法 + 同端母版 login.vue:283） ====================
+    // F-23.2：入参改为 catch 到的错误对象，起锁秒数由 retrySecondsOf 转述后端 429 信封的
+    // data.retryAfterSeconds，取不到才回落本地窗口长度（RETRY_FALLBACK_SECONDS，F-25 路 1 起该函数在 api 层）。
     // 闸门语义一行没削弱：retryLock 仍是「冷却期内不重发」的唯一依据
     // （load() 首行的 retryLock > 0 早退 + 模板三处 !retryLock 判定均未动）。
     startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err)
+      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
