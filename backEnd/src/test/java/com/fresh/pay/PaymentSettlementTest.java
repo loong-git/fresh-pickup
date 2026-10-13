@@ -53,6 +53,8 @@ import static org.mockito.Mockito.when;
  * ③ 取货码 5 次全撞 DuplicateKeyException：抛「取货码生成失败，请稍后重试」（400，文案逐字），
  *    且邀请挂钩在其之前未执行——调用方事务回滚后不留「已支付无码」半态。
  * 另附 BE-6 两条重试续跑路径：撞唯一键后换码成功、码已被占用（count>0）先跳过再写。
+ * 另附 F-21.10（L-21-3）两条 payTime 精度归一：带纳秒入参截到整秒后回写、且截断**不进位**
+ * （{@code .999999999} 仍是 09:30:00）；「库值 == 响应值」不在单测可证范围内，由真库门禁实测。
  *
  * 取货码由 SecureRandom 现生成（D-4），断言一律不依赖具体码值：只用 captor 取「实际写进库的那个码」，
  * 再校验它 6 位数字且与回写进内存 order 的值相等。
@@ -235,5 +237,51 @@ class PaymentSettlementTest {
         verify(orderMapper, times(1)).attachPickupCode(eq(ORDER_ID), anyString());
         assertNotNull(returned.getPickupCode());
         verify(inviteService, times(1)).onOrderPaid(USER_ID);
+    }
+
+    // —— 附加（F-21.10 / L-21-3）：payTime 精度归一到整秒 ——
+
+    /**
+     * ① 带纳秒的入参被截到整秒后再回写内存 order：即时响应里不再出现 {@code 09:30:00.675} 这种小数秒。
+     * <p>
+     * 为什么必须有这条：{@code orders.pay_time} 是 {@code DATETIME(0)}，而 MySQL 对小数秒**四舍五入**
+     * （实测 {@code CAST('...11:28:47.675' AS DATETIME)} = {@code 48}），带纳秒的 {@code now()} 直接落库
+     * 就成了「响应说 47.675、库里存 48」——同一事实两个表示互相矛盾，还差整整 1 秒。
+     * 注：本条只证「归一 + 内存回写无纳秒」；「库值 == 响应值」要由真库门禁证（update stub 不解析
+     * LambdaUpdateWrapper 的 set 值，见 F-21.10 S-4）。
+     */
+    @Test
+    void payTimeNanosAreTruncatedToWholeSecond() {
+        stubUpdateRows(1);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        when(orderMapper.countByPickupCode(anyString())).thenReturn(0);
+        when(orderMapper.attachPickupCode(eq(ORDER_ID), anyString())).thenReturn(1);
+
+        Order order = unpaidOrder();
+        Order returned = settlement.settle(order, LocalDateTime.of(2026, 10, 13, 9, 30, 0, 675_000_000));
+
+        assertEquals(0, returned.getPayTime().getNano(), "回写内存/响应的 payTime 不该带小数秒（L-21-3）");
+        assertEquals(PAY_TIME, returned.getPayTime(), "09:30:00.675 归一后就是 09:30:00");
+    }
+
+    /**
+     * ② 恰好会进位的纳秒（{@code .999999999}）也只能归一到 {@code 09:30:00}，不得跳到 {@code 09:30:01}：
+     * 钉住实现是**截断**而不是「四舍五入/对齐」——将来有人把它改成 {@code plusNanos(500_000_000)} 之类的
+     * 写法会在 Java 侧多进一位（MySQL 那侧本来就还会再进一次），这条立刻变红。
+     */
+    @Test
+    void payTimeTruncationDoesNotRoundUp() {
+        stubUpdateRows(1);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of());
+        when(orderMapper.countByPickupCode(anyString())).thenReturn(0);
+        when(orderMapper.attachPickupCode(eq(ORDER_ID), anyString())).thenReturn(1);
+
+        Order order = unpaidOrder();
+        Order returned = settlement.settle(order, LocalDateTime.of(2026, 10, 13, 9, 30, 0, 999_999_999));
+
+        assertEquals(0, returned.getPayTime().getNano(), "归一后纳秒恒为 0");
+        assertEquals(30, returned.getPayTime().getMinute(), "分钟不受小数秒扰动");
+        assertEquals(0, returned.getPayTime().getSecond(), "截断不是四舍五入：.999999999 不得进位成 09:30:01");
+        assertEquals(PAY_TIME, returned.getPayTime());
     }
 }
