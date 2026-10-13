@@ -184,7 +184,9 @@ function rejectUnauthorized(reject) {
  * - code 403（已登录但 role!=merchant，或 merchantId 为 NULL）→ 只结构化 reject，
  *   并把后端 message 原样透出给页面渲染「暂无商家权限」引导态；
  *   绝不在此踢回登录页——那是权限问题而非登录失效，当 401 处理会让用户陷在登录死循环里
- * - 其余（400/404/500/网络异常）→ reject({code,message})，调用方须 toast，全站无静默分支
+ * - 其余（400/404/429/500/网络异常）→ reject({code,message,data})，调用方须 toast，全站无静默分支；
+ *   data 是后端信封的原样透传（信封里没有 data 或不可解析时为 null），
+ *   429 的 {retryAfterSeconds} 与 F-22 下发的其余载荷都从这里出，页面按 retrySecondsOf 取用
  */
 function handleEnvelope(res, resolve, reject) {
   const body = (res && res.data && typeof res.data === 'object') ? res.data : null
@@ -195,7 +197,7 @@ function handleEnvelope(res, resolve, reject) {
     return
   }
   if (code === 403) {
-    reject({ code: 403, message: message || MSG_FORBIDDEN })
+    reject({ code: 403, message: message || MSG_FORBIDDEN, data: (body && body.data !== undefined) ? body.data : null })
     return
   }
   if (res && res.statusCode === 200 && body && code === 200) {
@@ -204,8 +206,22 @@ function handleEnvelope(res, resolve, reject) {
   }
   reject({
     code: code || -1,
-    message: message || '服务开小差了，请稍后重试'
+    message: message || '服务开小差了，请稍后重试',
+    data: (body && body.data !== undefined) ? body.data : null
   })
+}
+
+/**
+ * 429 冷却闸门的秒数取值（唯一实现处，页面 import 使用，不在各页复制私有版本）：
+ * 优先转述后端 data.retryAfterSeconds（F-22 起 RateLimitInterceptor 在 429 的 data 里下发），
+ * 有限正数才 Math.ceil；拿不到 data（网络异常/信封不可解析）或值不合法时回落到调用方给的 fallbackSeconds。
+ * fallbackSeconds 的口径＝该端点 @RateLimit 的 windowSeconds（整个窗口），它是后端不给时的保守上限，
+ * 不是回速（30 次/分 档的回速实测只有 2 秒）——两个数不是一回事，页内常量别混用。
+ */
+export function retrySecondsOf(err, fallbackSeconds) {
+  const data = (err && err.data) || null
+  const n = Number(data && data.retryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : fallbackSeconds
 }
 
 /**

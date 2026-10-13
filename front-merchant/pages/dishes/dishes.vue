@@ -129,8 +129,15 @@
 // 数据加载纪律照 workspace.vue：onShow 每次重拉（编辑页改完回页即反映最新值），带 in-flight 守卫防连点。
 // 401 由 api 层统一清态回登录页（并 toast 告知原因），本页不再处理跳转；403 透 message 不清 token（handleEnvelope 语义），
 // 本页对 403/404 这类确定性失败给「回工作台」出口而非重试。
-import { getMerchantDishes, getDishCategories, getMerchantMe, merchantFileUrl, merchantStatusText } from '@/api/index.js'
+import { getMerchantDishes, getDishCategories, getMerchantMe, merchantFileUrl, merchantStatusText, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
+
+// 429 冷却秒数的回落档：本端点（GET /api/merchant/dishes）限流窗口是 60 秒
+// （MerchantDishController:43 USER 30 次 / 60 秒），故回落取 60。
+// 起锁值优先转述后端 429 data 里的 retryAfterSeconds（F-22 下发、F-23 起请求层 reject 带 data），
+// 取不到才回落到本常量。回落值取整个窗口，因为它是「后端不给数时唯一确定的保守上限」；
+// 回速（30 次/分实测只有 2 秒）是桶回充一格的间隔，不代表重试一定不挨 429 —— 两个数不是一回事，别混用。
+const RETRY_COOLING_SECONDS = 60
 
 export default {
   data() {
@@ -375,7 +382,7 @@ export default {
         this.errorCode = Number((e && e.code) || 0)
         // 429（USER 30 次/分）：重试按钮给秒级冷却，冷却期内点不动 —— 否则用户每点一次都在续这个限流桶，
         // 列表↔编辑来回几次就把后面 1 分钟的全部分额度花光
-        if (this.errorCode === 429) this.startRetryLock()
+        if (this.errorCode === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
       } finally {
@@ -422,9 +429,9 @@ export default {
       this.loadDishes(true)
     },
     // ==================== 429 冷却（照 login.vue:227-236 loginLock 的秒级禁用范式） ====================
-    startRetryLock() {
+    startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = 60
+      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
       this.retryLockTimer = setInterval(() => {
         this.retryLock--
         if (this.retryLock <= 0) this.stopRetryLock()
