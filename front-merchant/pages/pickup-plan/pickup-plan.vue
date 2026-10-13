@@ -148,8 +148,9 @@ export default {
         })
         .join('\n')
     },
+    // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次
     errorLeadText() {
-      if (this.errorCode === 429) return '点得太快了，请 60 秒后再刷新'
+      if (this.errorCode === 429) return '点得太快了，稍后再刷新'
       if (this.errorCode === 403) return '暂无权限查看备货单，请回工作台确认账号状态'
       // 列表端点的 404 只有「后端还没更新/路径不通」这一种解释（本页不按 id 取单行），
       // 服务起来后重试就能成，故不照 dishes.vue 那样把 404 归入「重试无望」

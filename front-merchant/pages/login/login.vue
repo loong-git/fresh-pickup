@@ -112,8 +112,16 @@
 // 不在本期商家端接口清单内，不引）、redirect 回跳（G-02 起本端已有四页 login·workspace·dishes·dish-edit，但登录成功的唯一去处仍是 reLaunch 工作台、编辑页只由列表页带 ?id= 进入，没有「登录后回来源页」要还原，故仍无回跳语义）。
 // 本页的核心改造是「登录成功 ≠ 进工作台」：拿到 token 后必须先 GET /api/merchant/me 判角色，
 // 200/403/401 三分支各走各的（§3.2），而 403 与 401 的可区分性由 api 层 handleEnvelope 保证。
-import { sendCode, login, loginPassword, getMerchantMe } from '@/api/index.js'
+import { sendCode, login, loginPassword, getMerchantMe, retrySecondsOf } from '@/api/index.js'
 import '@/styles/common.css'
+
+// F-23-fix/FF-5：登录按钮冷却的回落秒数。口径按 api 层 retrySecondsOf(err, fallbackSeconds) 的约定——
+// 回落值取该端点 @RateLimit 的 windowSeconds（POST /api/auth/login 与 /login-password 都是
+// IP 维度 5 次 / 60 秒，AuthController.java:45/:53），它是「后端不给数时唯一确定的保守上限」而非回速。
+// 本行不复制页内私有实现：front-merchant/api/index.js:221 是本端唯一实现处（:215 明文
+// 「页面 import 使用，不在各页复制私有版本」，dashboard/dishes/marketing/pickup-plan/plan-orders 五页同此），
+// 故商家端不存在（也不新增）partners 侧那种私有副本一致性债。
+const LOGIN_LOCK_SECONDS = 60
 
 export default {
   data() {
@@ -222,10 +230,12 @@ export default {
       this.smsCountdown = 0
       this.smsCooldownPhone = ''
     },
-    // 登录按钮 60s 冷却：与验证码倒计时分表计时（一个跟手机号/IP 的发码限流走，一个跟登录接口的 IP 限流走）
-    startLoginLock() {
+    // 登录按钮冷却：与验证码倒计时分表计时（一个跟手机号/IP 的发码限流走，一个跟登录接口的 IP 限流走）
+    // F-23-fix/FF-5：秒数不再裸写 60，改由 retrySecondsOf(err, LOGIN_LOCK_SECONDS) 转述后端
+    // 429 data.retryAfterSeconds，取不到才回落 60；闸门判定 loginLock > 0 未动
+    startLoginLock(err) {
       this.stopLoginLock()
-      this.loginLock = 60
+      this.loginLock = retrySecondsOf(err, LOGIN_LOCK_SECONDS)
       this.loginLockTimer = setInterval(() => {
         this.loginLock--
         if (this.loginLock <= 0) this.stopLoginLock()
@@ -253,8 +263,9 @@ export default {
         this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429：后端 IP 维度 5 次/分（AuthController.java:45），toast 透出的即是「操作过于频繁，请稍后再试」人话原文，
-        // 前端同步锁定登录按钮 60s，避免连点继续撞限流窗；非 429 分支行为不变
-        if (e && e.code === 429) this.startLoginLock()
+        // 前端同步锁定登录按钮（F-23-fix/FF-5：秒数转述后端真值，e 必须透传给 startLoginLock），
+        // 避免连点继续撞限流窗；非 429 分支行为不变
+        if (e && e.code === 429) this.startLoginLock(e)
       }
     },
     // 密码登录：POST /api/auth/login-password（未设密码时后端 code:400 且 message 人话透出，直接 toast）
@@ -275,7 +286,8 @@ export default {
         this.pwdLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429 同验证码通道：IP 维度限流不分登录方式，锁定的是两个 tab 共用的登录按钮
-        if (e && e.code === 429) this.startLoginLock()
+        // F-23-fix/FF-5：这里也要把 e 透传下去，否则 startLoginLock 收到 undefined、只能回落 60
+        if (e && e.code === 429) this.startLoginLock(e)
       }
     },
     // ==================== 拿到 token 后的角色判定（§3.2 三分支唯一落点） ====================

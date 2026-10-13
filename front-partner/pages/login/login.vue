@@ -179,7 +179,9 @@ export default {
       forbiddenMessage: '',
       // 「重新检查」的 429 冷却剩余秒数（GET /api/partner/stores 是 USER 30 次/分，RateLimit 默认 KeyType.USER）
       // 与 loginLock 分表计时：一个跟登录接口的 IP 维度限流走（与账号无关），一个跟身份判定的用户维度限流走
-      // （换账号就换桶）——合并成一个会把两件事的冷却互相污染。落点与写法照 dishes.vue:170-171/378/425。
+      // （换账号就换桶）——合并成一个会把两件事的冷却互相污染。落点与写法照 dishes.vue:177-178/392/439。
+      // F-23-fix/FF-6：原指针 170-171/378/425 已被 F-23(+7) 与本批 dishes.vue(+2/+5) 两次位移打断——
+      // 按旧读数去看现命中 viewState 声明(170-171)、成功清码 errorCode=0(378)、onCategoryChange(425)，全不是本行所指
       retryLock: 0,
       retryLockTimer: null
     }
@@ -264,10 +266,14 @@ export default {
       this.smsCountdown = 0
       this.smsCooldownPhone = ''
     },
-    // 登录按钮 60s 冷却：与验证码倒计时分表计时（一个跟手机号/IP 的发码限流走，一个跟登录接口的 IP 限流走）
-    startLoginLock() {
+    // 登录按钮冷却：与验证码倒计时分表计时（一个跟手机号/IP 的发码限流走，一个跟登录接口的 IP 限流走）
+    // F-23-fix/FF-5：秒数不再裸写 60，改由 retrySecondsOf(err) 转述后端 data.retryAfterSeconds
+    // （POST /api/auth/login 与 /login-password 同档 @RateLimit(IP, limit=5, windowSeconds=60)，
+    // AuthController.java:45/:53），取不到真值才回落页内 RETRY_FALLBACK_SECONDS=60。
+    // 入参 err 由两个 429 分支透传，闸门判定仍是 loginLock > 0（未动）。
+    startLoginLock(err) {
       this.stopLoginLock()
-      this.loginLock = 60
+      this.loginLock = retrySecondsOf(err)
       this.loginLockTimer = setInterval(() => {
         this.loginLock--
         if (this.loginLock <= 0) this.stopLoginLock()
@@ -277,7 +283,7 @@ export default {
       if (this.loginLockTimer) { clearInterval(this.loginLockTimer); this.loginLockTimer = null }
       this.loginLock = 0
     },
-    // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue:425 startRetryLock 命名）
+    // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue:439 startRetryLock 命名）
     // F-23/FP-1：入参改为 catch 到的错误对象，起锁秒数由 retrySecondsOf 转述后端真值，取不到才回落本地 60
     startRetryLock(err) {
       this.stopRetryLock()
@@ -309,8 +315,9 @@ export default {
         this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429：后端 IP 维度 5 次/分（AuthController.java:45），toast 透出的即是「操作过于频繁，请稍后再试」人话原文，
-        // 前端同步锁定登录按钮 60s，避免连点继续撞限流窗；非 429 分支行为不变
-        if (e && e.code === 429) this.startLoginLock()
+        // 前端同步锁定登录按钮（F-23-fix/FF-5：秒数转述后端真值，e 必须透传给 startLoginLock），
+        // 避免连点继续撞限流窗；非 429 分支行为不变
+        if (e && e.code === 429) this.startLoginLock(e)
       }
     },
     // 密码登录：POST /api/auth/login-password（未设密码时后端 code:400 且 message 人话透出，直接 toast）
@@ -331,7 +338,8 @@ export default {
         this.pwdLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429 同验证码通道：IP 维度限流不分登录方式，锁定的是两个 tab 共用的登录按钮
-        if (e && e.code === 429) this.startLoginLock()
+        // F-23-fix/FF-5：这里也要把 e 透传下去，否则 startLoginLock 收到 undefined、只能回落 60
+        if (e && e.code === 429) this.startLoginLock(e)
       }
     },
     // ==================== 拿到 token 后落 store，再交唯一判定处 ====================
@@ -375,9 +383,13 @@ export default {
           return
         }
         if (code === 429) {
-          // 「点得太快了」文案与商家端 dishes.vue:210 同串（不另写一份），并起秒级冷却
-          this.showToast('点得太快了，请 60 秒后再刷新')
+          // F-23-fix/FF-2：起锁必须先于 toast——startRetryLock 把后端真值写进 this.retryLock，
+          // 顺序反过来 toast 读到的还是 0（「请 0 秒后再刷新」）。本页没有常驻闸门行，
+          // 所以时长只在这条一次性 toast 里出现，同屏不会再有第二个数。
+          // F-23-fix/FF-4：原注释称「与商家端 dishes.vue:210 同串（不另写一份）」——FF-1 已把商家端
+          // 那句的数字摘掉（现 dishes.vue:219），两处不再同串，按实况订正而非留一个假指针。
           this.startRetryLock(e)
+          this.showToast('点得太快了，请 ' + this.retryLock + ' 秒后再刷新')
           return
         }
         this.showToast((e && e.message) || '网络异常')
