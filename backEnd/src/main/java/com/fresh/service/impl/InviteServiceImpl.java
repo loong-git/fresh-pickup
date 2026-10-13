@@ -329,7 +329,9 @@ public class InviteServiceImpl implements InviteService {
      * UPDATE cash_flow SET status=1 WHERE invitee_id=? AND type=1 AND status=0 条件置位防并发重复入账
      * （uk_invitee 下每个新人至多一条冻结流水，rows∈{0,1}，rows!=1 直接返回，范式同 invite_relation 0→1 置位）；
      * rows==1 → UPDATE user SET balance=balance+5（UserMapper#addBalance 原子累加）。
-     * 事务边界：随 MockPayService#payResult 支付事务（REQUIRED）执行，本方法不单开事务。
+     * 事务边界：随调用方的支付事务（REQUIRED）执行，本方法不单开事务——挂钩点现为
+     * PaymentSettlement#settle（F-21.3 Step 1 起），其事务入口 mock 链路是 MockPayService#payResult、
+     * 免费领 0 元单是 FreeServiceImpl#claim（F-21.5 Step 2a 起直调 settle）。
      */
     private void creditFrozenCash(Long inviterId, Long inviteeId) {
         int rows = cashFlowMapper.update(null, new LambdaUpdateWrapper<CashFlow>()

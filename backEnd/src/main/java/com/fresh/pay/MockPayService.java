@@ -28,7 +28,7 @@ import java.time.LocalDateTime;
  * - 装配条件（F-21.3/D-21-2）：{@code @ConditionalOnProperty(pay.provider, havingValue="mock", matchIfMissing=true)}。
  *   dev 显式写了 {@code pay.provider: mock}、prod yml 里没有这个键（只有 {@code pay.mock-enabled: false}），
  *   两种形态都命中本条件（后者走 matchIfMissing）→ 装配结果与加注解前逐字相同；一旦设成 {@code pay.provider=wx}，
- *   本 Bean 自动让位给 WxPayService，PayController/FreeServiceImpl 按 PayService 类型注入的歧义随之消失；
+ *   本 Bean 自动让位给 WxPayService，按 PayService 类型注入的只剩 PayController:25 一处，歧义随之消失（FreeServiceImpl 自 F-21.5 Step 2a 起直依赖 PaymentSettlement，不再按该类型注入）；
  * - prod 环境对外表现：仍由 {@code pay.mock-enabled=false} 在 PayController 层把 /api/pay/{orderId}/mock-pay
  *   打成 404「资源不存在」——本 Bean 在 prod 照样装配（不再按 profile 装配），关闭只发生在端点层，这一点与从前一致。
  */

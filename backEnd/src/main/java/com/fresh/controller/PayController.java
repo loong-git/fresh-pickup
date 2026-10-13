@@ -67,7 +67,7 @@ public class PayController {
         //     associated_data=resource.associated_data）解出订单结果 JSON（out_trade_no/amount.total/trade_state）；
         //  3) 比对订单金额：out_trade_no 与 path 的 orderId 一致、amount.total（分）与服务端订单
         //     total_price×100 一致、trade_state=SUCCESS，三者全满足才置 pay_status=1 + pay_time
-        //     （复用 MockPayService 的条件更新 pay_status=0→1 思路保证幂等与并发安全）；
+        //     （复用 PaymentSettlement#settle 的条件更新 pay_status=0→1 思路保证幂等与并发安全）；
         //  4) 处理成功按官方要求返回 {"code":"SUCCESS"}（当前统一信封 R 为骨架期占位形态，
         //     接入真实支付时本端点返回值需改为官方应答结构）。
         // 骨架期占位返回：验签未实现，不区分已配置与否一律同文案（需求 A 约定）

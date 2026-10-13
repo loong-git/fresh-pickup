@@ -33,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class MerchantFulfillServiceImpl implements MerchantFulfillService {
 
-    /** 404 文案复用 MockPayService:56 那条「订单不存在」（明细行也归在「订单不存在」口径下，不新增句子、不泄漏他人行） */
+    /** 404 文案复用 MockPayService:49 那条「订单不存在」（明细行也归在「订单不存在」口径下，不新增句子、不泄漏他人行） */
     private static final String NOT_FOUND_MSG = "订单不存在";
 
     /** fulfill_status 旁路列取值（建列见 m17-migration.sql:70-81、init.sql:140）：normal/shortage，一期唯一写入方就是本类 */
