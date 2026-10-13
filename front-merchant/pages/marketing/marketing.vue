@@ -241,7 +241,7 @@ export default {
     }
     // #endif
     // 冷却计时器随页销毁一起清：setInterval 挂在 window 上，不摘就会在页面卸载后
-    // 继续每秒写一次已死组件的状态（与 startRetryLock 成对，照 pickup-plan.vue:169-179）
+    // 继续每秒写一次已死组件的状态（与 startRetryLock 成对，姿势照 pickup-plan.vue 的 onUnload 收尾）
     this.stopRetryLock()
   },
   methods: {

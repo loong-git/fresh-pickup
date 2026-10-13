@@ -790,7 +790,7 @@ export default {
 .locked-card { display: flex; flex-direction: column; gap: 8rpx; background-color: #F7F7F7; }
 .locked-text { font-size: 24rpx; color: #666666; line-height: 1.6; }
 
-/* ==================== 4.1 表单行（形状取自母版 dish-edit.vue:845-884，类名换 ap- 前缀） ==================== */
+/* ==================== 4.1 表单行（形状取自母版 dish-edit.vue 的「2. 表单行」样式段，类名换 ap- 前缀） ==================== */
 .form-card { margin-top: 24rpx; padding: 8rpx 24rpx 24rpx; display: flex; flex-direction: column; }
 .block-title { font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1.4; }
 .form-lead { font-size: 22rpx; color: #E02020; line-height: 1.5; }

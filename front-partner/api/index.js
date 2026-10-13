@@ -374,7 +374,7 @@ const PARTNER_STORE_EDITABLE_FIELDS = ['openTime', 'closeTime', 'dailyCapacity',
 /**
  * 门店维护：PUT /api/partner/store?storeId=（F-18.12 第 5 条，写 10/分，部分更新语义）
  * storeId 走查询参数下发：后端 D-22 的优先级是「?storeId= 优先，其次 body 里的 storeId」
- * （PartnerStoreServiceImpl.java:119-121），只留一处传法可避免「两处给了不同店」的二义性写入。
+ * （PartnerStoreServiceImpl#updateStore 里 D-22 那行选择器取值），只留一处传法可避免「两处给了不同店」的二义性写入。
  * body 只发白名单七项，其余键不下发；accepting 用 1/0 不用 boolean（列为 TINYINT，与后端 DTO 同口径）。
  * @param {{storeId?:string|number, openTime?:string, closeTime?:string, dailyCapacity?:number,
  *          accepting?:number, contactPhone?:string, service?:string, photos?:string[]}} fields

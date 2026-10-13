@@ -332,7 +332,7 @@ export default {
     goWorkspace() {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
-    // ==================== 429 冷却（照 dishes.vue:425-436，同 login.vue 的 loginLock 秒级禁用范式） ====================
+    // ==================== 429 冷却（照 dishes.vue 的「429 冷却」一节，同 login.vue 的 loginLock 秒级禁用范式） ====================
     startRetryLock(err) {
       this.stopRetryLock()
       this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)

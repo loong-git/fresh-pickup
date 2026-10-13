@@ -118,7 +118,7 @@ import '@/styles/common.css'
 // F-23-fix/FF-5：登录按钮冷却的回落秒数。口径按 api 层 retrySecondsOf(err, fallbackSeconds) 的约定——
 // 回落值取该端点 @RateLimit 的 windowSeconds（POST /api/auth/login 与 /login-password 都是
 // IP 维度 5 次 / 60 秒，AuthController.java:45/:53），它是「后端不给数时唯一确定的保守上限」而非回速。
-// 本行不复制页内私有实现：front-merchant/api/index.js:221 是本端唯一实现处（:215 明文
+// 本行不复制页内私有实现：front-merchant/api/index.js 导出的 retrySecondsOf 是本端唯一实现处（同文件 :215 明文
 // 「页面 import 使用，不在各页复制私有版本」，dashboard/dishes/marketing/pickup-plan/plan-orders 五页同此），
 // 故商家端不存在（也不新增）partners 侧那种私有副本一致性债。
 const LOGIN_LOCK_SECONDS = 60
