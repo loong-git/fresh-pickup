@@ -21,7 +21,7 @@ import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
 import com.fresh.mapper.UserMapper;
-import com.fresh.pay.PayService;
+import com.fresh.pay.PaymentSettlement;
 import com.fresh.service.FreeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,7 +44,15 @@ import java.util.stream.Collectors;
  * 免费领商品服务实现（M7 方案 A：每日 0 元限量领，复用订单链路生成 0 元单并自动支付；
  * M8 满额赠：候选池自选商品；M9 起满额门槛按 items=当前购物车内容以 dish 表价格重算合计判定）。
  * 新链路对存量下单零侵入：不走 createOrder 计价分支（免费商品按 dish.price 会计出原价），
- * 自建精简建单，仅复用 Mapper 原语（decreaseStock 原子扣减/条件更新）与 payResult 支付闭环。
+ * 自建精简建单，仅复用 Mapper 原语（decreaseStock 原子扣减/条件更新）与 {@link PaymentSettlement#settle} 结算接缝。
+ * 结算接缝直调（F-21.5 Step 2a）：0 元单没有「支付渠道」概念，故本类不依赖 {@code PayService}——
+ * {@code pay.provider=wx} 时免费领照样走同一处入账，不会落到未配置的渠道实现。
+ * 置态前回读一次订单行（{@code orderMapper.selectById}），与 Step 2a 之前 {@code MockPayService#payResult}
+ * 内部那次回读同数同值：SELECT 条数不变、响应字段（totalPrice 的 0.00 标度、createTime/updateTime 的秒级精度）逐字不变。
+ * payResult 的三条前置校验（非本人 404 / 已支付早退 / 已取消拒）在本链路恒不命中——订单行是本事务刚 INSERT 的，
+ * user_id 取自 token、pay_status 刚写 0、status 刚写 pending_pickup，入参里没有用户可控的订单号，
+ * 故不再重复；真正的并发/重入幂等由 settle 的条件 UPDATE（pay_status=0 才生效）与 claim 开头的
+ * client_request_id 去重共同兜住。
  * 0 元单生命周期自洽：closeTimeoutOrders 只扫 pay_status=0（自动支付后不会被误杀）；
  * 取消已支付 0 元单走既有退款语义（pay_status 1→2 + 回退销量），但 free_claim 资格不恢复——
  * 封死"领取→取消→再领"刷单循环。
@@ -73,7 +81,7 @@ public class FreeServiceImpl implements FreeService {
     @Autowired
     private UserMapper userMapper;
     @Autowired
-    private PayService payService;
+    private PaymentSettlement settlement;
 
     @Override
     public Map<String, Object> current(Long userId) {
@@ -236,9 +244,9 @@ public class FreeServiceImpl implements FreeService {
             throw new BizException("「" + dish.getName() + "」库存不足");
         }
 
-        // 0 元支付闭环：复用 MockPayService 条件更新 pay_status 0→1 + pay_time + 按明细累加销量
-        // （幂等可重入）；自动支付后 pay_status=1，超时关单只扫 pay_status=0 不会误杀
-        Order paid = payService.payResult(order.getId(), userId);
+        // 0 元支付闭环：直接调 PaymentSettlement#settle（条件更新 pay_status 0→1 + pay_time + 按明细累加销量 + 取货码 +
+        // 邀请挂钩，幂等可重入），不再经 PayService 渠道接口——0 元单没有「支付渠道」概念，不该随 pay.provider 漂到 WxPayService。
+        Order paid = settlement.settle(orderMapper.selectById(order.getId()), LocalDateTime.now());
         paid.setItems(List.of(item));
         log.info("0元领取成功: userId={}, orderId={}, dishId={}, claimDate={}", userId, orderId, dish.getId(), today);
         return paid;
