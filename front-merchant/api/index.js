@@ -213,8 +213,13 @@ function handleEnvelope(res, resolve, reject) {
 
 /**
  * 429 冷却闸门的秒数取值（唯一实现处，页面 import 使用，不在各页复制私有版本）：
- * 优先转述后端 data.retryAfterSeconds（F-22 起 RateLimitInterceptor 在 429 的 data 里下发），
- * 有限正数才 Math.ceil；拿不到 data（网络异常/信封不可解析）或值不合法时回落到调用方给的 fallbackSeconds。
+ * 优先转述后端 data.retryAfterSeconds（F-22 起 RateLimitInterceptor 在 429 的 data 里下发）——
+ * 该值是有限正数才 Math.ceil；拿不到 data（网络异常/信封不可解析）或值不合法时回落到调用方给的 fallbackSeconds。
+ * 回落走的是**数值形态** Number(fallbackSeconds) 而不是入参本身（X-13，与 front-partner/api/index.js
+ * 的 retrySecondsOf 末行 `return fb` 等形）：末行原先 `return fallbackSeconds` 把调用方的原样吐回去，
+ * 第二参一旦是 '60' 这种字符串，本函数就返回字符串——三个返回点的形态不再一致，而消费侧
+ * 全按数字用它：`retryLock--` 自减、`v-if="!retryLock"` 真假判定、`{{ retryLock }}s` 渲染都要过隐式转换。
+ * 今天七个调用点传的都是数字常量 60，`f` 与 `fallbackSeconds` 同值，改动对它们是逐 case 等价。
  * fallbackSeconds 的口径＝该端点 @RateLimit 的 windowSeconds（整个窗口），它是后端不给时的保守上限，
  * 不是回速（30 次/分 档的回速实测只有 2 秒）——两个数不是一回事，页内常量别混用。
  *
@@ -222,8 +227,8 @@ function handleEnvelope(res, resolve, reject) {
  * undefined → 页面 `this.retryLock = undefined` → 所有 `retryLock > 0` 判定恒假 → **闸门敞开不拦**；
  * 更阴的是模板 `!retryLock` 此时为真，冷却整行被藏掉，用户看不到任何异常、控制台也没有声音。
  * 现在非有限正数一律回硬保守值 RETRY_GATE_MIN_SECONDS 并 console.warn 留痕——闸门宁可多关一会儿，
- * 也不能因为一行拷贝就把「等待」这件事整个取消。六个调用点（dashboard/dishes/marketing/pickup-plan/
- * plan-orders/login）都显式传了 60，改动对它们是逐字等价的。
+ * 也不能因为一行拷贝就把「等待」这件事整个取消。七个调用点（dashboard/dishes/marketing/pickup-plan/
+ * plan-orders/login/dish-edit 的保存闸门）都显式传了数字常量 60，改动对它们是逐字等价的。
  *
  * data.retryAfterSeconds 全仓有三个产出点、两种语义，本函数只取数值不认语义，三处都能喂进来但含义不同：
  * - backEnd/src/main/java/com/fresh/interceptor/RateLimitInterceptor.java:79 —— 桶的回速
@@ -240,7 +245,10 @@ function handleEnvelope(res, resolve, reject) {
  * 拿本函数替文案：后端没给读数时把猜出来的 60 当事实念给用户，撞上 admin 那条 401 时更会把
  * 600 秒的锁定剩余时长当成「保守上限」报出去。所以两边各留各的回落纪律，不许合并。
  */
-// 第二参不合法时的硬保守值：全仓 @RateLimit 的 windowSeconds 实测只有 60 一档，兜到它＝按最长那档起闸
+// 第二参不合法时的硬保守值：全仓 @RateLimit 的 windowSeconds 最长就是 60 秒这一档（48 处挂载点里 47 处为 60，
+// 见 MerchantDishController / OrderController / DictController 等），另有 1 处 10 秒——
+// ReviewController.java:46 的评价提交（limit = 1, windowSeconds = 10），没有比 60 更长的档。
+// 兜到 60 ＝按全仓最长档起闸，是最保守的那个值（原注「实测只有 60 一档」事实错，F-28.1/X-11 订正；结论不变）
 const RETRY_GATE_MIN_SECONDS = 60
 
 export function retrySecondsOf(err, fallbackSeconds) {
@@ -252,7 +260,9 @@ export function retrySecondsOf(err, fallbackSeconds) {
     console.warn('[api] retrySecondsOf: 调用方漏传了该页档位的窗口长度（fallbackSeconds=' + String(fallbackSeconds) + '），已按保守值 ' + RETRY_GATE_MIN_SECONDS + ' 起闸')
     return RETRY_GATE_MIN_SECONDS
   }
-  return fallbackSeconds
+  // X-13：回已换算的 f，不是入参 fallbackSeconds 本身——与 front-partner/api/index.js 的 `return fb` 等形，
+  // 三个返回点从此恒为数字（调用方传 '60' 时不再把字符串喂给闸门与模板）
+  return f
 }
 
 /**
@@ -447,7 +457,12 @@ export function uploadMerchantImage(filePath) {
  * - 'rate-limited'：reject 且 code 429——是本页自己打太频繁撞的限流桶，不是上游故障，
  *   文案须引导「稍后再点重试」，否则会误导商家去查上游、并在用户对着错误文案反复点时把 IP 桶续满
  * - 'unreachable'：其余失败（网络异常/5xx/403）与「200 但空列表」
- * @returns {Promise<{code:number,data:Array<{word:string,definition:string,sortOrder:number}>,degraded?:boolean,degradedReason?:'rate-limited'|'unreachable'}>}
+ * degradedRetryAfterSeconds（同为契约字段名，列表页与编辑页消费侧同名，不可改名）：
+ * 429 降级支恒带这一键，值是后端 data.retryAfterSeconds 的原样转述（RateLimitInterceptor.java:79，
+ * 桶的回速而非窗口）；后端没给读数就是 null，刻意不填默认值——编一个数出去下游就再也分不出
+ * 「后端说的」与「我们猜的」。'unreachable' 两支里「200 但空列表」不带这一键（undefined），
+ * 消费侧一律按 Number.isFinite && > 0 判定后才用它起闸门 / 印秒数。
+ * @returns {Promise<{code:number,data:Array<{word:string,definition:string,sortOrder:number}>,degraded?:boolean,degradedReason?:'rate-limited'|'unreachable',degradedRetryAfterSeconds?:number|null}>}
  */
 const DISH_CATEGORY_FALLBACK = [
   { word: '肉蛋水产', definition: 'code:meat', sortOrder: 110 },

@@ -140,11 +140,15 @@
              （实测红条在长表单里 top=-1405 完全不在视口内，等于零反馈）。改法=视觉禁用 + 可点 + save() 首行 toast 指路 -->
         <button
           class="btn-main"
-          :class="{ 'btn-disabled': saving || writeBlocked || leaving }"
+          :class="{ 'btn-disabled': saving || writeBlocked || leaving || retryLock > 0 }"
           :disabled="saving || leaving"
           @click="save()"
         ><text>{{ saveText }}</text></button>
         <text v-if="writeBlocked" class="field-hint">当前账号不可保存商品（见顶部提示）</text>
+        <!-- 保存结果的常驻反馈行（X-7）：429 冷却与 400/500/网络异常都落这一行，不再只有一条 1.5s 的 toast
+             （toast 一闪而过就等于没反馈——母版 front-partner/pages/store/store.vue 的同名行，F-18.19 §2）。
+             秒数由 saveFeedbackText 从实时 retryLock 现取，这一屏这一把锁只在这一处出现一个数（X-5） -->
+        <text v-if="saveFeedback" class="field-hint save-feedback">{{ saveFeedbackText }}</text>
       </view>
     </template>
 
@@ -154,11 +158,13 @@
 
 <script>
 // 商品新增/编辑共用页（G-02 §F-13.4）：?id= 有值为编辑态，进页面拉详情回填；无 id 为新增。
-// 三条口径写在这里以免看代码时猜：
+// 四条口径写在这里以免看代码时猜：
 // ① 入库图片用上传出参的 path 键（/static/images/uploads/<名>），显示用 merchantFileUrl()——两者不能混，
 //    把后端映射地址写进 dish.image 会让 C 端显示不出来（决策①）；
 // ② 编辑态不提交 stock（后端见 stock 非 null 即 400 并指路增量端点，R7'），库存只走 +N/−N；
 // ③ 校验先给本地人话文案，最终以服务端 400 原文为准并原样 toast（口径唯一裁决权在后端）。
+// ④ 保存撞 429 = 常驻行 + 秒数 + 闸门三件套（X-7）：秒数只转述后端 data.retryAfterSeconds（api 层
+//    retrySecondsOf 取值），这把锁只管保存这一支——读侧（loadDish 重拉详情）不碰它（X-1 点名的病）。
 // 归属一律不传：六个端点的 merchant_id 由服务端 attribute 解析（R2/R3）。
 import {
   getMerchantDish,
@@ -170,7 +176,8 @@ import {
   getDishCategories,
   getMerchantMe,
   merchantStatusText,
-  merchantFileUrl
+  merchantFileUrl,
+  retrySecondsOf
 } from '@/api/index.js'
 import '@/styles/common.css'
 
@@ -183,11 +190,35 @@ const BACK_DELAY = 900
 // 不是回速：同一档配 Refill.greedy，实测回速 6 秒 —— 回落时这一闸门会多白拦 54 秒。
 const CATEGORY_RETRY_GAP_FALLBACK_MS = 60 * 1000
 
-// 降级出参 → 本次闸门毫秒数：只有 api 层真的从 429 的 data 里转述到值才用它，
-// 没有（null / 不可解析 / 非正数）就回落，中途不造任何「看起来像后端给的」的数
-function categoryRetryGapMs(res) {
+// 保存撞 429 时闸门的回落秒数（X-7）：本端点档位是 MerchantDishController 的 USER 10 次 / 60 秒
+// （POST / 与 PUT /{id} 两枚 @RateLimit 的 windowSeconds 都是 60），与上面那枚保守上限同档，
+// 故直接由它换算而来——本批红线是「任何情况下不许新增写死的时长字面量」，这里不再写第二个 60。
+// 这一页保存支的秒数来源只有两条：后端 data.retryAfterSeconds（经 api 层 retrySecondsOf 转述）
+// 与这枚窗口保守上限，页内不再有三个数。
+const SAVE_RETRY_GATE_FALLBACK_SECONDS = CATEGORY_RETRY_GAP_FALLBACK_MS / 1000
+
+// 429 那一句说法（X-7）：句式照 front-partner 写侧母版（store.vue / verify.vue / arrival.vue 各自的
+// coolingText），单位 s 与全站模板同制；文案族合并归片 5 的 X-8，这里不另立第三种说法。
+// 秒数只从入参出，入参只能是 retrySecondsOf 转述出来的那一枚——本页零推算、零写死。
+function coolingText(seconds) {
+  const n = Number(seconds)
+  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
+}
+
+// 降级出参 → 后端给的真值秒数（X-13 顺带登记项：把本页这份「读后端值否则回落」与 api 层
+// retrySecondsOf 的取值口径对齐——同样「有限正数才算数」、同样 Math.ceil 向上取整；单位换算留给下面）：
+// 没给 / 不可解析 / 非正数一律回 0，而 0 同时是 categoriesHint「不许印秒数」的判据
+// （与列表页 dishes.vue 的 catRetryBackendSeconds 同一职责：给了数就印进括号，没给就不印）
+function categoryBackendSeconds(res) {
   const n = Number(res && res.degradedRetryAfterSeconds)
-  return Number.isFinite(n) && n > 0 ? n * 1000 : CATEGORY_RETRY_GAP_FALLBACK_MS
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : 0
+}
+
+// 降级出参 → 本次闸门毫秒数：只有 api 层真的从 429 的 data 里转述到值才用它，
+// 没有（上面回 0）就回落，中途不造任何「看起来像后端给的」的数
+function categoryRetryGapMs(res) {
+  const n = categoryBackendSeconds(res)
+  return n > 0 ? n * 1000 : CATEGORY_RETRY_GAP_FALLBACK_MS
 }
 // 背景色合法形态（FEB-5）：C 端 detail.vue:28 把它绑到 background 简写（不是 background-color），
 // url(//a.co/x) 这类是「合法 CSS」——只在本地预览上兜底不够，脏值必须在下发前就拦掉。
@@ -230,6 +261,13 @@ export default {
       imgFail: false,
       uploading: false,
       saving: false,
+      // 保存撞 429 的闸门剩余秒数与驱动它的定时器（X-7）：改前这一支只有一条 duration:1500 的 toast，
+      // toast 一消失整页就回到「看起来能保存」的原样，而限流桶根本没回满——商家只会连着再点。
+      // 形状照写侧母版 front-partner/pages/store/store.vue 的同名两枚字段（onUnload 成对清）
+      retryLock: 0,
+      retryLockTimer: null,
+      // 保存结果的常驻反馈行：{tone:'err'|'cooling', text:string}；null = 本次会话还没点过保存
+      saveFeedback: null,
       categoryIndex: 0,
       categories: [],
       categoriesError: '',
@@ -237,6 +275,10 @@ export default {
       categoriesDegraded: false,
       // 退化原因（与列表页同一分流）：'rate-limited' 是 429（等一会再点），其余是上游不可达（不是商家的错）
       categoriesRateLimited: false,
+      // 本次类目闸门的秒数确实转述自后端 data.retryAfterSeconds 时的取值（0 = 不是后端给的）：
+      // categoriesHint 只在它 > 0 时才把数印进括号——闸门两种来源都要起，但「等待时长」这个读数
+      // 只能转述后端给的，不能把窗口长度 60 冒充成它（X-7 后半，与列表页 catRetryBackendSeconds 同口径）
+      categoryRetryBackendSeconds: 0,
       // 编辑态库存：currentStock 只信服务端返回值（详情出参 / 调整接口返回的真实库存），页内不做加减估算
       currentStock: null,
       stockDelta: '',
@@ -257,7 +299,17 @@ export default {
     categoriesHint() {
       if (this.categoriesDegraded) {
         // 429 与「上游不可达」是两种成因，给的话不一样：前者让商家等（稍后再点），后者不怪商家（内置分类照常用）
-        if (this.categoriesRateLimited) return '类目请求太频繁，稍后再点重试'
+        // X-7 后半：闸门既然按后端真值起，就要把那一个数印进括号（列表页 dishes.vue 的 categoriesHint 同口径）。
+        // 只在 categoryRetryBackendSeconds > 0（＝闸门时长确实转述自 data.retryAfterSeconds）时出数字，
+        // 回落态一个数都不出——那是窗口长度不是等待时长（F-24.0 裁定 B-1a）。
+        // 与列表页的差别只在形态：那一页印的是实时剩余秒数（catRetryLock 每秒自减），本页这枚闸门按 FB-3
+        // 保持时间戳形态，印的是「这一轮闸门多长」——同一枚后端真值、同一把锁，且剩余只会 ≤ 它，不多催一次点击。
+        // 本屏这一把锁只在这一处报数（X-5 判据），retryCategories 被拦时那句 toast 刻意不带数
+        if (this.categoriesRateLimited) {
+          return this.categoryRetryBackendSeconds > 0
+            ? '类目请求太频繁，稍后再点重试（' + this.categoryRetryBackendSeconds + 's）'
+            : '类目请求太频繁，稍后再点重试'
+        }
         return '类目字典暂不可用，当前为内置分类，点击重试'
       }
       return this.categoriesError ? '类目字典加载失败：' + this.categoriesError + '，点击重试' : ''
@@ -296,7 +348,19 @@ export default {
       if (this.saving) return '保存中…'
       // 停态时按钮文字自己就说清「不能保存」，不只在颜色上区分（灰按钮 + 只换颜色，商家会以为是网络卡）
       if (this.writeBlocked) return '当前账号不可保存'
+      // 429 冷却中把「为什么现在按下去不会发请求」写在按钮上（母版 store.vue 的 saveText 同形，X-7）
+      if (this.retryLock > 0) return '保存冷却中'
       return this.isEdit ? '保存修改' : '新增商品'
+    },
+    // 保存支的常驻反馈行文案（X-7）：cooling 一支的秒数只从实时 retryLock 这一处出——
+    // 存进带数字的整句会在冷却走完后仍挂着「请 60s 后再试」而按钮早已解禁（那就是 X-3 点名的病，
+    // 母版＝front-partner/pages/apply/apply.vue 的 cooling 支，此处照它存不带数字的整句）
+    saveFeedbackText() {
+      if (!this.saveFeedback) return ''
+      if (this.saveFeedback.tone === 'cooling') {
+        return this.retryLock > 0 ? coolingText(this.retryLock) : this.saveFeedback.text
+      }
+      return this.saveFeedback.text
     }
   },
   watch: {
@@ -343,8 +407,11 @@ export default {
       clearTimeout(this._backTimer)
       this._backTimer = null
     }
+    // 保存支 429 闸门（X-7）：setInterval 挂在 window 上，不摘就会在页面卸载后继续每秒写一次已死组件
+    this.stopRetryLock()
     // 类目重试冷却用的是时间戳（没有 setInterval 要清），这里只把残留值置空。
     // _categoryRetryGapMs（FB-3 的闸门时长）一并清：留脏值会让下一实例的点击侧起闸用到上一实例的数字
+    // （X-7 新加的 categoryRetryBackendSeconds 是响应式 data，随实例一起销毁，不必在这里清）
     this._categoryRetryAt = 0
     this._categoryRetryGapMs = 0
   },
@@ -376,6 +443,34 @@ export default {
         this.goBackToList()
       }, BACK_DELAY)
     },
+    // ==================== 保存支的常驻反馈与 429 闸门（X-7） ====================
+    // 为什么加在页面而不是 api 层：api 层 handleEnvelope 只做「结构化 reject」（401 才清态回登录页），
+    // 429 的处置在三端各页都是页面层的事——闸门要定时器与响应式字段（retryLock/saveFeedback），
+    // 常驻行要模板与类名，这些都不属于请求层；请求层唯一该管的是「把后端真值原样透出」（e.data 与
+    // degradedRetryAfterSeconds）并只留一份取值函数（retrySecondsOf），本片正是复用它而不是再造一份。
+    // 常驻反馈落一处（母版 front-partner/pages/store/store.vue 的 setFeedback）：行与 toast 同一串生成，
+    // 免得「toast 说失败、行说成功」的分裂。429 那一支不走这里，它要存不带数字的整句，见 save() 的 catch
+    setSaveFeedback(tone, text) {
+      this.saveFeedback = { tone, text }
+      this.showToast(text)
+    },
+    // 秒级自减闸门，形状照本页族内已有的列表页 dishes.vue 与写侧母版 store.vue（onUnload 成对清）
+    // 只由保存这一支起/停：读侧（loadDish 重拉详情）绝不碰这把锁——那正是 X-1 点名的病，
+    // 读一次失败把写侧的限流闸门清成 0，等于「等待」这件事整个被取消
+    startRetryLock(err) {
+      this.stopRetryLock()
+      // 秒数唯一出处＝api 层 retrySecondsOf 转述的后端 data.retryAfterSeconds；后端没给数才回落到第二参
+      //（那枚由窗口长度换算的保守上限 SAVE_RETRY_GATE_FALLBACK_SECONDS），页内不做任何加减推算
+      this.retryLock = retrySecondsOf(err, SAVE_RETRY_GATE_FALLBACK_SECONDS)
+      this.retryLockTimer = setInterval(() => {
+        this.retryLock--
+        if (this.retryLock <= 0) this.stopRetryLock()
+      }, 1000)
+    },
+    stopRetryLock() {
+      if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      this.retryLock = 0
+    },
     // ==================== 数据加载 ====================
     // store 的 me 快照缺失或非 active 时补拉一次（lockedByStatus 读的就是它）：
     // 失败一律静默——快照只是预判，真被停了写请求照样吃 403，拉不到不该拦住表单渲染
@@ -392,6 +487,9 @@ export default {
     },
     // 手动重试（红条 hint 的点击口）：闸门时长取最近一次后端给的 retryAfterSeconds（FB-3），
     // 没见过限流响应时按保守上限起闸——字典限流是 IP 维度，连点「点击重试」只会把 429 坐实
+    // X-7：这一声刻意不带秒数（与列表页 dishes.vue 的 retryCategories 同口径）。本屏这一把锁的数只出现在
+    // categoriesHint 那行括号里一处（X-5 判据：同一把锁的时长在同一屏只许出现一处），hint 常驻、1.5s 的
+    // toast 一闪而过，把数放在常驻那一行才是「看得见的那个数」
     retryCategories() {
       const now = Date.now()
       if (this._categoryRetryAt && now < this._categoryRetryAt) {
@@ -419,7 +517,12 @@ export default {
         // 只在 api 层降级态更新这一枚实例值——成功态没有 retryAfterSeconds 可转述，
         // 用它覆盖会把上一次刚学到的后端真值冲回保守上限。存下来是给 retryCategories() 的点击侧共用，
         // 两侧各算各的就会出现「hint 说的秒数与闸门拦的秒数对不上」
-        if (res && res.degraded) this._categoryRetryGapMs = categoryRetryGapMs(res)
+        // X-7：同一份解析结果同时喂「闸门时长」与「hint 印的秒数」——两处都从 categoryBackendSeconds(res)
+        // 这一枚真值导出，屏上那个数与拦点击的那把锁永远同源（后端没给时它是 0：闸门照起、括号里不印数）
+        if (res && res.degraded) {
+          this.categoryRetryBackendSeconds = categoryBackendSeconds(res)
+          this._categoryRetryGapMs = categoryRetryGapMs(res)
+        }
         // || 兜的是「降级出参没带值且此前从未降级过」这种空档，防 now + undefined = NaN 让闸门失效
         if (this.categoriesRateLimited) {
           this._categoryRetryAt = Date.now() + (this._categoryRetryGapMs || CATEGORY_RETRY_GAP_FALLBACK_MS)
@@ -753,6 +856,12 @@ export default {
         this.showToast('当前账号不可保存商品（见顶部提示）')
         return
       }
+      // X-7：429 闸门期内一次请求都不发——限流桶没回满之前再点只会续桶（USER 10 次/60 秒），
+      // 而这一声与常驻行那句同源（同一枚锁的快照与实时值，允许差 1 秒，X-10 裁定）
+      if (this.retryLock > 0) {
+        this.showToast(coolingText(this.retryLock))
+        return
+      }
       if (this.saving || this.leaving) return
       const ret = this.validate()
       if (ret) {
@@ -787,6 +896,8 @@ export default {
         }
       }
       this.saving = true
+      // 上一轮的保存反馈（429 冷却句 / 400 原文）到这一次真发请求时作废：留着就是常驻行在说上一次的事
+      this.saveFeedback = null
       const payload = this.buildPayload()
       try {
         const res = this.isEdit
@@ -805,8 +916,22 @@ export default {
           this.toastThenBack((e && e.message) || '商品不存在')
           return
         }
-        // 400/429/网络异常一律原样 toast 后端文案（校验口径的最终裁决权在服务端，前端不改写）
-        if (e && e.code !== 401) this.showToast((e && e.message) || '保存失败，请稍后重试')
+        if (e && e.code === 429) {
+          // X-7：429 从此不再只有一条 duration:1500 的 toast（那是全链唯一漏接真值转述的写路径）。
+          // 三件套齐上：① 闸门 startRetryLock（秒数由 api 层 retrySecondsOf 转述后端 data.retryAfterSeconds）
+          // ② 常驻行 saveFeedback（存不带数字的整句，屏上那个数由 saveFeedbackText 从实时 retryLock 现取，
+          //    于是冷却走完时这一行自动回到「请稍后再试」而不会停死在「请 60s 后再试」——X-3 点名的病）
+          // ③ 真值转述 coolingText(this.retryLock)。
+          // coolingText(0) 与后端 429 原文逐字同串（R.java:26 MSG_TOO_MANY_REQUESTS），
+          // 所以这里既没改写后端文案、也没有另立第二套说法
+          this.startRetryLock(e)
+          this.saveFeedback = { tone: 'cooling', text: coolingText(0) }
+          this.showToast(coolingText(this.retryLock))
+          return
+        }
+        // 400/500/网络异常：后端文案原样透出（校验口径的最终裁决权在服务端，前端不改写），
+        // 并同时落常驻行——toast 一消失就回到「看起来能保存」的原样，是 X-7 判的同一件事
+        if (e && e.code !== 401) this.setSaveFeedback('err', (e && e.message) || '保存失败，请稍后重试')
       } finally {
         this.saving = false
       }
@@ -979,6 +1104,10 @@ export default {
 
 /* ==================== 保存卡 ==================== */
 .save-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
+/* 保存支的常驻反馈行（X-7）：沿用 .field-hint 的字号，只把灰改成红——这一行与顶部的写闸门红条
+   同为「有事发生」的记号，浅灰会被读成字段说明。写这一条而不是复用 .field-hint-warn（同色），
+   是为了给「保存反馈」留一个自己的类名钩子（片 5 的 X-8 文案族统一要按 tone 分色时改这一处就够） */
+.save-feedback { color: #E02020; font-weight: 600; }
 
 /* 底部留白：最后一个字段离保存按钮近，别被键盘/手势条压住 */
 .page-bottom-space { height: 60rpx; }
