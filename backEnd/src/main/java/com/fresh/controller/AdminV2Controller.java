@@ -34,7 +34,7 @@ import java.util.Map;
  * 因此本面的服务端闸门也只有这里这一道；C 端 token 因 {@code typ<>admin} 走同一枚 401。
  *
  * <p><b>限流维度用 IP，不用 USER</b>（契约允许二选一，这里给实测理由）：
- * {@code RateLimitInterceptor#bucketKey}（{@code interceptor/RateLimitInterceptor.java:79-86}）在 USER 分支读的是
+ * {@code RateLimitInterceptor#bucketKey}（{@code interceptor/RateLimitInterceptor.java} 里那个私有方法）在 USER 分支读的是
  * {@code request.getAttribute(AuthInterceptor.ATTR_USER_ID)}，取不到就退化成 {@code "user:ip:" + clientIp + ":" + api}。
  * 而 BE-20-1 起 {@code AuthInterceptor:73-75} 对 {@code /api/admin/} 前缀<b>提前 return true</b>，
  * 那两处 setAttribute（:89/:98）在 admin 面根本走不到——也就是说 v2 上 USER 维度<b>永远</b>是「按 IP 记账、

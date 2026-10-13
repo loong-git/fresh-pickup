@@ -367,7 +367,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     }
 
     /**
-     * 客户端 IP —— <b>逐条镜像 {@code interceptor/RateLimitInterceptor.java:101-109} 那条私有 clientIp(...)</b>：
+     * 客户端 IP —— <b>逐条镜像 {@code interceptor/RateLimitInterceptor.java} 那条私有 {@code clientIp(...)}</b>：
      * 默认直取 {@code request.getRemoteAddr()}（TCP 对端地址，不可伪造）；仅
      * {@code rate-limit.trust-proxy=true}（显式声明部署在可信反代后）才解析 X-Forwarded-For 首跳。
      * 读同一个既有配置键、同一条判定顺序，不新增键、不改 yml（RG）。

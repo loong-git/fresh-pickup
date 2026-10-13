@@ -302,7 +302,7 @@ export default {
       try {
         const res = await getMerchantMe()
         const me = (res && res.data) || {}
-        // 后端 me 出参的 role 是拦截器裁决后回的常量 'merchant'（MerchantServiceImpl.java:60），
+        // 后端 me 出参的 role 是拦截器裁决后回的常量 'merchant'（MerchantServiceImpl#getMe 里的 me.put("role")），
         // 这里再判一次纯属防契约漂移的兜底：不是 merchant 就绝不放行进工作台
         if (me.role !== 'merchant') {
           this.showForbidden(phone, '账号已登录，但未绑定商家主体')

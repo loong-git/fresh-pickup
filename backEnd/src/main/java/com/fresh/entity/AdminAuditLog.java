@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 
 /**
  * 管理/商家操作审计 admin_audit_log（F-12/G-01 M-04 补课，m15-migration.sql:89-101）：
- * 现状日志不记操作者（AdminServiceImpl.java:93 反面教材），本期随建随写。
+ * 现状日志不记操作者（反面教材见 {@code AdminServiceImpl#auditActor} 的 javadoc：旧 actor 表达式是密钥摘要，不是人），本期随建随写。
  * 审计是旁路：写失败只告警，绝不影响主事务。
  */
 @Data

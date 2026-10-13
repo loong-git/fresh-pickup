@@ -152,10 +152,10 @@ const PAGE_ROUTE = 'pages/verify/verify'
 // 已完成不进这一页——核销台要看的就只有一件事：还有谁没提走。
 const LIST_STATUS = 'pending_pickup'
 
-// 每页条数：后端 size 夹到 [1,50]、缺省 20（PartnerOrderServiceImpl.java:50），这里就按缺省给
+// 每页条数：后端 size 夹到 [1,50]、缺省 20（PartnerOrderServiceImpl#DEFAULT_PAGE_SIZE/#MAX_PAGE_SIZE），这里就按缺省给
 const PAGE_SIZE = 20
 
-// 批次「已确认」值（PartnerStoreServiceImpl.java:70 BATCH_CONFIRMED 同值）：警示条的唯一判据。
+// 批次「已确认」值（PartnerStoreServiceImpl#BATCH_CONFIRMED 同值）：警示条的唯一判据。
 // 刻意不写 status !== 'confirmed' 之外的组合判断——后端多一个态（如 short）时它天然落进「未确认」
 const BATCH_CONFIRMED = 'confirmed'
 
@@ -243,7 +243,7 @@ export default {
       return this.feedback.text
     },
     // 「共 N 条」给 max(后端 total, 已加载行数)：翻页期间有单被核掉会让 total 收缩，
-    // 屏上已渲染的行又不会凭空消失（口径照 plan-orders.vue:162-168）
+    // 屏上已渲染的行又不会凭空消失（口径照 plan-orders.vue 的 shownTotal）
     shownTotal() {
       const n = Number(this.total)
       const loaded = Array.isArray(this.list) ? this.list.length : 0
@@ -345,7 +345,7 @@ export default {
         }
         if (code === 404) {
           // 刻意不分「无此码 / 属于别家门店」两支：后端两条判定收敛成同一个 404 同文案
-          // （PartnerOrderServiceImpl.java:212/:221，不泄漏「码本身是对的」），前端跟着分两支就是
+          // （PartnerOrderServiceImpl#verify 的 code_not_found / code_not_in_owned_stores 两条 failAs，不泄漏「码本身是对的」），前端跟着分两支就是
           // 替攻击者把 404 拆成可区分的预言机
           this.setFeedback('err', '码不存在或不属于你的门店')
           return
@@ -506,7 +506,7 @@ export default {
         this.errorText = ''
         this.errorCode = 0
         // 日期显示值：orders 端点不回显 date（出参只有 list/page/size/total/hasMore，
-        // PartnerOrderServiceImpl.java:180-184），所以这里回落到本次请求值——仍是「一份真值」
+        // PartnerOrderServiceImpl#orders 的 data.put 五键，不含 date），所以这里回落到本次请求值——仍是「一份真值」
         this.effectiveDate = String(data.date || this.queryDate || '')
         this.viewState = this.list.length ? 'ready' : 'empty'
         if (reset && this._resetScrollTop) {
@@ -610,7 +610,7 @@ export default {
     pad2(n) {
       return (n < 10 ? '0' : '') + n
     },
-    // ==================== 渲染辅助（只渲染后端白名单键，见 PartnerOrderServiceImpl.java:165-175） ====================
+    // ==================== 渲染辅助（只渲染后端白名单键，见 PartnerOrderServiceImpl#orders 的 line.put 块） ====================
     // 行指纹：清单出参没有 orderItemId（只有截断后的 orderId 后 6 位），所以按「同一单 + 同一商品快照」
     // 组指纹去重。同单同名的两条完全相同的行会被并成一条——已登记为契约缺口，不在前端补 JOIN 去猜行 id
     rowKey(r, i) {
@@ -744,7 +744,7 @@ export default {
 .verify-feedback-err { color: #E02020; background-color: #FFF1F0; }
 .verify-feedback-cooling { color: #E02020; background-color: #FFF7F0; }
 
-/* ==================== 3. 日期条（取值口径与 pickup-plan.vue:369-390 同档） ==================== */
+/* ==================== 3. 日期条（取值口径与 pickup-plan.vue 样式小节的「1. 日期条」同档） ==================== */
 .date-card { display: flex; flex-direction: column; gap: 12rpx; }
 .date-field-row { display: flex; align-items: center; }
 .date-field-label { font-size: 26rpx; color: #999999; line-height: 1.5; }

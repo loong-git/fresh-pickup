@@ -14,7 +14,7 @@ import { BASE_URL } from './config.js'
 
 // 分层超时（照用户端与商家端纪律，三档语义一字不改）：查询类 10s；提交类 20s；上传 30s
 // TIMEOUT_UPLOAD 至今没有调用方，如实登记（FE-4）：上传通道一期不做——门店照片是只读展示（D-18 无上传端点，
-// 见 store.vue 的 photo-card），入驻页的凭证照片同样「没有上传口」（apply.vue:564），文件服务随 G-05 才开放。
+// 见 store.vue 的 photo-card），入驻页的凭证照片同样「没有上传口」（apply.vue 的 buildBody 里那条 proofPhotos 注释），文件服务随 G-05 才开放。
 // 保留它而不是删掉再抄回来：这是 §3「三个超时档逐字保留」的要求；G-05 落地时走 uni.uploadFile + 同一个 handleEnvelope。
 const TIMEOUT_QUERY = 10000
 const TIMEOUT_SUBMIT = 20000
@@ -102,7 +102,7 @@ export function setUnauthorizedHandler(fn) {
  * 空值/非字符串回空串。
  * 主理人端唯一保留的 URL 出口（现状读数，FE-4）：当前唯一调用方是 store.vue 的 photoList
  * ——门店照片 photos 的**只读展示**（入库值形如 /static/images/uploads/<名>），页面不得自拼 BASE_URL。
- * 凭证图 proofPhotos 不走这里：它既没有上传端点（D-18 一期不做，见 apply.vue:564 与 TIMEOUT_UPLOAD 的注释），
+ * 凭证图 proofPhotos 不走这里：它既没有上传端点（D-18 一期不做，见 apply.vue 的 buildBody 与 TIMEOUT_UPLOAD 的注释），
  * 也不在 GET /api/store-applies/mine 的出参里（最小暴露，见下方 getMyStoreApply），所以本层现在没有它的 URL 出口。
  * 商家端那个 merchantFileUrl() 不拷过来：它处理的是「C 端静态根前缀 <-> 后端 /uploads 映射前缀」的
  * 商品图换前缀问题，主理人端只有门店照片这一处图片需求且实测直读可显示，先落地就是死代码
@@ -353,7 +353,7 @@ export function verifyPartnerOrder(pickupCode) {
 /**
  * 门店明细：GET /api/partner/store?storeId=（F-18.12 第 4 条，读 30/分，storeId 可省=D-22 选择器）
  * 出参白名单 Map：id/name/address/service/status/lng/lat + 六个新列
- * openTime/closeTime/dailyCapacity/accepting/contactPhone/photos（PartnerStoreServiceImpl.java:399-411）。
+ * openTime/closeTime/dailyCapacity/accepting/contactPhone/photos（PartnerStoreServiceImpl#toOwnerView 的 view.put 键集）。
  * contactPhone 只出 PhoneMask.mask 结果（RD 脱敏，前端不再做二次处理也不猜原号）。
  * 缺省取名下 id 最小的一家——多店场景要指定就给 storeId。
  * @param {string|number} [storeId]

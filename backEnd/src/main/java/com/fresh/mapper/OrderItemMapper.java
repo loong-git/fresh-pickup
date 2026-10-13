@@ -202,7 +202,7 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
      *   G6 的 {@code \d{4}-\d{2}-\d{2}} 断言就会失败（值本身仍是同一天，但出参形状不合契约）。
      * 无 GROUP BY 的聚合恒回 1 行（零明细时由 IFNULL/COUNT 兜 0），故本方法不会返回空集。
      * <p><b>{@code AND oi.price > 0}（BE-G5-4，F-19.8 S-5）——本期销售口径的决定，三条 SQL 同加</b>：
-     * 免费领的 0 元单在 {@code FreeServiceImpl.java:213/229/241} 是 {@code pay_status=1} 且 {@code price=0} 的
+     * 免费领的 0 元单在 {@code FreeServiceImpl#claim}（价写死 {@code BigDecimal.ZERO}、{@code pay_status} 由 {@code PaymentSettlement#settle} 置 1）是 {@code pay_status=1} 且 {@code price=0} 的
      * 真实成交单，不加这一条它会进 {@code orderCount}/{@code itemCount} 却不进 {@code gmvBeforeCoupon}。
      * 实测 merchant 1 就是 2 单 / 2 件 / 0.00 元，出参组合是「订单数 2、商品件数 2、销售额 0.00」——
      * D-5 那三行口径说明解释不了这个组合，商家只会以为系统算错了。0 元领取单没有成交金额，
@@ -250,7 +250,7 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
      * <b>那条理由是错的，注释一并改掉</b>：本库 {@code @@sql_mode} 确实含 ONLY_FULL_GROUP_BY，但
      * {@code ANY_VALUE()} 正是该模式下官方给的逃生口，实测可用（代理在带 ONLY_FULL_GROUP_BY 的本机库上跑通）。
      * 多带 dish_name 的实际后果是活洞：商家改一次菜名，历史明细里新旧两个快照名就把同一 dish_id 劈成两行——
-     * 实测 {@code keys=["d33","d44","d33"]} 重复出 3 行，前端 {@code rowKey} 只认 dishId（dashboard.vue:325-327）
+     * 实测 {@code keys=["d33","d44","d33"]} 重复出 3 行，前端 {@code rowKey} 只认 dishId（{@code dashboard.vue} 的 {@code rowKey(r, i)}）
      * → Vue 重复键、切窗口后金额与标签错行；且劈出来的多余行会挤掉真 Top 5 的第 5 名。
      * <p>dishName 仍取 {@code order_item} 的下单快照列（init.sql 的 dish_name），**禁止 JOIN dish 取名**，
      * 否则改名/删品后历史榜单会跟着漂移（上方 selectOrderItemsByDate 同口径）；{@code ANY_VALUE} 在这里

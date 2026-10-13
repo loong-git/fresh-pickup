@@ -254,7 +254,7 @@ export default {
   },
   onShow() {
     // 429 冷却闸门（U-4）：限流态下 onShow 的静默重拉也一样在给桶续命，判据逐字照
-    // plan-orders.vue:357（那句注释原文：「只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
+    // plan-orders.vue 的 loadMore（闸门就写在它里面，那句注释原文：「只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
     // 把该商家其它读接口一起打死」）——本仓为这条踩过一次，本期不再重犯
     if (this.retryLock > 0) return
     // 每次进入静默重拉（别的页返回时也保证看到的是当前窗口的真实读数），带 in-flight 守卫防连点；
@@ -346,7 +346,7 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 起冷却锁（母版 pickup-plan.vue:227-228）：其余失败不锁，避免把网络抖动也锁成 60 秒
+        // 只有 429 起冷却锁（母版 pickup-plan.vue 的 loadPlan 错误分支）：其余失败不锁，避免把网络抖动也锁成 60 秒
         if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
@@ -363,7 +363,7 @@ export default {
     // ==================== 窗口切换 ====================
     switchDays(d) {
       // 429 冷却闸门（U-4 实测：打空 30/分桶后进看板，卡正上方三枚 pill 照点，点「近 90 天」就实发
-      // ?days=90 一条、窗口行立刻变、倒计时文案被覆写——闸门被旁路）。判据逐字照 plan-orders.vue:357
+      // ?days=90 一条、窗口行立刻变、倒计时文案被覆写——闸门被旁路）。判据逐字照 plan-orders.vue 的 loadMore
       if (this.retryLock > 0) return
       const next = Number(d)
       if (!Number.isFinite(next) || next === this.days) return
@@ -398,7 +398,7 @@ export default {
     goWorkspace() {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
-    // ==================== 429 冷却（照 pickup-plan.vue:328-339，秒级禁用范式） ====================
+    // ==================== 429 冷却（照 pickup-plan.vue 的「429 冷却」一节，秒级禁用范式） ====================
     startRetryLock(err) {
       // 已卸载的页面不给它起定时器（U-5）：迟到回包回 429 时若照常 startRetryLock，
       // 那个每秒 setInterval 挂在 window 上、onUnload 的清理已经跑完了，永远不会被回收

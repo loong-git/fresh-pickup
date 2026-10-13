@@ -150,7 +150,7 @@
 
       <!-- ==================== 提交 ==================== -->
       <view class="card submit-card">
-        <!-- 刻意不吃 HTML disabled（母版 dish-edit.vue:138 的实测结论：真 disabled 吞掉 click，
+        <!-- 刻意不吃 HTML disabled（母版 dish-edit.vue 的 save-card 注释给的实测结论：真 disabled 吞掉 click，
              点了什么都不发生等于零反馈）：视觉禁用 + 可点，submit() 首行按分支给一句实话 -->
         <button
           class="btn-main"
@@ -242,7 +242,7 @@ export default {
         contactName: '',
         contactPhone: ''
       },
-      // 校验/后端 400 命中落到哪一栏（母版 dish-edit.vue:194 errorKey 同款），供描红 + 滚动定位
+      // 校验/后端 400 命中落到哪一栏（母版 dish-edit.vue 的 errorKey 同款），供描红 + 滚动定位
       errorKey: '',
       // 提交单飞锁（写操作，finally 复位）与定位请求的进行中标记
       submitting: false,
@@ -412,7 +412,7 @@ export default {
         this.form.proposedAddress = this.textOr(data.proposedAddress, '')
         return
       }
-      // status 为空 = 从未申请过（StoreApplyServiceImpl.java:113-120 各键回 null、historyCount=0）→ 空白表单
+      // status 为空 = 从未申请过（StoreApplyServiceImpl#mine 各键回 null、historyCount=0）→ 空白表单
       this.applyStatus = 'none'
     },
     // 提交成功后的静默纠偏：只为把 createdAt/historyCount 这类本地拿不到的值对齐服务端。
@@ -678,7 +678,7 @@ export default {
     scrollToField(sel) {
       // #ifdef H5
       // index.html 锁死 html,body overflow:hidden，本页滚动容器是 document.body，
-      // uni.pageScrollTo 滚的是 window，这里会静默无效——照 dish-edit.vue:695-722 用 scrollIntoView
+      // uni.pageScrollTo 滚的是 window，这里会静默无效——照 dish-edit.vue 的 scrollToField 用 scrollIntoView
       try {
         const el = typeof document !== 'undefined' && typeof document.querySelector === 'function'
           ? document.querySelector(sel)
@@ -705,7 +705,7 @@ export default {
     },
     // ==================== 跳转 ====================
     // 栈里能退就退（本页从工作台 navigateTo 进来），深链直达时栈长度只有 1，
-    // navigateBack 在 H5 等于 history.go(-1) 会落到站外——照 dish-edit.vue:342-354 判栈姿势
+    // navigateBack 在 H5 等于 history.go(-1) 会落到站外——照 dish-edit.vue 的 goBackToList 判栈姿势
     goWorkspace() {
       let pages = []
       try {
