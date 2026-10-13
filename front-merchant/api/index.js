@@ -447,7 +447,15 @@ export function getDishCategories() {
     (e) => {
       // 429 与真·不可达分开标：前者是我们自己点快了，后者才是上游有问题
       const reason = (e && Number(e.code) === 429) ? 'rate-limited' : 'unreachable'
-      return { code: 200, data: DISH_CATEGORY_FALLBACK, degraded: true, degradedReason: reason }
+      // F-24-B/FB-1 通道：这一路 reject→resolve 原本会把 429 的 e.data 整个丢掉，
+      // 下游页面（dishes / dish-edit）手里只剩常量可写，于是各自把窗口长度 60 当成了等待时长。
+      // 这里只多带一个键，把后端真值原样转述出去（源头：RateLimitInterceptor.java:79 的
+      // data.retryAfterSeconds，即桶的回速而非窗口）。
+      // 取不到就是 null，刻意不给默认值：编一个数出去下游就无法再区分「后端说的」与「我们猜的」，
+      // 回落口径由各页面自己带注释声明（retrySecondsOf 那条有回落的通道只服务闸门，不服务文案）。
+      const raw = e && e.data && e.data.retryAfterSeconds
+      const retryAfterSeconds = Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null
+      return { code: 200, data: DISH_CATEGORY_FALLBACK, degraded: true, degradedReason: reason, degradedRetryAfterSeconds: retryAfterSeconds }
     }
   )
 }

@@ -42,7 +42,8 @@
             <text class="cell-arrow">›</text>
           </view>
         </picker>
-        <!-- 重试走 retryCategories（带 60s 冷却），不直连 loadCategories：/api/dict 是 IP 维度 10 次/分，连点必吃 429 -->
+        <!-- 重试走 retryCategories（带闸门，时长优先转述后端 data.retryAfterSeconds，拿不到才按 60s 保守上限起闸），
+             不直连 loadCategories：/api/dict 是 IP 维度 10 次/分，连点必吃 429 -->
         <text v-if="categoriesHint" class="field-hint field-hint-warn" @click="retryCategories">{{ categoriesHint }}</text>
 
         <!-- 库存两态分开：新增带初始值（POST 必填），编辑只给增量（PUT 见 stock 非 null 即 400，R7'） -->
@@ -175,8 +176,19 @@ import '@/styles/common.css'
 
 // 保存成功后回列表的停留时长：太短 toast 还没看清就跳页，等于没告知
 const BACK_DELAY = 900
-// 类目字典重试冷却（FEB-9）：/api/dict 是 IP 维度 10 次/分，连点「点击重试」正是 429 的成因
-const CATEGORY_RETRY_GAP = 60 * 1000
+// 类目字典重试冷却（FEB-9）：/api/dict 是 IP 维度 10 次/分，连点「点击重试」正是 429 的成因。
+// F-24-B/FB-3：闸门时长优先转述后端 data.retryAfterSeconds（api 层降级出参的
+// degradedRetryAfterSeconds，源头 RateLimitInterceptor.java:79），取不到才回落到下面这枚保守上限。
+// 回落值 60 秒 ＝ 字典档 @RateLimit 的 windowSeconds（DictController.java:28 是 IP 10 次/60 秒），
+// 不是回速：同一档配 Refill.greedy，实测回速 6 秒 —— 回落时这一闸门会多白拦 54 秒。
+const CATEGORY_RETRY_GAP_FALLBACK_MS = 60 * 1000
+
+// 降级出参 → 本次闸门毫秒数：只有 api 层真的从 429 的 data 里转述到值才用它，
+// 没有（null / 不可解析 / 非正数）就回落，中途不造任何「看起来像后端给的」的数
+function categoryRetryGapMs(res) {
+  const n = Number(res && res.degradedRetryAfterSeconds)
+  return Number.isFinite(n) && n > 0 ? n * 1000 : CATEGORY_RETRY_GAP_FALLBACK_MS
+}
 // 背景色合法形态（FEB-5）：C 端 detail.vue:28 把它绑到 background 简写（不是 background-color），
 // url(//a.co/x) 这类是「合法 CSS」——只在本地预览上兜底不够，脏值必须在下发前就拦掉。
 // 本页预览（safeColor）与提交校验（validate）共用这一份正则
@@ -331,8 +343,10 @@ export default {
       clearTimeout(this._backTimer)
       this._backTimer = null
     }
-    // 类目重试冷却用的是时间戳（没有 setInterval 要清），这里只把残留值置空
+    // 类目重试冷却用的是时间戳（没有 setInterval 要清），这里只把残留值置空。
+    // _categoryRetryGapMs（FB-3 的闸门时长）一并清：留脏值会让下一实例的点击侧起闸用到上一实例的数字
     this._categoryRetryAt = 0
+    this._categoryRetryGapMs = 0
   },
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
@@ -376,14 +390,17 @@ export default {
         // 维持原快照，不 toast、不切换视图
       }
     },
-    // 手动重试（红条 hint 的点击口）：60s 冷却——字典限流是 IP 维度，连点「点击重试」只会把 429 坐实
+    // 手动重试（红条 hint 的点击口）：闸门时长取最近一次后端给的 retryAfterSeconds（FB-3），
+    // 没见过限流响应时按保守上限起闸——字典限流是 IP 维度，连点「点击重试」只会把 429 坐实
     retryCategories() {
       const now = Date.now()
       if (this._categoryRetryAt && now < this._categoryRetryAt) {
         this.showToast('类目请求太频繁，稍后再点重试')
         return
       }
-      this._categoryRetryAt = now + CATEGORY_RETRY_GAP
+      // || 回落不可省：_categoryRetryGapMs 是懒挂的实例属性，本页从未进过限流态时它是 undefined，
+      // 直接相加会得到 NaN，而 now < NaN 恒假 → 闸门整体消失（A-2 那类「静默失效」的同形事故）
+      this._categoryRetryAt = now + (this._categoryRetryGapMs || CATEGORY_RETRY_GAP_FALLBACK_MS)
       this.loadCategories()
     },
     async loadCategories() {
@@ -398,7 +415,15 @@ export default {
         this.categoriesDegraded = !!(res && res.degraded)
         // degradedReason 是 api 层给的两个字面值（'rate-limited' / 'unreachable'）：分流文案用，不改名不自造
         this.categoriesRateLimited = !!(res && res.degraded && res.degradedReason === 'rate-limited')
-        if (this.categoriesRateLimited) this._categoryRetryAt = Date.now() + CATEGORY_RETRY_GAP
+        // FB-3：闸门保持本页原有的时间戳形态（不是 dishes 页的 retryLock 计数），只换数值来源。
+        // 只在 api 层降级态更新这一枚实例值——成功态没有 retryAfterSeconds 可转述，
+        // 用它覆盖会把上一次刚学到的后端真值冲回保守上限。存下来是给 retryCategories() 的点击侧共用，
+        // 两侧各算各的就会出现「hint 说的秒数与闸门拦的秒数对不上」
+        if (res && res.degraded) this._categoryRetryGapMs = categoryRetryGapMs(res)
+        // || 兜的是「降级出参没带值且此前从未降级过」这种空档，防 now + undefined = NaN 让闸门失效
+        if (this.categoriesRateLimited) {
+          this._categoryRetryAt = Date.now() + (this._categoryRetryGapMs || CATEGORY_RETRY_GAP_FALLBACK_MS)
+        }
         this.categoriesError = ''
         this.syncCategoryIndex()
       } catch (e) {

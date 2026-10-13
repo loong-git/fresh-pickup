@@ -139,6 +139,12 @@ import '@/styles/common.css'
 // 回速（30 次/分实测只有 2 秒）是桶回充一格的间隔，不代表重试一定不挨 429 —— 两个数不是一回事，别混用。
 const RETRY_COOLING_SECONDS = 60
 
+// 类目字典 429 闸门的回落档（F-24-B/FB-2 起，只在拿不到后端 retryAfterSeconds 时才生效）：
+// 60 ＝ 字典档 @RateLimit 的 windowSeconds（DictController.java:28 是 IP 10 次 / 60 秒），
+// 同样是「后端不给数时的保守上限」而不是回速——同一档配 Refill.greedy，实测回速只有 6 秒。
+// 刻意不与上面那枚合并：两个端点限流档位不同（30 次/分 vs 10 次/分），共用一个常量必有一边口径错。
+const CATEGORY_RETRY_FALLBACK_SECONDS = 60
+
 export default {
   data() {
     return {
@@ -166,6 +172,10 @@ export default {
       // 类目重试冷却剩余秒数（>0 时点提示行不发请求）：限流态下的「重试」必须有秒级闸门，同 login.vue 的 loginLock 范式
       catRetryLock: 0,
       catRetryLockTimer: null,
+      // 本枚闸门起点是否真的来自后端 data.retryAfterSeconds（>0 = 是，并记下那一个数）：
+      // categoriesHint 只在它为真时才把秒数印进括号——闸门本身（catRetryLock）两种来源都要起，
+      // 但「等待时长」这个读数只能转述后端给的，不能把本地窗口长度冒充成它（F-24.0 裁定 B-1a）
+      catRetryBackendSeconds: 0,
       dishes: [],
       // 三态互斥（同 workspace.vue 的 viewState 纪律，避免多面布尔标志打架留脏态）：loading | error | ready
       viewState: 'loading',
@@ -228,12 +238,17 @@ export default {
     },
     // 下拉提示行：退化到内置分类按来源分两句（限流 vs 上游不可达），读取失败一句，
     // 正常字典态返回空串不出这一行
+    // F-24-B/FB-2：括号里的秒数只在「闸门起点确实转述自后端」时才出现。此前这里无条件印
+    // catRetryLock，而它的起点是写死的 60 —— 那是 @RateLimit 的窗口长度，不是等待时长，
+    // 印出来就是冒充（裁定 B-1a）。回落态只留文案，与运营端 5 页「无 data 就不出数字」同口径。
     categoriesHint() {
       if (this.categoriesDegraded) {
         const base = this.categoriesDegradedReason === 'rate-limited'
           ? '类目请求太频繁，稍后再点重试'
           : '类目字典暂不可用，当前为内置分类，点击重试'
-        return this.catRetryLock > 0 ? base + '（' + this.catRetryLock + 's）' : base
+        return this.catRetryLock > 0 && this.catRetryBackendSeconds > 0
+          ? base + '（' + this.catRetryLock + 's）'
+          : base
       }
       return this.categoriesError ? '类目加载失败：' + this.categoriesError + '，点击重试' : ''
     }
@@ -302,7 +317,8 @@ export default {
         this.categoriesDegraded = !!(res && res.degraded)
         this.categoriesDegradedReason = (res && res.degraded && res.degradedReason) || ''
         // 兜底态下的 429 不进 categoriesError 分支（api 层已把 reject 转成 resolve 了，这里按 reason 起冷却）
-        if (this.categoriesDegradedReason === 'rate-limited') this.startCatRetryLock()
+        // degradedRetryAfterSeconds 是 api 层 F-24-B/FB-1 补的那一键：没有 data 时为 null，不是猜出来的数
+        if (this.categoriesDegradedReason === 'rate-limited') this.startCatRetryLock(res && res.degradedRetryAfterSeconds)
         else this.stopCatRetryLock()
         this.categoriesError = ''
       } catch (e) {
@@ -320,14 +336,22 @@ export default {
       }
       this.loadCategories()
     },
-    // F-23-fix/FF-3 登记（不修）：这里裸写 60 是「第 6 枚锁」，但它转述不了后端真值——
-    // 触发源 :305 读的是 getDishCategories() 的降级 resolve（degradedReason==='rate-limited'），
-    // api 层已把 429 的 reject 转成 resolve，页面手里没有带 data 的错误对象。
-    // 要收口必须先改 api 层降级出参把 retryAfterSeconds 透出（跨 api/index.js 的降级契约），
-    // 那是「改降级出参形状」不是「改文案」，本批刻意不混做 → 另开 F-23-fix2。
-    startCatRetryLock() {
+    // F-24-B/FB-2（原 F-23-fix/FF-3 的登记项，本批收口）：闸门秒数改为转述 api 层透出的
+    // degradedRetryAfterSeconds，源头是 RateLimitInterceptor.java:79 的 data.retryAfterSeconds
+    //（取的是 Refill.greedy 下的 NanosToWaitForRefill，不是窗口）。
+    // 此前这里裸写 60 是「第 6 枚锁」：触发源读的是 getDishCategories() 的降级 resolve
+    //（degradedReason==='rate-limited'），reject 已被 api 层转成 resolve，页面手里没有带 data 的
+    // 错误对象 —— 现在 FB-1 把那一键随降级出参一起透出，页面只负责转述。
+    startCatRetryLock(backendRetryAfterSeconds) {
       this.stopCatRetryLock()
-      this.catRetryLock = 60
+      const n = Number(backendRetryAfterSeconds)
+      const fromBackend = Number.isFinite(n) && n > 0
+      // 回落值 60 ＝保守上限＝窗口长度（DictController.java:28 字典档是 IP 10 次/60 秒），
+      // 不是回速：同一档配 Refill.greedy，实测回速 6 秒 —— 回落时这一闸门会多白拦 54 秒，
+      // 但拿不到后端真值时宁可保守，也不能报一个假的短数让商家连点续桶
+      this.catRetryLock = fromBackend ? n : CATEGORY_RETRY_FALLBACK_SECONDS
+      // 只有这一枚起点来自后端，categoriesHint 才允许把它渲染成「（Ns）」的等待时长
+      this.catRetryBackendSeconds = fromBackend ? n : 0
       this.catRetryLockTimer = setInterval(() => {
         this.catRetryLock--
         if (this.catRetryLock <= 0) this.stopCatRetryLock()
@@ -336,6 +360,7 @@ export default {
     stopCatRetryLock() {
       if (this.catRetryLockTimer) { clearInterval(this.catRetryLockTimer); this.catRetryLockTimer = null }
       this.catRetryLock = 0
+      this.catRetryBackendSeconds = 0
     },
     // store 的 me 快照缺失或停在非 active 时补拉一次（编辑页与本页的写闸门都读这份快照）：
     // 平台恢复营业后不必先绕一次工作台才解除假锁，本页的状态行与「新增」置灰也据此翻转。
