@@ -115,7 +115,7 @@
 <script>
 // 主理人端登录页（F-18.15 §4）：拷自 front-merchant/pages/login/login.vue 并只改「身份判定」这一处实质差异。
 // 与商家端的差异清单（其余表单手感/倒计时/错误文案分流一律照母版）：
-// ① 母版调 getMerchantMe()（:291 与 :341 两处），本页调 getPartnerStores()，且两处收敛进同一个
+// ① 母版调 getMerchantMe()（两处调用），本页调 getPartnerStores()，且两处收敛进同一个
 //    resolveIdentity()（§4 明令「判定函数与文案分流写在同一个 resolveIdentity() 里，别散到 onLoad/onLogin 两处」）；
 // ② 403 的含义不同：商家端 403 = 角色不是 merchant（只能等平台代开通）；
 //    主理人端 403 = token 有效但 store.owner_user_id 名下门店集合为空（AuthInterceptor:108-118），

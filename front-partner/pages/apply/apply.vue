@@ -296,7 +296,7 @@ export default {
     },
     // 申请时间：带 '-' 的后端字符串原样透出（把 ISO 的 T 换空格、砍到分钟）。
     // 不走 new Date() 再格式化：那会把无时区的 LocalDateTime 按本地时区平移一次，屏上值就不再是库里那一位
-    // （同一支渲染逻辑见 verify.vue:631-643 timeText，F-25/P-4 重测）
+    // （同一支渲染逻辑见 verify.vue 的 timeText，F-25/P-4 重测）
     createdAtText() {
       const s = this.textOr(this.apply && this.apply.createdAt, '')
       if (!s) return ''
@@ -588,7 +588,7 @@ export default {
       return body
     },
     // ==================== 提交 ====================
-    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:305-308 同姿势，F-25/P-4 重测）
+    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue 的 submitVerify 首行同姿势，F-25/P-4 重测）
     async submit() {
       // X-1：提交闸门读写侧 writeRetryLock（POST 写桶），与读侧 mine 刷新的 retryLock 互不干扰
       if (this.writeRetryLock > 0) {
@@ -768,7 +768,7 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 两道守卫缺一不可（照 verify.vue:677-697，F-25/P-4 重测）：
+    // 两道守卫缺一不可（照 verify.vue 的 onPageWheel 与其上方守卫说明注释，F-25/P-4 重测）：
     // ① 栈顶守卫：监听挂在 document 上，navigateTo 不触发上一页 onUnload，栈里多挂一份就会一次滚两倍
     // ② 表单控件与弹层放行：input/textarea 上的滚轮归控件，不能 preventDefault 抢走
     onPageWheel(e) {

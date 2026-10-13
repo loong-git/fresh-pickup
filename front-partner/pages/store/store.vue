@@ -599,7 +599,7 @@ export default {
       return null
     },
     // ==================== 保存（PUT /api/partner/store，只带改动过的键） ====================
-    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue:305-308 同姿势，F-25/P-4 重测）
+    // 闸门写在方法首行：小程序端 disabled 按钮的 click 仍可能触发，只靠模板拦不住（verify.vue 的 submitVerify 首行同姿势，F-25/P-4 重测）
     async save() {
       // FE-11：人已决定离开（leaving 总闸）就不再放行写入口——母版 dish-edit.vue 的 save() 里同判据，
       // 避免「弹框之后到页面销毁之间」抢发一次 PUT 把丢弃变成半保存
@@ -782,7 +782,7 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 两道守卫缺一不可（照 verify.vue:677-697，F-25/P-4 重测）：
+    // 两道守卫缺一不可（照 verify.vue 的 onPageWheel 与其上方守卫说明注释，F-25/P-4 重测）：
     // ① 栈顶守卫：监听挂在 document 上，navigateTo 不触发上一页 onUnload，栈里多挂一份就会一次滚两倍
     // ② 表单控件与弹层放行：picker/input/textarea 上的滚轮归控件，不能 preventDefault 抢走
     //    （本页正文全是 input/textarea/picker，缺这条守卫就等于表单不可用）
