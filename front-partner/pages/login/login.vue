@@ -384,8 +384,9 @@ export default {
         }
         if (code === 429) {
           // F-23-fix/FF-2：起锁必须先于 toast——startRetryLock 把后端真值写进 this.retryLock，
-          // 顺序反过来 toast 读到的还是 0（「请 0 秒后再刷新」）。本页没有常驻闸门行，
-          // 所以时长只在这条一次性 toast 里出现，同屏不会再有第二个数。
+          // 顺序反过来 toast 读到的还是 0（「请 0 秒后再刷新」）。本页的时长会出现两处：
+          // 这条一次性 toast 与 :35-36 那条常驻闸门行（{{ retryLock }}s后可重新检查）各一次，
+          // 两者同源（同一个 this.retryLock）同值，不是两个互不相干的数。
           // F-23-fix/FF-4：原注释称「与商家端 dishes.vue:210 同串（不另写一份）」——FF-1 已把商家端
           // 那句的数字摘掉（现 dishes.vue:219），两处不再同串，按实况订正而非留一个假指针。
           this.startRetryLock(e)

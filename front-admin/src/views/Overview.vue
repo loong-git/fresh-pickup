@@ -145,7 +145,7 @@ async function load() {
       errorText.value = e.message || '无权限访问'
       return
     }
-    // 400（脏 date）/ 429（IP 30 次/分限流）/ 500 / 网络异常：后端 message 原样透出
+    // 400（脏 date）/ 500 / 网络异常：后端 message 原样透出；429 会在其后追加服务端 data.retryAfterSeconds 给的秒数。
     viewState.value = 'error'
     const code = Number(e.code) || 0
     errorData.value = e.data || null
