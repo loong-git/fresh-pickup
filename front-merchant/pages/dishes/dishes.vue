@@ -236,7 +236,7 @@ export default {
       if (this.errorCode === 404) return '没有查到商品数据，请回工作台重新进入'
       // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
       if (this.errorCode === 500) return '商品加载失败，服务端处理出错，稍后重试'
-      // 只有网络层失败（api 层 request 的 fail 支回 code:-1 / message「网络异常」，api/index.js:276-279）
+      // 只有网络层失败（api 层 request 的 fail 支回 code:-1 / message「网络异常」，见 front-merchant/api/index.js 其中网络支的 reject({ code: -1, message: '网络异常' })）
       // 才说「请检查网络后重试」
       if (this.errorCode <= 0) return '商品加载失败，请检查网络后重试'
       // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
@@ -461,7 +461,7 @@ export default {
     retryCoolingBlocked() {
       if (this.retryLock <= 0) return false
       // 文案点名「商品列表」这枚锁：本页屏上同时存在类目字典的**另一把独立闸门**（catRetryLock，
-      // 其提示行 :334 说的是「类目请求太频繁」），不带归因的「太频繁」会让商家以为换类目也被锁着
+      // 其提示行 categoriesHint 与 retryCategories 的 toast 说的都是「类目请求太频繁」），不带归因的「太频繁」会让商家以为换类目也被锁着
       // （X-5 定稿判据：每处文案必须能看出它在报哪把锁）
       uni.showToast({ title: '商品列表请求太频繁，' + this.retryLock + 's后可重试', icon: 'none' })
       return true

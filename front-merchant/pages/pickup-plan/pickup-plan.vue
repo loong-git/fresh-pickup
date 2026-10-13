@@ -160,7 +160,7 @@ export default {
       if (this.errorCode === 404) return '备货单接口暂不可用，可能是后端服务还没更新，请稍后重试'
       // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」
       if (this.errorCode === 500) return '备货单加载失败，服务端处理出错，稍后重试'
-      // 只有网络层失败（api 层 request 的 fail 支回 code:-1 / message「网络异常」，api/index.js:276-279）
+      // 只有网络层失败（api 层 request 的 fail 支回 code:-1 / message「网络异常」，见 front-merchant/api/index.js 其中网络支的 reject({ code: -1, message: '网络异常' })）
       // 才说「请检查网络后重试」
       if (this.errorCode <= 0) return '备货单加载失败，请检查网络后重试'
       // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文
