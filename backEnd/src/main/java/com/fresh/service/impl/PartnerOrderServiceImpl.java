@@ -72,7 +72,7 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
 
     /**
      * 400/404 文案：404 逐字复用 MockPayService:49 那条「订单不存在」；
-     * 400 复用 GlobalExceptionHandler:51 的「请求参数有误，请检查后重试」。
+     * 400 复用 GlobalExceptionHandler:55 的「请求参数有误，请检查后重试」。
      * 「已取消」与「未支付」两种 400 <b>故意共用这一句</b>：给主理人的错误文案不该反过来
      * 告诉持码者这单此刻的支付/取消状态（枚举者能据此二分码空间）。内部定性差异只进日志与 ops_log。
      */

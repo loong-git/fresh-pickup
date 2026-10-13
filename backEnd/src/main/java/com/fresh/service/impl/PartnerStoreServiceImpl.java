@@ -71,7 +71,7 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
     private static final String BATCH_CONFIRMED = "confirmed";
     private static final String BATCH_SHORT = "short";
 
-    /** 400 文案复用 GlobalExceptionHandler:51 的既有句子（R2 码表文案零改动纪律） */
+    /** 400 文案复用 GlobalExceptionHandler:55 的既有句子（R2 码表文案零改动纪律） */
     private static final String BAD_REQUEST_MSG = "请求参数有误，请检查后重试";
 
     /** 404 文案：他店与不存在不可区分，不给枚举者「这行存在」的信号 */

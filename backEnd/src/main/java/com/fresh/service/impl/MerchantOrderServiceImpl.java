@@ -82,7 +82,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
      */
     private static final String UNASSIGNED_STORE_NAME = "未指定自提点";
 
-    /** 400 文案（RF 红线：逐字复用 GlobalExceptionHandler:51 已有的那条，不新增句子） */
+    /** 400 文案（RF 红线：逐字复用 GlobalExceptionHandler:55 已有的那条，不新增句子） */
     private static final String BAD_REQUEST_MSG = "请求参数有误，请检查后重试";
 
     /**
@@ -428,7 +428,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
 
     /**
      * date 解析：形状不符或形状符但日期不存在（2026-13-99、2026-02-30）都 400，
-     * 文案逐字复用 GlobalExceptionHandler:51 那条。用 DateTimeException 兜住 parse，
+     * 文案逐字复用 GlobalExceptionHandler:55 那条。用 DateTimeException 兜住 parse，
      * 不让 DateTimeParseException 逃到全局兜底变成 500。
      */
     private LocalDate parseDate(String raw) {
