@@ -273,7 +273,7 @@ export function retrySecondsOf(err, fallbackSeconds) {
  *   FULL  coolingFullText(label, seconds) → 「<label>请求太频繁，<时长>后可重试」  归因 + 带数
  *   LEAD  coolingLeadText(label)          → 「<label>请求太频繁，稍后再点重试」  归因 + 不带数
  *   PILL  cooldownPillText(seconds)       → 「<时长>后可重试」 / resendPillText → 「<N>s后重发」
- *         <时长> 由 formatCoolingSeconds 出：<60 是紧凑 `Ns`、>=60 是中文「N 分 MM 秒」；
+ *         <时长> 由 formatCoolingSeconds 出：<=60 是紧凑 `Ns`、>=61 是中文「N 分 MM 秒」（60 归紧凑档，理由见该函数注释）；
  *         resendPillText 刻意不接这套换算（见其函数注释），恒走 `<N>s`。
  *         只用在按钮/胶囊这类宽度受限、且**上一行就是同屏归因句**的位置（错误卡的 lead 已经点名是哪把锁）
  * 三种形态的分工正是 X-5 定稿判据的落地方式：同一把锁一屏只有一处带数（LEAD 与 PILL 各顶半边），
@@ -283,9 +283,10 @@ export function retrySecondsOf(err, fallbackSeconds) {
  * 逐字不动（改前它们已经是这个句式了），本页族里其余四种说法全部并进来。
  *
  * 单位：分两套制式，由 formatCoolingSeconds 单点分叉（改这一处即可整体调整时长读法）：
- * ①<60 秒走紧凑 `Ns`——沿用全端唯一单位字面量 COOLING_UNIT，与改前逐字节一致（X-8「单位统一到 s」的定稿，
+ * ①<=60 秒走紧凑 `Ns`——沿用全端唯一单位字面量 COOLING_UNIT，与改前逐字节一致（X-8「单位统一到 s」的定稿，
  *   toast 与按钮里的时长要短，`5s后可重试` 比 `5 秒后可重试` 少两个字符宽，不撑破 .error-retry 胶囊）；
- * ②>=60 秒换算成中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）。
+ * ②>=61 秒换算成中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）。
+ *   分档线刻意含 60（F-38.3）：回落档位的值就是 60，让它留在紧凑档，模板短标签与 pill 才是同一个读法。
  *   这一支刻意不再用 ceil 到分钟的粗化——照抄运营端 waitDurationText 那种会把 600→541 九分钟冻成一个读数，
  *   正是本条任务线在打的「静止读数冒充剩余时间」。
  * 括号制「（Ns）」是第三种形态，本批消灭：它把时长放在句尾括号里，读不出和「后可重试」是同一条规则。
@@ -306,19 +307,29 @@ function coolingSkeleton(label) {
 }
 
 /**
- * 时长格式化（<60 与 >=60 两套制式的唯一分叉口，判有效性在前、取整在后）：
- *   <60 → 紧凑 `Ns`（沿用全端唯一单位字面量 COOLING_UNIT，与改前逐字节一致）
- *   >=60 → 中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）
+ * 时长格式化（<=60 与 >=61 两套制式的唯一分叉口，判有效性在前、取整在后）：
+ *   <=60 → 紧凑 `Ns`（沿用全端唯一单位字面量 COOLING_UNIT，与改前逐字节一致）
+ *   >=61 → 中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）
  * 为什么这里绝不用 ceil 到分钟：照抄运营端 waitDurationText 那种把 60→1 分、600→10 分粗化到整档，
  * 会让 600→541 这九分钟里读数一动不动——那正是本条任务线一直在打的「静止读数冒充剩余时间」。
  * 先判 Number.isFinite 与 >0 再 Math.ceil：顺序反了会把 0.4 抬成「1s」而不是降级成不带数。
  * 返回空串代表「这一处不该出数」，由调用方（coolingFullText / cooldownPillText）的无效降级分支处理。
+ *
+ * 【分档线为什么刻意落在「60 不算分钟」】（F-38.3：上一版把线画在 <60，依据的那句前提是错的）：
+ * 会落到模板短标签里的读数并非恒 <60s——后端 429 不带 data.retryAfterSeconds 时，
+ * retrySecondsOf 回落到调用方带来的该页档位，而登录页那把就是 LOGIN_LOCK_SECONDS = 60（主理人端六页的
+ * RETRY_FALLBACK_SECONDS 同为 60）。线画在 <60 时，同一个 60 在同一屏印成两副面孔：模板裸插「60s后可重试」，
+ * pill 函数「1 分 00 秒后可重试」——用户读出两个形状、实际是同一把锁的同一秒。把 60 归进紧凑档后，
+ * 回落那一格在两处逐字同形，换算区只剩 >=61。
+ * 代价如实登记：倒计时从 61「1 分 01 秒」走到 60 会换一次形态（变成「60s」）。
+ * 换的只是**制式**不是读数——数值始终单调递减，不会停也不会跳回去；
+ * 相比之下「同一个数在同屏有两种读法」更难读，那才是本条任务线一直在打的病。
  */
 function formatCoolingSeconds(seconds) {
   const n = Number(seconds)
   if (!Number.isFinite(n) || n <= 0) return ''
   const c = Math.ceil(n)
-  if (c < 60) return c + COOLING_UNIT        // COOLING_UNIT='s' 是全端唯一单位字面量，<60 支仍走它，别删
+  if (c <= 60) return c + COOLING_UNIT        // COOLING_UNIT='s' 是全端唯一单位字面量，<=60 支仍走它，别删
   return Math.floor(c / 60) + ' 分 ' + String(c % 60).padStart(2, '0') + ' 秒'
 }
 
@@ -333,7 +344,7 @@ export function coolingLeadText(label) {
 /**
  * FULL：归因 + 带数，本屏这一把锁的那一处数就由它出。seconds 拿不到真值（0/NaN/漏传）时自动降级成
  * coolingLeadText，调用方不必自己写三元——这样「不给数就不许念数」这条判据只有一处实现。
- * 带数那一支的时长读法（<60 → Ns、>=60 → N 分 MM 秒）由 formatCoolingSeconds 单点决定，本函数不自己拼单位。
+ * 带数那一支的时长读法（<=60 → Ns、>=61 → N 分 MM 秒）由 formatCoolingSeconds 单点决定，本函数不自己拼单位。
  */
 export function coolingFullText(label, seconds) {
   const n = Number(seconds)
@@ -345,7 +356,7 @@ export function coolingFullText(label, seconds) {
  * PILL：短式带数，只用于按钮/胶囊。归因由所在控件自己给（错误卡上一行的 lead、
  * 登录页的「登录」按钮、发码按钮的「获取验证码」），所以这一支刻意不带 label。
  * 无时长时回空串（调用点的模板分支本来就是「有锁才渲染这一支」，回空串比回一句谎话安全）。
- * 时长读法同 coolingFullText，由 formatCoolingSeconds 单点决定（<60 → Ns、>=60 → N 分 MM 秒）。
+ * 时长读法同 coolingFullText，由 formatCoolingSeconds 单点决定（<=60 → Ns、>=61 → N 分 MM 秒）。
  */
 export function cooldownPillText(seconds) {
   const n = Number(seconds)
