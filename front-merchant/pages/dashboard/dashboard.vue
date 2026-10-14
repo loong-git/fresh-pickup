@@ -431,7 +431,7 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 两道守卫缺一不可（照 pickup-plan.vue:350-367）：
+    // 两道守卫缺一不可（照 pickup-plan.vue 的 onPageWheel）：
     // ① 栈顶守卫：监听挂在 document 上，而 navigateTo 不触发上一页 onUnload —— 进别的页后本页 handler
     //    仍挂着，两份 handler 同时驱动 body.scrollTop 会让滚轮一次滚两倍。
     // ② 弹层放行：modal/toast（回工作台的确认、限流提示）打开时滚轮该归弹层，不能 preventDefault 去滚背景。

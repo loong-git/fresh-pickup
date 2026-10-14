@@ -183,13 +183,13 @@ export function retryAfterText(data) {
  *   绝不碰同屏那句后端原文（「用户名或密码错误」）。三种失败在服务端本就是同一句（D-5 防枚举），
  *   页面不许把它改写成「已连续输错 5 次」这类暴露锁定条件的说法。
  * @param {unknown} seconds 后端给的剩余秒数（可为字符串数字 / null / 非数）
- * @returns {string} 「N 秒」/「约 M 分钟」/ ''
+ * @returns {string} 「N 秒」/「大约 M 分钟」/ ''
  */
 export function waitDurationText(seconds) {
   const n = Number(seconds)
   if (!Number.isFinite(n) || n <= 0) return ''
   if (n < 60) return n + ' 秒'
-  return '约 ' + Math.ceil(n / 60) + ' 分钟'
+  return '大约 ' + Math.ceil(n / 60) + ' 分钟'
 }
 
 /**
@@ -281,7 +281,7 @@ export function adminLogin(username, password) {
  * {orderCount:number, totalAmount:string 两位小数, pendingPickupCount:number, paidAmount:string 两位小数}。
  * ⚠ 空数据日回的是四个 0（0 / "0.00" / 0 / "0.00"），**不是 null**（F-20.10 实测）。
  * ⚠ 后端**不回显 date**（出参没有第五个键），所以页面的口径文案只能标「服务端 CURDATE()」或用户选定值，
- *   见 Overview.vue 的 captionOf——这一项与 F-20.11「后端回显」的措辞不符，已按实况处理。
+ *   见 Overview.vue 的 scopeText——这一项与 F-20.11「后端回显」的措辞不符，已按实况处理。
  * 脏 date（非 YYYY-MM-DD / 假日期）→ 400；限流 IP 30/60 → 429。
  * @param {string} [date] 空值不下发（服务端按 CURDATE() 聚合今日）
  */

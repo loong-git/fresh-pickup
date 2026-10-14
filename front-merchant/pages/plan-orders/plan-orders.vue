@@ -213,7 +213,7 @@ export default {
     this.date = this.isValidDateStr(raw) ? raw : ''
   },
   onShow() {
-    // X-4：429 冷却期内这一路静默跳过（判据逐字照 marketing.vue:221 / dashboard.vue:259 的 onShow；
+    // X-4：429 冷却期内这一路静默跳过（判据逐字照 marketing.vue / dashboard.vue 的 onShow；
     // 回页不是用户的点击，且这一路的错误卡在手时倒计时行本来就在屏上）。
     // 闸门放在最前面，_resetScrollTop 也一并别置——不重拉就不该有「拉到第一页后回顶」的待办
     if (this.retryLock > 0) return
