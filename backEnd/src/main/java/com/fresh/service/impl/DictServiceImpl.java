@@ -76,7 +76,7 @@ public class DictServiceImpl implements DictService {
         return cached == null ? List.of() : cached;
     }
 
-    /** 调上游拉取词条并归一化；任何失败转为业务异常（500 兜底由全局异常处理器输出，前端降级 FALLBACK） */
+    /** 调上游拉取词条并归一化；任何失败转为业务异常（BizException(String) 单参默认 R.CODE_BAD_REQUEST，经全局异常处理器对外输出 code=400，前端降级 FALLBACK） */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private List<Map<String, Object>> fetchFromUpstream(Integer categoryId) {
         String url = baseUrl + "/merchant/items?categoryId=" + categoryId;
