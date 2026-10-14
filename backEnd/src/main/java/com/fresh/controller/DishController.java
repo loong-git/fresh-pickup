@@ -13,9 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 商品接口（匿名可读，权限矩阵见 AuthInterceptor）。
@@ -30,16 +28,14 @@ public class DishController {
 
     /**
      * 商品列表：category（字典 11 类 code）与 keyword（名称模糊）可独立可组合（T-M3-02/T-M3-12）。
+     * F-42b 收信封：手工 Map → R.ok(list)；原顶层 total（=list.size()，零信息量）一并去掉，
+     * data 仍是数组本体（不包成 {list,total}，否则 C 端 decorateDishListResponse 的
+     * Array.isArray(res.data) 判据失效）。
      */
     @GetMapping
-    public Map<String, Object> getDishes(@RequestParam(required = false) String category,
-                                         @RequestParam(required = false) String keyword) {
-        List<Dish> list = dishService.getDishes(category, keyword);
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("data", list);
-        result.put("total", list.size());
-        return result;
+    public R<List<Dish>> getDishes(@RequestParam(required = false) String category,
+                                   @RequestParam(required = false) String keyword) {
+        return R.ok(dishService.getDishes(category, keyword));
     }
 
     /**
@@ -57,17 +53,17 @@ public class DishController {
         return R.ok(dishService.recommend(userId, excludeId, limit));
     }
 
+    /**
+     * 菜品详情（F-42b 收信封）：成功支 R.ok(dish)；不存在支走 R 的 404 工厂 R.fail(CODE_NOT_FOUND, ...)，
+     * 与 401/403/429/500 同一条信封构造路径 —— 出参显式带 data:null（不是缺键），见 R 的字段声明顺序
+     * 与 f28 门禁「401 仍显式带 data:null（不是缺键）」同源判据。
+     */
     @GetMapping("/{id}")
-    public Map<String, Object> getDishDetail(@PathVariable Long id) {
+    public R<Dish> getDishDetail(@PathVariable Long id) {
         Dish dish = dishService.getDishById(id);
-        Map<String, Object> result = new HashMap<>();
         if (dish != null) {
-            result.put("code", 200);
-            result.put("data", dish);
-        } else {
-            result.put("code", 404);
-            result.put("message", "菜品不存在");
+            return R.ok(dish);
         }
-        return result;
+        return R.fail(R.CODE_NOT_FOUND, "菜品不存在");
     }
 }

@@ -247,7 +247,7 @@ function handleEnvelope(res, resolve, reject) {
  */
 // 第二参不合法时的硬保守值：全仓 @RateLimit 的 windowSeconds 最长就是 60 秒这一档（48 处挂载点里 47 处为 60，
 // 见 MerchantDishController / OrderController / DictController 等），另有 1 处 10 秒——
-// ReviewController.java:46 的评价提交（limit = 1, windowSeconds = 10），没有比 60 更长的档。
+// ReviewController.java 的 addReview（limit = 1, windowSeconds = 10），没有比 60 更长的档。
 // 兜到 60 ＝按全仓最长档起闸，是最保守的那个值（原注「实测只有 60 一档」事实错，F-28.1/X-11 订正；结论不变）
 const RETRY_GATE_MIN_SECONDS = 60
 
