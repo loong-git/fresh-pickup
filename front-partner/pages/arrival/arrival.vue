@@ -143,7 +143,7 @@ const RETRY_FALLBACK_SECONDS = 60
 // coolingText 唯一实现上提在 api 层（与 retrySecondsOf 同层、同先例），
 // 带数支只读实时闸门，无参支就是 X-3 起锁点那句不带数的整句
 
-// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js 的 retrySecondsOf，
 // 本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。

@@ -1024,7 +1024,7 @@ export default {
     scrollToField(sel) {
       // #ifdef H5
       // index.html 锁死 html,body overflow:hidden，本页滚动容器是 document.body（onPageWheel 同口径），
-      // uni.pageScrollTo 滚的是 window，这里会静默无效——照 free.vue:897-917 用 scrollIntoView
+      // uni.pageScrollTo 滚的是 window，这里会静默无效——照 front/pages/free/free.vue 的 scrollToGoods 用 scrollIntoView
       try {
         const el = typeof document !== 'undefined' && typeof document.querySelector === 'function'
           ? document.querySelector(sel)

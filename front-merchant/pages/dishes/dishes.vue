@@ -537,7 +537,7 @@ export default {
       return merchantFileUrl(u)
     },
     onImgFail(id) {
-      // 整体替换而不是 this.imgFail[id]=true：Vue3 下新增键能触发响应，但沿用 C 端 index.vue:770 的写法，
+      // 整体替换而不是 this.imgFail[id]=true：Vue3 下新增键能触发响应，但沿用 C 端 front/pages/index/index.vue 的 onImgFail 写法，
       // 两端同一姿势便于对照
       this.imgFail = { ...this.imgFail, [id]: true }
     },
@@ -549,7 +549,7 @@ export default {
       // 字典里查不到的 code（脏值/历史分类）原样展示，不替后端猜中文名
       return hit ? hit.name : (code || '未分类')
     },
-    // 价格两位小数（与 C 端 index.vue:774 fmtPrice 同口径，同一份数据两端显示不一致会被当成数据问题）
+    // 价格两位小数（与 C 端 front/pages/index/index.vue 的 fmtPrice 同口径，同一份数据两端显示不一致会被当成数据问题）
     fmtPrice(v) {
       const n = Number(v)
       return Number.isFinite(n) ? n.toFixed(2) : '0.00'
@@ -581,7 +581,7 @@ export default {
     //    进编辑页后本页 handler 仍挂着，两个 handler 同时驱动 body.scrollTop。实测编辑页单次
     //    deltaY=100 滚了 +223（对照组深链直达只有 +100），就是这一份叠加。
     // ② 弹层放行（FEA-6）：弹层打开时滚轮该归弹层，不该 preventDefault 后去滚背景。
-    //    选择器集合在母版 front/pages/mine/mine.vue:626-632 的基础上，额外加本工程才有的
+    //    选择器集合在母版 front/pages/mine/mine.vue 的 onPageWheel 基础上，额外加本工程才有的
     //    .uni-picker-container —— 本页的类目下拉是 picker，它打开时背景被滚走等于「弹层里滚不动、页面却在滚」
     onPageWheel(e) {
       // getCurrentPages 在卸载竞态下可能拿不到栈（api 层 goLoginPage 同样做了守卫），拿不到就不接管滚动，

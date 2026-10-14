@@ -139,7 +139,7 @@ const APPLY_PAGE = '/pages/apply/apply'
 // 不是回速（回速远小于窗口），两个数不是一回事，别混成一个值。
 const RETRY_FALLBACK_SECONDS = 60
 
-// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js 的 retrySecondsOf，
 // 页内私有副本已删；本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 网络异常/信封不可解析时 data 为 null，走上面的本地回落。
@@ -350,7 +350,7 @@ export default {
     // GET /api/partner/stores 的四条分支（三分支 + 限流）：
     // - 200 且数组非空 → 名下有店 → reLaunch 工作台（多店也进同一个工作台，切换归 Step 6/7）
     // - 200 但数组为空 → 后端集合为空时直接回 403（走不到这里），仍按「无店」渲染引导态、绝不放行：
-    //   这是防契约漂移的兜底闸，与母版 front-merchant/pages/workspace/workspace.vue:201-202「不放水」同口径（F-25/P-4 重测）
+    //   这是防契约漂移的兜底闸，与母版 front-merchant/pages/workspace/workspace.vue:207 那道闸（管的是「已有 token 却拿到没有角色的空响应，也不当 ready 放行」）同口径（F-25/P-4 重测）
     // - 403（token 有效但名下无店）→ 渲染引导态 + 透出后端原文，停在登录页，不清登录态也不跳工作台
     // - 401（token 失效）→ 请求层 rejectUnauthorized 已清 partner_token 并回登录页，本页清态停留让用户重登
     // - 429（USER 30 次/分撞限流）→ 人话文案 + retryLock 秒级冷却，不当成「无店」误判
