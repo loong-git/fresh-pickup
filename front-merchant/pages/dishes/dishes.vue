@@ -373,12 +373,16 @@ export default {
       this.stopCatRetryLock()
       const n = Number(backendRetryAfterSeconds)
       const fromBackend = Number.isFinite(n) && n > 0
+      // 判有效性在前、取整在后（与 api/index.js 的 retrySecondsOf、dish-edit.vue 的 categoryBackendSeconds 同形）：
+      // 后端 RateLimitInterceptor#retryAfterSeconds 返回 long、实测恒为整数秒，这层 Math.ceil 不改变今天任何
+      // 用户可见读数——它只是把三份实现的取整口径对齐，防未来某天下发小数秒时本页读到小数。属防御性统一，不是修 bug。
+      const secs = fromBackend ? Math.ceil(n) : 0
       // 回落值 60 ＝保守上限＝窗口长度（DictController.java:28 字典档是 IP 10 次/60 秒），
       // 不是回速：同一档配 Refill.greedy，实测回速 6 秒 —— 回落时这一闸门会多白拦 54 秒，
       // 但拿不到后端真值时宁可保守，也不能报一个假的短数让商家连点续桶
-      this.catRetryLock = fromBackend ? n : CATEGORY_RETRY_FALLBACK_SECONDS
+      this.catRetryLock = fromBackend ? secs : CATEGORY_RETRY_FALLBACK_SECONDS
       // 只有这一枚起点来自后端，categoriesHint 才允许把它渲染成「（Ns）」的等待时长
-      this.catRetryBackendSeconds = fromBackend ? n : 0
+      this.catRetryBackendSeconds = secs
       this.catRetryLockTimer = setInterval(() => {
         this.catRetryLock--
         if (this.catRetryLock <= 0) this.stopCatRetryLock()

@@ -316,6 +316,10 @@ export default {
       // categoriesHint 只在它 > 0 时才把数印进括号——闸门两种来源都要起，但「等待时长」这个读数
       // 只能转述后端给的，不能把窗口长度 60 冒充成它（X-7 后半，与列表页 catRetryBackendSeconds 同口径）
       categoryRetryBackendSeconds: 0,
+      // 类目锁的**实时剩余秒数**（响应式）：由既有 tickWriteGates 每秒从墙上时钟锚点 _categoryRetryAt 现算后写入，
+      // categoriesHint 报的就是这一枚（不再是起闸那一刻的死值）。与 categoryRetryBackendSeconds 并存、各司其职：
+      // 后者是「这轮闸门确实转述自后端 data.retryAfterSeconds」的判据（决定要不要出数），前者是出出来的那个会走的数。
+      categoryRetrySeconds: 0,
       // 编辑态库存：currentStock 只信服务端返回值（详情出参 / 调整接口返回的真实库存），页内不做加减估算
       currentStock: null,
       stockDelta: '',
@@ -336,16 +340,17 @@ export default {
     categoriesHint() {
       if (this.categoriesDegraded) {
         // 429 与「上游不可达」是两种成因，给的话不一样：前者让商家等（稍后再点），后者不怪商家（内置分类照常用）
-        // X-7 后半：闸门既然按后端真值起，就要把那一个数印进括号（列表页 dishes.vue 的 categoriesHint 同口径）。
-        // 只在 categoryRetryBackendSeconds > 0（＝闸门时长确实转述自 data.retryAfterSeconds）时出数字，
-        // 回落态一个数都不出——那是窗口长度不是等待时长（F-24.0 裁定 B-1a）。
-        // 与列表页的差别只在数值口径：那一页印的是实时剩余秒数（catRetryLock 每秒自减），本页这枚闸门按 FB-3
-        // 保持时间戳形态，印的是「这一轮闸门多长」——同一枚后端真值、同一把锁，且剩余只会 ≤ 它，不多催一次点击。
+        // X-7 后半 + 本轮实时化：闸门既按后端真值起，hint 就印那个数的**实时剩余**（与列表页 dishes.vue 的
+        // categoriesHint 同一口径）。判据仍看 categoryRetryBackendSeconds > 0（＝这一轮闸门确实转述自后端
+        // data.retryAfterSeconds），回落态一个数都不出——那是窗口长度不是等待时长（F-24.0 裁定 B-1a）；
+        // 出数时取的是 categoryRetrySeconds，不是起闸那一刻的死值：它由 tickWriteGates 每秒从 _categoryRetryAt
+        // 现算，等 30 秒再看就是「类目请求太频繁，30s后可重试」而不是冻在 60（改前本页印死值、与列表页实时值
+        // 逐字同句却不动，正是本条要修的「静止读数冒充剩余时间」）。
         // 本屏这一把锁只在这一处报数（X-5 判据），retryCategories 被拦时那句 toast 刻意不带数。
         // F-28.5 路 B：出数那一支从括号制「（Ns）」改成 api 层 FULL 形，与列表页同类目锁同句式、同锁名
         if (this.categoriesRateLimited) {
           return this.categoryRetryBackendSeconds > 0
-            ? coolingFullText(COOLING_LABEL_CATEGORY, this.categoryRetryBackendSeconds)
+            ? coolingFullText(COOLING_LABEL_CATEGORY, this.categoryRetrySeconds)
             : coolingLeadText(COOLING_LABEL_CATEGORY)
         }
         return '类目字典暂不可用，当前为内置分类，点击重试'
@@ -453,11 +458,14 @@ export default {
     // 否则下一实例的点击侧会读到上一实例的数字——口径同下面那两行 _categoryRetryAt / _categoryRetryGapMs
     this.stopWriteGatesTimer()
     this.resetWriteGates()
-    // 类目重试冷却用的是时间戳（没有 setInterval 要清），这里只把残留值置空。
+    // 类目重试冷却用的是时间戳（没有单独的 setInterval 要清；tick 表已在上面那一对里摘掉），这里只把残留值置空。
     // _categoryRetryGapMs（FB-3 的闸门时长）一并清：留脏值会让下一实例的点击侧起闸用到上一实例的数字
-    // （X-7 新加的 categoryRetryBackendSeconds 是响应式 data，随实例一起销毁，不必在这里清）
+    // （X-7 新加的 categoryRetryBackendSeconds 与本轮实时化新增的 categoryRetrySeconds 都是响应式 data，
+    // 随实例一起销毁，本不必在这里清；categoryRetrySeconds 一并归零只为与 _categoryRetryAt 那两行成对，
+    // 不让残留在同一实例生命周期内被别处读到）
     this._categoryRetryAt = 0
     this._categoryRetryGapMs = 0
+    this.categoryRetrySeconds = 0
   },
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
@@ -551,7 +559,15 @@ export default {
         if (g.seconds > 0) live++
         else g.retryAt = 0
       })
-      // 三把全到期就自己摘表：留一枚每秒空转的 interval 会一直触发重渲染
+      // 类目字典锁的实时剩余也由这一枚 interval 驱动（复用 tickWriteGates，不另起第二枚 setInterval）：
+      // 锚点 _categoryRetryAt 是墙上时钟值，抗 H5 后台标签页把 interval 压到远慢于 1 秒（口径同写侧锚点）。
+      // 只要它未到期（>0）就**必须计入 live**——漏掉 live 是本处头号风险：三把写闸门先归零会把 interval 摘掉，
+      // 类目读数从此冻在最后一次 tick 上，正是本任务线在打的「静止读数冒充剩余时间」。
+      if (this._categoryRetryAt > 0) {
+        this.categoryRetrySeconds = Math.max(0, Math.ceil((this._categoryRetryAt - Date.now()) / 1000))
+        if (this.categoryRetrySeconds > 0) live++
+      }
+      // 三把写闸门 + 类目锁全到期就自己摘表：留一枚每秒空转的 interval 会一直触发重渲染
       if (!live) this.stopWriteGatesTimer()
     },
     stopWriteGatesTimer() {
@@ -643,11 +659,17 @@ export default {
         // 这一枚真值导出，屏上那个数与拦点击的那把锁永远同源（后端没给时它是 0：闸门照起、括号里不印数）
         if (res && res.degraded) {
           this.categoryRetryBackendSeconds = categoryBackendSeconds(res)
+          // 起闸瞬间把实时剩余置为后端给的那枚整轮时长（tickWriteGates 随后每秒从 _categoryRetryAt 覆盖它）；
+          // 起闸这一行保证 hint 在第一次 tick 到来前也不会闪 0（「数从 60 开始往下走」而不是「从 0 往上跳」）
+          this.categoryRetrySeconds = this.categoryRetryBackendSeconds
           this._categoryRetryGapMs = categoryRetryGapMs(res)
         }
         // || 兜的是「降级出参没带值且此前从未降级过」这种空档，防 now + undefined = NaN 让闸门失效
         if (this.categoriesRateLimited) {
           this._categoryRetryAt = Date.now() + (this._categoryRetryGapMs || CATEGORY_RETRY_GAP_FALLBACK_MS)
+          // 类目锁起闸时保证 tickWriteGates 的 interval 在跑（口径同 startWriteGate 里的「没有表就起一张」）：
+          // 这是复用同一枚 writeGatesTimer，不是新建第二枚 setInterval；三把写闸门与类目锁共此一张表。
+          if (!this.writeGatesTimer) this.writeGatesTimer = setInterval(() => this.tickWriteGates(), 1000)
         }
         this.categoriesError = ''
         this.syncCategoryIndex()
