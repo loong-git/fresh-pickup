@@ -18,8 +18,13 @@
     <!-- 日志目录：优先读 log.path 配置（命令行参数或环境变量 LOG_PATH），缺省 ./logs -->
     <springProperty scope="context" name="LOG_PATH" source="log.path" defaultValue="./logs"/>
 
-    <!-- 日志格式：时间 [线程] 级别 logger - 消息 -->
-    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"/>
+    <!-- 日志格式：时间 [线程] [traceId] 级别 logger - 消息
+         F-42a ①（T-M1-02 DoD③）：%X{traceId} 由 common/TraceIdFilter 注入 MDC，
+         这样「一条对外响应」能凭响应头 X-Trace-Id 在日志里对上它的堆栈行。
+         两个 appender（CONSOLE 与 FILE）都取本 LOG_PATTERN，故改这一行即同时覆盖控制台与文件，
+         下方滚动策略（按天 + 50MB + .gz + 14 天 + 2GB）一字未动。
+         非 HTTP 线程（如 @Scheduled 调度）无 traceId，该位显示为空 []。 -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{50} - %msg%n"/>
 
     <!-- 控制台输出（仅 dev profile 挂载，便于 mvn spring-boot:run 实时看日志） -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">

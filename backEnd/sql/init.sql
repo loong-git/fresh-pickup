@@ -118,7 +118,7 @@ CREATE TABLE orders (
     store_id          BIGINT        NULL                        COMMENT '自提点ID（T-M4-01，下单入参可选，快照来源）',
     store_name        VARCHAR(100)  NULL                        COMMENT '自提点名称快照（T-M4-01，下单时按 storeId 查 store 落库）',
     store_address     VARCHAR(255)  NULL                        COMMENT '自提点地址快照（T-M4-01，下单时按 storeId 查 store 落库）',
-    pay_status        TINYINT       NOT NULL    DEFAULT 0        COMMENT '支付状态（T-M2-05）：0未支付/1已支付',
+    pay_status        TINYINT       NOT NULL    DEFAULT 0        COMMENT '支付状态（T-M2-05）：0未支付/1已支付/2已退款（2 由「已支付单被取消」写入，用户端 OrderServiceImpl#restockAfterCancel 与管理端 AdminServiceImpl#updateOrderStatus 同口径走条件 UPDATE 1→2。退款时间不单设列，orders 表无 refund_time，退款时刻由 update_time 隐含）',
     pay_time          DATETIME      NULL                        COMMENT '支付时间（T-M2-05）',
     pickup_code       CHAR(6)       NULL                        COMMENT '取货码（G-04/m17，M-12）：6 位数字全局唯一，支付置态事务内生成（D-3）；存量已支付待自提单按 sha2(id+盐) 派生回填（D-2）；核销成功后不清空，幂等判定依据；NULL=未支付或已取消',
     PRIMARY KEY (id),
