@@ -194,7 +194,7 @@ public class AdminController {
      *       {@code AdminServiceImpl#auditActor} 沿用既有 {@code admin:<key 摘要 8>}，逐字与从前相同，
      *       摘要算法因此保持全仓一处真源，不在本类再复制一份 SHA-256）；
      *       <b>运营 JWT 轨传 {@code admin_user:<id>}</b>（id 就是 {@link #activeAdminId} 查库确认过 active 的那枚，
-     *       与 {@code AdminAuthServiceImpl:293} 登录审计用的同一枚拼法）。
+     *       与 {@code AdminAuthServiceImpl#AUDIT_ACTION_LOGIN} 登录审计用的同一枚拼法）。
      *       两个取值都不含密钥明文、口令、token（RD）。</li>
      * </ul>
      */

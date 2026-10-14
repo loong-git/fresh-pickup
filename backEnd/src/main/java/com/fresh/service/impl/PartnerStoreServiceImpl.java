@@ -61,7 +61,7 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
     /** 门店联系电话形态：与申请侧同一条规则（StoreApplyServiceImpl#PHONE_PATTERN），两处都是各自端点的入参契约 */
     private static final Pattern PHONE_PATTERN = Pattern.compile("^1[3-9]\\d{9}$");
 
-    /** date 形状闸门（照 PartnerOrderServiceImpl:55 的写法），形状过了再交 LocalDate 裁决真日期 */
+    /** date 形状闸门（照 {@code PartnerOrderServiceImpl#DATE_PATTERN} 的写法），形状过了再交 LocalDate 裁决真日期 */
     private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
     /** accepting 取值域（m18 列是 TINYINT NOT NULL DEFAULT 1；0=临时满容/休市，与 status 的 open/closed 正交） */

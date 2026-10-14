@@ -538,7 +538,7 @@ export function confirmArrival(id) {
 
 // ==================== 入驻申请（F-18.12 第 1/2 条，挂 /api/store-applies 而非 /api/partner/**） ====================
 // D-20：申请阶段名下还没有店，而 /api/partner/ 的闸门是「登录 + 归属集合非空」，会把入口自己锁死；
-// 故这两条只要登录、role=user 也能用（AuthInterceptor:237-238 的登录段）。
+// 故这两条只要登录、role=user 也能用（`AuthInterceptor#requiresLogin` 的 /api/partner/ 段）。
 // 这也正是登录页 403 分支存在的理由：名下无店的账号能拿到 token、能调这两条，只是进不了工作台。
 
 /**

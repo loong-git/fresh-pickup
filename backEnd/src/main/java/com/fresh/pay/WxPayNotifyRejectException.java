@@ -124,7 +124,7 @@ public class WxPayNotifyRejectException extends RuntimeException {
         ORDER_AMOUNT_UNCOMPARABLE,
         /** {@code :234}：通知金额与订单应付不等额（400） */
         AMOUNT_MISMATCH,
-        /** {@code WxPayNotifyService#settleInTransaction:274}：结算接缝内部异常（500，微信重投后走幂等收敛） */
+        /** {@code WxPayNotifyService#settleInTransaction}：结算接缝内部异常（500，微信重投后走幂等收敛） */
         SETTLEMENT_FAILED
     }
 }
