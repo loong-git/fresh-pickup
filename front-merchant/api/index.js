@@ -270,9 +270,11 @@ export function retrySecondsOf(err, fallbackSeconds) {
  * 改前商家端同一个 429 有五种说法（「点得太快了，稍后再刷新」／「操作过于频繁，请 Ns 后再试」／
  * 「X请求太频繁，Ns后可重试」／「X请求太频繁，稍后再点重试（Ns）」括号制／「X请求太频繁，请稍后再试」），
  * 都不骗人，但验收方读不出这是同一条规则。这里收成一个句式、三种形态：
- *   FULL  coolingFullText(label, seconds) → 「<label>请求太频繁，<N>s后可重试」  归因 + 带数
+ *   FULL  coolingFullText(label, seconds) → 「<label>请求太频繁，<时长>后可重试」  归因 + 带数
  *   LEAD  coolingLeadText(label)          → 「<label>请求太频繁，稍后再点重试」  归因 + 不带数
- *   PILL  cooldownPillText(seconds)       → 「<N>s后可重试」 / resendPillText → 「<N>s后重发」
+ *   PILL  cooldownPillText(seconds)       → 「<时长>后可重试」 / resendPillText → 「<N>s后重发」
+ *         <时长> 由 formatCoolingSeconds 出：<60 是紧凑 `Ns`、>=60 是中文「N 分 MM 秒」；
+ *         resendPillText 刻意不接这套换算（见其函数注释），恒走 `<N>s`。
  *         只用在按钮/胶囊这类宽度受限、且**上一行就是同屏归因句**的位置（错误卡的 lead 已经点名是哪把锁）
  * 三种形态的分工正是 X-5 定稿判据的落地方式：同一把锁一屏只有一处带数（LEAD 与 PILL 各顶半边），
  * 而多把独立锁同屏时（dishes 页的商品列表锁 + 类目字典锁、dish-edit 页的保存/上传/库存/上下架四把写锁）
@@ -280,9 +282,12 @@ export function retrySecondsOf(err, fallbackSeconds) {
  * 母版沿用 dishes.vue 的 retryCoolingBlocked 与 pickup-plan/plan-orders/dashboard 三页同形的那条 toast，
  * 逐字不动（改前它们已经是这个句式了），本页族里其余四种说法全部并进来。
  *
- * 单位：全端只有 `s` 一种。理由：①X-8 的定稿就是「单位统一到 s」，模板与既有 toast 已是 s 制；
- * ②商家端实测「秒」只活在注释里（见 logs/scratch49 的单位探针读数），改成中文「秒」反而要动 17 处；
- * ③toast 与按钮里的时长要短，`5s后可重试` 比 `5 秒后可重试` 少两个字符宽，不撑破 .error-retry 胶囊。
+ * 单位：分两套制式，由 formatCoolingSeconds 单点分叉（改这一处即可整体调整时长读法）：
+ * ①<60 秒走紧凑 `Ns`——沿用全端唯一单位字面量 COOLING_UNIT，与改前逐字节一致（X-8「单位统一到 s」的定稿，
+ *   toast 与按钮里的时长要短，`5s后可重试` 比 `5 秒后可重试` 少两个字符宽，不撑破 .error-retry 胶囊）；
+ * ②>=60 秒换算成中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）。
+ *   这一支刻意不再用 ceil 到分钟的粗化——照抄运营端 waitDurationText 那种会把 600→541 九分钟冻成一个读数，
+ *   正是本条任务线在打的「静止读数冒充剩余时间」。
  * 括号制「（Ns）」是第三种形态，本批消灭：它把时长放在句尾括号里，读不出和「后可重试」是同一条规则。
  *
  * 数值来源纪律（本文件红线，与 retrySecondsOf 同一条）：这些函数**只做字符串生成**，
@@ -301,6 +306,23 @@ function coolingSkeleton(label) {
 }
 
 /**
+ * 时长格式化（<60 与 >=60 两套制式的唯一分叉口，判有效性在前、取整在后）：
+ *   <60 → 紧凑 `Ns`（沿用全端唯一单位字面量 COOLING_UNIT，与改前逐字节一致）
+ *   >=60 → 中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）
+ * 为什么这里绝不用 ceil 到分钟：照抄运营端 waitDurationText 那种把 60→1 分、600→10 分粗化到整档，
+ * 会让 600→541 这九分钟里读数一动不动——那正是本条任务线一直在打的「静止读数冒充剩余时间」。
+ * 先判 Number.isFinite 与 >0 再 Math.ceil：顺序反了会把 0.4 抬成「1s」而不是降级成不带数。
+ * 返回空串代表「这一处不该出数」，由调用方（coolingFullText / cooldownPillText）的无效降级分支处理。
+ */
+function formatCoolingSeconds(seconds) {
+  const n = Number(seconds)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  const c = Math.ceil(n)
+  if (c < 60) return c + COOLING_UNIT        // COOLING_UNIT='s' 是全端唯一单位字面量，<60 支仍走它，别删
+  return Math.floor(c / 60) + ' 分 ' + String(c % 60).padStart(2, '0') + ' 秒'
+}
+
+/**
  * LEAD：归因 + 不带数。用在「同屏已有一处带数」的那一半（错误卡主文案、被拦 toast 的无真值态、
  * 类目提示行的回落态——回落值是给闸门用的窗口长度，不是能念给用户的等待时长，一个数都不出）。
  */
@@ -311,27 +333,31 @@ export function coolingLeadText(label) {
 /**
  * FULL：归因 + 带数，本屏这一把锁的那一处数就由它出。seconds 拿不到真值（0/NaN/漏传）时自动降级成
  * coolingLeadText，调用方不必自己写三元——这样「不给数就不许念数」这条判据只有一处实现。
+ * 带数那一支的时长读法（<60 → Ns、>=60 → N 分 MM 秒）由 formatCoolingSeconds 单点决定，本函数不自己拼单位。
  */
 export function coolingFullText(label, seconds) {
   const n = Number(seconds)
   if (!Number.isFinite(n) || n <= 0) return coolingLeadText(label)
-  return coolingSkeleton(label) + n + COOLING_UNIT + COOLING_SUFFIX
+  return coolingSkeleton(label) + formatCoolingSeconds(n) + COOLING_SUFFIX
 }
 
 /**
  * PILL：短式带数，只用于按钮/胶囊。归因由所在控件自己给（错误卡上一行的 lead、
  * 登录页的「登录」按钮、发码按钮的「获取验证码」），所以这一支刻意不带 label。
  * 无时长时回空串（调用点的模板分支本来就是「有锁才渲染这一支」，回空串比回一句谎话安全）。
+ * 时长读法同 coolingFullText，由 formatCoolingSeconds 单点决定（<60 → Ns、>=60 → N 分 MM 秒）。
  */
 export function cooldownPillText(seconds) {
   const n = Number(seconds)
   if (!Number.isFinite(n) || n <= 0) return ''
-  return n + COOLING_UNIT + COOLING_SUFFIX
+  return formatCoolingSeconds(n) + COOLING_SUFFIX
 }
 
 /**
- * PILL 的「重发」变体：验证码那把锁报的是「什么时候能再要一条码」，动词必须是重发不是重试
- * （它的时长是 1 分钟 1 码的业务节奏，不是后端 retryAfterSeconds 的转述，两把锁别混）。
+ * PILL 的「重发」变体：验证码那把锁报的是「什么时候能再要一条码」，动词必须是重发不是重试。
+ * 它刻意不接 formatCoolingSeconds 那套时长换算——这一支报的是「1 分钟 1 码」的业务节奏，
+ * 不是后端 retryAfterSeconds 的限流等待剩余；接了会把 60 印成「1 分 00 秒后重发」，把业务规则说成倒计时。
+ * （与 cooldownPillText 的分工：那一支管限流冷却、走分秒换算；这一支管发码节奏、恒紧凑 Ns。）
  */
 export function resendPillText(seconds) {
   const n = Number(seconds)
