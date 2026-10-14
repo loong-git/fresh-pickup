@@ -10,8 +10,9 @@
 #      cp backEnd/target/fresh-server-1.0.0.jar /data/fresh/backEnd/
 #   3. 生产账号（推荐）：useradd -r -s /sbin/nologin fresh
 #      chown -R fresh:fresh /data/fresh   （并把下方 User=root 改为 User=fresh）
-#   4. 环境变量：修改下方 Environment= 占位值（DB_PASSWORD / JWT_SECRET / ADMIN_KEY）
-#      或改用 EnvironmentFile=/data/fresh/backEnd/fresh.env 集中管理（权限 600）
+#   4. 环境变量：修改下方 Environment= 占位值（DB_PASSWORD / JWT_SECRET / ADMIN_KEY）。
+#      应用实际读第四个变量 DICT_API_KEY（字典上游密钥），本 unit 故意不给占位值，见下方说明；
+#      也可改用 EnvironmentFile=/data/fresh/backEnd/fresh.env 集中管理（权限 600）
 #   5. cp deploy/fresh.service /etc/systemd/system/fresh.service
 #      systemctl daemon-reload
 #      systemctl enable --now fresh        # 开机自启 + 立即启动
@@ -53,6 +54,25 @@ WorkingDirectory=/data/fresh/backEnd
 Environment=DB_PASSWORD=replace-with-real-db-password
 Environment=JWT_SECRET=replace-with-strong-random-secret
 Environment=ADMIN_KEY=replace-with-admin-key
+
+# ---- 第四个变量 DICT_API_KEY（字典上游密钥）：本 unit 故意不给占位值，因为漏了它没有任何启动期信号 ----
+# 前三个漏了会怎样见上面（守卫拒起 / token 可伪造 / 连不上库）。DICT_API_KEY 不一样：application.yml 的
+# dict.api-key: ${DICT_API_KEY:} 有默认值（空串），注入照常完成、进程健康、页面不白屏（前端降级到内置
+# FALLBACK 词表），只是后台维护的词条（dish_category / coupon_template / kingkong_entry / service_tags）
+# 在线上永远拿不到 —— 表现等同于「字典功能没做」，而没人会报错。
+# 写法二选一：Environment=DICT_API_KEY=<真实密钥>，或写进 EnvironmentFile=/data/fresh/backEnd/fresh.env。
+#   若走 EnvironmentFile，上面三行同名 Environment= 占位值必须一并删净——同名键 Environment= 与
+#   EnvironmentFile= 谁覆盖谁取决于 systemd 版本语义，留着占位行有「文件注入被占位值盖掉」的风险。
+# 部署后自证只能看这一条（别看页面，页面在失败时也一样正常）：
+#   curl -s 'http://127.0.0.1:3001/api/dict?group=dish_category'
+#   code=0 且 data 非空 = 通了。code=400 + message="字典服务暂时不可用，请稍后重试" = 没通，
+#   但它**不区分成因**——三种成因对外是同一个响应，必须按日志里的 err= 分诊（每失败请求一行，
+#   DictServiceImpl 只打异常类名，不透出 key/URL）：
+#     grep '字典上游拉取失败' /data/fresh/logs/fresh.log | tail -1
+#     err=ResourceAccessException  → 网络/域名不通，与 key 无关（本仓 dev 实测当前即此支）
+#     err=HttpClientErrorException → 连上了但被上游拒（4xx，多为 key 没注入或不对）
+#     err=IllegalStateException    → 上游通了，但返回结构异常或词条为空
+#   注意该端点限流 10 次/分钟/IP，连测别超，否则 429 会被误读成「还是没通」。
 
 # java -jar 方式启动（推荐）：显式 prod profile；日志目录通过 --log.path 传给 logback-spring.xml
 ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /data/fresh/backEnd/fresh-server-1.0.0.jar --spring.profiles.active=prod --log.path=/data/fresh/logs
