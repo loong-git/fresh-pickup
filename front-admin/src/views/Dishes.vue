@@ -167,7 +167,7 @@
 // 商品管理（F-20.22 Step 5b-2 四页之一）：
 //   列表 = GET /api/admin/v2/dishes（5b-1 交付；merchantId/onSale/category 三个精确等值筛选，无关键字搜索）
 //   写   = PUT /api/admin/dishes/{id}，body {price?, stock?, onSale?}（AdminController 旧面，运营 JWT 第二轨）
-// 本页最要紧的一条实况：<b>stock 是直接置值，不是在当前值上累加</b>（AdminServiceImpl:180-190 用的是
+// 本页最要紧的一条实况：<b>stock 是直接置值，不是在当前值上累加</b>（`AdminServiceImpl#updateDish` 用的是
 // LambdaUpdateWrapper#set，不是 increaseStock），所以表单标题、确认文案两处都要把这层写明白，
 // 否则运营按「补库存」的直觉填 10，会把 50 库存改成 10。
 // 一期只改不建：Admin 面没有「新建商品」端点（F-20.17 事实 3 附注），本页不提供，也不是漏做。

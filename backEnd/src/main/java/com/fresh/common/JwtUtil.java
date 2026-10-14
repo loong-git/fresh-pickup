@@ -89,7 +89,7 @@ public class JwtUtil {
      * <p><b>为什么必须带 typ 而不能只靠 subject</b>：{@code user.id} 与 {@code admin_user.id} 都是 BIGINT 自增、
      * 从 1 起，小 id 必然并存——只看 subject 等于让 C 端 token 冒充同数值运营账号（07 册 G-06 范围⑧写死的理由，D-6）。
      * 所以判定侧永远是三件套：{@code typ=admin} claim + 查 {@code admin_user} 存在 + {@code status=active}
-     * （读取侧见 {@code AdminController#activeAdminId}），反向隔离见 {@code AuthInterceptor:66-72}。
+     * （读取侧见 {@code AdminController#activeAdminId}），反向隔离见 {@code AuthInterceptor#preHandle}（typ=admin 一律拒那一段）。
      *
      * <p>{@code uname} 只是给人看的可读名（排障/界面），<b>不参与任何权限判定</b>；
      * {@code role=admin} 是给未来「按角色授权」留的位，本期判定不读它（判定只认 typ + 查库）。

@@ -21,7 +21,7 @@ import java.util.List;
 /**
  * 支付成功结算接缝（F-21.3 Step 1 / D-21-1）：本工程里「支付成功」这件事的**唯一落点**。
  *
- * 来源与时序（逻辑逐字搬自 MockPayService:66-95，未作任何行为改写）：
+ * 来源与时序（逻辑逐字搬自 {@code MockPayService#payResult} 的支付成功分支，未作任何行为改写）：
  * 条件置态 pay_status=0→1（+ pay_time）→ 明细累加 sold_count → 取货码挂载并回写内存 order →
  * 邀请新人挂钩 → 日志；updated==0 分支只回读返回、不重复任何副作用。
  * 调用方：{@link MockPayService#payResult}（mock 渠道，现网唯一支付通道）与 FreeServiceImpl:249
@@ -68,7 +68,7 @@ public class PaymentSettlement {
     }
 
     /**
-     * 结算一笔支付成功（原 MockPayService:66-95 整段）。
+     * 结算一笔支付成功（原 {@code MockPayService#payResult} 里的支付成功整段）。
      *
      * @param order   调用方已加载并校验过（本人 / 未支付 / 未取消）的订单行
      * @param payTime 支付成功时间：方法入口先归一到整秒（{@code truncatedTo(ChronoUnit.SECONDS)}），
