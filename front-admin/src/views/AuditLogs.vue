@@ -1,21 +1,28 @@
 <template>
   <div class="page">
     <!-- FE-G6-10（读写可辨）：本页只读（它记录的是**别人的**写动作，自己一个写端点都不调）。
-         常驻徽标与写页同一套形态；下句「Admin 侧写动作的留痕」说的是记录对象，不是本页行为。 -->
+         常驻徽标与写页同一套形态；下句「……写动作的留痕」说的是记录对象，不是本页行为。
+         F-45 订正：这一句原先写的是「Admin 侧写动作」，与事实不符——admin_audit_log 里也有商家侧的行，
+         MerchantDishServiceImpl:166/263/310/333 与 MerchantServiceImpl:166/175 走的正是
+         AdminAuditLogMapper.insert 这一条通道（actor 前缀 merchant:<userId>）。
+         由这个事实得出一条用法约束：**按 action 筛会把两轨的行混在一起**（dish.update 两轨都写），
+         要认定「是谁做的」必须看 actor 列——所以下方的预设只给 actor 恒定那一枚配 actor，
+         其余预设给的 action 都是单轨的（实测清单见 script 段 QUICK_FILTERS 上方注释）。 -->
     <div class="page-head">
       <h2 class="page-title">审计记录</h2>
       <el-tag type="info" effect="plain" size="small" class="mode-badge">本页只读</el-tag>
     </div>
     <p class="page-note">
-      Admin 侧写动作的留痕（谁、做了什么、对哪一条），按 id 倒序分页；服务端手写 LIMIT/OFFSET + 独立 COUNT。<br />
+      Admin 与商家侧写动作的留痕（谁、做了什么、对哪一条），按 id 倒序分页；服务端手写 LIMIT/OFFSET + 独立 COUNT。<br />
       可用「操作者 / 动作 / 目标类型 / 目标 ID」四个筛选，<b>均为精确等值（不是模糊搜索），且不区分大小写</b>；
-      「目标 ID」同样是精确等值。筛选后「共 N 条」与列表来自同一 WHERE 的独立 COUNT（同源，D-10）。
+      「目标 ID」同样是精确等值。筛选后「共 N 条」与列表来自同一 WHERE 的独立 COUNT（同源，D-10）。<br />
+      不想记字符串就用下方「常用筛选」——它只是把实测在用的 actor / action 填进上面这四个框，走的是同一次查询。
     </p>
 
     <!-- FE-G6-5：工具条住在状态块**之外**，与 Overview.vue 同构——
          loading / error / forbidden / ready 四种状态都保留筛选条，否则查询失败时
          运营连改筛选值的输入框都没有，只剩「重试」，只能拿同一个脏值反复撞 400。
-         loading 期间用既有的单值 viewState 把输入框与两个按钮置 disabled（不新增状态变量），
+         loading 期间用既有的单值 viewState 把输入框与查询/重置按钮置 disabled（不新增状态变量），
          但绝不从 DOM 卸载。表格 + 分页器仍只在 ready 态渲染（见下方 v-else）。
          F-20.16 四个精确等值筛选（文本输入即可，不引新组件）+ 重置。
          @change 在失焦/回车时触发（不是每次按键），配合下方 onFilterChange 把页码回第 1 页后重查；
@@ -36,6 +43,28 @@
       <el-button size="small" type="primary" :disabled="viewState === 'loading'" @click="onFilterChange">查询</el-button>
       <el-button size="small" :disabled="viewState === 'loading'" @click="onReset">重置</el-button>
     </div>
+
+    <!-- F-45「常用筛选」预设：F-44 把微信回调拒收写进了本表（每拒一条落一行），但本页此前只有四个手填框，
+         运营必须自己知道去填 system:wx-notify / pay.notify_reject 才查得到——功能等于没落地。这一排就是那个入口。
+         形态纪律：点一下只把 actor/action 写进**上面那四个既有输入框绑的同一个 filters**，再调既有的 onFilterChange()；
+         零第二套查询逻辑、零新状态变量、零新 api 函数（applyQuickFilter 是本文件内的普通函数，不发请求）。
+         预设值一律来自 backEnd 实测写入点（清单见 script 段 QUICK_FILTERS 上方），没照 javadoc 的举例造。
+         这一排也住在状态块**之外**（同 FE-G6-5）：400 之后运营要能立刻换一枚预设，而不是只剩「重试」。
+         disabled 条件与上方查询/重置逐字一致（loading 期间置灰、不卸载）。 -->
+    <div class="quick-filters">
+      <span class="quick-filters__label">常用筛选</span>
+      <el-button v-for="q in QUICK_FILTERS" :key="q.label" size="small"
+                 :disabled="viewState === 'loading'" @click="applyQuickFilter(q)">{{ q.label }}</el-button>
+    </div>
+    <!-- F-45 追责红线：actor 是 system:wx-notify 的那些行由平台自己写下（回调被拒那一刻没有任何人在场操作），
+         「看起来像有人做了这件事」的误读比没有这个入口更糟——这张表的用途之一就是事后追责。
+         所以选中这一枚（或手填同一个 actor）时把这句话摊开在页面上。
+         判据只看 filters.actor（既有那份筛选态），不新增状态变量；普通文档流一到两行（窄屏自然换行），
+         不做任何定位、不参与表格布局，绝不压到表格。 -->
+    <p v-if="filters.actor === SYSTEM_NOTIFY_ACTOR" class="quick-filters__note">
+      这类行的「操作者」是系统账号 <code>{{ SYSTEM_NOTIFY_ACTOR }}</code>（微信回调被拒时由服务端自己写下），
+      <b>不是某个运营人员做了这件事</b>。
+    </p>
 
     <div v-if="viewState === 'loading'" class="state-box">
       <div class="state-title">正在加载</div>
@@ -98,6 +127,8 @@
 // GET /api/admin/v2/audit-logs?pageNum=&pageSize=&actor=&action=&targetType=&targetId=
 // 出参 {list,total,pageNum,pageSize,filters}；行内恰七键 id/actor/action/targetType/targetId/detail/createdAt。
 // F-20.16 收 G-06 DoD ④：四个可选**精确等值**筛选（非模糊、不区分大小写），任一变化回第 1 页 + 沿用 FE-G6-3 在飞守卫。
+// F-45 起筛选条下面还有一排「常用筛选」预设——它是那四个框的**快捷填法**，不是第二条链路
+//   （预设只写 filters 既有的四个键 + 调既有 onFilterChange，见本段末尾 QUICK_FILTERS / applyQuickFilter）。
 // ⚠ 出参**没有 ip**（AdminAuditLogMapper 的 SELECT 连这一列都没查，RD 最小暴露）——
 //   表格里不许凭空加这一列，也不许从别处凑。
 // ⚠ pageSize 越界（0 / >100 / 负数）后端是 **400 而不是夹到边界**（F-20.10 追认），
@@ -123,13 +154,45 @@ const pageSize = ref(20)
 // 空串由请求层 withQuery 挡下、不下发 → 服务端按「该条件不生效」处理。
 const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 
+// ==================== F-45「常用筛选」预设（纯入口，不是第二条查询链路） ====================
+// 预设值取自 backEnd 里**真正会落 admin_audit_log** 的写入点，逐条实测（不是照 javadoc 举例造）：
+//   grep -rnE "writeAudit\(|NOTIFY_REJECT_ACTOR|private static final String ACTION" backEnd/src/main/java --include=*.java
+// 由该结果 + AdminAuthServiceImpl:152/321（AUDIT_ACTION_LOGIN='admin.login'、actor='admin_user:'+id）
+// 与四处落库点（row.setActor：AdminServiceImpl:521 / AdminAuthServiceImpl:360 /
+//  MerchantDishServiceImpl:433 / MerchantServiceImpl:249，全走同一个 AdminAuditLogMapper.insert）汇总，
+// 会落库的 action 实测共 12 个：
+//   Admin 轨 5 个（AdminServiceImpl:201/231/260/315/417）
+//     order.status / dish.update / review.audit / merchant.create / store_apply.audit
+//     ← actor = admin:<key 摘要 8>（静态密钥轨）或 admin_user:<id>（运营 JWT 轨，auditActor:626 归一）
+//   系统 1 个（AdminServiceImpl:444）  pay.notify_reject  ← actor = system:wx-notify（F-44，没有人在场）
+//   登录 1 个（AdminAuthServiceImpl:361）  admin.login     ← actor = admin_user:<id>
+//   商家轨 6 个（MerchantDishServiceImpl:166/263/310/333、MerchantServiceImpl:166/175）
+//     dish.create / dish.update / dish.stock / dish.onsale / merchant.profile / merchant.upload
+//     ← actor = merchant:<userId>
+// 选这四枚的理由（上限 4，按运营真要查的频率 + 单轨可追责性）：
+//   1) pay.notify_reject —— 本片的存在理由，actor 固定，配 actor 一起填才筛得准；
+//   2) admin.login —— 「谁登录过」，actor 是逐人变化的 admin_user:<id>，故只填 action、不填 actor；
+//   3) order.status / 4) store_apply.audit —— 只有 AdminServiceImpl 一处写入点（单轨，action 即足够定责）。
+// 没选 dish.update：它在 AdminServiceImpl:231 与 MerchantDishServiceImpl:263 各写一次，
+// 单给一枚 action 会把两轨的行混在一起，反而造出「谁改了菜品」的误读（页首注释同一件事）。
+// ⚠ 这四枚的字符全落在服务端 FILTER_PATTERN（^[A-Za-z0-9_.:-]{1,64}$，AdminV2ServiceImpl:99）内，
+//    且 audit-logs 面**没有值域白名单**（白名单只管 orders/reviews/dishes/store-applies 那几枚），
+//    所以填进去是「按值等值过滤」而不是「白名单外 400」。
+const SYSTEM_NOTIFY_ACTOR = 'system:wx-notify'
+const QUICK_FILTERS = [
+  { label: '微信回调拒收（系统）', actor: SYSTEM_NOTIFY_ACTOR, action: 'pay.notify_reject' },
+  { label: '运营登录', action: 'admin.login' },
+  { label: '改订单状态', action: 'order.status' },
+  { label: '门店入驻审核', action: 'store_apply.audit' }
+]
+
 // 各码的「下一步」文案：只给本层能确定的建议，不推断业务原因
 // FE-G6-6：400 有**两个**来源（分页越界 / 筛选值脏形状），服务端只回一枚 400、不说明是哪一类，
 // 所以这一条把两种因由**并列**写全，由运营自己逐项核对；前端不猜「到底是哪一个」（猜即编造），
 // 也不按 filters 是否为空来分支文案。
 const CODE_HINTS = {
   400: '请求参数不在允许范围内（分页与筛选两类都可能触发，服务端不说明是哪一类，请逐项核对）：'
-    + '分页 —— 页码从 1 起、每页只能选 10/20/50/100 四档；'
+    + '分页 —— 页码从 1 起，每页 1~100 条（服务端只验这个区间，本页只提供 10/20/50/100 四档）；'
     + '筛选值 —— 须为 1~64 个字符，且只含字母、数字、_ . : -，不模糊匹配、不带空格与通配符。',
   404: '审计查询接口没有可达（后端服务未起或路径已变），请确认后端在 3001 端口运行。',
   429: '读取过于频繁（服务端按来源 IP 限流 30 次/分），请稍候再翻页。'
@@ -210,6 +273,21 @@ function onReset() {
   load()
 }
 
+// F-45 预设按钮唯一的 handler：只做「把预设值写进既有那四个 filters 键」+ 调既有的 onFilterChange()。
+// 不发第二条请求、不新增请求参数、不碰 total/pageNum 的取值口径（回第 1 页由 onFilterChange 负责），
+// 所以预设与手填走的是**逐字同一条**查询路径（同一个 load、同一个在飞守卫、同一份 filters 真源）。
+// 逐字段赋值（照 onReset 同姿势）：保住 filters 这一份引用与四个 v-model 绑定不变。
+// 预设没给的字段一律清空——不清就会留着上一枚的 actor 与这一枚的 action 拼成一条谁也对不上的组合
+// （例如先点「微信回调拒收」再点「运营登录」，残留的 system:wx-notify 会让后者查出 0 行）。
+// 空串由请求层 withQuery 挡下、不下发，等价于「这一枚条件不生效」。
+function applyQuickFilter(preset) {
+  filters.value.actor = preset.actor || ''
+  filters.value.action = preset.action || ''
+  filters.value.targetType = preset.targetType || ''
+  filters.value.targetId = preset.targetId || ''
+  onFilterChange()
+}
+
 onMounted(() => {
   // 首屏这一行是必须的：viewState 初值 'loading' 只用于首屏渲染加载态占位，
   // 若原样进 load() 会被在飞守卫当成「已在飞」而永久早退（一次请求都不发、页面卡在「正在加载」）。
@@ -230,6 +308,41 @@ onMounted(() => {
 }
 .filter-input {
   width: 220px;
+}
+/* F-45「常用筛选」预设行：紧贴工具条下方，读成「辅助排」而不是第五个输入框——
+   12px 的引导标签 + 与上方输入框同族的 small 按钮，左侧一道细竖线把它与手填区划开但不再画框。
+   flex + gap 同 .toolbar，窄屏自动换行；整排零定位，绝不压到表格。 */
+.quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-left: 10px;
+  border-left: 2px solid #ebeef5;
+}
+.quick-filters__label {
+  color: #909399;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+/* F-45 系统事件那一句说明：短、普通文档流一到两行，靠左侧一道 warning 色竖线归到预设那一排。
+   颜色比正文低一档但刻意不淡（#7a5a12 配 #e6a23c 那道线）——这句话是防误读的，
+   淡到看不见就等于没写，而「有人做了这件事」的误读正是本条要挡住的。 */
+.quick-filters__note {
+  margin: 8px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid #e6a23c;
+  color: #7a5a12;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.quick-filters__note code {
+  padding: 0 4px;
+  background: #f5f7fa;
+  border-radius: 2px;
+  color: #606266;
+  font-size: 12px;
 }
 .table {
   background: #fff;
