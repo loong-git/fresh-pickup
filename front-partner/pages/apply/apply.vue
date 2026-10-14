@@ -174,7 +174,7 @@
 //    rejected → 状态卡显 auditRemark 并允许改后重提（会产生新申请行）；approved → 「已开通」+ 去工作台；
 //    无记录 → 空白表单。四态单值互斥 loading|error|empty|ready（empty 唯一来源是 approved 这个服务端事实），
 //    ready 内部再按 applyStatus 这个「服务端事实枚举」分可编辑/只读两支——它不是第二个布尔开关，
-//    与 workspace.vue:147-148 / verify.vue:138 的「不叠布尔」纪律不冲突（两处读数按 F-25/P-4 重测）；
+//    与 workspace.vue:147-148 / verify.vue:140 的「不叠布尔」纪律不冲突（后者是 ① 那条「四态单值互斥 loading|error|empty|ready」的页面纪律；两处读数按 F-25/P-4 重测）；
 // ② 坐标：库里 store_apply.lng/lat 存的是 GCJ-02 真源（init.sql:401-402），而 uni.getLocation 在 H5 端
 //    对 type:'gcj02' 并不做本地转换，而是把转换委托给地图 SDK（引证见 locatePosition 的注释）。
 //    本工程按 D-24 一期不配高德，那条路必然 reject，所以这里取 type:'wgs84'（原生返回、零 SDK 依赖）
@@ -393,7 +393,7 @@ export default {
         }
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 才起冷却锁（verify.vue:533 同判据，F-25/P-4 重测）：其余失败重试是有意义的，不该被秒数拦住
+        // 只有 429 才起冷却锁（同 verify.vue 的 fetchList 那一支，真身是 if (Number(e && e.code) === 429) this.startRetryLock(e)；F-25/P-4 重测）：其余失败重试是有意义的，不该被秒数拦住
         if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         this.viewState = 'error'
@@ -430,7 +430,7 @@ export default {
       this.applyStatus = 'none'
     },
     // 提交成功后的静默纠偏：只为把 createdAt/historyCount 这类本地拿不到的值对齐服务端。
-    // 这是一条静默通道（同 verify.vue:384-389 loadAlert 的纪律，F-25/P-4 重测）：失败不动四态、不清已有反馈、
+    // 这是一条静默通道（同 verify.vue 的 loadAlert 的纪律，F-25/P-4 重测）：失败不动四态、不清已有反馈、
     // 不起 toast——「已提交」这件事已经由 POST 的回包定死，这一趟没跑成不该把它说成失败
     async refreshMineQuiet() {
       if (this.retryLock > 0) return
@@ -866,7 +866,7 @@ export default {
 
 /* ==================== 4.2 提交卡 ==================== */
 .submit-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
-/* 常驻反馈四支：成功=主红底白字，失败=主红底，冷却=橙红（母版 verify.vue:740-745 同一档，F-25/P-4 重测） */
+/* 常驻反馈四支：成功=主红底白字，失败=主红底，冷却=橙红（母版 verify.vue 的 verify-feedback 那一族同一档，F-25/P-4 重测） */
 .apply-feedback { font-size: 28rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
 .apply-feedback-ok { color: #FFFFFF; background-color: #E02020; }
 .apply-feedback-neutral { color: #666666; background-color: #F5F5F5; }

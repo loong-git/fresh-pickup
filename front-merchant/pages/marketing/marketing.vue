@@ -368,7 +368,7 @@ export default {
     rowKey(prefix, id, i) {
       return (id === null || id === undefined || id === '') ? 'x' + prefix + i : prefix + id
     },
-    // 时间戳 -> HH:mm:ss（母版 workspace.vue:266-271 同款精度；脏值返回空串，模板随之隐藏这一行）。
+    // 时间戳 -> HH:mm:ss（母版 workspace.vue 的 formatClock 同款精度；脏值返回空串，模板随之隐藏这一行）。
     // 由原来的 HH:mm 改到秒（U-9/U-10）：同一分钟内两次进页时到分钟的串完全不变，
     // 「重拉确实发生过」这件事就看不出来了 —— 母版那句「资料刷新于」也是靠到秒才起作用的
     formatClock(ms) {

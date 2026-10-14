@@ -238,7 +238,7 @@ function handleEnvelope(res, resolve, reject) {
  *   运营登录防枚举锁定的剩余 TTL，上限 600 秒（LOGIN_FAIL_LOCK_TTL=10 分钟）；
  * - backEnd/src/main/java/com/fresh/service/impl/PartnerOrderServiceImpl.java:217 —— 核销枚举锁的剩余
  *   TTL，同为 600 秒封顶。
- * 为什么不能与 front-admin/src/api/index.js:146-151 的 retryAfterText 互换（两者只是长得像）：
+ * 为什么不能与 front-admin/src/api/index.js 的 retryAfterText 互换（两者只是长得像）：
  * retryAfterText 是纯文案转述，函数内零本地推算、拿不到就回空串闭嘴，服务的是「服务端约 N 秒后可再试」
  * 那一句；本函数服务的是闸门，必须永远交出一个能起闸的正数。两个方向拿错都会出事——
  * 拿 retryAfterText 替闸门：空串让 `retryLock > 0` 恒假，等于上面那条敞闸；

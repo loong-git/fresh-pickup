@@ -354,7 +354,7 @@ export default {
       return Object.keys(this.changedBody)
     },
     // 常驻反馈文案：cooling 一支的秒数读实时写侧闸门 writeRetryLock（存死的字符串会在冷却结束后仍写着「请 60s 后再试」），
-    // 起锁点存不带数字的整句（X-3，照 apply.vue:630）
+    // 起锁点存不带数字的整句（X-3，照 apply.vue 的 handleSubmitError 里 429 那一支）
     feedbackText() {
       if (!this.feedback) return ''
       if (this.feedback.tone === 'cooling') {
@@ -650,7 +650,7 @@ export default {
         return
       }
       if (code === 429) {
-        // X-3：起锁点存不带数字的整句（照 apply.vue:630），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
+        // X-3：起锁点存不带数字的整句（照 apply.vue 的 handleSubmitError 里 429 那一支），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
         // 免得归零后常驻行永久停在「请 Ns 后再试」（改前存 coolingText(seconds) 把数整句存死了）。
         // X-1：起写侧闸门 writeRetryLock——PUT /store 的冷却与 GET 读闸门互不覆盖。秒数仍只来自 retrySecondsOf。
         // FE-10 + F-28.5 路 A：不带数整句不再页内写死，与 coolingText 无参支同一出处（api 层一份）

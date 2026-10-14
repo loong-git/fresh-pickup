@@ -138,7 +138,7 @@
 // 主理人核销台（F-18.17 §2）：输 6 位取货码核销 + 今日待取清单。
 // 三条页面纪律（全部沿用已验收的母版，不新造第二套）：
 // ① 四态单值互斥 loading|error|empty|ready，只由「待取清单」那一次请求决定；
-// ② 冷却锁只在 code===429 起（plan-orders.vue:306 / dishes.vue:417 同判据，F-25/P-4 按商家端实况重测），其余失败重试是有意义的；
+// ② 冷却锁只在 code===429 起（同商家端母版 plan-orders.vue 的 fetchList 与 dishes.vue 的 loadDishes 里那两枚 429 起锁判据，F-25/P-4 按商家端实况重测），其余失败重试是有意义的；
 // ③ 所有请求走 @/api/index.js，页内零原生请求、零自拼 BASE_URL；归属由服务端从 token 解析（RF），
 //    本页不发任何 storeId 之外的归属入参。
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并回登录页）；
@@ -279,7 +279,7 @@ export default {
     // 页内秒数裸拼收进函数，让「页内裸拼 = 0」这条判据能一刀切，不必逐处论证档位）。
     // 模板调不到模块级 import——uni-app H5 的 Vue3 模板表达式只在组件实例作用域求值，
     // 所以这里挂一层纯转发 computed，与商家端 login.vue/dashboard.vue 的 cooldownPillText 用法同形。
-    // 输出与改前逐字相同：这把读侧闸门撞 USER 30 次 / 60 秒 + Refill.greedy 的桶（回速 2 秒），恒 ≤2s。
+    // 输出与改前逐字相同：这把读侧闸门有两支——真值支撞 USER 30 次 / 60 秒 + Refill.greedy（回速 ≤2），回落支正好 60（本页 RETRY_FALLBACK_SECONDS），两支都不越过含 60 的分档线。
     loadMorePillText() {
       return cooldownPillText(this.retryLock)
     }
@@ -371,7 +371,7 @@ export default {
           // FE-5：冷却秒数按后端 data.retryAfterSeconds 起（锁 10 分钟时本地就该冷却到锁解），
           // FE-10：文案与清单加载那一支同一句。
           // 冷却期内输入框仍可用，但提交不发请求（上面那道闸门）
-          // X-3：起锁点存不带数字的整句（照 apply.vue:630），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
+          // X-3：起锁点存不带数字的整句（照 apply.vue 的 handleSubmitError 里 429 那一支），冷却秒数只由 feedbackText 读实时 writeRetryLock 那一处出，
           // 免得归零后常驻行永久停在「请 Ns 后再试」（改前这里存 coolingText(seconds)，把数整句存死了）。
           // X-1：起写侧闸门 writeRetryLock——这是 D-14 防枚举锁的前端闸门，读侧冷却（retryLock）再动也碰不到它。
           // FE-10 + F-28.5 路 A：不带数整句不再页内写死，与 coolingText 无参支同一出处（api 层一份）
@@ -686,7 +686,7 @@ export default {
     showUnpaid(it) {
       return !!(it && it.payStatus != null && Number(it.payStatus) === 0 && it.status !== 'cancelled')
     },
-    // ==================== 429 冷却（照 plan-orders.vue:452-463 同款；F-25/P-3 起入参是错误对象） ====================
+    // ==================== 429 冷却（照 plan-orders.vue 的 startRetryLock / stopRetryLock 那一对同款；F-25/P-3 起入参是错误对象） ====================
     // 只在 code===429 起（页面纪律 ②）：调用点全部在 catch 里判过码，这里不重复判、也不接受别的来源
     // X-1 拆锁：startRetryLock/stopRetryLock 只管读侧闸门 retryLock（fetchList 撞 orders 读桶）；
     // 写侧闸门另有 startWriteRetryLock/stopWriteRetryLock 一对，两把锁互不覆盖。
