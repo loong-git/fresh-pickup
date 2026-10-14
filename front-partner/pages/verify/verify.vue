@@ -124,7 +124,7 @@
       <view class="load-more">
         <button v-if="hasMore" class="btn-more" :class="{ 'btn-more-cooling': retryLock > 0 }"
           :disabled="loadingMore || retryLock > 0" @click="loadMore">
-          <text>{{ retryLock > 0 ? retryLock + 's后可重试' : (loadingMore ? '加载中…' : '加载更多') }}</text>
+          <text>{{ retryLock > 0 ? loadMorePillText : (loadingMore ? '加载中…' : '加载更多') }}</text>
         </button>
         <text v-else class="no-more">共 {{ shownTotal }} 条</text>
       </view>
@@ -144,7 +144,7 @@
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并回登录页）；
 // 403 = token 有效但名下无店，是确定性失败，给「回工作台」而不是重试。
 // 渲染不依赖 store：本页自持一份服务端最新值（workspace.vue 同款纪律）。
-import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals, getPartnerStores, retrySecondsOf, coolingText } from '@/api/index.js'
+import { getPartnerOrders, verifyPartnerOrder, getPartnerArrivals, getPartnerStores, retrySecondsOf, coolingText, cooldownPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -274,6 +274,14 @@ export default {
     // 重试有没有可能成功：只有 403（归属集合为空，重试必然还是同一枚错误）判死并给「回工作台」出口
     errorRetryable() {
       return this.errorCode !== 403
+    },
+    // 「加载更多」按钮冷却中的时长短式：句式生成在 api 层 cooldownPillText（本轮把这里那一处
+    // 页内秒数裸拼收进函数，让「页内裸拼 = 0」这条判据能一刀切，不必逐处论证档位）。
+    // 模板调不到模块级 import——uni-app H5 的 Vue3 模板表达式只在组件实例作用域求值，
+    // 所以这里挂一层纯转发 computed，与商家端 login.vue/dashboard.vue 的 cooldownPillText 用法同形。
+    // 输出与改前逐字相同：这把读侧闸门撞 USER 30 次 / 60 秒 + Refill.greedy 的桶（回速 2 秒），恒 ≤2s。
+    loadMorePillText() {
+      return cooldownPillText(this.retryLock)
     }
   },
   onShow() {

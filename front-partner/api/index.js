@@ -224,13 +224,42 @@ export function retrySecondsOf(err, fallbackSeconds) {
 }
 
 /**
+ * 模块内私有的秒数格式化（本文件唯一时长口径，不导出）——判有效性在前、取整在后：
+ * 顺序反了会把 0.4 先抬成 1 再当有效值念出「1s」，而不是按「拿不到数」降级成不带数的那一支。
+ *   - 非有限数 / <=0 → 回空串（调用方据此降级，绝不许回 '0s' 这种谎话）
+ *   - <60 → 「Ns」拉丁紧凑制，与改前逐字同形（X-8 定稿的单位，一位小数都不多给）
+ *   - >=60 → 中文「N 分 M 秒」，秒位补零且**必须继续走**：撞 D-14 防枚举锁的 600 秒要能从
+ *            「10 分 00 秒」逐秒降到「9 分 59 秒」，粗化成「约 10 分钟」就成了一串静止读数，
+ *            用户看不出冷却在动，与「操作过于频繁，请 600s 后再试」一样难读——只是难在另一个方向。
+ * 单位分隔用空格（「1 分 05 秒」），与模板里 s 制的紧凑短标签在观感上同级，不额外加粗不撑行宽。
+ */
+function formatCoolingSeconds(seconds) {
+  const n = Number(seconds)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  const c = Math.ceil(n)
+  if (c < 60) return c + 's'
+  return Math.floor(c / 60) + ' 分 ' + String(c % 60).padStart(2, '0') + ' 秒'
+}
+
+/**
  * 429 / 锁定 冷却整句的唯一生成处——front-partner 内唯一实现（F-28.5 路 A 收敛，先例是同文件的 retrySecondsOf，
  * F-25 路把六份页内私有实现并成本层一份；本轮把 verify/store/arrival 各留的一份私有 coolingText 也并了进来）：
- * 六个页面（apply/arrival/login/store/verify/workspace）一律 import 本函数，页内不再留任何冷却句式。
+ * 六个页面（apply/arrival/login/store/verify/workspace）一律 import 本函数。
+ * 【本句口径的如实描述，替掉改前那句「页内不再留任何冷却句式」的过度声明】：
+ *   ① 整句（带「操作过于频繁」前缀的）已全数收在 api 层——六个页面里的每一处都调本函数，页内零裸拼整句；
+ *   ② 模板里的按钮/胶囊短标签 `{{ retryLock }}s后可重试` 一类**允许留在页内，前提只有一个**：
+ *      那把闸门的取值恒 `<60s`。桶档依据：这些读侧闸门撞的是 `@RateLimit(limit = 30, windowSeconds = 60)`
+ *      的令牌桶，后端用 Refill.greedy 补牌、取的是 NanosToWaitForRefill（回速 2 秒，远小于整窗），
+ *      所以 retryLock 恒 ≤2；而 formatCoolingSeconds 在 <60 区间的输出与那种裸插值逐字同形，收与不收无差。
+ *      本轮仍把 verify 页「加载更多」那一处收了进来，只为让「页内裸拼 = 0」这条判据能一刀切、不必逐处论证档位。
+ *   ③ 任何**可能 ≥60** 的闸门必须走 pill 函数，一秒钟都不许在页内裸拼：
+ *      写侧 writeRetryLock 撞 D-14 防枚举锁可达 600（后端 LOCK TTL 10 分钟），登录 loginLock 回落 60
+ *      ——这两把的裸插值会往屏上印「600s 后再试」，正是要治的病。
  * 句式与单位（X-8 裁定统一到拉丁「s」制：模板的闸门短标签「Ns后可重试」等本来就是 s 制，
  * 全端 s 制 22 处对「秒」制 1 处，改少数服从多数，也不去碰 sms 那句「Ns后重发」）：
- *   - 入参是有限正数 → 「操作过于频繁，请 Ns 后再试」（带数支）
- *   - 无参 / 非有限 / <=0 → 「操作过于频繁，请稍后再试」（不带数整句，即 X-3 起锁点母版那句的原样函数化）
+ *   - 入参是有限正数 → 「操作过于频繁，请 <时长> 后再试」（带数支；时长由 formatCoolingSeconds 换算，
+ *     <60 出「Ns」与改前逐字相同，>=60 出「N 分 M 秒」——本轮新增的那一半）
+ *   - 无参 / 非有限 / <=0 → 「操作过于频繁，请稍后再试」（不带数整句，即 X-3 起锁点母版那句的原样函数化，一字不动）
  * 两条纪律（调用处必须同时满足，否则就把 X-5 改成新 bug）：
  * ① 带数支只许读**实时闸门值**（writeRetryLock/retryLock 的当前值）——存死的带数整句会在冷却归零后仍挂在屏上；
  * ② 同一把锁在同一屏只允许一处带数，其余出现处一律走不带数支（无参调用），
@@ -239,7 +268,34 @@ export function retrySecondsOf(err, fallbackSeconds) {
  */
 export function coolingText(seconds) {
   const n = Number(seconds)
-  return '操作过于频繁，' + (Number.isFinite(n) && n > 0 ? '请 ' + n + 's 后再试' : '请稍后再试')
+  if (!Number.isFinite(n) || n <= 0) return '操作过于频繁，请稍后再试'
+  return '操作过于频繁，请 ' + formatCoolingSeconds(n) + ' 后再试'
+}
+
+/**
+ * 短式带数「后可重试」——按钮/胶囊那一支（与商家端 front-merchant/api/index.js 的 cooldownPillText 同职责同句式）。
+ * 归因由所在控件自己给（登录按钮自己就是「登录」，错误卡上一行已点名是哪把锁），所以刻意不带 label。
+ * 无真值（0/NaN/漏传）回 **空串**：调用点的模板分支本来就是「有锁才渲染这一支」，回空串比回一句谎话安全。
+ * 走 formatCoolingSeconds 是为了让 loginLock 回落到 60 那一刻出「1 分 00 秒后可重试」而不是「60s后可重试」；
+ * 而恒 <60 的那些闸门经此函数输出与改前裸插值逐字相同，所以本函数可以无差别地用在所有重试 pill 上。
+ */
+export function cooldownPillText(seconds) {
+  const t = formatCoolingSeconds(seconds)
+  return t === '' ? '' : t + '后可重试'
+}
+
+/**
+ * 短式带数「后重发」——验证码倒计时那一支（与商家端 resendPillText 同职责同句式）。
+ * 【刻意不接 formatCoolingSeconds】：smsCountdown 报的是「1 分钟 1 码」的**业务节奏**，
+ * 不是后端 retryAfterSeconds 的限流等待转述；接了就把 60 印成「1 分 00 秒后重发」，
+ * 把一条业务规则说成了一个正在走的倒计时——那是文案说谎，不是文案难看。
+ * 所以这里保留「判定在前、不取整」的原样：只认有限正数，输出 n + 's后重发'，无真值回空串。
+ * @param {number} seconds - 页内短信倒计时（定义处赋 60，setInterval 逐秒自减）
+ */
+export function resendPillText(seconds) {
+  const n = Number(seconds)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  return n + 's后重发'
 }
 
 /**

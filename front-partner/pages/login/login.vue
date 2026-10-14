@@ -76,10 +76,10 @@
             :class="{ 'btn-send-disabled': codeSending || smsCountdown > 0 }"
             :disabled="codeSending || smsCountdown > 0"
             @click="sendSmsCode"
-          ><text>{{ codeSending ? '发送中…' : (smsCountdown > 0 ? smsCountdown + 's后重发' : '获取验证码') }}</text></button>
+          ><text>{{ codeSending ? '发送中…' : (smsCountdown > 0 ? smsResendPillText : '获取验证码') }}</text></button>
         </view>
         <text class="form-hint">开发环境验证码固定为 123456</text>
-        <button class="btn-main" :class="{ 'btn-disabled': smsLogging || loginLock > 0 }" :disabled="smsLogging || loginLock > 0" @click="loginBySms"><text>{{ smsLogging ? '登录中…' : (loginLock > 0 ? loginLock + 's后可重试' : '登录') }}</text></button>
+        <button class="btn-main" :class="{ 'btn-disabled': smsLogging || loginLock > 0 }" :disabled="smsLogging || loginLock > 0" @click="loginBySms"><text>{{ smsLogging ? '登录中…' : (loginLock > 0 ? loginLockPillText : '登录') }}</text></button>
         <text class="form-hint form-hint-loose">未注册手机号验证通过后将自动注册（注册后可直接提交入驻申请；已由平台绑定自提点的账号才能进工作台）</text>
       </view>
 
@@ -105,7 +105,7 @@
             placeholder-style="color:#BBBBBB;"
           />
         </view>
-        <button class="btn-main" :class="{ 'btn-disabled': pwdLogging || loginLock > 0 }" :disabled="pwdLogging || loginLock > 0" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : (loginLock > 0 ? loginLock + 's后可重试' : '登录') }}</text></button>
+        <button class="btn-main" :class="{ 'btn-disabled': pwdLogging || loginLock > 0 }" :disabled="pwdLogging || loginLock > 0" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : (loginLock > 0 ? loginLockPillText : '登录') }}</text></button>
         <text class="form-hint form-hint-loose">未设置过密码的账号请用验证码登录</text>
       </view>
     </template>
@@ -125,7 +125,7 @@
 // 之类的 C 端启动链（主理人端无「默认自提点」概念，C-7 明令）。
 // redirect 回跳：母版本身就没实现（front-merchant/pages/login/login.vue:112 已注明「登录成功的唯一去处仍是 reLaunch 工作台」），
 // 本页保持同款——契约 §4 把 redirect 列为「照母版」的一项，母版没有即不补，见本轮回报的契约疑点。
-import { sendCode, login, loginPassword, getPartnerStores, retrySecondsOf, coolingText } from '@/api/index.js'
+import { sendCode, login, loginPassword, getPartnerStores, retrySecondsOf, coolingText, cooldownPillText, resendPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 登录成功后的唯一去处（工作台）与入驻申请页路由。
@@ -442,6 +442,24 @@ export default {
       document.body.scrollTop += e.deltaY
     }
     // #endif
+  },
+  // 两枚按钮上的时长短式：句式生成在 api 层的 cooldownPillText / resendPillText，本轮把页内三处裸拼
+  // （发码按钮的「Ns后重发」+ 两个 tab 登录按钮的「Ns后可重试」）收了进来。
+  // 为什么是 computed 而不是让模板直接调 import 进来的函数：uni-app H5（Vue3）的模板表达式只在组件
+  // 实例作用域求值，模块级 import 的名字在 <template> 里读不到——商家端登录页母版就是这套 computed 形状。
+  // 为什么这个块放在 methods 之后（母版把它放在 watch 之后）：workspace.vue 用行号指针点名了本页
+  // methods 里的 startRetryLock，插到它前面会让那枚指针漂；Vue 不关心 options 键的先后顺序。
+  // 数值一律不动：smsCountdown 仍是「1 分钟 1 码」的业务节奏，走 resendPillText（动词是重发不是重试）；
+  // loginLock 仍是 retrySecondsOf 转述的后端真值。两把锁各写在自己那一枚按钮上，控件本身就是归因。
+  // 读数变化只在 ≥60 那一档：loginLock 回落 60 时出「1 分 00 秒后可重试」（改前是「60s后可重试」）；
+  // <60 时两个函数的输出与改前的裸拼逐字相同，发码按钮仍是「60s后重发」。
+  computed: {
+    smsResendPillText() {
+      return resendPillText(this.smsCountdown)
+    },
+    loginLockPillText() {
+      return cooldownPillText(this.loginLock)
+    }
   }
 }
 </script>
