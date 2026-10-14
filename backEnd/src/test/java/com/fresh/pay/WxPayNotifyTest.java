@@ -4,25 +4,40 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.config.GlobalConfig;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.toolkit.GlobalConfigUtils;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.controller.PayController;
+import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
+import com.fresh.interceptor.RateLimitInterceptor;
+import com.fresh.mapper.AdminAuditLogMapper;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
+import com.fresh.pay.WxPayNotifyRejectException.RejectCode;
+import com.fresh.service.AdminService;
 import com.fresh.service.InviteService;
+import com.fresh.service.impl.AdminServiceImpl;
+import jakarta.servlet.http.HttpServletRequest;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
@@ -32,8 +47,11 @@ import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,6 +68,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -142,6 +161,18 @@ class WxPayNotifyTest {
 
     private PaymentSettlement settlement;
 
+    // —— F-44 拒收留痕的测试床（仍是离线：不起容器、不连库、不发网络，只把审计 mapper 换成 mock）——
+
+    /**
+     * 审计写入的假库：{@code AdminServiceImpl} 用真身（Jackson 转义、两趟兜底都是产品代码），
+     * 只有最末那枚 {@code AdminAuditLogMapper} 是 mock，插入动作被录进 {@link #auditRows} 供逐列断言。
+     */
+    private final AdminAuditLogMapper adminAuditLogMapper = mock(AdminAuditLogMapper.class);
+    private final List<AdminAuditLog> auditRows = new ArrayList<>();
+
+    /** detail 解析用（测试侧自己解析被测产物，不复用被测类的 mapper） */
+    private final ObjectMapper auditJson = new ObjectMapper();
+
     /** 测试实现：只认自造的那把平台公钥；序列号不认就抛（真实骨架实现恒抛未配置，同性质 → 端点必须回 5xx） */
     private final WxPayCertificateSource certificateSource = serial -> {
         if (!SERIAL.equals(serial)) {
@@ -172,8 +203,34 @@ class WxPayNotifyTest {
 
     @BeforeEach
     void setUp() {
+        freshFixture();
+    }
+
+    /** {@code RequestContextHolder} 是线程静态的：本类几条用例往里塞过假 request，收尾必须清干净 */
+    @AfterEach
+    void clearRequestContextHolder() {
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+    /**
+     * 把「一条拒收分支」跑干净所需的复位动作（F-44 抽出来复用）：
+     * 逐条驱动 18 条分支时，分支之间会互相污染（{@code dbRow} 的状态、{@code selectById} 的桩），
+     * 每条之前重放一次本方法即可隔离——语义与原来那个 {@code @BeforeEach} 逐字相同，
+     * 只是多了审计侧的复位（假库清空 + 请求上下文清空，后者防的是上一条用例留下的 IP 泄进下一条断言）。
+     */
+    private void freshFixture() {
+        // 复位必须显式 reset：上一条分支可能把 selectById/update 桩成了「一调就抛」，
+        // 而下面这些 when(...) 本身就要真调一次 mock —— 不 reset 就先被上一条的桩炸到（实测踩过）。
+        Mockito.reset(orderMapper, orderItemMapper, dishMapper, inviteService, adminAuditLogMapper);
         settlement = new PaymentSettlement(orderMapper, orderItemMapper, dishMapper, inviteService);
         dbRow = unpaidOrder(ORDER_ID, "15.00");
+        auditRows.clear();
+        RequestContextHolder.resetRequestAttributes();
+        // 审计假库：insert 动作录进 auditRows（返回值 1 只为了让 MyBatis-Plus 的回填不报错）
+        when(adminAuditLogMapper.insert(any(AdminAuditLog.class))).thenAnswer(inv -> {
+            auditRows.add(inv.getArgument(0));
+            return 1;
+        });
 
         when(orderMapper.selectById(any())).thenAnswer(inv -> ORDER_ID.equals(inv.getArgument(0)) ? dbRow : null);
         // 条件更新语义复刻（幂等的全部依据）：pay_status=0 才生效，二次进来影响行数 0
@@ -237,13 +294,42 @@ class WxPayNotifyTest {
     /**
      * controller 层装配（C-6）：Step 2b 往本类反射塞 5 个字段（2 枚配置 + 3 枚协作者），
      * 编排下沉后协作者归服务，controller 只剩 {@code notifyService} + 2 枚 {@code @Value} = 3 个字段。
+     * F-44 起多两枚：{@code adminService}（拒收留痕，真 {@code AdminServiceImpl} + mock 审计 mapper）与
+     * {@code trustProxy}（IP 口径开关，默认 false，与 application-dev.yml 的既有取值一致）。
      * HTTP 状态码断言仍留在这一层（映射层负责的就是状态码），判定层的口径另测（见 payTime 那组）。
      */
     private PayController controller(String mchid, String apiV3Key) {
+        return controller(mchid, apiV3Key, auditWritingService(), false);
+    }
+
+    /**
+     * 一枚「一调就抛」的 {@code AdminService}：专门用来证第 4 点——留痕挂了也不能改对外应答。
+     * 挂的是最外层那个公开方法（controller 唯一调的那一个），与它内部怎么写库无关。
+     */
+    private AdminService explodingAuditWriter() {
+        AdminService exploding = mock(AdminService.class);
+        doThrow(new IllegalStateException("审计写入器故意挂掉")).when(exploding)
+                .recordNotifyReject(any(), anyInt(), any(), any());
+        return exploding;
+    }
+
+    /**
+     * 真 {@code AdminServiceImpl}（不是 mock）：detail 的 Jackson 转义、两键形状、两趟兜底、
+     * {@code target_id} 的空白归一这些都必须测产品代码本身，mock 掉就等于测了自己的桩。
+     */
+    private AdminService auditWritingService() {
+        AdminServiceImpl service = new AdminServiceImpl();
+        ReflectionTestUtils.setField(service, "adminAuditLogMapper", adminAuditLogMapper);
+        return service;
+    }
+
+    private PayController controller(String mchid, String apiV3Key, AdminService adminService, boolean trustProxy) {
         PayController c = new PayController();
         ReflectionTestUtils.setField(c, "notifyService", service());
         ReflectionTestUtils.setField(c, "wxpayMchid", mchid);
         ReflectionTestUtils.setField(c, "wxpayApiV3Key", apiV3Key);
+        ReflectionTestUtils.setField(c, "adminService", adminService);
+        ReflectionTestUtils.setField(c, "trustProxy", trustProxy);
         return c;
     }
 
@@ -313,15 +399,29 @@ class WxPayNotifyTest {
     private Notification build(String outTradeNo, int amountFen, String tradeState,
                                String encryptKey, PrivateKey signingKey,
                                String successTimeField, String timestamp) throws Exception {
-        String transaction = "{\"appid\":\"wxtestappid000000000\",\"mchid\":\"" + MCHID + "\","
+        return signedNotification(transactionJson(outTradeNo, amountFen, tradeState, successTimeField),
+                timestamp, encryptKey, signingKey);
+    }
+
+    /** 业务报文（解密后的那一层）本体（F-44 抽出：两条分支要的是「报文形状」而不是「字段值」） */
+    private String transactionJson(String outTradeNo, int amountFen, String tradeState, String successTimeField) {
+        return "{\"appid\":\"wxtestappid000000000\",\"mchid\":\"" + MCHID + "\","
                 + "\"out_trade_no\":\"" + outTradeNo + "\","
                 + "\"transaction_id\":\"420000202610131006000001\","
                 + "\"trade_state\":\"" + tradeState + "\",\"trade_state_desc\":\"支付成功\","
                 + successTimeField
                 + "\"amount\":{\"total\":" + amountFen + ",\"payer_total\":" + amountFen + ",\"currency\":\"CNY\"},"
                 + "\"payer\":{\"openid\":\"o-test-openid\"}}";
+    }
+
+    /**
+     * 拿任意业务明文走一遍「加密 → 外层通知 → 平台私钥签名」：签名与报文始终自洽，测试只改明文本身。
+     * 外层 {@code id} 是固定测试标签（{@code WxPayNotifyService} 从不读它，读的是密文解出来的业务字段）。
+     */
+    private Notification signedNotification(String transaction, String timestamp,
+                                            String encryptKey, PrivateKey signingKey) throws Exception {
         String ciphertext = WxpayAead.encrypt(encryptKey, RESOURCE_NONCE, AAD, transaction);
-        String body = "{\"id\":\"test-notify-" + outTradeNo + "\","
+        String body = "{\"id\":\"test-notify-" + ORDER_ID + "\","
                 + "\"create_time\":\"2026-10-13T10:06:30+08:00\","
                 + "\"event_type\":\"TRANSACTION.SUCCESS\",\"resource_type\":\"transaction\",\"summary\":\"支付成功\","
                 + "\"resource\":{\"original_type\":\"transaction\",\"algorithm\":\"AEAD_AES_256_GCM\","
@@ -330,6 +430,26 @@ class WxPayNotifyTest {
         String signature = WxpaySignature.sign(
                 WxpaySignature.buildVerifyMessage(timestamp, RESOURCE_NONCE, body), signingKey);
         return new Notification(body, timestamp, RESOURCE_NONCE, signature, SERIAL);
+    }
+
+    /**
+     * 解密结果不是合法 JSON（{@code WxPayNotifyService:182} 那条分支）：
+     * 签名与加密都完全正常，只是明文是一句人话——「解密成功但取不出字段」只能这样造。
+     */
+    private Notification notificationWithUnparseablePlainText() throws Exception {
+        return signedNotification("这一段是合法密文解出来的明文，但不是 JSON",
+                currentTimestamp(), API_V3_KEY, platformKeyPair.getPrivate());
+    }
+
+    /**
+     * 缺 {@code amount.total}（{@code :199} 那条分支）：{@code amount} 对象还在、
+     * {@code payer_total}/{@code currency} 都还在，只少数值型 {@code total}——
+     * 这样造才证得了判定用的是 {@code isNumber()} 而不是「amount 缺失」。
+     */
+    private Notification notificationWithoutAmountTotal() throws Exception {
+        String transaction = transactionJson(ORDER_ID, CORRECT_FEN, "SUCCESS", DEFAULT_SUCCESS_TIME_FIELD)
+                .replace("\"total\":" + CORRECT_FEN + ",", "");
+        return signedNotification(transaction, currentTimestamp(), API_V3_KEY, platformKeyPair.getPrivate());
     }
 
     /** 调用服务层判定的样板（C-4 / C-1b 那两条直测 accept 的断言用，配置走方法入参） */
@@ -878,6 +998,464 @@ class WxPayNotifyTest {
                     present.annotationType().getName(),
                     "带上条件注解 = 默认 provider=mock 下按类型注入的 controller 起不来");
             assertNotEquals("ConditionalOnProperty", present.annotationType().getSimpleName());
+        }
+    }
+
+    // —— ⑯ F-44：拒收留痕（每条拒收分支恰好一行审计；detail 只有 code/httpStatus 两键）——
+
+    /** 一条拒收分支的驱动动作（可能抛 checked 异常：报文构造要签名/加密） */
+    private interface RejectBranchCall {
+        ResponseEntity<Map<String, String>> call() throws Exception;
+    }
+
+    /** 同一条分支换一枚审计写入器再打一遍（留痕挂没挂的对照用） */
+    private interface BranchOnAuditWriter {
+        ResponseEntity<Map<String, String>> run(AdminService auditWriter) throws Exception;
+    }
+
+    /** 分支用例：标签只进断言消息（人读），其余四项是应答表那一行 + 审计列的期望值 */
+    private record RejectBranchCase(String label, RejectCode expectedCode, HttpStatus expectedStatus,
+                                    String expectedMessage, String expectedTargetId, RejectBranchCall call) {
+    }
+
+    /**
+     * 18 条 {@code throw reject(...)} 分支各一条驱动动作，顺序与 {@code WxPayNotifyService#accept}
+     * 源码自上而下一致（{@code :108 :112 :122 :132 :138 :151 :157 :165 :175 :182 :190 :195 :199 :209 :215 :221 :230 :234}）。
+     * 结算包装那条（{@code settleInTransaction:274}）不在本表内，由
+     * {@link #settlementFailureRejectAlsoWritesExactlyOneAuditRow()} 单独驱动——
+     * 判据的分母是 {@code grep -c 'throw reject('} 实测的 <b>18</b>，把第 19 条塞进这张表会让「覆盖分支数 == N」失去意义。
+     */
+    private List<RejectBranchCase> rejectBranchCases() throws Exception {
+        Notification valid = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+        Notification forged = notification(ORDER_ID, CORRECT_FEN, "SUCCESS", API_V3_KEY, merchantKeyPair.getPrivate());
+        Notification wrongKeyCiphertext = notification(ORDER_ID, CORRECT_FEN, "SUCCESS",
+                WRONG_API_V3_KEY, platformKeyPair.getPrivate());
+        Notification staleTimestamp = notificationWithTimestamp(-301);
+        Notification epochlessTimestamp = notificationWithTimestamp("abc");
+        Notification otherOrder = notification(OTHER_ORDER_ID, CORRECT_FEN, "SUCCESS");
+        Notification tamperedAmount = notification(ORDER_ID, CORRECT_FEN + 1, "SUCCESS");
+        Notification notPaidState = notification(ORDER_ID, CORRECT_FEN, "NOTPAY");
+        Notification noAmountTotal = notificationWithoutAmountTotal();
+        Notification unparseablePlainText = notificationWithUnparseablePlainText();
+
+        // 「报文不是合法 JSON」这条在验签之前（判定顺序是安全属性），签名自不自洽都能走到，
+        // 但仍照既有那条用例的做法签一次，免得被误读成「畸形头就能打出 400」
+        String notJsonBody = "这一串根本不是 JSON";
+        String notJsonTimestamp = String.valueOf(Instant.now().getEpochSecond());
+        String notJsonSignature = WxpaySignature.sign(WxpaySignature.buildVerifyMessage(
+                notJsonTimestamp, RESOURCE_NONCE, notJsonBody), platformKeyPair.getPrivate());
+
+        // 「加密报文不合法」：换掉 algorithm 后必须重新签名，否则测到的是验签失败那条
+        String swappedAlgorithmBody = valid.body()
+                .replace("\"algorithm\":\"AEAD_AES_256_GCM\"", "\"algorithm\":\"AES_CBC\"");
+        String swappedAlgorithmSignature = WxpaySignature.sign(WxpaySignature.buildVerifyMessage(
+                valid.timestamp(), valid.nonce(), swappedAlgorithmBody), platformKeyPair.getPrivate());
+
+        return List.of(
+                new RejectBranchCase("01 mchid/api-v3-key 未配置", RejectCode.WX_PAY_NOT_CONFIGURED,
+                        HttpStatus.BAD_REQUEST, "微信支付未配置", ORDER_ID,
+                        () -> controller("", API_V3_KEY).wxNotify(ORDER_ID, valid.body(), valid.timestamp(),
+                                valid.nonce(), valid.signature(), valid.serial())),
+                new RejectBranchCase("02 验签头缺失", RejectCode.NOTIFY_HEADERS_MISSING,
+                        HttpStatus.BAD_REQUEST, "微信支付回调缺少验签头", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, valid.body(), valid.timestamp(), valid.nonce(),
+                                null, valid.serial())),
+                new RejectBranchCase("03 报文不是合法 JSON", RejectCode.NOTIFY_BODY_NOT_JSON,
+                        HttpStatus.BAD_REQUEST, "微信支付回调报文不合法", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, notJsonBody, notJsonTimestamp, RESOURCE_NONCE,
+                                notJsonSignature, SERIAL)),
+                new RejectBranchCase("04 平台证书取不到", RejectCode.PLATFORM_CERT_UNAVAILABLE,
+                        HttpStatus.SERVICE_UNAVAILABLE, "微信支付平台证书不可用", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, valid.body(), valid.timestamp(), valid.nonce(),
+                                valid.signature(), "SERIAL-NOT-CACHED")),
+                new RejectBranchCase("05 验签不通过", RejectCode.SIGNATURE_VERIFY_FAILED,
+                        HttpStatus.UNAUTHORIZED, "微信支付回调验签失败", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, forged.body(), forged.timestamp(), forged.nonce(),
+                                forged.signature(), forged.serial())),
+                new RejectBranchCase("06 时间戳不是秒级 epoch", RejectCode.TIMESTAMP_NOT_EPOCH,
+                        HttpStatus.BAD_REQUEST, "微信支付回调时间戳超出允许范围", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, epochlessTimestamp.body(),
+                                epochlessTimestamp.timestamp(), epochlessTimestamp.nonce(),
+                                epochlessTimestamp.signature(), epochlessTimestamp.serial())),
+                new RejectBranchCase("07 时间戳超出 300s 窗口", RejectCode.TIMESTAMP_OUT_OF_WINDOW,
+                        HttpStatus.BAD_REQUEST, "微信支付回调时间戳超出允许范围", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, staleTimestamp.body(), staleTimestamp.timestamp(),
+                                staleTimestamp.nonce(), staleTimestamp.signature(), staleTimestamp.serial())),
+                new RejectBranchCase("08 resource 加密信封不合法", RejectCode.RESOURCE_ENVELOPE_INVALID,
+                        HttpStatus.BAD_REQUEST, "微信支付回调加密报文不合法", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, swappedAlgorithmBody, valid.timestamp(),
+                                valid.nonce(), swappedAlgorithmSignature, valid.serial())),
+                new RejectBranchCase("09 AEAD 解密抛错", RejectCode.AEAD_DECRYPT_FAILED,
+                        HttpStatus.BAD_REQUEST, "微信支付回调解密失败", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, wrongKeyCiphertext.body(), wrongKeyCiphertext.timestamp(),
+                                wrongKeyCiphertext.nonce(), wrongKeyCiphertext.signature(), wrongKeyCiphertext.serial())),
+                new RejectBranchCase("10 解密结果不是合法 JSON", RejectCode.DECRYPTED_PAYLOAD_NOT_JSON,
+                        HttpStatus.BAD_REQUEST, "微信支付回调解密失败", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, unparseablePlainText.body(),
+                                unparseablePlainText.timestamp(), unparseablePlainText.nonce(),
+                                unparseablePlainText.signature(), unparseablePlainText.serial())),
+                new RejectBranchCase("11 out_trade_no 与路径不符", RejectCode.OUT_TRADE_NO_MISMATCH,
+                        HttpStatus.BAD_REQUEST, "微信支付回调订单号不匹配", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, otherOrder.body(), otherOrder.timestamp(),
+                                otherOrder.nonce(), otherOrder.signature(), otherOrder.serial())),
+                new RejectBranchCase("12 trade_state 非 SUCCESS", RejectCode.TRADE_STATE_NOT_SUCCESS,
+                        HttpStatus.BAD_REQUEST, "微信支付结果非成功状态", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, notPaidState.body(), notPaidState.timestamp(),
+                                notPaidState.nonce(), notPaidState.signature(), notPaidState.serial())),
+                new RejectBranchCase("13 报文缺 amount.total", RejectCode.AMOUNT_TOTAL_MISSING,
+                        HttpStatus.BAD_REQUEST, "微信支付回调缺少金额", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, noAmountTotal.body(), noAmountTotal.timestamp(),
+                                noAmountTotal.nonce(), noAmountTotal.signature(), noAmountTotal.serial())),
+                new RejectBranchCase("14 查单抛错（DB 抖动）", RejectCode.ORDER_LOOKUP_FAILED,
+                        HttpStatus.INTERNAL_SERVER_ERROR, "微信支付回调处理失败", ORDER_ID,
+                        () -> {
+                            when(orderMapper.selectById(any())).thenThrow(new QueryTimeoutException("数据库抖动"));
+                            return controller().wxNotify(ORDER_ID, valid.body(), valid.timestamp(),
+                                    valid.nonce(), valid.signature(), valid.serial());
+                        }),
+                new RejectBranchCase("15 查无此单", RejectCode.ORDER_NOT_FOUND,
+                        HttpStatus.NOT_FOUND, "订单不存在", OTHER_ORDER_ID,
+                        () -> controller().wxNotify(OTHER_ORDER_ID, otherOrder.body(), otherOrder.timestamp(),
+                                otherOrder.nonce(), otherOrder.signature(), otherOrder.serial())),
+                new RejectBranchCase("16 订单已取消", RejectCode.ORDER_CANCELLED,
+                        HttpStatus.BAD_REQUEST, "订单已取消，无法支付", ORDER_ID,
+                        () -> {
+                            dbRow.setStatus("cancelled");
+                            return controller().wxNotify(ORDER_ID, valid.body(), valid.timestamp(),
+                                    valid.nonce(), valid.signature(), valid.serial());
+                        }),
+                new RejectBranchCase("17 库内金额标度异常", RejectCode.ORDER_AMOUNT_UNCOMPARABLE,
+                        HttpStatus.INTERNAL_SERVER_ERROR, "订单金额无法比对", ORDER_ID,
+                        () -> {
+                            dbRow = unpaidOrder(ORDER_ID, "1.005");
+                            return controller().wxNotify(ORDER_ID, tamperedAmount.body(), tamperedAmount.timestamp(),
+                                    tamperedAmount.nonce(), tamperedAmount.signature(), tamperedAmount.serial());
+                        }),
+                new RejectBranchCase("18 通知金额与订单不符", RejectCode.AMOUNT_MISMATCH,
+                        HttpStatus.BAD_REQUEST, "微信支付回调金额与订单不符", ORDER_ID,
+                        () -> controller().wxNotify(ORDER_ID, tamperedAmount.body(), tamperedAmount.timestamp(),
+                                tamperedAmount.nonce(), tamperedAmount.signature(), tamperedAmount.serial())));
+    }
+
+    /**
+     * 判据主用例：<b>18 条拒收分支逐条驱动 → 每条恰好一行审计</b>，且
+     * {@code actor/action/target_type/target_id/detail/ip} 六列钉死、detail 只有两键、code 互不相同。
+     * 两个判据数（分支数 N 与覆盖分支数）都打印到 stdout（surefire 报告里可读）。
+     */
+    @Test
+    void everyRejectBranchProducesExactlyOneAuditRow() throws Exception {
+        List<RejectBranchCase> cases = rejectBranchCases();
+        System.out.println("F-44 判据读数：拒收分支数 N（grep -c 'throw reject(' 实测）= 18，本用例待驱动分支数 = "
+                + cases.size());
+
+        Set<String> distinctCodes = new LinkedHashSet<>();
+        List<String> allDetails = new ArrayList<>();
+        int coveredBranches = 0;
+
+        for (RejectBranchCase branchCase : cases) {
+            // 分支之间会互相污染（dbRow 的状态、selectById 的桩、上一条留下的审计行），逐条复位
+            freshFixture();
+            ResponseEntity<Map<String, String>> response = branchCase.call().call();
+
+            // (a) 对外契约一个字都没动：HTTP 码与文案仍是应答表那一行（留痕不许把它改成别的样子）
+            assertEquals(branchCase.expectedStatus().value(), response.getStatusCode().value(),
+                    branchCase.label() + " 的 HTTP 状态码");
+            assertFailBody(response, branchCase.expectedMessage());
+
+            // (b) 恰好一行审计——不多（写了两个 writer 就会是 2 行）不少（漏分支就是 0 行）
+            assertEquals(1, auditRows.size(),
+                    branchCase.label() + " 必须恰好产出一行审计，实际 " + auditRows.size() + " 行");
+            AdminAuditLog row = auditRows.get(0);
+            assertEquals("system:wx-notify", row.getActor(),
+                    branchCase.label() + "：actor 恒为 system:wx-notify，绝不带任何密钥摘要（本场景没有 key 参与）");
+            assertEquals("pay.notify_reject", row.getAction(), branchCase.label() + "：action 钉死");
+            assertEquals("order", row.getTargetType(), branchCase.label() + "：target_type 钉死");
+            assertEquals(branchCase.expectedTargetId(), row.getTargetId(),
+                    branchCase.label() + "：target_id 是路径上的订单号（NOT NULL 列，空串一律换成 '-'）");
+            assertNull(row.getIp(), "离线单测没有请求线程：ip 取不到就是 NULL，绝不为此编一个假 IP");
+
+            // (c) detail 只有两键，且值就是这一条分支自己的 code 与实际回出去的 HTTP 码
+            JsonNode detail = auditJson.readTree(row.getDetail());
+            Set<String> keys = new LinkedHashSet<>();
+            detail.fieldNames().forEachRemaining(keys::add);
+            assertEquals(Set.of("code", "httpStatus"), keys,
+                    branchCase.label() + " 的 detail 只允许 code/httpStatus 两键，实际 " + keys);
+            assertEquals(branchCase.expectedCode().name(), detail.get("code").asText(),
+                    branchCase.label() + " 的 code 必须是它自己那一枚");
+            assertTrue(detail.get("httpStatus").isNumber(),
+                    branchCase.label() + " 的 httpStatus 必须是 JSON 数字而不是字符串：" + row.getDetail());
+            assertEquals(branchCase.expectedStatus().value(), detail.get("httpStatus").asInt(),
+                    branchCase.label() + " 的 httpStatus 必须等于真实回出去的那个码");
+
+            distinctCodes.add(detail.get("code").asText());
+            allDetails.add(row.getDetail());
+            coveredBranches++;
+        }
+
+        System.out.println("F-44 判据读数：覆盖分支数 = " + coveredBranches + " / 分支数 N = 18，"
+                + "distinct code 数 = " + distinctCodes.size() + "，枚举总数 = " + RejectCode.values().length);
+
+        // (d) 判据本体：是「覆盖分支数 == N」，不是「我加了几个用例」
+        assertEquals(18, coveredBranches, "判据是覆盖分支数 == grep 实测的 18 条分支");
+        assertEquals(cases.size(), coveredBranches, "本表列了几条分支就必须驱动几条");
+        assertEquals(18, distinctCodes.size(), "同一个 code 不得被两条不同原因复用（18 条必须 18 枚）");
+        // 一一对应的另一半：枚举总数 = 18 条 accept 分支 + 结算包装那 1 条（多一枚少一枚都是红）
+        assertEquals(RejectCode.values().length, coveredBranches + 1,
+                "RejectCode 必须与拒收原因一一对应：18 条 accept 分支 + settleInTransaction 那 1 条");
+
+        // (e) 安全红线：detail 里不许出现报文原文、签名、密文、密钥、商户号、证书序列号、流水号、openid、金额
+        Notification leakProbe = notification(ORDER_ID, CORRECT_FEN + 1, "SUCCESS");
+        String ciphertext = auditJson.readTree(leakProbe.body()).path("resource").path("ciphertext").asText();
+        List<String> forbiddenFragments = List.of(API_V3_KEY, WRONG_API_V3_KEY, MCHID, SERIAL, RESOURCE_NONCE, AAD,
+                leakProbe.body(), leakProbe.signature(), ciphertext,
+                "420000202610131006000001", "o-test-openid", "wxtestappid000000000",
+                "out_trade_no", "trade_state", "amount", "1500", "1501", "15.00");
+        for (String detail : allDetails) {
+            for (String forbidden : forbiddenFragments) {
+                assertFalse(detail.contains(forbidden),
+                        "detail 里出现了敏感串「" + forbidden + "」：拒收原因天然带着报文/签名/金额，"
+                                + "这一列在运营端是原文可查的，落进去等于把回调链路又开了一个读接口。实际 " + detail);
+            }
+        }
+    }
+
+    /**
+     * 第 19 个抛出点（{@code settleInTransaction} 的结算包装）：同一条 catch 里也必须留痕，
+     * 且用的是它自己的 {@code SETTLEMENT_FAILED}——它与「查单失败」共用同一句文案和同一枚 500，
+     * code 不分开的话运营就永远分不清「钱还没入账」和「入账动作半态」。
+     */
+    @Test
+    void settlementFailureRejectAlsoWritesExactlyOneAuditRow() throws Exception {
+        when(orderMapper.update(isNull(), any())).thenThrow(new QueryTimeoutException("数据库抖动"));
+        Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+
+        ResponseEntity<Map<String, String>> response = post(ORDER_ID, n);
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR.value(), response.getStatusCode().value());
+        assertFailBody(response, "微信支付回调处理失败");
+        assertEquals(1, auditRows.size(), "结算失败也是拒收，必须恰好一行审计");
+        AdminAuditLog row = auditRows.get(0);
+        assertEquals("system:wx-notify", row.getActor());
+        assertEquals("pay.notify_reject", row.getAction());
+        assertEquals("order", row.getTargetType());
+        assertEquals(ORDER_ID, row.getTargetId());
+        JsonNode detail = auditJson.readTree(row.getDetail());
+        Set<String> keys = new LinkedHashSet<>();
+        detail.fieldNames().forEachRemaining(keys::add);
+        assertEquals(Set.of("code", "httpStatus"), keys, "结算失败那行的 detail 同样只许两键");
+        assertEquals("SETTLEMENT_FAILED", detail.get("code").asText());
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR.value(), detail.get("httpStatus").asInt());
+        // 与「查单失败」那枚 code 必须是两枚（两条原因同文案同状态码，靠 code 区分）
+        assertNotEquals("ORDER_LOOKUP_FAILED", detail.get("code").asText());
+    }
+
+    /**
+     * 路径订单号拿不到（空白/null）时 {@code target_id} 写 {@code '-'} 而不是空串：
+     * 该列 {@code VARCHAR(64) NOT NULL}，空串行插不进去（1048），宁留占位符也不能脱审。
+     */
+    @Test
+    void missingPathOrderIdIsAuditedWithDashPlaceholder() throws Exception {
+        Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+
+        // List.of 不许 null 元素，这里要的就是「拿不到订单号」的三种形态，含 null
+        for (String pathOrderId : java.util.Arrays.asList("", "   ", null)) {
+            auditRows.clear();
+            ResponseEntity<Map<String, String>> response = controller().wxNotify(
+                    pathOrderId, n.body(), n.timestamp(), n.nonce(), n.signature(), n.serial());
+
+            // 路径单号与 out_trade_no 不符 → 走的仍是拒收分支（不是 200、不是 500 崩掉）
+            assertFailBody(response, "微信支付回调订单号不匹配");
+            assertEquals(1, auditRows.size(), "路径订单号为「" + pathOrderId + "」时也必须留下一行审计");
+            AdminAuditLog row = auditRows.get(0);
+            assertEquals("-", row.getTargetId(), "拿不到订单号就写 '-'（列 NOT NULL，空串会让整行审计插不进去）");
+            assertNotEquals("", row.getTargetId(), "绝不允许空串");
+            JsonNode detail = auditJson.readTree(row.getDetail());
+            Set<String> keys = new LinkedHashSet<>();
+            detail.fieldNames().forEachRemaining(keys::add);
+            assertEquals(Set.of("code", "httpStatus"), keys, "占位符只影响 target_id，detail 形状不变");
+            assertEquals("OUT_TRADE_NO_MISMATCH", detail.get("code").asText());
+        }
+    }
+
+    /**
+     * 成功结算路径 0 行审计（否则审计表被正常流量灌满，这个功能立刻失去可用性）。
+     * 尾段带一条<b>反向对照</b>：同一套装配下换一条拒收分支必须写得出 1 行——
+     * 没有这条对照，「0 行」可能只是审计根本没接通的假绿。
+     */
+    @Test
+    void successfulSettlementWritesNoAuditRow() throws Exception {
+        Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+
+        ResponseEntity<Map<String, String>> first = post(ORDER_ID, n);
+        assertEquals(HttpStatus.OK.value(), first.getStatusCode().value());
+        assertNull(first.getBody(), "成功应答不带业务 JSON");
+        assertTrue(auditRows.isEmpty(), "成功结算一行审计都不许写");
+
+        ResponseEntity<Map<String, String>> replay = post(ORDER_ID, n);
+        assertEquals(HttpStatus.OK.value(), replay.getStatusCode().value(), "幂等重放同样算成功");
+        assertTrue(auditRows.isEmpty(), "重放同样一行都不写");
+        verify(adminAuditLogMapper, never()).insert(any(AdminAuditLog.class));
+
+        // 反向对照：同一 controller 装配，拒收分支必须写得出 1 行（证明上面那个 0 是「不写」而不是「没接通」）
+        freshFixture();
+        ResponseEntity<Map<String, String>> rejected = post(ORDER_ID, notification(ORDER_ID, CORRECT_FEN + 1, "SUCCESS"));
+        assertFailBody(rejected, "微信支付回调金额与订单不符");
+        assertEquals(1, auditRows.size(), "对照面：审计通路是通的，成功路径的 0 行才有意义");
+    }
+
+    /**
+     * 第 4 点的存在理由，必须有实证：<b>审计写入器抛异常时，HTTP 状态码与响应文案与不抛时逐字一致</b>。
+     * 五条分支覆盖应答表里全部五枚码（400/401/404/500/503）——「可重试」那条尤其不能因为留痕挂了就变成丢单。
+     */
+    @Test
+    void auditWriterFailureNeverChangesHttpStatusOrBody() throws Exception {
+        // 探针只管「这条分支怎么打」，controller 由探针自己按分支需要装配（mchid 未配置那条必须用空 mchid），
+        // 只有审计写入器是外面换进来的——这正是本用例唯一的自变量
+        List<Map.Entry<String, BranchOnAuditWriter>> probes = List.of(
+                Map.entry("400 未配置", (BranchOnAuditWriter) writer -> {
+                    Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+                    return controller("", API_V3_KEY, writer, false)
+                            .wxNotify(ORDER_ID, n.body(), n.timestamp(), n.nonce(), n.signature(), n.serial());
+                }),
+                Map.entry("401 验签失败", (BranchOnAuditWriter) writer -> {
+                    Notification forged = notification(ORDER_ID, CORRECT_FEN, "SUCCESS",
+                            API_V3_KEY, merchantKeyPair.getPrivate());
+                    return controller(MCHID, API_V3_KEY, writer, false)
+                            .wxNotify(ORDER_ID, forged.body(), forged.timestamp(), forged.nonce(),
+                                    forged.signature(), forged.serial());
+                }),
+                Map.entry("404 订单不存在", (BranchOnAuditWriter) writer -> {
+                    Notification other = notification(OTHER_ORDER_ID, CORRECT_FEN, "SUCCESS");
+                    return controller(MCHID, API_V3_KEY, writer, false)
+                            .wxNotify(OTHER_ORDER_ID, other.body(), other.timestamp(), other.nonce(),
+                                    other.signature(), other.serial());
+                }),
+                Map.entry("500 结算内部异常", (BranchOnAuditWriter) writer -> {
+                    when(orderMapper.update(isNull(), any())).thenThrow(new QueryTimeoutException("数据库抖动"));
+                    Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+                    return controller(MCHID, API_V3_KEY, writer, false)
+                            .wxNotify(ORDER_ID, n.body(), n.timestamp(), n.nonce(), n.signature(), n.serial());
+                }),
+                Map.entry("503 平台证书不可用", (BranchOnAuditWriter) writer -> {
+                    Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+                    return controller(MCHID, API_V3_KEY, writer, false)
+                            .wxNotify(ORDER_ID, n.body(), n.timestamp(), n.nonce(), n.signature(), "SERIAL-NOT-CACHED");
+                }));
+
+        for (Map.Entry<String, BranchOnAuditWriter> probe : probes) {
+            String label = probe.getKey();
+            BranchOnAuditWriter branch = probe.getValue();
+
+            // 正常 writer（真 AdminServiceImpl + 假库）：确确实实写了 1 行（否则这条对照什么都没在测）
+            freshFixture();
+            ResponseEntity<Map<String, String>> withAudit = branch.run(auditWritingService());
+            assertEquals(1, auditRows.size(), label + "：对照的前半段——审计通路必须是通的");
+
+            // 挂掉的 writer：同一条分支再打一遍
+            freshFixture();
+            ResponseEntity<Map<String, String>> withoutAudit = branch.run(explodingAuditWriter());
+            assertEquals(0, auditRows.size(), label + "：挂掉的 writer 一行都没写成（否则没在测「失败」）");
+
+            // 实证：状态码与 body 与不抛时**完全一致**
+            assertEquals(withAudit.getStatusCode().value(), withoutAudit.getStatusCode().value(),
+                    label + "：审计挂了不得改 HTTP 码——本端点的码是「已扣款订单不丢单」的唯一保障");
+            assertEquals(withAudit.getBody(), withoutAudit.getBody(), label + "：审计挂了不得改响应文案");
+            assertNotEquals(HttpStatus.OK.value(), withoutAudit.getStatusCode().value(),
+                    label + "：留痕挂掉也绝不能把一次可重试的拒收洗成 200（200 = 微信永久停止重发 = 丢单）");
+        }
+    }
+
+    /**
+     * 审计的 ip 走<b>本仓既有限流口径</b>（{@code rate-limit.trust-proxy}），不是新造的一套：
+     * false（默认）直取 TCP 对端、{@code X-Forwarded-For} 一概不认；true 才取 XFF 首跳。
+     * 判据不是「我猜一个值」，而是拿 {@code RateLimitInterceptor#clientIp} 的<b>同一枚 request</b>
+     * 反射跑一遍，两处取值必须相等——限流桶与审计行对不上号，排障就是白排。
+     */
+    @Test
+    void auditIpFollowsTheExistingTrustProxyRule() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.11.12.13");
+        request.addHeader("X-Forwarded-For", "203.0.113.7, 10.0.0.1");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        RateLimitInterceptor rateLimit = new RateLimitInterceptor();
+        Method interceptorClientIp = RateLimitInterceptor.class.getDeclaredMethod("clientIp", HttpServletRequest.class);
+        interceptorClientIp.setAccessible(true);
+        ReflectionTestUtils.setField(rateLimit, "trustProxy", false);
+        String expectedWithoutProxy = (String) interceptorClientIp.invoke(rateLimit, request);
+        ReflectionTestUtils.setField(rateLimit, "trustProxy", true);
+        String expectedWithProxy = (String) interceptorClientIp.invoke(rateLimit, request);
+        assertEquals("10.11.12.13", expectedWithoutProxy, "限流侧基准值：false 时不认 XFF");
+        assertEquals("203.0.113.7", expectedWithProxy, "限流侧基准值：true 时取 XFF 首跳");
+
+        Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+
+        auditRows.clear();
+        controller().wxNotify(ORDER_ID, n.body(), n.timestamp(), n.nonce(), null, n.serial());
+        assertEquals(1, auditRows.size());
+        assertEquals(expectedWithoutProxy, auditRows.get(0).getIp(),
+                "默认 trust-proxy=false：审计 ip 必须与限流桶同一取值（XFF 是可伪造头，认了就能污染审计）");
+
+        auditRows.clear();
+        controller(MCHID, API_V3_KEY, auditWritingService(), true)
+                .wxNotify(ORDER_ID, n.body(), n.timestamp(), n.nonce(), null, n.serial());
+        assertEquals(1, auditRows.size());
+        assertEquals(expectedWithProxy, auditRows.get(0).getIp(),
+                "显式声明在可信反代后：取 XFF 首跳，判定顺序与 RateLimitInterceptor#clientIp 逐字相同");
+    }
+
+    /**
+     * 路径订单号超 {@code target_id} 列宽（VARCHAR(64)，init.sql:353）时<b>截到列宽而不是丢行</b>：
+     * 路径段完全由请求方控制，超长串正是最该留下审计行的探测流量；让它撞 1406 被静默吞掉，
+     * 就是 BE-2 在本类里已经消灭过的那类「不可发现的脱审」。
+     * 对外应答（400 + 那句文案）不因截断而变——审计是旁路，这条是它的存在前提。
+     */
+    @Test
+    void overlongPathOrderIdIsClippedToColumnWidthAndNeverLosesTheRow() throws Exception {
+        String overlongOrderId = "9".repeat(100);
+        Notification n = notification(ORDER_ID, CORRECT_FEN, "SUCCESS");
+
+        ResponseEntity<Map<String, String>> response = controller().wxNotify(
+                overlongOrderId, n.body(), n.timestamp(), n.nonce(), n.signature(), n.serial());
+
+        assertFailBody(response, "微信支付回调订单号不匹配");
+        assertEquals(1, auditRows.size(), "超长订单号绝不能让整行审计消失（宁截断，不脱审）");
+        AdminAuditLog row = auditRows.get(0);
+        assertEquals(64, row.getTargetId().length(), "截到 target_id 列宽（VARCHAR(64)）");
+        assertEquals(overlongOrderId.substring(0, 64), row.getTargetId());
+        JsonNode detail = auditJson.readTree(row.getDetail());
+        Set<String> keys = new LinkedHashSet<>();
+        detail.fieldNames().forEachRemaining(keys::add);
+        assertEquals(Set.of("code", "httpStatus"), keys, "截断只影响 target_id，detail 形状不变");
+        assertEquals("OUT_TRADE_NO_MISMATCH", detail.get("code").asText());
+    }
+
+    /**
+     * 兜底那一趟也不许换形状：审计 core 的 BE-2 兜底原本是 {@code {"old","new"}}，
+     * 拒收留痕两趟写的都必须是<b>同一枚两键 JSON</b>（形状是运营端筛选与后续脚本的依赖）。
+     * 同时验「两趟都失败也只是 warn，绝不把异常冒出去」——本方法在 controller 的 catch 里，
+     * 但 AdminServiceImpl 自己那层兜底同样不许把留痕失败变成业务失败（契约 §2.10b 红线）。
+     */
+    @Test
+    void notifyAuditKeepsItsTwoKeyDetailEvenWhenInsertKeepsFailing() throws Exception {
+        AdminAuditLogMapper alwaysFailing = mock(AdminAuditLogMapper.class);
+        when(alwaysFailing.insert(any(AdminAuditLog.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("1406 列宽不够"));
+        AdminServiceImpl service = new AdminServiceImpl();
+        ReflectionTestUtils.setField(service, "adminAuditLogMapper", alwaysFailing);
+
+        service.recordNotifyReject("AMOUNT_MISMATCH", 400, ORDER_ID, "10.0.0.1");
+
+        ArgumentCaptor<AdminAuditLog> captor = ArgumentCaptor.forClass(AdminAuditLog.class);
+        verify(alwaysFailing, times(2)).insert(captor.capture());
+        for (AdminAuditLog row : captor.getAllValues()) {
+            JsonNode detail = auditJson.readTree(row.getDetail());
+            Set<String> keys = new LinkedHashSet<>();
+            detail.fieldNames().forEachRemaining(keys::add);
+            assertEquals(Set.of("code", "httpStatus"), keys,
+                    "兜底那趟必须保持两键形状，不许退成 {\"old\",\"new\"}：" + row.getDetail());
+            assertEquals("AMOUNT_MISMATCH", detail.get("code").asText());
+            assertEquals(400, detail.get("httpStatus").asInt());
         }
     }
 }
