@@ -42,12 +42,15 @@ mybatis-plus:
 #   dict.base-url 是本文件写死的唯一事实源（它是地址不是密钥，入仓属设计内）；
 #   dict.api-key 无明文默认值，值只由环境变量 DICT_API_KEY 注入，仓库内不留明文
 #   （dev：logs/restart-backend.sh 从 gitignore 排除的 start-local.bat 读出后 export，全程不回显；
-#    prod：deploy/fresh.service 当前只有 DB_PASSWORD/JWT_SECRET/ADMIN_KEY 三行 Environment=，
-#          没有 DICT_API_KEY —— 上线要通字典必须在那里补一行，否则线上恒定走下面的失败分支）。
+#    prod：deploy/fresh.service 只有 DB_PASSWORD/JWT_SECRET/ADMIN_KEY 三行生效的 Environment=，
+#          DICT_API_KEY 在那份 unit 里是「故意不给占位值 + 一段为什么必须主动补」的说明形态，
+#          照文件补一行才通；不补则线上恒定走下面的失败分支）。
 # 未注入 DICT_API_KEY 时的实际行为（下一个读这里的人要知道的就这一句）：api-key 解析成空串 →
 # 带空 X-Api-Key 调上游被拒 → DictServiceImpl 吞掉上游细节改抛 BizException("字典服务暂时不可用，请稍后重试")
 # → GlobalExceptionHandler 转失败信封（HTTP 仍 200，body.code=400）→ 前端 front/api/dict.js 按失败降级到
 # 内置 FALLBACK 词表渲染（页面不白屏，但后台维护的词条拿不到，且失败不写缓存、恢复后自动重试）。
+# 【F-46 补一句，防误诊】上面这条 400 分支不是「没注入 key」的专属签名：上游不可达、上游返回结构异常
+# 也是同一个对外响应。区分只看日志里的 err= 异常类名，分诊表写在 deploy/fresh.service 的 DICT_API_KEY 段。
 dict:
   base-url: https://dict.107.151.233.142.sslip.io/api/v1
   api-key: ${DICT_API_KEY:}
