@@ -1,0 +1,176 @@
+# tools/gate —— 承重门禁资产（F-48 起进版本库）
+
+这一目录里的每一个文件都必须是 **tracked**。F-48 之前它们全住在 `logs/`，而 `.gitignore` 第一行就是 `logs/`
+（实测 `git ls-files logs/` = 空）——意味着整套验收机器（两个门禁脚本 + 六个审计器 + 两份 DRIFT 基线 + 一份形态 C 自验）
+**一件都不在版本库里**：任何人 clone 出来都跑不出一样的验收，换机后的我也一样。
+判据体系（F-23/F-27/F-28/F-30/F-35/F-38/F-40/F-41 一路攒下来的）只要这台机器一坏就整体消失。
+
+- **入库**：本目录（`tools/gate/`、`tools/gate/baselines/`、`tools/gate/selftest/`、`tools/gate/probes/`）。
+  其中 `probes/` 两份（`l16-final-scan.cjs`、`net500-audit.cjs`）与 `baselines/` 两份 JSON
+  （`f28_base_401.json`、`f28_v2_probe.json`）是**主会话补的第二轮**：F-48 首版清单按「`scratch*` 一律不入库」
+  划的线，漏了「f28 的 §4/§7 判据脚本本身就住在 scratch 里」、也漏了 §3 的活体信封基线——
+  clone 出来后这两类会让 §4/§7 报「判据没能读数」而 §3 直接 FAIL 缺基线。**判据的代码与它的数据依赖必须同级入库**，
+  否则"入库"只是把一半的门禁搬了个家。
+- **仍留在 `logs/`（忽略区，设计内）**：所有**产物**（`logs/out/`）、所有**临时文件**（`logs/scratchNN/`）、
+  一次性历史 gate 与探针（`f19-*`、`f20-*`、`f21-*`、`g04-*`、`cdp*.cjs`、`s6-fixture.cjs`），
+  以及 **`logs/.secret-list`**——它内含真实凭据，**入库即泄露，永远不许进 git**（本文档也不抄它的内容，只写路径与格式）。
+- F-48 之前 `logs/` 下的那 11 个原件 + 主会话补的 4 件，搬动后保留在 `logs/pre-f48-backup/`（可逆优先，不 `rm`）。
+
+## 跑法（两条铁律）
+
+1. **必须在仓库根执行**。`pointer-audit.cjs` / `symbol-audit.cjs` / `pointer-nameable.cjs` 的 ROOTS 是
+   **相对当前工作目录**的（`backEnd/src/main`、`front-merchant`…），在子目录里跑会扫到 0 个文件、
+   打印「可疑 0 条」——那是**空转的绿**，不是通过。
+   正确：`bash tools/gate/f28-gate.sh`（在仓库根）。
+2. **取退出码一律 `cmd > file 2>&1; echo "EXIT: $?"`，绝不接管道**。`cmd | tail; echo $?` 拿到的是 `tail` 的状态码，
+   本仓踩过（两个 gate 的头部注释都钉了这条）。
+   `f28-gate.sh` §1 可用 `SKIP_MVN=1` 跳过 `mvn -o test`（与编辑类代理并发、或本批不需要编译时）。
+
+## 成员与判据
+
+### f28-gate.sh —— 通用回归面（「行为没被改坏」）
+判什么：后端全量测试、C 端冒烟、统一信封活体基线、L-16 时长文案、指针面（§5）、**具名引用面（§5b，F-48 新接）**、
+冷却时长（§7.6）、DRIFT 分流（§7.7）、敏感串（§8）、意外文件与反引号 lint（§9）、push 前凭据普查（§10）。
+双向自验：脚本内 §4/§7 自带「变异自验」（拿改前 HEAD 当 fixture，必须命中），§7.5 主动喂哨兵证明 `grep -f` 真的会红。
+已知盲区：见 §5b 与「.secret-list 缺失」两节。
+
+### f27-gate.sh —— 纯注释批专用（「只许改注释、零行位移、面积受限」）
+判什么：改动面积（只许 `backEnd/src/main` + `front-merchant` + `front-partner`，`front/` 与 `front-admin/` 零字节）、
+非注释变更行必须 0、每文件 add == del、指针面可疑 = 0、DRIFT 总量**不许变多**（基线 `tools/gate/baselines/drift_total_baseline.txt`）、
+.vue 用「模块模式」`node --check`、敏感串。
+怎么让它红：在一个 `.vue` 里加一行真代码（非注释）→ §1/§2/§3 三条一起红。
+还原后再跑一遍，确认三节回到 OK。
+注意：§5 的编译分支是 `if echo "$CHANGED" | grep -q '^backEnd/'`——**只要工作区有 backEnd 改动，跑 f27 就会触发 `mvn -o compile`**。
+不想跑 mvn 就别在 backEnd 留改动（F-48 的植入自验只跑 f28，不跑 f27，就是这个原因）。
+
+### pointer-audit.cjs —— 跨文件**行号**指针审计
+判什么：注释里的 `文件:行号` 指向的行是不是空行/纯收尾符（SUSPECT_EMPTY）、是不是越界（OUT_OF_RANGE）、
+区间反序（REVERSED_RANGE）、目标文件名歧义（AMBIGUOUS/NOT_FOUND）。含三条修法：一条指针并列多号、
+**裸号回溯绑定**（BARE_ 前缀，`照 dishes.vue:187（data）/ :417` 这种号与名分离的形态）、
+**无扩展名类名指针**（CLASS_ 前缀，`MerchantDishServiceImpl:166` 这种不带 .java 的形态）。
+怎么让它红：在任一被扫描文件（`backEnd/src/main`、`front-admin/src`、`front-merchant`、`front-partner`）的注释里写
+`ResponseUtil.java:2`（该文件第 2 行是空行）→ 报 SUSPECT_EMPTY；写 `ResponseUtil.java:9999` → 报 OUT_OF_RANGE。删掉即回绿。
+（F-48 这两条在 `logs/scratch69/pa/` 搭的**隔离最小树**里实测过，没碰真实源码：ROOTS 是相对 cwd 的，
+所以拿一个临时目录当「假仓库根」就能自验，不必污染工作区。）
+**已知盲区（必须记住的分工）**：
+- **不判 `Foo#bar:NN`**——具名后挂行号这种形态它**主动跳过**（裸号回溯里 `if (/#([A-Za-z0-9_]+)$/) continue`），
+  那归 `symbol-audit.cjs` 的 HYBRID_POINTER。反过来说 `Foo.java:NN` 归它、不归 symbol-audit。两条判据是闭合的，不重不漏。
+- 无扩展名类名指针「**解不出唯一文件就静默跳过**」（`HTTP:400`、`ERROR:1142`、`JDK:17` 是错误码不是指针，
+  报出来就是几千条噪音）。铁律：宁可少报，报出来必须能人工复核。
+- `--drift` 的「**末触快照**」列**只当线索，不当缺陷**。`git blame` 给的是「该注释行最后一次被**触碰**」的 commit，
+  不是「指针被写下」的那一刻；F-27 里执行者抓到过 blame 到某个 commit 时目标行是另一段无关代码。
+  所以必须连 commit 日期/标题一起看，绝不能拿这一列直接判「指针错了」。
+
+### symbol-audit.cjs —— 具名引用审计（F-30 建，**F-48 才接上门禁**）
+判什么：注释里写的符号名到底存不存在。五类形态：
+`CLASS_FILE_NOT_FOUND`（`Foo#bar` 但仓库里没有 `Foo.java|vue|js`）、`SYMBOL_NOT_FOUND`（文件在、成员名一次没出现）、
+`SYMBOL_MAYBE`（出现过但无声明形态，只算 info 不算可疑）、`HYBRID_POINTER`（`Foo#bar:NN`，符号可验但行号仍会漂，
+应删号只留符号——**F-27 定案的未尽部分**，现值 0）、`SECTION_NOT_FOUND`（「X.vue 的『某小节』」里那段逐字标题不存在），
+以及形态 C（F-35/F-43 补的**裸符号引用** `a.vue / b.vue 的 symbolName`：`NAMED_FILE_NOT_FOUND` / `NAMED_SYMBOL_NOT_FOUND`）。
+怎么让它红（双向自验配方，F-48 实测过一遍）：在 `backEnd/src/main` 任一文件的注释里加一行
+`// 探针：NoSuchProbeXyz#noSuchProbe` → 汇总行 `可疑 1 条`、分类行 `{"CLASS_FILE_NOT_FOUND":1}`，
+门禁 §5b 必红；**把那一行逐字删掉**再跑 → `可疑 0 条` 回绿。
+（选文件时注意：`ResponseUtil.java` 这类**没有任何带行号指针指向它**的文件最干净，植入一行不会扰动其他节读数。）
+**已知盲区与前提**：
+- **ROOTS 必须含 `backEnd/src/test`**。注释里 `WxPayNotifyTest#everyRejectBranch…` 这类指向**测试类**的具名引用是真实存在的
+  （F-44 出货代码里就有，方法名逐字对得上）。test 树一旦不在索引里就被判成 `CLASS_FILE_NOT_FOUND` 的**假阳**
+  ——本批刚踩过一次。与 F-28 的同类纪律：**索引/扫描面必须覆盖被指向的树，否则计数不可用**。
+- 外部类（JDK/Spring/MyBatis-Plus）按**全仓 import 集合**放行，只查「本文件有没有 import」会误报 `LambdaUpdateWrapper#set`。
+- Lombok 例外：`Store#getLng` 的 getter 由 `@Data`/`@Getter` 生成，源码里一次都不会出现 `getLng`，
+  判据退回字段本身（存在同名 prop 字段即合法，记 LOMBOK_ACCESSOR 为 info）。
+- 符号字符类**必须吃连字符**（`verify-feedback-ghost` 整名）。少一个 `-` 就会在连字符处被切断、只拿首段去验，
+  实测那样一个根本不存在的中缀连字符名会**判成合法**（假绿）。这条有自验：`selftest/form-c-selftest.cjs`。
+
+### f28-gate.sh §5b —— 具名引用面的门禁（F-48 新增）
+背景事实：`grep -rn "symbol-audit" logs/*.sh` 在 F-48 前**零命中**——F-30 建的审计器从来没被任何门禁脚本调用过，
+一直靠主会话手动跑。而它本批刚救过一次假阳（ROOTS 漏 `backEnd/src/test`）、也抓到过 F-44 的真实残留（具名后挂行号）。
+**没有门禁的审计器等于没有审计器**，所以 §5b 钉两条断言：汇总行「可疑 N 条」= 0（与 §5 同一条 sed 姿势）、
+分类行「其中符号后仍挂行号 = N」= 0。另加一条**空转自检**：读数抽不出来（工具改名、汇总行换措辞）判 FAIL，
+不许当成「0 可疑」放行。产物落 `logs/out/f48_symbol.txt`，红的时候把逐条 kind + 文件行号吐在门禁输出里，省得再手跑一次。
+
+### cooldown-format-audit.cjs —— 冷却时长的生成处与页内外溢（F-38）
+判什么（四条）：每端 `formatCoolingSeconds` 定义**恰好一份**且有调用点（DEF_COUNT/NEVER_CALLED）；
+页内不许「闸门变量 + 's…」裸拼（RAW_CONCAT）；模板 `{{ x }}s` 里只许白名单 `retryLock`（RAW_INTERP）；
+`resendPillText` 必须与换算函数**绝缘**（RESEND_COUPLED / RESEND_MISSING）——它报的是「1 分钟 1 码」的业务节奏，
+接进换算会把 60 印成「1 分 00 秒后重发」，把业务规则说成限流倒计时。
+双向自验：`node tools/gate/cooldown-format-audit.cjs --selftest` 在**内存里**造违例（绝不碰工作区文件），
+必须打满 6 条 `SELFTEST_PASS`、`自验项通过 6 / 6`。
+真实违例的配方：在任一页里写 `writeRetryLock + 's后可重试'` → RAW_CONCAT 红；把 `{{ writeRetryLock }}s` 塞进模板 → RAW_INTERP 红。
+**已知盲区（F-48 实测补记，别踩）**：本工具用 `path.join(__dirname, "..", "..", <端路径>)` 反推仓库根。
+**根算错时它不报错，而是打印 `SKIP <端>: 找不到 …` 并照常「合计违例 0 条 / 退出码 0」——一条静默假绿。**
+门禁 §7.6 只 `tail -1` 审计输出，看不见那两行的 SKIP。所以：改完本工具或搬动它之后，
+必须**直接跑一次看全文**，确认出现 `=== front-partner：全绿` 与 `=== front-merchant：全绿` 两行，而不是任何 SKIP。
+
+### drift-triage.cjs —— 把 `--drift` 的线索预分成三档
+判什么：注释行里的英文标识符是否出现在目标行 ±WINDOW（现取 **±1**，F-40 从 ±3 收到 ±1）窗口内。
+NEAR = 名字就在附近（多为注释改写所致，可批量放行，抽查）；DEAD = 一个都对不上（**需要真裁定**）；
+NOISE = 目标行本身就是注释行（改写注释必然红，那不是错指——不收这一档的话基线会被无关注释改写推着涨，
+最后大家学会忽略它，那是门禁腐蚀的最快路径；但 NOISE 条数仍要出现在回报里）。
+它只是**分流**不是结论：DEAD 里也有假阳（注释只写中文没写符号名），NEAR 里也有假阴（撞上 common 词）。
+**输入路径必须显式走 `process.argv[2]`**（F-40 抓出的真缺陷：原先硬编码读 `f38_drift_now.txt`，
+门禁算的一直是上一次手工留下的旧快照）。文件里那条 `|| ...logs/out/f38_drift_now.txt` 只是兜底，门禁不依赖它。
+怎么让它红：给它的输入文件里塞一条 `DRIFT` 行，指向一个标识符全对不上的目标行 → DEAD 计数 +1、基线 4 立刻被顶破。
+**搬动陷阱（F-48 实测）**：`ROOT` 原先是 `__dirname/..`（因为住在 `logs/`）。搬进 `tools/gate/` 后单层会把根算成 `tools/`，
+于是读不到注释、解析不到目标文件 → **每条 DRIFT 都判成 DEAD**（假红，且会把人逼去改基线）。已改成 `__dirname/../..`。
+
+### envelope-diff.cjs —— 活体信封复验（F-42b）
+判什么：改前/改后两份响应快照的差异分两类——**ENVELOPE**（顶层键集合变化：total 消失、message 补上、
+404 支 data 从无到有）是本批**有意**做的；**DATA**（data 子树内部不同）必须为零，若非零要么是人判的自然变动、
+要么是真动了 data 构造（必须回退）。「缺键 → 显式 null」的叶子补齐按信封层修复计，不混进 DATA 破口。
+用法：`node tools/gate/envelope-diff.cjs <改前目录> <改后目录>`，文件名按 `f42_base_*` / `f42_post_*` 同名配对。
+**注意**：两个默认值 `logs/out` 是**相对当前工作目录**的（有意为之，必须在仓库根跑），不是 `__dirname` 反推。
+怎么让它红：改后目录里没有同名 `f42_post_*` → `MISSING`，退出码 1。
+
+### pointer-nameable.cjs —— 指针「可具名化」分类器（只读，不改文件）
+判什么：仍然有效的行号指针里，哪些的目标行**本身就是某个符号的声明行**（可换成「X 的 foo」），
+哪些指语句/区间/模板行（行号是唯一表达力，具名化会丢信息）。输出两张清单供派单。
+两条防假阳的修法：缩进 ≥2 的 `const/let/var` 判为方法体内局部声明（具名化没意义）；
+`if/for/while/switch/catch/return/else/new/do/try/methods/computed/data/watch/mounted/created` 这些控制流关键字
+长得和方法声明一模一样，必须排除（第一版没排，`if (lockedAt != null) {` 被当成一个叫 `if` 的符号）。
+怎么让它红：它不判红绿，只出清单——所以**别把它当门禁**，它是**分类器**；结论仍要人读。
+
+### baselines/drift_total_baseline.txt（现值 7）与 baselines/drift_dead_baseline.txt（现值 4）
+两个数**语义不同**，别当成同一件事：
+- `drift_total_baseline.txt` = DRIFT 线索**总量**上限，f27-gate §4 读它，判据是「**不许变多**」（A 类噪音留着是对的）。
+- `drift_dead_baseline.txt` = **DEAD** 档上限，f28-gate §7.7 读它，判据也是「不高于」。
+**基线缺失时的行为是不对称的，知道这一条才不会以为自己在跑判据**：
+- f27 §4：`cat` 失败 → `DBASE=""` → **退化成只报数不判红**（不判红、也不报错，stdout 那行会写「基线=未设」）。
+- f28 §7.7：`cat` 失败 → `|| echo 25` → **兜底成 25**（宽松到等于 F-40 那轮「43 条线索里 25 条待真裁定」的量级，
+  也就是把判据退回它被收紧之前的状态，而且**不报任何错**）。
+所以：基线文件必须存在且必须是**实测值**，改它只能发生在「本批真裁定完一轮」之后，并在回报里写清为什么。
+- 敏感串清单缺失时（`logs/.secret-list` 故意不入库）：§8/f27 §6 是 `… | wc -l` → **0 命中 = 假绿**；
+  §10 的清单命中数同样 **0 = 假绿**。唯一能抓住它的是 **§7.5 哨兵**（主动喂一个必命中 2 行的文件），
+  清单缺失/被掏空时 §7.5 先红。**看到 §7.5 红而 §8/§10 全绿，结论是「清单没了」，不是「凭据很干净」。**
+  清单格式：每行一条**固定字符串**（含 JWT 形态那一条），由 `grep -f` 消费；真实内容不进本文档、也不进任何入库文件。
+- **F-48 那个「入库后才显形」的坑已经收口，姿势记在这里**：§7.5 用来证明 `grep -f` 真会红的合成哨兵，
+  本身写在脚本里就会被清单命中——入库后 §10（扫 `origin/master..HEAD` 全部新增行）会把它当真凭据报红。
+  两处改动，**都没有削弱判据**：
+  ① 哨兵的字面量拆成 `%s` 参数传（`printf 'token=%s.%s.%s\nx=%s\n' …`）——脚本源码不再含三段式 JWT，
+     而 printf 出来的哨兵与真凭据**逐字节同形**，§7.5 仍要求命中 2 行（实测改动后仍是 2）。
+  ② §8/§10 各加一条**窄排除** `grep -v 'SENTINEL_DIR'`：只放行「本脚本自己造哨兵」这一行，不做整文件豁免。
+     清单本身一个字没动——为了绿往清单里加/删条目，等于把「命中即异常」这条判据换掉，属禁止项。
+  顺带一条更朴素的教训：**写注释时把占位串的字面量照抄进注释，那一行自己就会被扫到**（我在改①的同一批里
+  就撞上：注释里写了那个脱敏前缀，`grep -v SENTINEL_DIR` 之后仍剩 1 条命中，出处是自己的解释性注释）。
+  **入库文件里永远只写「它是什么」，不写它本身。**
+
+### gate-check-locks.cjs —— 闸门覆盖（写侧出口是否真的被锁住）
+判什么：每个**登记过的写侧出口**（含委托一层的方法）方法体里是否引用了闸门符号；漏一个就是「有 UI 无闸门」。
+用法：`node tools/gate/gate-check-locks.cjs [commit]`——不带参数判工作区，带 commit 判历史形态。
+双向自验（实测）：跑 `f0a97af` 得「过 10 / 未过 17」，跑工作区得「未过 0」。**它不在 f28 里**（各页闸门清单会随批次变，
+硬进门禁会长期红），所以每批前端写侧改动后要**手动跑一次**并贴读数。
+
+### redact-for-release.sh —— 发布前脱敏（默认 dry-run）
+判什么/做什么：只对**数据文件**（`.log/.json/.txt/.md`）就地替换清单命中项，`--apply` 才动文件。
+三条设计决定里最要紧的一条：**代码类（`.sh/.cjs/.js`）里的命中不改**——那是判据需要能匹配明文，
+改掉等于废掉门禁；它们走「发布时排除」而不是「就地脱敏」。清单仍只有一处来源 `logs/.secret-list`（不入库）。
+
+## 通用陷阱（两个 gate 的头部注释都有，这里汇总）
+
+- `grep -c` 命中 0 时退出码是 1，会断掉 `&&` 链 → 一律 `|| true`。
+- 敏感串/中文模式**一律文件进出**，不塞进命令行 argv（Git Bash 的 argv 往返会重编码，实测吃过 GBK 假 0 命中的亏）。
+- **`say "…"` 的双引号串里不许出现反引号**：会被 bash 当命令替换执行。实测后果是每跑一次门禁就执行一次
+  `xxx > 0`、报 command not found、并在**仓库根创建一个名为 `0` 的空文件**，同时把那行自述文本静默删空——藏了十几批。
+  §9 有 lint：统计「say 的双引号串内出现反引号」的行数，必须为 0；同时检查仓库根是否存在名为 0 的文件。
+- `$CHANGED` 为空时 `grep -rnsE 'pat' $CHANGED` 会退化成**无文件参数**→ 递归搜全仓，灌进几百行假命中。必须先短路。
+- 判据要**双向自验**：每条「0 命中」的绿，都得有一次「主动喂一个已知违例、它真的红了」的记录。
+  没有这一步，"全绿"只是空转的另一种写法。
