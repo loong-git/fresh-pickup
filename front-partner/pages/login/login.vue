@@ -278,7 +278,7 @@ export default {
       if (this.loginLockTimer) { clearInterval(this.loginLockTimer); this.loginLockTimer = null }
       this.loginLock = 0
     },
-    // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue:464 startRetryLock 命名）
+    // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue 的 startRetryLock 命名）
     // F-23/FP-1：入参改为 catch 到的错误对象，起锁秒数由 retrySecondsOf 转述后端真值，取不到才回落本地 60
     startRetryLock(err) {
       this.stopRetryLock()
@@ -451,7 +451,7 @@ export default {
   // methods 里的 startRetryLock，插到它前面会让那枚指针漂；Vue 不关心 options 键的先后顺序。
   // 数值一律不动：smsCountdown 仍是「1 分钟 1 码」的业务节奏，走 resendPillText（动词是重发不是重试）；
   // loginLock 仍是 retrySecondsOf 转述的后端真值。两把锁各写在自己那一枚按钮上，控件本身就是归因。
-  // 读数变化只在 ≥60 那一档：loginLock 回落 60 时出「1 分 00 秒后可重试」（改前是「60s后可重试」）；
+  // 读数变化只在越过 60 那一档：loginLock 回落到 60 时仍出「60s后可重试」（F-38.3 把分档线含 60，为的是与同屏模板短标签逐字同形）；
   // <60 时两个函数的输出与改前的裸拼逐字相同，发码按钮仍是「60s后重发」。
   computed: {
     smsResendPillText() {

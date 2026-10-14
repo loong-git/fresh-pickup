@@ -112,7 +112,7 @@
 import { getPartnerStores, getPartnerStore, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
-// 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue:99。模块级 const 表，
+// 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue 的 ENTRY_ROUTES。模块级 const 表，
 // 模板的置灰判定（entryRoute）与点击分支（onEntryTap）两处消费它，页面不持第二个开关字段）。
 // F-18.17 §1.4 放开 verify / arrivals 两行，F-18.19 §1 放开 store / apply 两行：
 // 四条路径与 pages.json 的注册逐字一致（表里写一条没注册的路由，H5 下就是白屏死链）。
@@ -227,7 +227,7 @@ export default {
     refreshText() {
       return this.refreshAt ? this.formatClock(this.refreshAt) : ''
     },
-    // 错误态主文案（两层式照母版与 dishes.vue:228-233 的 errorLeadText 口径：主文案是人话，后端原文降为第二行小字）
+    // 错误态主文案（两层式照母版与 dishes.vue 的 errorLeadText 口径：主文案是人话，后端原文降为第二行小字）
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次；
     // FF-6 + F-25/P-4：这条指针历史 209-214 → 216-221 → 218-223（每次都只隔着一两次加行），
     // 现值按 dishes.vue 实况重测＝228-233（computed errorLeadText 本体 228、四支 return 229-232、收尾 233）
@@ -400,7 +400,7 @@ export default {
         }
       })
     },
-    // ==================== 429 冷却（照 dishes.vue:464 startRetryLock 的写法 + 同端母版 login.vue:283） ====================
+    // ==================== 429 冷却（照 dishes.vue 的 startRetryLock 的写法 + 同端母版 login.vue 的 startRetryLock） ====================
     // F-23.2：入参改为 catch 到的错误对象，起锁秒数由 retrySecondsOf 转述后端 429 信封的
     // data.retryAfterSeconds，取不到才回落本地窗口长度（RETRY_FALLBACK_SECONDS，F-25 路 1 起该函数在 api 层）。
     // 闸门语义一行没削弱：retryLock 仍是「冷却期内不重发」的唯一依据

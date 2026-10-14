@@ -126,7 +126,7 @@
 // 商家端数据看板（G-05 / F-19 只读页）：GET /api/merchant/stat?days= 的四卡 + Top 5 商品 + 口径说明卡。
 // 三条页面纪律：① 四个数逐键取后端出参，页内零加减（D-4）；
 // ② windowStart / days 只显示后端回显值，页内不 new Date() 推算任何统计日期（D-3，与后端 CURDATE() 同式才算一份真值）；
-//    唯一例外是 formatClock 把「读数拉取时刻」的 ms 印成 HH:mm:ss（母版 workspace.vue:266-271 同款），它不参与任何计算；
+//    唯一例外是 formatClock 把「读数拉取时刻」的 ms 印成 HH:mm:ss（母版 workspace.vue 的 formatClock 同款），它不参与任何计算；
 // ③ 四态单值互斥 loading | ready | forbidden | error，不用多个布尔叠加（照 workspace.vue 的 viewState）。
 // 归属由服务端 @RequestAttribute 解析，本页不发任何 merchantId；401 一律由请求层清态回登录页，本页不判 401。
 // 文案红线（RE）：本页不出现任何资金含义的读数词——mock 支付无资金流，销售额只按「商品明细·券前」口径出。
@@ -251,7 +251,7 @@ export default {
     retryPillText() {
       return cooldownPillText(this.retryLock)
     },
-    // 「本页读数拉取于 HH:mm:ss」（U-9/U-10）：精度到秒 —— 母版 workspace.vue:266-271 那句
+    // 「本页读数拉取于 HH:mm:ss」（U-9/U-10）：精度到秒 —— 母版 workspace.vue 的 formatClock 那一句
     // 「资料刷新于」就是这个精度，理由一致：同一分钟内两次进页若只到分钟，字符串一字不差，
     // 商家（和验收）就无从判断 onShow 的那一次静默重拉到底发生过没有
     readTimeLine() {
@@ -401,7 +401,7 @@ export default {
       const id = r && r.dishId
       return (id === null || id === undefined || id === '') ? 'x' + i : 'd' + id
     },
-    // 时间戳 -> HH:mm:ss（母版 workspace.vue:266-271 同款写法；脏值返回空串，模板随之隐藏这一行）。
+    // 时间戳 -> HH:mm:ss（母版 workspace.vue 的 formatClock 同款写法；脏值返回空串，模板随之隐藏这一行）。
     // 红线：这个时刻只用于「读数拉取于」一行，绝不参与统计窗口/日期的任何推算（D-3：窗口只认后端回显）
     formatClock(ms) {
       const d = new Date(ms)

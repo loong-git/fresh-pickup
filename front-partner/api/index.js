@@ -502,7 +502,7 @@ export function updatePartnerStore(fields) {
  * 出参 {storeId,date,list}，list 每行带 confirmed 布尔位（供「当日批次未确认」警示条，D-9）。
  * 参数名真值（F-18.17 §1.2 已核）：本端点是 `date`（PartnerController.java:131 @RequestParam date），
  * 与 orders 的 `pickupDate`（:76）**不同名**，两条各拼各的，页面不必记这个差异、更不许互换。
- * date 缺省不下发 → 服务端默认「明日」（PartnerStoreServiceImpl.java:252-254），本页两页一律显式带 date，
+ * date 缺省不下发 → 服务端默认「明日」（PartnerStoreServiceImpl.java:253-255，就是 arrivals 里那句 LocalDate effectiveDate 的三元式），本页两页一律显式带 date，
  * 免得警示条（按今天查）与批次页（按后端缺省查）落在两个不同的日上。
  * storeId 是 D-22 的「名下多店选一家」选择器（PartnerController.java:130 @RequestParam Long storeId）：
  * 空值 = 取名下 id 最小的一家（PartnerStoreServiceImpl.java:368-371 Collections.min）；集合外的 id → 404。
