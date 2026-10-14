@@ -117,7 +117,7 @@ import '@/styles/common.css'
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/plan-orders/plan-orders'
 
-// 状态中文说法与 C 端同源（front/pages/order/order.vue:128 STATUS_MAP 同三个键），两端口径不各写一份
+// 状态中文说法与 C 端同源（front/pages/order/order.vue 的 STATUS_MAP 同三个键），两端口径不各写一份
 const STATUS_TEXT = { pending_pickup: '待自提', completed: '已完成', cancelled: '已取消' }
 
 // 429 冷却秒数的回落档：本端点（GET /api/merchant/order-items）限流窗口是 60 秒

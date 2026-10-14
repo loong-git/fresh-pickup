@@ -166,7 +166,7 @@
              两处不是各算一遍，因此屏上列出的就是真正下发的键 -->
         <text v-if="changedKeys.length" class="field-hint">将提交 {{ changedKeys.length }} 项改动：{{ changedKeys.join('、') }}</text>
         <text v-else class="field-hint">没有改动时点保存不发请求（后端是白名单增量更新，多传一个空串会真清空那一列）</text>
-        <!-- 常驻反馈行：成功/无改动/400/403/404/429 都落在这一行，不只 toast（母版 verify.vue:43-45 的理由，F-25/P-4 重测：
+        <!-- 常驻反馈行：成功/无改动/400/403/404/429 都落在这一行，不只 toast（母版 front-partner/pages/verify/verify.vue 的 verify-feedback 常驻行的理由，F-25/P-4 重测：
              toast 一闪而过就等于没反馈）。toast 同批发出、文案同一处生成 -->
         <text v-if="feedback" class="store-feedback" :class="'store-feedback-' + feedback.tone">{{ feedbackText }}</text>
       </view>
@@ -239,7 +239,7 @@ const RETRY_FALLBACK_SECONDS = 60
 // coolingText 唯一实现上提在 api 层（与 retrySecondsOf 同层、同先例），
 // 带数支只读实时闸门，无参支就是 X-3 起锁点那句不带数的整句
 
-// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js 的 retrySecondsOf，
 // 本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走本地回落 60。
@@ -437,7 +437,7 @@ export default {
   // 需要看最新值时走错误/空态那两条显式的「重新检查」出口
   // #ifdef H5
   onReady() {
-    // 页面级滚轮兜底（workspace.vue:243-246 同款，F-25/P-4 重测）：index.html 锁 html,body overflow:hidden 后
+    // 页面级滚轮兜底（front-partner/pages/workspace/workspace.vue 的 onPageWheel 同款，F-25/P-4 重测）：index.html 锁 html,body overflow:hidden 后
     // PC 滚轮默认滚动失效，本页是长表单，不接管就够不到保存按钮
     this._pageWheelHandler = (e) => this.onPageWheel(e)
     document.addEventListener('wheel', this._pageWheelHandler, { passive: false })

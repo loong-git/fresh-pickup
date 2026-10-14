@@ -150,7 +150,7 @@ function rejectUnauthorized(reject) {
 /**
  * 统一信封分流：本函数是本层唯一的信封判定处，将来若开放上传通道（G-05 文件服务，一期不做）
  * 也必须复用同一个函数，两条通道的 401/403 语义才可能一致（现状：上传通道无调用方，见文件头 TIMEOUT_UPLOAD）
- * 后端 HTTP 状态码恒 200、业务码只写在 body.code（ResponseUtil.java:23-27 拦截器直写信封 +
+ * 后端 HTTP 状态码恒 200、业务码只写在 body.code（ResponseUtil.java 的 writeJson 拦截器直写信封 +
  * GlobalExceptionHandler 全部 return R），故 statusCode 只在信封不可解析时兜底。
  * - code 200 且信封是对象 → resolve(完整信封 {code,data,message})
  *   （HTTP 200 但 body 不是 JSON 对象的情况——代理层回 HTML 错误页等——一律按业务失败 reject，
@@ -206,7 +206,7 @@ function handleEnvelope(res, resolve, reject) {
  *    同样 600 秒兜底在 :114），走的是 429 信封。
  * ①是「再等多久能发下一个」，②③是「锁没解，别再来」——页面侧无法从键名区分，只能转述数值 + 保守回落；
  * 因此回落值取「该端点 @RateLimit 的整窗长度」（各页常量），它只在后端不给数时充当保守上限。
- * front-admin/src/api/index.js:146-151 的 retryAfterText 是**纯文案转述**：入参是 e.data（不是 err）、
+ * front-admin/src/api/index.js 的 retryAfterText 是**纯文案转述**：入参是 e.data（不是 err）、
  * 无回落无校验、取不到就返回空串。拿它替本函数 → 闸门拿到 ''/undefined → 恒假 → 敞开（同 A-3 事故形态）；
  * 反过来拿本函数替 retryAfterText → 把 401 那 600 秒锁定当「保守上限」念到运营界面上。
  * 一头要「数」（驱动闸门），一头要「话」（给人读的整句），语义正交，不可互换、不可合并。

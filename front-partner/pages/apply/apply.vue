@@ -157,7 +157,7 @@
           :class="{ 'btn-disabled': !canSubmit }"
           @click="submit"
         ><text>{{ submitText }}</text></button>
-        <!-- 常驻反馈行：成功/400/429/其余失败都落在这一行，不只 toast（verify.vue:43-45 同理由，F-25/P-4 重测）；
+        <!-- 常驻反馈行：成功/400/429/其余失败都落在这一行，不只 toast（front-partner/pages/verify/verify.vue 的 verify-feedback 常驻行同理由，F-25/P-4 重测）；
              400 一支显示后端原文——它已按字段给文案，前端不改写 -->
         <text v-if="feedback" class="apply-feedback" :class="'apply-feedback-' + feedback.tone">{{ feedbackText }}</text>
       </view>
@@ -218,7 +218,7 @@ const STATUS_APPROVED = 'approved'
 // 是「后端不给 data 时的保守上限」，不是回速（回速实测约 6 秒），两者不是一回事。
 const RETRY_FALLBACK_SECONDS = 60
 
-// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js 的 retrySecondsOf，
 // 页内不再留私有副本；本页档位由上面的 RETRY_FALLBACK_SECONDS 作为第二参传进去。
 // 载荷来源：请求层 handleEnvelope 的 reject 带 data（front-partner/api/index.js:183-186 早已透传），
 // 429 锁的 {retryAfterSeconds} 就是从这里进页面；网络异常/信封不可解析时 data 为 null，走上面的本地回落。
@@ -350,7 +350,7 @@ export default {
   },
   // #ifdef H5
   onReady() {
-    // 页面级滚轮兜底（workspace.vue:243-246 同款，F-25/P-4 重测）：index.html 锁 html,body overflow:hidden 后
+    // 页面级滚轮兜底（front-partner/pages/workspace/workspace.vue 的 onPageWheel 同款，F-25/P-4 重测）：index.html 锁 html,body overflow:hidden 后
     // PC 滚轮默认滚动失效，本页是长表单，不接管就够不到提交按钮
     this._pageWheelHandler = (e) => this.onPageWheel(e)
     document.addEventListener('wheel', this._pageWheelHandler, { passive: false })

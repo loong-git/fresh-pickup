@@ -58,7 +58,7 @@
         </view>
         <!-- 每次 onShow 重拉的成功时刻（门店资料改了、刚被绑定新店后回页即可见，验收时用它辨认刷新确实发生） -->
         <text v-if="refreshText" class="refresh-tip">资料刷新于 {{ refreshText }}</text>
-        <!-- 会话内已有列表快照时，重拉失败降级为卡底这一行，不把整页换成错误卡（母版 front-merchant/pages/workspace/workspace.vue:49 同款） -->
+        <!-- 会话内已有列表快照时，重拉失败降级为卡底这一行，不把整页换成错误卡（母版 front-merchant/pages/workspace/workspace.vue 的 refresh-fail 那一行同款） -->
         <text v-if="refreshFailed && !retryLock" class="refresh-fail" @click="load(true)">资料刷新失败，点击重试</text>
         <text v-else-if="refreshFailed" class="refresh-fail refresh-fail-cooling">资料刷新失败，{{ retryLock }}s后可重试</text>
       </view>
@@ -134,7 +134,7 @@ const STORE_STATUS_OPEN = 'open'
 // 远小于窗口），两个数不是一回事，别混成一个值。
 const RETRY_FALLBACK_SECONDS = 60
 
-// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js:214-224，
+// retrySecondsOf 已收敛到 api 层（F-25 路 1）：front-partner 内唯一实现是 front-partner/api/index.js 的 retrySecondsOf，
 // 本页这份私有的一参版是第 6 份、也是最后一份：F-23.2 起锁时加进来，F-25 路 1 又随 apply/arrival/login/store/verify 那 5 份一起删除（净 diff 里一加一删相消，别据此断言「本页从来没有私有版」）。
 // （商家端更早就收敛了：front-merchant/api/index.js 导出同名两参版 retrySecondsOf——两端形态现在一致。
 //   这里刻意不写商家端那一行的行号：F-25 路 2 正在改那个文件，任何指向它内部的 file:line 都会被同批加行打断。）
@@ -247,7 +247,7 @@ export default {
     }
   },
   onShow() {
-    // 每次进入重拉（对齐母版 front-merchant/pages/workspace/workspace.vue:163 的 onShow 惯例，F-25/P-4 重测）：
+    // 每次进入重拉（对齐母版 front-merchant/pages/workspace/workspace.vue 的 onShow 惯例，F-25/P-4 重测）：
     // 换绑门店、改了营业时间都能第一时间反映
     this.load()
   },
@@ -277,7 +277,7 @@ export default {
     // 静默的 onShow 重拉保持当前视图，成功再覆盖，失败只追加一行降级提示（不把整页换成错误卡）。
     async load(resetView) {
       // 并发守卫：重试/重新检查/刷新区/每次 onShow 都可能撞上，同一时刻只放行一个请求序列，
-      // 慢失败不能盖掉快成功（母版 front-merchant/pages/workspace/workspace.vue:191-193 同款，F-25/P-4 重测）
+      // 慢失败不能盖掉快成功（母版 front-merchant/pages/workspace/workspace.vue 的 loadMe 同款，F-25/P-4 重测）
       if (this._loading) return
       // 冷却期内不重发：本页所有重试入口共用 retryLock 这一张表
       if (this.retryLock > 0) return
@@ -288,8 +288,8 @@ export default {
         const list = (res && Array.isArray(res.data)) ? res.data : []
         if (!list.length) {
           // 200 但空数组：后端归属集合为空时直接回 403，走不到这里；留这一道闸是为了
-          // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 front-merchant/pages/workspace/workspace.vue:201-202
-          // 的「不放水」同口径，F-25/P-4 重测）
+          // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 front-merchant/pages/workspace/workspace.vue:207
+          // 那道闸管的是「有 token 但 me 没返回角色时也不放水成 ready」，同口径，F-25/P-4 重测）
           this.showEmpty('名下没有可用的自提点')
           return
         }
@@ -321,7 +321,7 @@ export default {
         // 首屏无快照才是整页错误态
         this.errorText = (e && e.message) || ''
         this.errorCode = code
-        // 只有 429 才起冷却锁（照 dishes.vue:417 的判定：其余失败重试是有意义的，不该被秒数拦住）
+        // 只有 429 才起冷却锁（照 front-merchant/pages/dishes/dishes.vue 的 loadDishes 判定：其余失败重试是有意义的，不该被秒数拦住）
         // 把 catch 到的错误对象交给 startRetryLock：冷却秒数由它转述后端 429 信封的真值，本页不再猜 60
         if (code === 429) this.startRetryLock(e)
         else this.stopRetryLock()

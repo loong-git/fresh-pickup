@@ -4,7 +4,7 @@
 //    两端同域调试互不串态）；
 // ② 401 与 403 严格分流（本文件最要紧的一处口径，§3.2 登录三分支判定完全依赖它）；
 // ③ 分层纪律：本层是 front-merchant 内唯一的原生请求发起点，接口一律以具名导出收敛。
-//    用户端 search.vue:472-490、index.vue:731-733 那种页内直发请求的分叉不继承（§3.1 偿还分叉债）。
+//    用户端 front/pages/search/search.vue 的 dishRequest 与 front/pages/index/index.vue 的 dishRequest 那种页内直发请求的分叉不继承（§3.1 偿还分叉债）。
 import { BASE_URL } from './config.js'
 
 // 分层超时（照用户端纪律）：查询类 10s；提交类 20s；上传另设 30s（multipart 体积大且用户端无此通道）
@@ -175,7 +175,7 @@ function rejectUnauthorized(reject) {
 
 /**
  * 统一信封分流：request 与 uploadFile 共用同一个判定函数（两条通道的 401/403 语义必须一致）
- * 后端 HTTP 状态码恒 200、业务码只写在 body.code（ResponseUtil.java:23-27 拦截器直写信封 +
+ * 后端 HTTP 状态码恒 200、业务码只写在 body.code（ResponseUtil.java 的 writeJson 拦截器直写信封 +
  * GlobalExceptionHandler 全部 return R），故 statusCode 只在信封不可解析时兜底。
  * - code 200 且信封是对象 → resolve(完整信封 {code,data,message})
  *   （HTTP 200 但 body 不是 JSON 对象的情况——代理层回 HTML 错误页等——一律按业务失败 reject，
