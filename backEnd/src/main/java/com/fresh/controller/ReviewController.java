@@ -30,15 +30,12 @@ public class ReviewController {
     @Autowired
     private ReviewService reviewService;
 
-    /** 评价列表（签名保持现状） */
+    /** 评价列表（签名保持现状）
+     *  F-42b 收信封：手工 Map → R.ok(list)；原顶层 total（=list.size()，零信息量）一并去掉，
+     *  data 仍是数组本体（C 端两处调用方均按 reviewRes.data 直接取数组）。 */
     @GetMapping("/api/dishes/{dishId}/reviews")
-    public Map<String, Object> getReviews(@PathVariable Long dishId) {
-        List<Review> list = reviewService.getReviewsByDishId(dishId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("data", list);
-        result.put("total", list.size());
-        return result;
+    public R<List<Review>> getReviews(@PathVariable Long dishId) {
+        return R.ok(reviewService.getReviewsByDishId(dishId));
     }
 
     /** 提交评价：@Valid 校验入参（dishId 由路径变量必填），失败返回 400 人话 message；
