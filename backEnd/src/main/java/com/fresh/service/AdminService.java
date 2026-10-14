@@ -66,4 +66,30 @@ public interface AdminService {
      * @param actor  本次调用者身份，见类注释（null = 静态密钥轨）
      */
     void auditStoreApply(Long applyId, String action, String remark, String actor);
+
+    /**
+     * 微信支付回调拒收留痕（F-44）：把「哪一单、因为哪一条原因、回了微信什么码」落进
+     * {@code admin_audit_log}，让运营在 front-admin 审计页查得到（此前只有服务器日志）。
+     *
+     * <p><b>为什么落在 admin_audit_log 而不是 ops_log</b>：{@code init.sql:392} 的 ops_log 表注释明写
+     * 「本表只收商家/主理人/申请人现场动作——平台侧动作一律走 admin_audit_log」。回调裁定是平台侧事件，
+     * 按本仓既有边界就归本表，<b>不新建表、不加迁移</b>。
+     *
+     * <p><b>唯一调用点</b>：{@code PayController#wxNotify} 的那一处
+     * {@code catch (WxPayNotifyRejectException)}——判定层 18 条 {@code reject(...)} 抛出点一条都不许自己写审计
+     * （两处写 = 两套口径）。成功结算路径<b>不调本方法</b>，否则审计表被正常流量灌满、功能立刻失去可用性。
+     *
+     * <p><b>本方法是旁路</b>：写失败绝不影响调用方对微信的应答（那枚 HTTP 状态码是「已扣款订单不丢单」的
+     * 唯一保障）。落库动作复用本面既有那唯一一份审计写入核心 {@code AdminServiceImpl#writeAudit}，
+     * 不开第二个 writer。
+     *
+     * @param code       稳定 ASCII 拒收码（{@code WxPayNotifyRejectException.RejectCode#name()}，
+     *                   与拒收原因一一对应；null/空一律归一成 {@code UNSPECIFIED}，不留空串）
+     * @param httpStatus 实际回给微信的 HTTP 状态码（只作留痕，不参与任何判定）
+     * @param orderId    路径上的订单号，落 {@code target_id}；null/空白落占位符 {@code '-'}
+     *                   （该列 {@code VARCHAR(64) NOT NULL}，空串行插不进去）；
+     *                   超过列宽则截到 64 字符——「审计行必须存在」优先于「审计行有内容」（BE-2 既有裁定）
+     * @param ip         来源 IP，口径与限流闸门一致（{@code rate-limit.trust-proxy}），null 即列可空
+     */
+    void recordNotifyReject(String code, int httpStatus, String orderId, String ip);
 }

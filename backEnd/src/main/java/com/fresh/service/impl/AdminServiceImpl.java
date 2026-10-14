@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
@@ -83,6 +84,35 @@ public class AdminServiceImpl implements AdminService {
 
     /** 兜底 detail：两侧都装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（BE-2 的硬要求） */
     private static final String AUDIT_MINIMAL_DETAIL = "{\"old\":\"audit truncated\",\"new\":\"audit truncated\"}";
+
+    // ---- F-44（微信支付回调拒收留痕）的四枚钉死列值 + 两枚兜底常量 ----
+    //      为什么落在 admin_audit_log：init.sql:392 的 ops_log 表注释明写「本表只收商家/主理人/申请人现场动作
+    //      ——平台侧动作一律走 admin_audit_log」，回调裁定是平台侧事件。列形状全部落在
+    //      AdminV2ServiceImpl#FILTER_PATTERN（^[A-Za-z0-9_.:-]{1,64}$）内，运营端零改动即可筛。
+
+    /** 拒收留痕的操作主体：平台自己（回调无登录态、无管理密钥参与，故<b>绝不</b>用 {@code admin:<key 摘要>} 那套） */
+    private static final String NOTIFY_REJECT_ACTOR = "system:wx-notify";
+
+    /** 拒收留痕的动作名（{@code admin_audit_log.action VARCHAR(50)}，本值 17 字符） */
+    private static final String NOTIFY_REJECT_ACTION = "pay.notify_reject";
+
+    /** 拒收留痕的目标类型：一律是订单（{@code target_type VARCHAR(30)}） */
+    private static final String NOTIFY_REJECT_TARGET_TYPE = "order";
+
+    /** {@code target_id} 拿不到订单号时的占位符：该列 {@code VARCHAR(64) NOT NULL}，写空串会直接让整行审计插不进去 */
+    private static final String NOTIFY_REJECT_TARGET_ID_PLACEHOLDER = "-";
+
+    /** code 为空/空白时的归一值（正常链路走不到：controller 传的是 {@code RejectCode#name()}） */
+    private static final String NOTIFY_REJECT_CODE_UNSET = "UNSPECIFIED";
+
+    /**
+     * {@code target_id} 列宽（{@code admin_audit_log.target_id VARCHAR(64) NOT NULL}，init.sql:353）。
+     * 路径段是请求方可控的（{@code /api/pay/<随便一串>/wx-notify} 没有长度闸门），超 64 字符会让整行审计
+     * 撞 1406 被本类那两层 catch 静默吞掉——正是 BE-2 说过的「不可发现的脱审」。
+     * 按 BE-2 的既有裁定处理：<b>「审计行必须存在」优先于「审计行有内容」</b>，截到列宽而不是丢行。
+     * （正常订单号是 {@code orders.id VARCHAR(50)}，init.sql:62，永远走不到截断这一支。）
+     */
+    private static final int AUDIT_TARGET_ID_MAX = 64;
 
     // ---- F-18.12 第 3 条（入驻申请审核链）新增常量与依赖（那一批没有改动任何既有方法体；
     //      F-20.9 #1 才给五个写方法各加了 {@code String actor} 形参，见类注释与 {@link #auditActor}）----
@@ -389,38 +419,111 @@ public class AdminServiceImpl implements AdminService {
     }
 
     /**
+     * 微信支付回调拒收留痕（F-44）——本类<b>唯一</b>不为「商家/主理人/申请人现场动作」服务的审计入口，
+     * 归 {@code admin_audit_log} 的依据见接口注释（ops_log 表注释把平台侧动作一律指向本表）。
+     *
+     * <p>列值钉死：{@code actor=system:wx-notify} / {@code action=pay.notify_reject} /
+     * {@code target_type=order} / {@code target_id=订单号或 '-'} / {@code detail} 只有两键。
+     * 四枚值都过 {@code AdminV2ServiceImpl#FILTER_PATTERN}（{@code ^[A-Za-z0-9_.:-]{1,64}$}），
+     * 运营端现有那四个输入框就能筛，前端零改动。
+     *
+     * <p><b>actor 不带任何密钥摘要</b>：本场景没有 key 参与（回调无登录态、无管理密钥），
+     * 所以绝不复用 {@link #auditActor} 那套 {@code admin:<sha8>}——那会把「一把根本没参加的密钥」写进审计，
+     * 还会让运营误判成人工操作。
+     *
+     * <p>写入走既有那唯一一份审计核心 {@link #writeAudit(String, String, String, String, String, String, String)}
+     * （两趟兜底 + Jackson 转义姿势与其余五处审计<b>完全同一份代码</b>，本仓不养第二个 writer）。
+     * 兜底 detail 传的是<b>本方法自己那枚两键 JSON</b>而不是 {@link #AUDIT_MINIMAL_DETAIL}：
+     * 本 detail 最长约 60 字符（{@code code} ≤27 + 3 位状态码），根本走不到超长那条路；
+     * 万一仍因别的原因失败，第二趟必须<b>保持形状不变</b>再试一次——换成 {@code {"old","new"}}
+     * 会把「detail 只有两键」这条运营端与后续脚本依赖的形状破掉。
+     */
+    @Override
+    public void recordNotifyReject(String code, int httpStatus, String orderId, String ip) {
+        String detail = notifyRejectDetail(code, httpStatus);
+        writeAudit(NOTIFY_REJECT_ACTOR, NOTIFY_REJECT_ACTION, NOTIFY_REJECT_TARGET_TYPE,
+                notifyRejectTargetId(orderId), detail, detail, ip);
+    }
+
+    /**
+     * {@code target_id} 归一（F-44）：拿不到订单号写 {@code '-'}（列 NOT NULL，空串整行插不进去），
+     * 超列宽截到 64（理由与依据见 {@link #AUDIT_TARGET_ID_MAX}）——两条兜底都是「宁可内容退化，也不丢行」。
+     */
+    private String notifyRejectTargetId(String orderId) {
+        if (orderId == null || orderId.isBlank()) {
+            return NOTIFY_REJECT_TARGET_ID_PLACEHOLDER;
+        }
+        String trimmed = orderId.trim();
+        return trimmed.length() <= AUDIT_TARGET_ID_MAX ? trimmed : trimmed.substring(0, AUDIT_TARGET_ID_MAX);
+    }
+
+    /**
+     * 拒收审计的 detail（F-44 安全红线）：<b>只允许</b> {@code code} 与 {@code httpStatus} 两键。
+     * 拒收原因天生带着报文、签名、平台证书 serial、解密明文、金额、手机号——一条都不许顺手写进来
+     * （这一列在运营端是原文可查的，任何可重放字段落进来就等于把回调链路又开了一个读接口）。
+     * 序列化走本类既有那枚静态 {@link #AUDIT_MAPPER}（S-4 的全量转义姿势），不手拼字符串。
+     */
+    private String notifyRejectDetail(String code, int httpStatus) {
+        ObjectNode detail = AUDIT_MAPPER.createObjectNode();
+        // code 由调用方（controller 的 catch）从 RejectCode 枚举带 name()，理论上不可能为空；
+        // 归一成 UNSPECIFIED 而不是留 null/空串：空串会让这行审计在筛选里彻底查不到，等于没留痕
+        detail.put("code", code == null || code.isBlank() ? NOTIFY_REJECT_CODE_UNSET : code.trim());
+        detail.put("httpStatus", httpStatus);
+        return detail.toString();
+    }
+
+    /**
      * 审计落库（R6/M-04）：actor/action/target_type/target_id/detail(旧值→新值 JSON)/ip。
      * 审计是旁路——写失败绝不打断主事务（契约 §2.10b 红线）。
      * <p>BE-2 同型修复（本仓母版同样只 log.warn 过）：detail 先序列化、再按列宽剩余预算整体截断，
      * 且**失败也要再落一行**——第一趟完整 detail，任一层原因（1406 超长、1366 孤立代理、其它列宽…）
      * 失败即退成 AUDIT_MINIMAL_DETAIL 重试一次，两趟都失败才 warn。旧写法丢的那一行是不可发现的脱审。
+     * <p>F-44 起本方法是 {@link #writeAudit(String, String, String, String, String, String, String)} 的薄封装
+     * （业务面「旧值→新值」那五处审计的入口与形状一字未变，ip 仍走 {@link #currentIp()}）；
+     * 抽出来的那枚核心是<b>全类唯一</b>的审计写入路径，回调拒收留痕也走它，不再开第二个 writer。
      */
     private void writeAudit(String actor, String action, String targetType, String targetId,
                             String oldVal, String newVal) {
-        String detail = buildAuditDetail(oldVal, newVal);
+        writeAudit(actor, action, targetType, targetId,
+                buildAuditDetail(oldVal, newVal), AUDIT_MINIMAL_DETAIL, currentIp());
+    }
+
+    /**
+     * 审计写入核心（本类唯一一份，两趟兜底）：detail 由调用方给完整形状，装不下时退成 {@code minimalDetail} 再试一次。
+     *
+     * @param detail        第一趟写入的完整 detail（必须是合法 JSON）
+     * @param minimalDetail 兜底 detail：必须仍是<b>同一形状的合法 JSON</b>——
+     *                      业务面用 {@link #AUDIT_MINIMAL_DETAIL}（{@code {"old","new"}}），
+     *                      拒收留痕用它自己的两键 JSON（形状是运营端与脚本的依赖，兜底不许换形状）
+     * @param ip            来源 IP；业务面传 {@link #currentIp()}（{@code RequestContextHolder} 的 remoteAddr），
+     *                      回调拒收传调用点按 {@code rate-limit.trust-proxy} 口径算出的值（列可空，null 就是取不到）
+     */
+    private void writeAudit(String actor, String action, String targetType, String targetId,
+                            String detail, String minimalDetail, String ip) {
         try {
-            insertAudit(actor, action, targetType, targetId, detail);
+            insertAudit(actor, action, targetType, targetId, detail, ip);
             return;
         } catch (Exception e) {
             log.warn("审计写入失败（旁路，不影响主事务），改用最小 detail 重试: action={}, targetType={}, targetId={}",
                     action, targetType, targetId, e);
         }
         try {
-            insertAudit(actor, action, targetType, targetId, AUDIT_MINIMAL_DETAIL);
+            insertAudit(actor, action, targetType, targetId, minimalDetail, ip);
         } catch (Exception e) {
             log.warn("审计重试仍失败（旁路，不影响主事务）: action={}, targetType={}, targetId={}",
                     action, targetType, targetId, e);
         }
     }
 
-    private void insertAudit(String actor, String action, String targetType, String targetId, String detail) {
+    private void insertAudit(String actor, String action, String targetType, String targetId,
+                             String detail, String ip) {
         AdminAuditLog row = new AdminAuditLog();
         row.setActor(actor);
         row.setAction(action);
         row.setTargetType(targetType);
         row.setTargetId(targetId);
         row.setDetail(detail);
-        row.setIp(currentIp());
+        row.setIp(ip);
         adminAuditLogMapper.insert(row);
     }
 

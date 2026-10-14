@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.entity.Order;
 import com.fresh.mapper.OrderMapper;
+import com.fresh.pay.WxPayNotifyRejectException.RejectCode;
 import com.fresh.service.impl.OrderServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -105,11 +106,11 @@ public class WxPayNotifyService {
         //      骨架期这里回 R.fail(400,"微信支付未配置") 走 HTTP 200，本身正是 F-21.6 纠偏的那处错；
         //      状态码是真实 400、文案「微信支付未配置」逐字保留（不新造、不改写既有文案）。——
         if (isBlank(mchid) || isBlank(apiV3Key)) {
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付未配置");
+            throw reject(RejectCode.WX_PAY_NOT_CONFIGURED, HttpStatus.BAD_REQUEST, "微信支付未配置");
         }
         // 四个验签头 + 原始报文缺一不可：v3 用 Wechatpay-Serial 定位平台证书，没有它连验什么都无法确定
         if (isBlank(body) || isBlank(timestamp) || isBlank(nonce) || isBlank(signature) || isBlank(serial)) {
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调缺少验签头");
+            throw reject(RejectCode.NOTIFY_HEADERS_MISSING, HttpStatus.BAD_REQUEST, "微信支付回调缺少验签头");
         }
 
         // Jackson 随 spring-boot-starter-web 已在类路径（非新增依赖）。回调量级极小，方法内现建即可。
@@ -119,7 +120,7 @@ public class WxPayNotifyService {
         try {
             notify = mapper.readTree(body);
         } catch (Exception e) {
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调报文不合法");
+            throw reject(RejectCode.NOTIFY_BODY_NOT_JSON, HttpStatus.BAD_REQUEST, "微信支付回调报文不合法");
         }
 
         // —— 1) 平台证书验签（先验签、后解密：未过签的报文一个字节都不该被当 JSON 解析）——
@@ -129,13 +130,13 @@ public class WxPayNotifyService {
         } catch (RuntimeException e) {
             // 未配置 / 序列号未知且下载失败：503（可重试），不是 4xx——问题在商户侧，别让它变成丢单
             log.error("微信支付回调取平台证书失败: serial={}, cause={}", serial, e.getMessage());
-            throw reject(HttpStatus.SERVICE_UNAVAILABLE, "微信支付平台证书不可用");
+            throw reject(RejectCode.PLATFORM_CERT_UNAVAILABLE, HttpStatus.SERVICE_UNAVAILABLE, "微信支付平台证书不可用");
         }
         // 验签名串用**原始 body**（不是重新序列化的 JsonNode）：字段顺序或空白一变即验签失败
         String verifyMessage = WxpaySignature.buildVerifyMessage(timestamp, nonce, body);
         if (!WxpaySignature.verify(verifyMessage, signature, platformKey)) {
             log.warn("微信支付回调验签失败: orderId={}, serial={}", pathOrderId, serial);
-            throw reject(HttpStatus.UNAUTHORIZED, "微信支付回调验签失败");
+            throw reject(RejectCode.SIGNATURE_VERIFY_FAILED, HttpStatus.UNAUTHORIZED, "微信支付回调验签失败");
         }
 
         // —— 1b) 时间戳新鲜度窗口（C-3，补 F-21.7 登记的边界②）——
@@ -148,13 +149,13 @@ public class WxPayNotifyService {
         } catch (NumberFormatException e) {
             // 微信给的是秒级 epoch 字符串；不是数字就无从判定新鲜度（Long.parseLong("abc") 抛 NumberFormatException）
             log.warn("微信支付回调时间戳不是秒级 epoch: orderId={}, timestamp={}", pathOrderId, timestamp);
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调时间戳超出允许范围");
+            throw reject(RejectCode.TIMESTAMP_NOT_EPOCH, HttpStatus.BAD_REQUEST, "微信支付回调时间戳超出允许范围");
         }
         long skew = Math.abs(Instant.now().getEpochSecond() - notifyEpochSecond);
         if (skew > NOTIFY_TIMESTAMP_TOLERANCE_SECONDS) {
             log.warn("微信支付回调时间戳超出允许范围: orderId={}, skew={}s, 容忍={}s",
                     pathOrderId, skew, NOTIFY_TIMESTAMP_TOLERANCE_SECONDS);
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调时间戳超出允许范围");
+            throw reject(RejectCode.TIMESTAMP_OUT_OF_WINDOW, HttpStatus.BAD_REQUEST, "微信支付回调时间戳超出允许范围");
         }
 
         // —— 2) 解密 resource（AES-256-GCM：key=APIv3 密钥、IV=resource.nonce、AAD=associated_data）——
@@ -162,7 +163,7 @@ public class WxPayNotifyService {
         String algorithm = resource.path("algorithm").asText("");
         String cipherText = resource.path("ciphertext").asText("");
         if (!WxpayAead.ALGORITHM.equals(algorithm) || cipherText.isEmpty()) {
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调加密报文不合法");
+            throw reject(RejectCode.RESOURCE_ENVELOPE_INVALID, HttpStatus.BAD_REQUEST, "微信支付回调加密报文不合法");
         }
         String transactionJson;
         try {
@@ -172,14 +173,14 @@ public class WxPayNotifyService {
             // 错 APIv3 密钥（典型 AEADBadTagException）/ 密文或 AAD 被篡改 / nonce 长度不合规：
             // GCM 的 tag 校验本身就是「报文没被动过」的证明。此分支在 settle 之前，订单一个字节都没动
             log.warn("微信支付回调解密失败: orderId={}, cause={}", pathOrderId, e.getClass().getSimpleName());
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调解密失败");
+            throw reject(RejectCode.AEAD_DECRYPT_FAILED, HttpStatus.BAD_REQUEST, "微信支付回调解密失败");
         }
         JsonNode transaction;
         try {
             transaction = mapper.readTree(transactionJson);
         } catch (JsonProcessingException e) {
             log.warn("微信支付回调解密结果不是合法 JSON: orderId={}", pathOrderId);
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调解密失败");
+            throw reject(RejectCode.DECRYPTED_PAYLOAD_NOT_JSON, HttpStatus.BAD_REQUEST, "微信支付回调解密失败");
         }
 
         // —— 3) 三比对：out_trade_no / trade_state / amount.total（全过才认定这笔支付成功）——
@@ -187,16 +188,16 @@ public class WxPayNotifyService {
         if (outTradeNo.isEmpty() || !outTradeNo.equals(pathOrderId)) {
             // 路径 orderId 是 notify_url 的一部分，两者不符 = 这条通知不是发给这一单的（或有人在拼单号）
             log.warn("微信支付回调订单号不符: path={}, out_trade_no={}", pathOrderId, outTradeNo);
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调订单号不匹配");
+            throw reject(RejectCode.OUT_TRADE_NO_MISMATCH, HttpStatus.BAD_REQUEST, "微信支付回调订单号不匹配");
         }
         String tradeState = transaction.path("trade_state").asText("");
         if (!"SUCCESS".equals(tradeState)) {
             log.warn("微信支付回调非成功态: orderId={}, trade_state={}", pathOrderId, tradeState);
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付结果非成功状态");
+            throw reject(RejectCode.TRADE_STATE_NOT_SUCCESS, HttpStatus.BAD_REQUEST, "微信支付结果非成功状态");
         }
         JsonNode totalNode = transaction.path("amount").path("total");
         if (!totalNode.isNumber()) {
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调缺少金额");
+            throw reject(RejectCode.AMOUNT_TOTAL_MISSING, HttpStatus.BAD_REQUEST, "微信支付回调缺少金额");
         }
         int paidFen = totalNode.asInt();
 
@@ -206,19 +207,19 @@ public class WxPayNotifyService {
         } catch (RuntimeException e) {
             // DB 抖动一类：真实 5xx，让微信按它的重试节奏再投（绝不能回 200 把它糊过去）
             log.error("微信支付回调查单失败: orderId={}", outTradeNo, e);
-            throw reject(HttpStatus.INTERNAL_SERVER_ERROR, "微信支付回调处理失败");
+            throw reject(RejectCode.ORDER_LOOKUP_FAILED, HttpStatus.INTERNAL_SERVER_ERROR, "微信支付回调处理失败");
         }
         if (order == null) {
             // 验签与解密都过了却查无此单：单号属于别的商户/环境，或本地数据被清；
             // 回调无登录态，这里只断「这单存在」，不做归属比对（F-21.6 第 3c 条）
             log.warn("微信支付回调订单不存在: orderId={}", outTradeNo);
-            throw reject(HttpStatus.NOT_FOUND, "订单不存在");
+            throw reject(RejectCode.ORDER_NOT_FOUND, HttpStatus.NOT_FOUND, "订单不存在");
         }
         if (OrderServiceImpl.STATUS_CANCELLED.equals(order.getStatus())) {
             // 已扣款但本地单已取消：不自动结算复活一张取消单（销量/取货码/邀请账都会算错），
             // 拒收并留 ERROR 给运营人工退款。TODO 凭据到手后接查单兜底 + 退款链路（F-21.8 §0.2）。
             log.error("已取消订单收到微信支付成功通知，需人工处理: orderId={}, amount={}", outTradeNo, paidFen);
-            throw reject(HttpStatus.BAD_REQUEST, "订单已取消，无法支付");
+            throw reject(RejectCode.ORDER_CANCELLED, HttpStatus.BAD_REQUEST, "订单已取消，无法支付");
         }
         int expectedFen;
         try {
@@ -227,11 +228,11 @@ public class WxPayNotifyService {
             expectedFen = order.getTotalPrice().movePointRight(2).setScale(0, RoundingMode.UNNECESSARY).intValueExact();
         } catch (ArithmeticException | NullPointerException e) {
             log.error("订单金额标度异常，无法比对: orderId={}, totalPrice={}", outTradeNo, order.getTotalPrice(), e);
-            throw reject(HttpStatus.INTERNAL_SERVER_ERROR, "订单金额无法比对");
+            throw reject(RejectCode.ORDER_AMOUNT_UNCOMPARABLE, HttpStatus.INTERNAL_SERVER_ERROR, "订单金额无法比对");
         }
         if (expectedFen != paidFen) {
             log.error("微信支付回调金额与订单不符: orderId={}, 期望={}分, 通知={}分", outTradeNo, expectedFen, paidFen);
-            throw reject(HttpStatus.BAD_REQUEST, "微信支付回调金额与订单不符");
+            throw reject(RejectCode.AMOUNT_MISMATCH, HttpStatus.BAD_REQUEST, "微信支付回调金额与订单不符");
         }
 
         // 判定到此全部通过：这笔支付在微信侧已被真实签名 + 三比对认定为成功，可以交给结算。
@@ -271,7 +272,10 @@ public class WxPayNotifyService {
             return settled;
         } catch (RuntimeException e) {
             log.error("微信支付回调结算失败: orderId={}", order.getId(), e);
-            throw new WxPayNotifyRejectException(HttpStatus.INTERNAL_SERVER_ERROR, "微信支付回调处理失败", e);
+            // F-44：结算失败与「查单失败」共用同一句文案与同一枚 500，但原因不同（一个在结算前、一个在结算内），
+            //       故单独一枚 SETTLEMENT_FAILED——审计里把这两类分开的价值正在于此（前者钱还没入账、后者可能半态）。
+            throw new WxPayNotifyRejectException(RejectCode.SETTLEMENT_FAILED,
+                    HttpStatus.INTERNAL_SERVER_ERROR, "微信支付回调处理失败", e);
         }
     }
 
@@ -306,9 +310,14 @@ public class WxPayNotifyService {
         }
     }
 
-    /** 失败的唯一出口：带上应答表钉死的 HTTP 码与文案，由 controller 转成真实状态码（不在本类里拼 ResponseEntity） */
-    private static WxPayNotifyRejectException reject(HttpStatus status, String message) {
-        return new WxPayNotifyRejectException(status, message);
+    /**
+     * 失败的唯一出口：带上应答表钉死的 HTTP 码与文案，由 controller 转成真实状态码（不在本类里拼 ResponseEntity）。
+     * F-44 多带一枚 {@link RejectCode}：它是<b>对内留痕</b>用的稳定 ASCII 码（进 {@code admin_audit_log.detail.code}），
+     * 与 {@code status}/{@code message} 这两项<b>对外契约</b>互不干涉——本方法依旧不许改文案、不许换状态码。
+     * 每个抛出点各用一枚专属 code（一条原因一枚，不得复用，见 {@link RejectCode} 的类注释）。
+     */
+    private static WxPayNotifyRejectException reject(RejectCode code, HttpStatus status, String message) {
+        return new WxPayNotifyRejectException(code, status, message);
     }
 
     /** 空值判定（与 Step 2b 的局部 Predicate 同语义，下沉后收敛到一处）：null 与纯空白同判 */

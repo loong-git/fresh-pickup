@@ -6,6 +6,9 @@ import com.fresh.interceptor.AuthInterceptor;
 import com.fresh.pay.PayService;
 import com.fresh.pay.WxPayNotifyRejectException;
 import com.fresh.pay.WxPayNotifyService;
+import com.fresh.service.AdminService;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -16,12 +19,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.Map;
 
 /**
  * 支付接口（T-M2-05，契约 M2-5）：/api/pay/** 需登录（AuthInterceptor 校验并注入 userId）。
+ * 例外：{@code /api/pay/{orderId}/wx-notify} 是微信服务器直连，无登录态（见该方法注释的已知边界①）。
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/pay")
 public class PayController {
@@ -38,6 +46,26 @@ public class PayController {
      */
     @Autowired
     private WxPayNotifyService notifyService;
+
+    /**
+     * 拒收留痕（F-44）：回调被拒时往 {@code admin_audit_log} 写一行，让运营在 front-admin 审计页查得到
+     * （此前只有服务器日志）。字段注入照成本类既有姿势（{@code payService}/{@code notifyService} 都是
+     * {@code @Autowired} 字段，无构造器）——<b>实测无环</b>：{@code AdminServiceImpl} 只依赖 mapper 与
+     * {@code CouponService}，其传递闭包不回到本控制器（同目录 {@code AdminController} 才是它的调用方），
+     * 且 Spring 的单例字段注入本身就允许环，不会重演 F-21.7 那类条件装配起不来的事故。
+     * 全仓审计只有这一个 writer（{@code AdminService#recordNotifyReject} 复用
+     * {@code AdminServiceImpl#writeAudit} 那唯一一份写入核心）。
+     */
+    @Autowired
+    private AdminService adminService;
+
+    /**
+     * 客户端 IP 取值口径开关：<b>读的是 {@code RateLimitInterceptor:53} 与
+     * {@code AdminAuthServiceImpl:173} 已有的那一枚键</b>（{@code rate-limit.trust-proxy}，默认 false），
+     * 不新增键、不改任何 yml。
+     */
+    @Value("${rate-limit.trust-proxy:false}")
+    private boolean trustProxy;
 
     /** Mock 支付开关（T-M2-05）：dev=true；prod 配 false → 端点对外表现 404（信封 code:404） */
     @Value("${pay.mock-enabled:true}")
@@ -146,7 +174,11 @@ public class PayController {
      * ⑤ <b>查单兜底仍未做</b>（不是遗漏，是 F-21.8 §0.2 的裁定）：{@code GET /v3/pay/transactions/out-trade-no/{no}}
      *    要商户 API 证书私钥才能签名，无凭据时一行都跑不起来；写出来只会得到「编译通过但从未被执行过的对账代码」，
      *    它会在 prod 里静默什么都不做——比不写更危险。连同 {@code WxPayCertificateSource} 的真实实现一起
-     *    归入「凭据到手后」那批。回调拒收留痕（现只 log）登记为 L-21-2，待用户裁定是否扩到 admin 面。
+     *    归入「凭据到手后」那批。回调拒收留痕（L-21-2）<b>已于 F-44 落地</b>：本方法的 catch 是全仓唯一写入点，
+     *    按 {@code admin_audit_log}（平台侧动作的归属表，依据 {@code init.sql:392} 的 ops_log 表注释）
+     *    落 {@code actor=system:wx-notify / action=pay.notify_reject / target_type=order /
+     *    target_id=订单号或 '-' / detail={"code","httpStatus"} 两键}，运营在 front-admin 审计页直接可查；
+     *    判定层那 18 条 reject 分支一处都不自己写，成功结算路径一行都不写。
      */
     @PostMapping("/{orderId}/wx-notify")
     public ResponseEntity<Map<String, String>> wxNotify(@PathVariable("orderId") String orderId,
@@ -165,10 +197,58 @@ public class PayController {
         } catch (WxPayNotifyRejectException e) {
             // **具体类型**才 catch：绝不用 catch (RuntimeException) 兜一切（那会把 NPE 一类编程错误洗成「400 拒收」）。
             // 走到这里说明异常已穿出 settleInTransaction 的代理边界（该回滚的早已回滚），应答可放心给 4xx/5xx。
+            //
+            // —— F-44：拒收留痕。全仓唯一写入点：判定层 18 条 reject 分支 + 结算包装那 1 条，
+            //    都只在这一个 catch 里落审计，绝不在各 throw 点各写一遍（两处写 = 两套口径）。
+            //    成功结算路径一行都不写，否则审计表被正常流量灌满、这个功能立刻失去可用性。
+            //
+            //    【为什么整段必须包在 try/catch 里、失败只 log.error】钉死在这里，不许被"顺手加个兜底"改掉：
+            //    本端点的 HTTP 码是「已扣款订单不丢单」的唯一保障（200/204 = 微信永久停止重发；失败必须非 200，
+            //    而它的重试节奏约 24 小时 / 15 次之后就放弃）。审计写挂了如果连带把应答改掉，
+            //    就等于让一次本可重试的投递变成永久丢单——那比"少一行审计"严重两个数量级。
+            //    catch 的是 RuntimeException（不是 Exception）：与既有取舍一致，Error 一类不许在这里被吞。
+            try {
+                adminService.recordNotifyReject(e.getCode().name(), e.getHttpStatus().value(), orderId, clientIp());
+            } catch (RuntimeException auditFailure) {
+                log.error("微信支付回调拒收审计写入失败（不影响对微信的应答）: orderId={}, code={}, httpStatus={}",
+                        orderId, e.getCode(), e.getHttpStatus().value(), auditFailure);
+            }
             return ResponseEntity.status(e.getHttpStatus())
                     .body(Map.of("code", "FAIL", "message", e.getMessage()));
         }
         // 成功：200 且不带业务 JSON（官方：200 或 204 都算正常接收，微信据此停止重发）
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 客户端 IP（F-44 拒收留痕用）——<b>逐条镜像 {@code RateLimitInterceptor#clientIp} 与
+     * {@code AdminAuthServiceImpl#clientIp} 那两处的既有口径</b>：默认直取
+     * {@code request.getRemoteAddr()}（TCP 对端地址，不可伪造）；仅 {@code rate-limit.trust-proxy=true}
+     * （显式声明部署在可信反代后）才解析 {@code X-Forwarded-For} 首跳。读的是同一枚既有键，
+     * <b>不新增配置、不改任何 yml</b>，也不新造第三种口径（比如无条件信 XFF，那早被实测过可完全绕过）。
+     *
+     * <p>request 的拿法走 {@code RequestContextHolder}（本仓 Service/非端点签名处取 request 的既有姿势，
+     * 见 {@code AdminServiceImpl#currentIp}）——这样本端点的方法签名一个字不用动，
+     * 「六枚 String 入参 + 返回 ResponseEntity」那条反射形态断言（{@code WxPayNotifyTest}）也继续成立。
+     * 取不到（离线单测、非请求线程）就回 null：{@code admin_audit_log.ip} 是可空列，
+     * <b>绝不为审计去猜一个假 IP</b>。
+     *
+     * <p>【债登记】本仓第 4 份同族实现（第 1 份 {@code RateLimitInterceptor:129}、第 2 份
+     * {@code AdminAuthServiceImpl:384}、第 3 份 {@code AdminServiceImpl#currentIp} 不解析 XFF 也不受
+     * trust-proxy 控制），与那两处同样指向「抽公共工具随 G-07」——越界改存量链路反而扩大回归面。
+     */
+    private String clientIp() {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        if (!(attributes instanceof ServletRequestAttributes servletAttributes)) {
+            return null;
+        }
+        HttpServletRequest request = servletAttributes.getRequest();
+        if (trustProxy) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (xff != null && !xff.isBlank()) {
+                return xff.split(",")[0].trim();
+            }
+        }
+        return request.getRemoteAddr();
     }
 }
