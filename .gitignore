@@ -1,0 +1,47 @@
+logs/
+front/unpackage/
+backEnd/target/
+uploads/
+# F-13/G-02 决策①：商家商品图运行时落盘目录（C 端静态根语义路径，只新增文件不入库）
+front/static/images/uploads/
+front-merchant/unpackage/
+front-partner/unpackage/
+# F-20.11 Step 4：本仓第一个 npm 工程（运营端 PC 控制台）的依赖与构建产物
+front-admin/node_modules/
+front-admin/dist/
+front/.backup-20260926/
+.zcode/
+.claude/
+nul
+backEnd/.git.bak-nested/
+
+# 本地私有凭据启动脚本（勿提交）
+start-local.bat
+*.log
+tmp-*.txt
+start.bat
+
+# 内部交接文档（不上传）
+HANDOFF.md
+
+# 内部文档与本地文件（不上传）
+CLAUDE.md
+HANDOFF.md
+docs/
+技术文档.md
+模板.jpg
+需求.txt
+log.bat
+stop.bat
+.idea/
+# F-52 两条改动（都是实测逼出来的）：
+#  ① 原先最后一行写着 `.gitignore` 自己——于是这份文件**从来没进过版本库**，
+#     `git ls-files --error-unmatch .gitignore` 报 "did not match any file(s)"。
+#     后果不是洁癖问题：谁从 clone 出来的仓库提交，谁就没有任何忽略规则，
+#     `logs/`（含 .secret-list、backend.log、out/admin_cred.txt）与 `start-local.bat`（真凭据）
+#     会一并被 `git add` 收走。忽略机制本身必须是版本化的，这条是凭据泄露面，不是风格问题。
+#  ② 原先忽略了 `scripts/`，而 `tools/gate/f28-gate.sh` §2 的判据就是 `bash scripts/smoke.sh`——
+#     门禁依赖的脚本不在库里，与 F-48 抓到的「判据脚本住在被忽略的 logs/」是同一类缺陷，
+#     只是这次被忽略规则藏得更深（连 untracked 列表里都不出现）。
+#     `scripts/smoke.sh` 已逐文件扫过凭据（0 命中）、不含机器绝对路径，入库。
+#     其余「内部文档不上传」的决定**没动**：docs/、HANDOFF.md、CLAUDE.md、技术文档.md 仍被忽略。
