@@ -66,15 +66,19 @@
            整格可点（count=0 也可点，运营可能要翻某一天的历史），点了跳审计页并带上 actor/action 两枚筛选。
            形态纪律：告警态<b>只改颜色与边框</b>，零定位、不改网格，绝不压到别的卡片；
            数值与副行都是服务端给的原值，本页不换算、不格式化（见 script 段 D-50-7 那条）。
-           F-53 ②（标清统计范围，纯文案）：范围写进 card-label 的「（当日）」，<b>不</b>写进副行——
+           F-53 ②（标清统计范围，纯文案）：范围写进 card-label，<b>不</b>写进副行——
            数值已在 card-value 报过一次，副行再报一次数值就是本仓清过的「同屏双报」，所以副行仍只有
-           「最近一次 HH:mm」；零值支「当日无拒收」本来就带范围，一字未动。另一半成因是：点了跳过去的
-           审计页没有日期筛选、列的是全部历史，同屏两个数会被读成对不上，所以口径说明那条也补了
-           「两个数都对、是范围不同」。 -->
+           「最近一次 HH:mm」。另一半成因是：点了跳过去的审计页没有日期筛选、列的是全部历史，
+           同屏两个数会被读成对不上，所以口径说明那条也补了「两个数都对、是范围不同」。
+           F-54 改动 A（消掉 F-53 自己留下的松动）：F-53 把范围硬写成「（当日）」，但页顶可以选日期，
+           选了之后这一格数的是所选那一天的窗口，此时 label 写「当日」就是谎报。现在 label 与零值支副行
+           都只在「（当日）/（所选日）」两枚措辞里取值（同一判据 = pickedDate 是否为空），非零支副行至今
+           一字未动；label <b>不</b>写具体日期值，理由见 script 段 F-54 改动 A 那条（与 D-50-7 同一写法，
+           注释里不重复标识名，免得多一条要跟着改名的引用）。 -->
       <div class="card card--jump" :class="{ 'card--alert': notifyRejectAlert }"
            role="button" tabindex="0" title="跳到审计记录并自动筛出这些行"
            @click="goNotifyRejectAudit" @keyup.enter="goNotifyRejectAudit">
-        <div class="card-label">支付回调拒收（当日）</div>
+        <div class="card-label">支付回调拒收{{ notifyRejectScopeLabel }}</div>
         <div class="card-value">{{ metrics.notifyRejectCount }}</div>
         <div class="card-sub">{{ notifyRejectSubText }}</div>
       </div>
@@ -93,14 +97,15 @@
               不是空值——那表示「这一日确实没有单」，不是「没查到」。</li>
           <li>统计窗口：不选日期时由服务端 CURDATE() 决定今日，前端不做任何日期推算；
               选定日期时按该自然日 [00:00, 次日 00:00) 计。</li>
-          <li><b>支付回调拒收（当日）</b>与前四键<b>同一个自然日窗口，但不是同一张表</b>：它数的是审计表里
+          <li><b>支付回调拒收</b>那一格与前四键<b>同一个自然日窗口，但不是同一张表</b>：它数的是审计表里
               action = pay.notify_reject 的行数——微信回调被拒时由服务端自己写下，<b>不是某个运营人员做了这件事</b>。
               这一格与订单数/金额不可互相加减换算。副行「最近一次」是服务端定好的 HH:mm，本页只展示。
-              label 上的「（当日）」说的是本页当前这个窗口：不选日期时由服务端 CURDATE() 决定今日，
-              页顶选了日期就是所选那一天的窗口——范围一律以页顶「统计窗口」那行为准。
+              label 与副行的窗口措辞只有「（当日）」与「（所选日）」两种，跟着页顶有没有选日期走，
+              <b>不写具体日期</b>：不选日期时窗口由服务端 CURDATE() 决定今日，页顶选了就是所选那一天——
+              具体是哪一天一律以页顶「统计窗口」那行为准，这里不重复报第二遍。
               点这一格跳过去的审计记录页<b>列表不限日期</b>（它一共只有操作者/动作/目标类型/目标 ID
               四个筛选框，<b>没有日期筛选</b>），所以这一格的数与审计页的「共 N 条」<b>不是同一个范围，
-              两个数都对</b>——「当日 2 次」跳过去看到「共 3 条」是范围不同（一天 vs 不限日期），
+              两个数都对</b>——这一格报 2 次、跳过去看到「共 3 条」是范围不同（一天 vs 不限日期），
               不是哪一边数错了。</li>
         </ul>
       </div>
@@ -118,6 +123,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAdminOverview, retryAfterText } from '../api'
+// F-54 改动 B：跳转 query 的 actor / action 两枚值不在本页内联。它们的真值在服务端，
+// 定义收在 ../constants.js 一处，与审计页那枚预设同源——服务端改名时两端只有一处要改，
+// 不会再出现「一处改了另一处静默失配、跳过去筛出 0 行」。（引用一律写符号名，不写行号——F-27/F-41 定案。）
+import { AUDIT_ACTOR_SYSTEM_WX_NOTIFY, AUDIT_ACTION_PAY_NOTIFY_REJECT } from '../constants'
 
 const router = useRouter()
 
@@ -135,7 +144,8 @@ const metrics = ref({
   pendingPickupCount: '-',
   paidAmount: '-',
   // F-50 两键：占位形态与其余四格一致（未取到数据是 '-'，不是 0——0 是「确实没有拒收」这句话，不能白给）。
-  // notifyRejectLastAt 的 null 是服务端语义（当日无拒收），ready 态之后才参与渲染。
+  // notifyRejectLastAt 的 null 是服务端语义（本窗口内无拒收；窗口是今日还是所选那天由 date 参数决定），
+  // ready 态之后才参与渲染。
   notifyRejectCount: '-',
   notifyRejectLastAt: null
 })
@@ -149,21 +159,36 @@ const scopeText = computed(() =>
 // F-50（D-50-5）：count > 0 才挂告警态；'-'（未取到数）经 Number 是 NaN，NaN > 0 为 false，
 // 所以首屏/失败态都不会「亮一件没发生的事」。告警只是颜色与边框（见 style 段），零定位。
 const notifyRejectAlert = computed(() => Number(metrics.value.notifyRejectCount) > 0)
+
+// F-54 改动 A：card-label 的窗口后缀只在「（当日）/（所选日）」两枚措辞里取值，**不把日期值写进 label**。
+// 为什么不写具体日期（这是本改动唯一的落点，也是它不可能谎报的构造性理由）：
+// load() 有 FE-G6-3 在飞守卫——用户在请求在飞时改日期，会被 if (viewState.value === 'loading') return 早退，
+// 于是 pickedDate 可能已经变成新值、卡片上画的还是上一轮那批数。此时 label 若写成「（10-14）」，
+// 就造出「label 说 10-14、数其实是 10-13」这种**新谎报**（与 F-53 消掉的「选了日期还写当日」同一族）。
+// 而「当日 / 所选日」这两种措辞只跟「用户有没有选过日期」这个布尔态有关、与具体日期值无关，
+// 因此在守卫早退的任何时刻都不会说错——它说的是范围类型，不是范围本身。
+// 具体日期不在这里重复：页顶 scopeText 已给「统计窗口：YYYY-MM-DD（选定值）」，那一行读的也是同一个 pickedDate。
+const notifyRejectScopeLabel = computed(() => (pickedDate.value ? '（所选日）' : '（当日）'))
+
 // F-50（D-50-7）：这一行只做展示——HH:mm 是后端 DATE_FORMAT('%H:%i') 定好的串，
 // 本页不许拼时区、不许减 8 小时、不许 new Date() 再格式化（本仓为「同屏双报」和「时长谎报」清过好几批）。
 // 「有行就有 MAX」由同一条 SQL 保证，所以 count 与这句副行不会互相打脸。
+// F-54 改动 A：零值支的窗口措辞与 card-label 用同一判据（pickedDate 是否为空），
+// 否则会出现「label 写所选日、副行写当日无拒收」的自我打脸。非零支「最近一次 HH:mm」一字不动。
 const notifyRejectSubText = computed(() =>
   metrics.value.notifyRejectLastAt
     ? `最近一次 ${metrics.value.notifyRejectLastAt}`
-    : '当日无拒收'
+    : (pickedDate.value ? '所选日无拒收' : '当日无拒收')
 )
 
 // F-50：这一格是审计页那枚预设的入口。跳转只带 actor/action 两枚 query，
-// 值与 AuditLogs.vue 的「微信回调拒收（系统）」预设逐字同一（那边 onMounted 收 query 走既有 filters）。
+// 值与 AuditLogs.vue 的「微信回调拒收（系统）」预设同一（那边 onMounted 收 query 走既有 filters）。
+// F-54 改动 B：这两枚值原先在本页与那页各内联一遍（共四份），现在两处都 import ../constants.js 的同一枚出口，
+// 「同一」不再是抄来的巧合而是同一个绑定；服务端改名时只会有一处要改。
 function goNotifyRejectAudit() {
   router.push({
     path: '/audit-logs',
-    query: { actor: 'system:wx-notify', action: 'pay.notify_reject' }
+    query: { actor: AUDIT_ACTOR_SYSTEM_WX_NOTIFY, action: AUDIT_ACTION_PAY_NOTIFY_REJECT }
   })
 }
 
