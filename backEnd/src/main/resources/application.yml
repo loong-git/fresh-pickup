@@ -39,7 +39,14 @@ mybatis-plus:
 # 【F-42a ③ 更正本段原注释的事实错误，只改注释、两个键与默认值一字未动】此前这里写「现值从
 # front/api/config.js 的 DICT_BASE_URL / DICT_API_KEY 迁来」——那两个常量在仓库里根本不存在
 # （front/api/config.js:15 自己就写着「已删除」），「迁来」一说无从核对。如实口径：
-#   dict.base-url 是本文件写死的唯一事实源（它是地址不是密钥，入仓属设计内）；
+#   dict.base-url 自 F-53 ① 起可由环境变量 DICT_BASE_URL 覆盖，未注入时落回本文件里这个默认值
+#     （它是地址不是密钥，默认值入仓属设计内；默认值串与 F-53 之前逐字相同，所以不注入时行为不变）。
+#     为什么要留默认值而不是强制注入：不留则 dev/测试环境没配这个变量时 @Value("${dict.base-url}")
+#     解不出占位符、Spring 直接启动失败，而字典这条链本身是有降级分支的（见下面那段
+#     「上游不可达 → DictServiceImpl 抛 BizException → 前端降级到内置 FALLBACK 词表」）——
+#     换域名该是「改一处配置」，不该要求「改代码 → 重新打包 → 重启」，更不该因为少一枚环境变量把整个后端拖起不来。
+#     注意本句的 DICT_BASE_URL 是**后端环境变量**，与上面提到的 front/api/config.js 里那两枚同名前端
+#     常量无关（那两枚前端常量至今仍不存在）。
 #   dict.api-key 无明文默认值，值只由环境变量 DICT_API_KEY 注入，仓库内不留明文
 #   （dev：logs/restart-backend.sh 从 gitignore 排除的 start-local.bat 读出后 export，全程不回显；
 #    prod：deploy/fresh.service 只有 DB_PASSWORD/JWT_SECRET/ADMIN_KEY 三行生效的 Environment=，
@@ -52,5 +59,5 @@ mybatis-plus:
 # 【F-46 补一句，防误诊】上面这条 400 分支不是「没注入 key」的专属签名：上游不可达、上游返回结构异常
 # 也是同一个对外响应。区分只看日志里的 err= 异常类名，分诊表写在 deploy/fresh.service 的 DICT_API_KEY 段。
 dict:
-  base-url: https://dict.107.151.233.142.sslip.io/api/v1
+  base-url: ${DICT_BASE_URL:https://dict.107.151.233.142.sslip.io/api/v1}
   api-key: ${DICT_API_KEY:}
