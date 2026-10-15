@@ -61,8 +61,8 @@
          所以选中这一枚（或手填同一个 actor）时把这句话摊开在页面上。
          判据只看 filters.actor（既有那份筛选态），不新增状态变量；普通文档流一到两行（窄屏自然换行），
          不做任何定位、不参与表格布局，绝不压到表格。 -->
-    <p v-if="filters.actor === SYSTEM_NOTIFY_ACTOR" class="quick-filters__note">
-      这类行的「操作者」是系统账号 <code>{{ SYSTEM_NOTIFY_ACTOR }}</code>（微信回调被拒时由服务端自己写下），
+    <p v-if="filters.actor === AUDIT_ACTOR_SYSTEM_WX_NOTIFY" class="quick-filters__note">
+      这类行的「操作者」是系统账号 <code>{{ AUDIT_ACTOR_SYSTEM_WX_NOTIFY }}</code>（微信回调被拒时由服务端自己写下），
       <b>不是某个运营人员做了这件事</b>。
     </p>
 
@@ -139,6 +139,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getAdminAuditLogs, retryAfterText } from '../api'
+// F-54 改动 B：actor / action 这两枚字符值的真值在服务端，定义收在 ../constants.js 一处（复述而非第二份真值）。
+// 本页与大盘那一格的跳转 query 共用同一枚出口，服务端改名时两端只会有一处要改。
+import { AUDIT_ACTOR_SYSTEM_WX_NOTIFY, AUDIT_ACTION_PAY_NOTIFY_REJECT } from '../constants'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -185,9 +188,13 @@ const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 // ⚠ 这四枚的字符全落在服务端 FILTER_PATTERN（^[A-Za-z0-9_.:-]{1,64}$，AdminV2ServiceImpl#FILTER_PATTERN）内，
 //    且 audit-logs 面**没有值域白名单**（白名单只管 orders/reviews/dishes/store-applies 那几枚），
 //    所以填进去是「按值等值过滤」而不是「白名单外 400」。
-const SYSTEM_NOTIFY_ACTOR = 'system:wx-notify'
+// F-54 改动 B：这里原先有一枚本页自己定义的 actor 字面量常量，连同下面那枚内联的 action，
+// 再加上 Overview.vue 跳转 query 里的两份，同一件事在本端被写了四遍。四遍就是四份真值，
+// 服务端改名时必有一处静默失配（失配的那边只表现为筛出 0 行，不报错）。
+// 现在两枚值都从 ../constants.js 导入，本页不再有本地定义；导出名即服务端符号名的直译，
+// 出处见那个文件的头注释（引用一律写符号名、不写行号——F-27/F-41 定案）。
 const QUICK_FILTERS = [
-  { label: '微信回调拒收（系统）', actor: SYSTEM_NOTIFY_ACTOR, action: 'pay.notify_reject' },
+  { label: '微信回调拒收（系统）', actor: AUDIT_ACTOR_SYSTEM_WX_NOTIFY, action: AUDIT_ACTION_PAY_NOTIFY_REJECT },
   { label: '运营登录', action: 'admin.login' },
   { label: '改订单状态', action: 'order.status' },
   { label: '门店入驻审核', action: 'store_apply.audit' }
