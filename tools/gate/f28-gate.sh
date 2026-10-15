@@ -144,10 +144,11 @@ say "=== 7.5) 敏感串判据自证（防止"检查存在但从不生效"）==="
 # 所以从现在起，每次门禁都要**主动喂一个哨兵**证明这条 grep 真的会红。
 SENTINEL_DIR=logs/scratch55
 mkdir -p "$SENTINEL_DIR"
-# 字面量拆成三段用 %s 拼（F-48）：脚本自身因此不再命中清单里那条 JWT 形态正则——入库后 §10 扫
-# origin/master..HEAD 的新增行会把不拆的写法当真凭据报红；而 printf 出来的哨兵与真凭据逐字节同形，
-# 判据杀伤力一点没减（下面仍要求命中 2 行）。
-printf 'token=%s.%s.%s\nx=%s\n' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxIn0 abcdefghijklmnopqrstuvwx REDACTED_ > "$SENTINEL_DIR/sentinel.txt"
+# 两枚哨兵串都拆成参数拼（F-48 拆 JWT、F-56 拆脱敏占位串）：**脚本源码里不再有任何一行命中清单**，
+# 而 printf 出来的哨兵与真凭据逐字节同形，判据杀伤力一点没减（下面仍要求命中 2 行）。
+# 为什么值得为"源码自身干净"再拆一次：本仓要公开，仓库里每一行都是别人会拿扫描器扫的东西；
+# 一条"看起来像凭据"的行会让人去查它、也会让自动化扫描误报。真值只在运行时组装，不落源码。
+printf 'token=%s.%s.%s\nx=%s\n' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxIn0 abcdefghijklmnopqrstuvwx 'REDACT'"ED_" > "$SENTINEL_DIR/sentinel.txt"
 HIT=$(grep -cE -f logs/.secret-list "$SENTINEL_DIR/sentinel.txt" </dev/null 2>/dev/null || true)
 chk "哨兵文件必须命中 2 行（清单串 + JWT 各一）" "$HIT" "2"
 rm -f "$SENTINEL_DIR/sentinel.txt"
