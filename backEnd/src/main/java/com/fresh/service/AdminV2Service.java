@@ -17,14 +17,21 @@ import java.util.Map;
 public interface AdminV2Service {
 
     /**
-     * 只读大盘四指标（{@code GET /api/admin/v2/overview}）：单量 / 总金额 / 待自提单数 / 已收款金额，
+     * 只读大盘（{@code GET /api/admin/v2/overview}）：单量 / 总金额 / 待自提单数 / 已收款金额四指标，
      * 口径逐字照 {@code docs/日常运营SQL手册.md:111-115} 的「今日经营概况」那条 SELECT（订单口径，
-     * 与 G-05 商家看板的券前明细口径分列、互不换算，D-7）。
+     * 与 G-05 商家看板的券前明细口径分列、互不换算，D-7）；
+     * F-50 再加两键当日回调拒收读数（见下面 @return 的第五、六键）。
      *
      * @param date {@code YYYY-MM-DD}；null/空 = 今日（今日在 <b>SQL 侧</b>用 CURDATE() 解析，不在 Java 取时钟）；
      *             形状不符或形状符但不是真日期（2026-02-30）→ 400
-     * @return 手工白名单 Map {@code {orderCount, totalAmount, pendingPickupCount, paidAmount}}；
-     *         金额为两位小数字符串，空数据日四个 0 值（{@code 0}/{@code "0.00"}），绝不出 null
+     * @return 手工白名单 Map 恰六键
+     *         {@code {orderCount, totalAmount, pendingPickupCount, paidAmount, notifyRejectCount, notifyRejectLastAt}}；
+     *         前四键不变：金额为两位小数字符串，空数据日四个 0 值（{@code 0}/{@code "0.00"}），绝不出 null。
+     *         <b>后两键（F-50，D-50-1/D-50-3）</b>：当日窗口（与前四键同一个 {@code IFNULL(#{day}, CURDATE())}
+     *         半开区间）内 {@code admin_audit_log} 里 {@code action = pay.notify_reject} 的行数，
+     *         与该行里最后一次拒收的 {@code HH:mm} 串；
+     *         <b>当日没有拒收时 {@code notifyRejectLastAt} 是显式 null、键必须在</b>（F-42b 信封纪律：
+     *         缺键与显式 null 对客户端是两种语义），{@code notifyRejectCount} 恒为数字 0 而不是 null。
      */
     Map<String, Object> overview(String date);
 

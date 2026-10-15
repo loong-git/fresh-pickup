@@ -93,8 +93,8 @@ public class AdminServiceImpl implements AdminService {
     /** 拒收留痕的操作主体：平台自己（回调无登录态、无管理密钥参与，故<b>绝不</b>用 {@code admin:<key 摘要>} 那套） */
     private static final String NOTIFY_REJECT_ACTOR = "system:wx-notify";
 
-    /** 拒收留痕的动作名（{@code admin_audit_log.action VARCHAR(50)}，本值 17 字符） */
-    private static final String NOTIFY_REJECT_ACTION = "pay.notify_reject";
+    /** 拒收留痕的动作名（{@code admin_audit_log.action VARCHAR(50)}，本值 17 字符）；F-50（D-50-2）把字面量本身搬到 {@link AdminAuditLogMapper#ACTION_PAY_NOTIFY_REJECT} 这一处公共出口，写侧与读侧（大盘当日拒收计数）同源、值与语义一字未改。本注释刻意<b>不扩行</b>：本文件被仓内多条「AdminServiceImpl:行号」指针引用，净零行变化才不会把那些指针推漂 */
+    private static final String NOTIFY_REJECT_ACTION = AdminAuditLogMapper.ACTION_PAY_NOTIFY_REJECT;
 
     /** 拒收留痕的目标类型：一律是订单（{@code target_type VARCHAR(30)}） */
     private static final String NOTIFY_REJECT_TARGET_TYPE = "order";

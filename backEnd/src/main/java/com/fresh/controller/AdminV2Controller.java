@@ -14,7 +14,7 @@ import java.util.Map;
 
 /**
  * 运营端 v2 只读面（F-20/G-06 Step 3，D-7；F-20.18 Step 5b-1 扩到六条）：{@code /api/admin/v2} 下六条
- * <b>GET 映射</b>——大盘四指标 + 审计日志分页 + 四条运营列表（orders / dishes / reviews / store-applies）。
+ * <b>GET 映射</b>——大盘（四指标 + F-50 的当日回调拒收两键）+ 审计日志分页 + 四条运营列表（orders / dishes / reviews / store-applies）。
  * v2 <b>至今不挂任何写映射</b>（POST/PUT/DELETE 三类一个都不出现，验收断言「写映射 0、GET 映射恰 6」，
  * 与本文件的注解计数逐字相等）：
  * 核销台/商品管理/评价审核/入驻审核四个 P0 页的<b>写</b>动作仍走 {@link AdminController} 的旧 5 端点
@@ -65,10 +65,14 @@ public class AdminV2Controller {
 
     /**
      * 只读大盘（F-20.9 #2）：{@code GET /api/admin/v2/overview?date=YYYY-MM-DD}
-     * → {@code {orderCount, totalAmount, pendingPickupCount, paidAmount}}。
+     * → {@code {orderCount, totalAmount, pendingPickupCount, paidAmount, notifyRejectCount, notifyRejectLastAt}}
+     * （后两键 F-50 追加：当日「微信支付回调拒收」的条数 + 最后一次拒收的 HH:mm，前四键形状一字未变）。
      * 四指标口径逐字照 {@code docs/日常运营SQL手册.md:111-115}（订单口径，与 G-05 券前明细口径分列）；
      * date 缺省 = 今日（SQL 侧 CURDATE()），非 {@code YYYY-MM-DD} 形状或假日期 → 400；
-     * 金额出两位小数字符串，空数据日四个 0 值不出 null。
+     * 金额出两位小数字符串，空数据日四个 0 值不出 null；
+     * 拒收那两键同一个自然日窗口，当日没有拒收时 {@code notifyRejectLastAt} 是<b>显式 null</b>（键必在，F-42b 信封纪律）。
+     * <p>本批<b>没有新增端点、没有新增限流档</b>（D-50-1）：拒收计数就挂在这条已有只读端点的 data 上，
+     * 闸门与 {@code @RateLimit} 注解逐字不动。
      */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     @GetMapping("/overview")

@@ -277,10 +277,14 @@ export function adminLogin(username, password) {
 
 /**
  * 只读大盘：GET /api/admin/v2/overview?date=YYYY-MM-DD
- * 出参恰四键（AdminV2ServiceImpl:119-122 的 LinkedHashMap 键序即契约）：
- * {orderCount:number, totalAmount:string 两位小数, pendingPickupCount:number, paidAmount:string 两位小数}。
- * ⚠ 空数据日回的是四个 0（0 / "0.00" / 0 / "0.00"），**不是 null**（F-20.10 实测）。
- * ⚠ 后端**不回显 date**（出参没有第五个键），所以页面的口径文案只能标「服务端 CURDATE()」或用户选定值，
+ * 出参恰六键（AdminV2ServiceImpl#overview 的 LinkedHashMap 键序即契约）：
+ * {orderCount:number, totalAmount:string 两位小数, pendingPickupCount:number, paidAmount:string 两位小数,
+ *  notifyRejectCount:number, notifyRejectLastAt:string|null}。
+ * ⚠ 空数据日前四键回的是四个 0（0 / "0.00" / 0 / "0.00"），**不是 null**（F-20.10 实测）。
+ * ⚠ 后两键是 F-50 加的当日「微信支付回调拒收」读数（与前四键同一个自然日窗口）：
+ *   notifyRejectLastAt 是服务端 DATE_FORMAT 定好的 "HH:mm" 串，**当日没有拒收时是显式 null、键一定在**
+ *  （F-42b 信封纪律：缺键与显式 null 是两种语义）；页面只展示这一串，不许自己换算时区或减 8 小时。
+ * ⚠ 后端**不回显 date**（出参没有第七个键），所以页面的口径文案只能标「服务端 CURDATE()」或用户选定值，
  *   见 Overview.vue 的 scopeText——这一项与 F-20.11「后端回显」的措辞不符，已按实况处理。
  * 脏 date（非 YYYY-MM-DD / 假日期）→ 400；限流 IP 30/60 → 429。
  * @param {string} [date] 空值不下发（服务端按 CURDATE() 聚合今日）
@@ -337,7 +341,7 @@ export function getAdminAuditLogs(pageNum, pageSize, filters) {
 
 /**
  * 运营端订单列表（核销台数据源）：GET /api/admin/v2/orders
- * 行内键（AdminV2ServiceImpl:280-292 逐键重拼的白名单，AdminV2Controller 的 javadoc 同一份）：
+ * 行内键（AdminV2ServiceImpl#orders 里逐键重拼的白名单，AdminV2Controller 的 javadoc 同一份）：
  * id,totalPrice,**address**,phone,pickupDate,status,createTime,updateTime,storeId,storeName,storeAddress,payStatus,payTime。
  * ⚠ `pickup_code` / `user_id` / `client_request_id` 三键在 SQL 层连列都没 SELECT（D-15 禁下发），
  *   页面不许凭空造这三列。`id` 是 **19 位雪花 id、JSON 里就是字符串**，本层与页面一律原样透传、绝不 Number()。

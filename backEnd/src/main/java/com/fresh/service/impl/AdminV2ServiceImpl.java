@@ -40,6 +40,13 @@ import java.util.regex.Pattern;
  * <p>与手册的唯一一处差异：手册里待自提那列是裸 {@code SUM(status = 'pending_pickup')}，空数据日它回 NULL，
  * 而契约要求「空数据日四个 0 值不是 null」，故 SQL 侧补了一层 {@code IFNULL(...,0)}——谓词与表达式本体一字未动。
  *
+ * <p><b>大盘第五、六键（F-50，D-50-1/D-50-3/D-50-4）</b>：当日「微信支付回调拒收」的条数与最后一次时间。
+ * 它<b>不是订单口径</b>，读的是 {@code admin_audit_log}（F-44 落的那批行），但<b>窗口与前四键逐字同源</b>——
+ * 同一个已过双重日期闸门的 {@code day}、同一对 {@code IFNULL(#{day}, CURDATE())} 半开区间边界，
+ * 只是时间列换成该表的 {@code created_at}；同一天切换日期选择器，那一格与四个订单指标说的是同一个自然日。
+ * 一条 SQL 出两列（不做两次往返），Java 侧依旧不取时钟。当日 0 条时 {@code notifyRejectLastAt} 是<b>显式 null</b>，
+ * 键必须在（F-42b 信封纪律）；那一格的 HH:mm 由后端 {@code DATE_FORMAT('%H:%i')} 定形，前端只展示（D-50-7）。
+ *
  * <p><b>「今日」由 SQL 侧 {@code CURDATE()} 决定</b>（同 F-19/D-3 的时间窗纪律）：date 缺省时本类
  * <b>不</b>调 {@code LocalDate.now()}——那等于把「今天」交给应用服务器时区，与库时区可能差一天，
  * 也会凭空多出第二个窗口口径。只有调用方显式给了某一天，才把那一天作为绑定参数交给同一条 SQL 的
@@ -54,7 +61,8 @@ import java.util.regex.Pattern;
  *
  * <p><b>脱敏 / 最小暴露（RD）</b>：出参六个方法都是逐键重拼的手工白名单 Map，绝不吐实体、绝不吐 SQL 行的原始 Map。
  * 具体到列（「不输出」写成「不查询」，SQL 层连列都不选，泄露面才是零）：
- * 审计不选 {@code ip}；大盘只取聚合值，不取 orders 的任何一行；
+ * 审计不选 {@code ip}；大盘只取聚合值，不取 orders 的任何一行（F-50 那两键同样只是 {@code admin_audit_log}
+ * 上的 {@code COUNT}/{@code MAX} 两列，一条明细都不落进大盘出参）；
  * orders 面不选 {@code pickup_code}/{@code user_id}/{@code client_request_id}（D-15），
  * {@code phone} 取原文后<b>只</b>经 {@link PhoneMask#mask} 出掩码值（契约点名用这个既有类，
  * 不在本类再写第四份 substring/CONCAT 实现，也不在 SQL 里 CONCAT 出第二口径）；
@@ -182,6 +190,24 @@ public class AdminV2ServiceImpl implements AdminV2Service {
         data.put("totalAmount", moneyText(agg.get("totalAmount")));
         data.put("pendingPickupCount", count(agg.get("pendingPickupCount")));
         data.put("paidAmount", moneyText(agg.get("paidAmount")));
+
+        // F-50（D-50-1）：第五、六键——当日「微信支付回调拒收」的条数与最后一次的时间。
+        // 不新增端点、不新增限流档：这一格挂在本方法已有的 /overview 上，读的正是运营每天进来看的那一页。
+        // 窗口与前四键<b>逐字同源</b>（D-50-3）：把上面已经过双重日期闸门的同一个 day 原样交下去，
+        // SQL 侧同样是 IFNULL(#{day}, CURDATE()) 的 [当日 00:00, 次日 00:00) 半开区间，Java 侧不取时钟。
+        // 一条 SQL 出两列（D-50-4）：条数与「最近一次几点」同一句、同一 WHERE，不会各说各话。
+        Map<String, Object> rejectRow = adminAuditLogMapper.selectNotifyRejectSummary(
+                AdminAuditLogMapper.ACTION_PAY_NOTIFY_REJECT, day);
+        // 无 GROUP BY 的聚合恒回 1 行，取不到行在这里不可达；留这行只为万一时不把 null 传进取值方法
+        Map<String, Object> reject = rejectRow == null ? Map.of() : rejectRow;
+        // rejectCount 用既有 count() 归一（MySQL COUNT 回 Long，不许假设是 Integer）
+        data.put("notifyRejectCount", count(reject.get("rejectCount")));
+        // F-42b 信封纪律：<b>缺键与显式 null 对客户端是两种语义</b>。当日无拒收时 SQL 回的是
+        // lastAtText=NULL，而 MyBatis 对 Map 结果默认不写 null 键，所以这里必须无条件 put——
+        // 「这一日确实没有拒收」要能被前端区分成「后端没给这一列」。
+        // 值是后端 DATE_FORMAT('%H:%i') 定好的 HH:mm 串，本层不二次格式化、不做时区换算（D-50-7）。
+        Object lastAtText = reject.get("lastAtText");
+        data.put("notifyRejectLastAt", lastAtText == null ? null : lastAtText.toString());
         return data;
     }
 

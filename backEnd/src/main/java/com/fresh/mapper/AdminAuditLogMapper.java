@@ -6,11 +6,24 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
 @Mapper
 public interface AdminAuditLogMapper extends BaseMapper<AdminAuditLog> {
+
+    // ------------------------------------------------------------------
+    // F-50（D-50-2）：本接口是 action 字面量 {@code pay.notify_reject} 在 Java 侧的<b>唯一真值出口</b>。
+    // 接口常量天然 public static final，写侧（AdminServiceImpl#recordNotifyReject）与读侧
+    //（AdminV2ServiceImpl#overview 的当日拒收计数）都引用这一枚，不再各写一遍字符串——
+    // 两处各写一遍时，将来改名必有一处静默失配，而这条链的用途恰恰是「出事时看得见」：
+    // 读侧失配的结果是<b>大盘那一格永远显示 0</b>，比没有这一格更坏。
+    // 值与语义自 F-44（f4cd15b）起一字未变，本次只搬「写在哪里」。
+    // ------------------------------------------------------------------
+
+    /** 微信回调被拒时落进 {@code admin_audit_log.action} 的那个动作名（唯一字面量，见上方注释） */
+    String ACTION_PAY_NOTIFY_REJECT = "pay.notify_reject";
 
     // ------------------------------------------------------------------
     // F-20.9 #3 审计查询页（GET /api/admin/v2/audit-logs，只读）新增的两条，既有语句零改动
@@ -76,4 +89,38 @@ public interface AdminAuditLogMapper extends BaseMapper<AdminAuditLog> {
                         @Param("action") String action,
                         @Param("targetType") String targetType,
                         @Param("targetId") String targetId);
+
+    // ------------------------------------------------------------------
+    // F-50（D-50-1/D-50-3/D-50-4）：当日「微信支付回调拒收」计数 + 最后一次的时间，供只读大盘那一格用。
+    // <b>不新增端点</b>：这条由 AdminV2ServiceImpl#overview 在同一次请求里调，结果并进既有 /overview 的 data。
+    // <b>一条 SQL 两列，不做两次往返</b>（D-50-4）：COUNT 与 MAX(created_at) 同一句、同一 WHERE，
+    // 于是「有几个」与「最后一次是几点」必然出自同一个窗口，不会各说各话。
+    // <b>窗口口径与大盘其余四键逐字同源</b>（D-50-3）：同一个 #{day}、同一对
+    //   {@code IFNULL(#{day}, CURDATE())} / {@code + INTERVAL 1 DAY} 半开区间（原样照 OrderMapper
+    //   #selectOverviewDaily 那两条边界），只是时间列换成本表的 created_at（F-44 的写入点用的就是这一列）。
+    //   写成区间而不是 DATE(created_at)=#{day} 是为了不废掉 idx_created/idx_action（a6648c4 刚给这两列建好索引，
+    //   列上套函数就等于白建）；day 为 null 时两端都退回 CURDATE()，「今日」继续由 SQL 侧裁决，
+    //   Java 侧不调 LocalDate.now()（同 F-20.9 #2 / D-3 的时间窗纪律）。
+    // lastAtText 用 DATE_FORMAT(...,'%H:%i')：一是裸 DATETIME 进 Map 会拿到 java.sql.Timestamp、
+    //   Jackson 按时间戳序列化，出参形状就不合契约（本文件上方 createdAt 判例）；
+    //   二是这一列给页面的只是「最近一次几点」，格式化在后端一次做定，前端只展示、不许自己换算时区（D-50-7）。
+    //   当日没有拒收时 MAX(created_at) 是 NULL，DATE_FORMAT(NULL,...) 仍是 NULL，MyBatis 不写这个键，
+    //   由 Service 显式 put null（F-42b 信封纪律：缺键与显式 null 对客户端是两种语义）。
+    // action 走 #{action} 绑定（值来自 ACTION_PAY_NOTIFY_REJECT 那一枚常量），零拼接面、零 <script>。
+    // ------------------------------------------------------------------
+
+    /**
+     * 当日窗口内回调拒收的条数与最后一次的时间（一行恒回，无 GROUP BY 的聚合）。
+     *
+     * @param action 要数的动作名；本仓的调用方一律传 {@link #ACTION_PAY_NOTIFY_REJECT}
+     * @param day    自然日；null = 今日（SQL 侧 {@code IFNULL} 退回 {@code CURDATE()}）
+     * @return {@code {rejectCount, lastAtText}}；{@code lastAtText} 在「当日无拒收」时为 null 键（由 Service 补 put）
+     */
+    @Select("SELECT COUNT(*) AS rejectCount, DATE_FORMAT(MAX(created_at), '%H:%i') AS lastAtText "
+            + "FROM admin_audit_log "
+            + "WHERE action = #{action} "
+            + "AND created_at >= IFNULL(#{day}, CURDATE()) "
+            + "AND created_at < IFNULL(#{day}, CURDATE()) + INTERVAL 1 DAY")
+    Map<String, Object> selectNotifyRejectSummary(@Param("action") String action,
+                                                  @Param("day") LocalDate day);
 }
