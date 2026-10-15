@@ -65,7 +65,7 @@ let ok = 0, miss = 0, nofile = 0, nomethod = 0, exempt = 0, via = 0;
 const rows = [];
 for (const f of Object.keys(ENTRIES)) {
   let src;
-  try { src = BASE ? cp.execFileSync("git", ["show", `${BASE}:${f}`], { encoding: "utf8" }) : fs.readFileSync(f, "utf8"); }
+  try { src = BASE ? cp.execFileSync("git", ["show", `${BASE}:${f}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) : fs.readFileSync(f, "utf8"); }
   catch (e) { nofile++; rows.push(`  NOFILE ${f}`); continue; }
   for (const name of ENTRIES[f]) {
     if ((EXEMPT[f] || []).includes(name)) { exempt++; continue; }
