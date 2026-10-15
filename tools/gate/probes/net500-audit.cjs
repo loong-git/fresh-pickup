@@ -38,7 +38,10 @@ function stripComments(src) {
 const PATTERNS = [/errorLeadText\s*\(/, /errorText\s*[(:]/, /CODE_HINTS/, /writeHintOf\s*\(/, /stateDesc|hintOf\s*\(/];
 for (const f of files) {
   let src;
-  try { src = BASE ? cp.execFileSync("git", ["show", `${BASE}:${normf(f)}`], { encoding: "utf8" }) : fs.readFileSync(f, "utf8"); } catch (e) { continue; }
+  // stdio 必须显式 pipe：execFileSync 的 stderr 默认是 **inherit**，git 的 `fatal: path ... exists on disk,
+  // but not in '<commit>'` 会直接漏进父进程 stderr。门禁取的是 `... | head -1`，于是那行 fatal 成了"第一行输出"，
+  // 真正的「命中 N 处」读数被挤掉 → 变异自验假红（F-55 实测：新增 front-admin/src/constants.js 后必现）。
+  try { src = BASE ? cp.execFileSync("git", ["show", `${BASE}:${normf(f)}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) : fs.readFileSync(f, "utf8"); } catch (e) { continue; }
   const clean = stripComments(src);
   for (const re of PATTERNS) {
     let m;

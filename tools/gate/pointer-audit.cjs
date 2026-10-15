@@ -140,7 +140,7 @@ const whenCache = new Map();
 function commitAt(commit) {
   if (whenCache.has(commit)) return whenCache.get(commit);
   let v = "?";
-  try { v = cp.execFileSync("git", ["log", "-1", "--format=%ad %s", "--date=short", commit], { encoding: "utf8" }).trim().slice(0, 46); } catch (e) { /* noop */ }
+  try { v = cp.execFileSync("git", ["log", "-1", "--format=%ad %s", "--date=short", commit], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim().slice(0, 46); } catch (e) { /* noop */ }
   whenCache.set(commit, v);
   return v;
 }
