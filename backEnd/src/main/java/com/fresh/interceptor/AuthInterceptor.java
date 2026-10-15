@@ -140,7 +140,7 @@ public class AuthInterceptor implements HandlerInterceptor {
      * 「已解码 + 已归一」的映射路径本身，与真实请求路径逐字相等 → 本类下方每一个 startsWith/equals/matches
      * （含 ^/api/dishes/\d+/reviews$、^/api/pay/[^/]+/wx-notify$ 这类依赖真实路径形态的正则）语义一字不变。
      * <p>【为什么不用 HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE】派发简报首选它，但它给的是
-     * **映射模板**而不是路径：ReviewController:47 的模板是 /api/dishes/{dishId}/reviews，
+     * **映射模板**而不是路径：ReviewController.java 的 addReview 上的模板是 /api/dishes/{dishId}/reviews，
      * 喂给 :171 的 ^/api/dishes/\\d+/reviews$ 不再命中（{dishId} 不是数字）→
      * POST 发评价从「需登录」退化成匿名可写，比本条要修的洞更严重，故弃用；已按简报第 6 项列「契约疑点」回报。
      * <p>servletPath 为空只出现在非 Boot 的标准 servlet 映射形态（DispatcherServlet 挂 /*.ext 时路径落在
