@@ -129,14 +129,21 @@
 // F-20.16 收 G-06 DoD ④：四个可选**精确等值**筛选（非模糊、不区分大小写），任一变化回第 1 页 + 沿用 FE-G6-3 在飞守卫。
 // F-45 起筛选条下面还有一排「常用筛选」预设——它是那四个框的**快捷填法**，不是第二条链路
 //   （预设只写 filters 既有的四个键 + 调既有 onFilterChange，见本段末尾 QUICK_FILTERS / applyQuickFilter）。
+// F-50 起本页还能**带着 query 进来**（大盘那一格「支付回调拒收」点一下跳过来）：
+//   收 query 走的仍是上面那一条路——只把 route.query 里同名的那四枚键写进既有 filters，再照常 load()，
+//   零新状态变量、零第二个查询函数，applyQuickFilter / onFilterChange 一字未动（详见文件末尾 onMounted）。
 // ⚠ 出参**没有 ip**（AdminAuditLogMapper 的 SELECT 连这一列都没查，RD 最小暴露）——
 //   表格里不许凭空加这一列，也不许从别处凑。
 // ⚠ pageSize 越界（0 / >100 / 负数）后端是 **400 而不是夹到边界**（F-20.10 追认），
 //   所以可选页大小只能提供 [10,20,50,100]，不给任何越界选项。
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { getAdminAuditLogs, retryAfterText } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
+
+// F-50：只用来读**进入本页时**那一份 query——不 watch、不回写 URL、不新增任何状态变量。
+const route = useRoute()
 
 // 初值 'loading' 只服务首屏渲染；首屏那一跳见文件末尾的 onMounted
 const viewState = ref('loading')
@@ -175,7 +182,7 @@ const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 //   3) order.status / 4) store_apply.audit —— 只有 AdminServiceImpl 一处写入点（单轨，action 即足够定责）。
 // 没选 dish.update：它在 AdminServiceImpl:231 与 MerchantDishServiceImpl:263 各写一次，
 // 单给一枚 action 会把两轨的行混在一起，反而造出「谁改了菜品」的误读（页首注释同一件事）。
-// ⚠ 这四枚的字符全落在服务端 FILTER_PATTERN（^[A-Za-z0-9_.:-]{1,64}$，AdminV2ServiceImpl:99）内，
+// ⚠ 这四枚的字符全落在服务端 FILTER_PATTERN（^[A-Za-z0-9_.:-]{1,64}$，AdminV2ServiceImpl#FILTER_PATTERN）内，
 //    且 audit-logs 面**没有值域白名单**（白名单只管 orders/reviews/dishes/store-applies 那几枚），
 //    所以填进去是「按值等值过滤」而不是「白名单外 400」。
 const SYSTEM_NOTIFY_ACTOR = 'system:wx-notify'
@@ -293,6 +300,18 @@ onMounted(() => {
   // 若原样进 load() 会被在飞守卫当成「已在飞」而永久早退（一次请求都不发、页面卡在「正在加载」）。
   // 落到 'idle' 后同一同步 tick 内 load() 立刻置回 'loading'，浏览器不会在两个值之间绘制。
   viewState.value = 'idle'
+  // F-50（D-50-6）：带 query 进来时（大盘那一格跳过来就是这种）先把值填进**既有那四个 filters 键**，
+  // 再照常 load()——预设、手填、外链从此是同一条查询路径（同一个 load、同一个在飞守卫、同一份 filters 真源）。
+  // 只认 actor/action/targetType/targetId 这四枚同名键，其余 query 一律忽略（绝不因此长出第五份筛选态）。
+  // 逐字段赋值（照 onReset / applyQuickFilter 同姿势）：保住 filters 这一份引用与四个 v-model 绑定不变。
+  // 值必须是字符串，否则按「未传」处理成空串（?actor=a&actor=b 这类重复键 vue-router 回的是数组，
+  // 数组既画不进输入框、也会在服务端 FILTER_PATTERN 上吃 400，所以在这儿就拦掉）。
+  // 无 query 时这四行写的就是初值本身（'' → ''），本页行为与改动前逐字相同。
+  const q = route.query || {}
+  filters.value.actor = typeof q.actor === 'string' ? q.actor : ''
+  filters.value.action = typeof q.action === 'string' ? q.action : ''
+  filters.value.targetType = typeof q.targetType === 'string' ? q.targetType : ''
+  filters.value.targetId = typeof q.targetId === 'string' ? q.targetId : ''
   load()
 })
 </script>

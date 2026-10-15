@@ -60,6 +60,20 @@
         <div class="card-value">{{ metrics.paidAmount }}</div>
       </div>
 
+      <!-- F-50：当日「微信支付回调拒收」那一格（本片要解决的就是「没人会每分钟去点审计页」）。
+           回调被持续拒收（证书过期、时间戳窗口不符、金额不符）意味着<b>已扣款的订单会永久丢单</b>——
+           这条链到这里本来是「运营能查但看不见」，所以把它挂到运营每天进来看的这一页上。
+           整格可点（count=0 也可点，运营可能要翻某一天的历史），点了跳审计页并带上 actor/action 两枚筛选。
+           形态纪律：告警态<b>只改颜色与边框</b>，零定位、不改网格，绝不压到别的卡片；
+           数值与副行都是服务端给的原值，本页不换算、不格式化（见 script 段 D-50-7 那条）。 -->
+      <div class="card card--jump" :class="{ 'card--alert': notifyRejectAlert }"
+           role="button" tabindex="0" title="跳到审计记录并自动筛出这些行"
+           @click="goNotifyRejectAudit" @keyup.enter="goNotifyRejectAudit">
+        <div class="card-label">支付回调拒收</div>
+        <div class="card-value">{{ metrics.notifyRejectCount }}</div>
+        <div class="card-sub">{{ notifyRejectSubText }}</div>
+      </div>
+
       <!-- 口径说明（F-20.10 实测事实，照后端 SQL 逐条写实话；两套金额分母不同，不做任何互相换算） -->
       <div class="caliber">
         <p class="caliber-title">口径说明</p>
@@ -74,6 +88,9 @@
               不是空值——那表示「这一日确实没有单」，不是「没查到」。</li>
           <li>统计窗口：不选日期时由服务端 CURDATE() 决定今日，前端不做任何日期推算；
               选定日期时按该自然日 [00:00, 次日 00:00) 计。</li>
+          <li><b>支付回调拒收</b>与前四键<b>同一个自然日窗口，但不是同一张表</b>：它数的是审计表里
+              action = pay.notify_reject 的行数——微信回调被拒时由服务端自己写下，<b>不是某个运营人员做了这件事</b>。
+              这一格与订单数/金额不可互相加减换算。副行「最近一次」是服务端定好的 HH:mm，本页只展示。</li>
         </ul>
       </div>
     </div>
@@ -82,12 +99,16 @@
 
 <script setup>
 // 只读大盘（F-20.11 Step 4）：GET /api/admin/v2/overview?date=
-// 出参四键 {orderCount, totalAmount, pendingPickupCount, paidAmount}（AdminV2ServiceImpl:119-122）。
-// ⚠ 后端出参里**没有 date 回显**（实测只有这四个键），所以「统计窗口」这一行只能标成
+// 出参六键 {orderCount, totalAmount, pendingPickupCount, paidAmount, notifyRejectCount, notifyRejectLastAt}
+//（前四键 = F-20.9 #2 的既有形状，后两键 = F-50 追加的当日「微信支付回调拒收」读数，同一窗口不同表）。
+// ⚠ 后端出参里**没有 date 回显**（实测键集合就是上面那六个），所以「统计窗口」这一行只能标成
 //   「服务端 CURDATE()」或用户在页面上选定的那个值——绝不由前端拿本机时钟算出「今天是几号」再显示，
 //   那会变成第二处「今日」的真值（后端 SQL 与前端 JS 时钟可以不一致）。
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { getAdminOverview, retryAfterText } from '../api'
+
+const router = useRouter()
 
 const viewState = ref('loading')
 const errorText = ref('')
@@ -101,7 +122,11 @@ const metrics = ref({
   orderCount: '-',
   totalAmount: '-',
   pendingPickupCount: '-',
-  paidAmount: '-'
+  paidAmount: '-',
+  // F-50 两键：占位形态与其余四格一致（未取到数据是 '-'，不是 0——0 是「确实没有拒收」这句话，不能白给）。
+  // notifyRejectLastAt 的 null 是服务端语义（当日无拒收），ready 态之后才参与渲染。
+  notifyRejectCount: '-',
+  notifyRejectLastAt: null
 })
 
 const scopeText = computed(() =>
@@ -110,9 +135,30 @@ const scopeText = computed(() =>
     : '统计窗口：今日（由服务端 CURDATE() 决定，前端不推算日期）'
 )
 
+// F-50（D-50-5）：count > 0 才挂告警态；'-'（未取到数）经 Number 是 NaN，NaN > 0 为 false，
+// 所以首屏/失败态都不会「亮一件没发生的事」。告警只是颜色与边框（见 style 段），零定位。
+const notifyRejectAlert = computed(() => Number(metrics.value.notifyRejectCount) > 0)
+// F-50（D-50-7）：这一行只做展示——HH:mm 是后端 DATE_FORMAT('%H:%i') 定好的串，
+// 本页不许拼时区、不许减 8 小时、不许 new Date() 再格式化（本仓为「同屏双报」和「时长谎报」清过好几批）。
+// 「有行就有 MAX」由同一条 SQL 保证，所以 count 与这句副行不会互相打脸。
+const notifyRejectSubText = computed(() =>
+  metrics.value.notifyRejectLastAt
+    ? `最近一次 ${metrics.value.notifyRejectLastAt}`
+    : '当日无拒收'
+)
+
+// F-50：这一格是审计页那枚预设的入口。跳转只带 actor/action 两枚 query，
+// 值与 AuditLogs.vue 的「微信回调拒收（系统）」预设逐字同一（那边 onMounted 收 query 走既有 filters）。
+function goNotifyRejectAudit() {
+  router.push({
+    path: '/audit-logs',
+    query: { actor: 'system:wx-notify', action: 'pay.notify_reject' }
+  })
+}
+
 async function load() {
   // FE-G6-3 在飞守卫：请求未回时不再发第二条（日期 @change、「查询」与「重试」按钮同守这一条），
-  // 否则乱序回包会把上一个窗口的数字画在当前 caption 下。照 Login.vue:101 的同一精神，
+  // 否则乱序回包会把上一个窗口的数字画在当前 caption 下。照 Login.vue 的同一精神，
   // 复用本页已有的单值 viewState，不新增第二个状态变量、不加定时器。
   if (viewState.value === 'loading') return
   viewState.value = 'loading'
@@ -121,12 +167,15 @@ async function load() {
   try {
     const envelope = await getAdminOverview(pickedDate.value)
     const data = envelope.data || {}
-    // 逐键取并保留服务端形状：金额是服务端定形的两位小数串，不二次格式化、不做数字换算
+    // 逐键取并保留服务端形状：金额是服务端定形的两位小数串，不二次格式化、不做数字换算；
+    // F-50 那两键同样原样收（计数是数字、时间是 HH:mm 串或显式 null）
     metrics.value = {
       orderCount: data.orderCount,
       totalAmount: data.totalAmount,
       pendingPickupCount: data.pendingPickupCount,
-      paidAmount: data.paidAmount
+      paidAmount: data.paidAmount,
+      notifyRejectCount: data.notifyRejectCount,
+      notifyRejectLastAt: data.notifyRejectLastAt
     }
     viewState.value = 'ready'
   } catch (err) {
@@ -210,6 +259,29 @@ onMounted(() => {
   font-size: 26px;
   font-weight: 600;
   line-height: 1.2;
+}
+/* F-50：那一格整格可点，但只用 cursor 与副行提示它是个入口——不改尺寸、不改网格，
+   五张卡片仍是同一张 grid 里的同一种盒子（第四列之后的第五格自然换行到下一行第一格）。 */
+.card--jump {
+  cursor: pointer;
+}
+/* F-50（D-50-5）：告警态**只用颜色与边框**表达（红边框 + 淡红底 + 数值转红），
+   不加任何 position、不改 padding/尺寸，因此不可能压到相邻元素或口径说明块。
+   正常态与告警态的盒子高度逐字相同，切换时网格不跳动。 */
+.card--alert {
+  border-color: #f56c6c;
+  background: #fef0f0;
+}
+.card--alert .card-value {
+  color: #c45656;
+}
+.card-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
+}
+.card--alert .card-sub {
+  color: #c45656;
 }
 .caliber {
   grid-column: 1 / -1;
