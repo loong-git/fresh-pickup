@@ -12,6 +12,8 @@
 #      chown -R fresh:fresh /data/fresh   （并把下方 User=root 改为 User=fresh）
 #   4. 环境变量：修改下方 Environment= 占位值（DB_PASSWORD / JWT_SECRET / ADMIN_KEY）。
 #      应用实际读第四个变量 DICT_API_KEY（字典上游密钥），本 unit 故意不给占位值，见下方说明；
+#      还有第五枚 DICT_BASE_URL 是**可选**的域名覆盖（不设就用 application.yml 里的默认域名），
+#      为什么"不确定就别设"见下面同一段说明；
 #      也可改用 EnvironmentFile=/data/fresh/backEnd/fresh.env 集中管理（权限 600）
 #   5. cp deploy/fresh.service /etc/systemd/system/fresh.service
 #      systemctl daemon-reload
