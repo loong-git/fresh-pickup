@@ -129,7 +129,7 @@ public class AdminV2ServiceImpl implements AdminV2Service {
      *   <li>{@code REVIEWS}：UI 伪值两枚——库里 {@code audit_status} 只有 {@code 'pending'} 与 {@code NULL} 两态，
      *       {@code visible} 是契约 D-17 给的「展示中」伪值，映射（{@code IS NULL}）发生在 SQL 侧，
      *       <b>不在这里映射</b>；也没有第三档「已驳回」可筛（reject 是物理删行，库里无对应行）；</li>
-     *   <li>{@code STORE_APPLIES}：store_apply.status 三态（init.sql:414，DEFAULT 'pending'）。</li>
+     *   <li>{@code STORE_APPLIES}：store_apply.status 三态（见 init.sql 的 store_apply，DEFAULT 'pending'）。</li>
      * </ul>
      */
     private static final Set<String> ORDER_STATUS_FILTERS = Set.of("pending_pickup", "completed", "cancelled");

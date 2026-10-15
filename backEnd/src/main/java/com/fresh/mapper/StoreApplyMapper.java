@@ -57,7 +57,7 @@ public interface StoreApplyMapper extends BaseMapper<StoreApply> {
     /**
      * F-20.18 D-16：store-applies 面 COUNT 与页两条 SQL 的 WHERE <b>必须逐字相同</b>，用同一个编译期常量串作唯一来源。
      * 唯一筛选 {@code status} 是三态白名单（{@code pending}/{@code approved}/{@code rejected}，
-     * DEFAULT 'pending'，见 init.sql:414），值域在 Service 拦（白名单外 → 400），本层只做等值；
+     * DEFAULT 'pending'，见 init.sql 的 store_apply），值域在 Service 拦（白名单外 → 400），本层只做等值；
      * 传 null 时该条件整体短路（= 不限状态，含三态全部）。
      * 同一参数绑两次是 D-9 那形态的既定代价、非笔误；等值不区分大小写来自列 collation，不是本层加的。
      */

@@ -149,7 +149,7 @@ public interface AdminV2Service {
      * @param pageNum  缺省 1；&lt;1 或脏值 → 400
      * @param pageSize 缺省 20；值域 [1,100]，越界 → 400
      * @param status   等值筛选，三态白名单 {@code pending}/{@code approved}/{@code rejected}
-     *                 （DEFAULT 'pending'，init.sql:414）；null = 不限；白名单外 → 400。
+     *                 （DEFAULT 'pending'，见 init.sql 的 store_apply）；null = 不限；白名单外 → 400。
      *                 <b>白名单入口不区分大小写</b>（F-20.21 BE-G6-2）：{@code Pending} 归一为 {@code pending} 后进白名单，
      *                 {@code filters.status} 回显归一后的生效值
      * @return {@code {list:[{id, proposedName, proposedAddress, lng, lat, service, contactName, contactPhone,

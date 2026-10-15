@@ -21,9 +21,9 @@ const path = require("path");
 // 【ROOTS 必须含 backEnd/src/test】注释里 `WxPayNotifyTest#everyRejectBranch...` 这类指向测试类的具名引用
 // 是真实存在的（F-44 出货代码里就有，且方法名逐字对得上），但 test 树此前不在索引里 → 判成
 // CLASS_FILE_NOT_FOUND 的**假阳**。F-28 定过同类纪律：索引/扫描面必须覆盖被指向的树，否则计数不可用。
-const ROOTS = ["backEnd/src/main", "backEnd/src/test", "front-admin/src", "front-merchant", "front-partner"];
+const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner"];
 const INDEX_ONLY = ["front"];
-const EXTS = new Set([".java", ".vue", ".js", ".ts"]);
+const EXTS = new Set([".java", ".vue", ".js", ".ts", ".sql"]);
 const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "target", "static"]);
 const norm = (p) => p.split("\\").join("/");
 
@@ -57,15 +57,17 @@ function content(f) {
 }
 function isCommentLine(line) {
   const t = line.trim();
-  return /^(\/\/|\/\*|\*|<!--|#)/.test(t) || /(?:\/\/|\*)[^\n]*[A-Za-z0-9_]+[#.]/.test(line);
+  // `--` 是 SQL 的现行注释（F-49 补：m20/init.sql 的整段口径注释里全是 `Xxx.java:NN` 与 `Foo#bar` 引用，
+  // 旧版把 .sql 加了进 EXTS 却漏了这一条 → SQL 注释里的引用一条都没验过，还打着「可疑 0」的绿）。
+  return /^(\/\/|\/\*|\*|<!--|--|#)/.test(t) || /(?:\/\/|\*)[^\n]*[A-Za-z0-9_]+[#.]/.test(line);
 }
 
 const RE_HASH = /([A-Za-z0-9_]{3,})#([a-zA-Z_][a-zA-Z0-9_]*)((?::[0-9]+(?:\s*[-/]\s*[0-9]+)?))?/g;
-const RE_SECTION = /([A-Za-z0-9_.-]+\.(?:java|vue|js|ts))\s*(?:的|里)\s*[「『]([^」』]{2,24})[」』]/g;
+const RE_SECTION = /([A-Za-z0-9_.-]+\.(?:java|vue|js|ts|sql))\s*(?:的|里)\s*[「『]([^」』]{2,24})[」』]/g;
 // 形态 C：`(文件[ / 、 与]*N+) 的|里 符号名`，符号名不含中文、至少 3 字符。
 // 连字符复合名必须整体吃掉（CSS 类族 `.verify-feedback-ok` 就是这样）：第一版字符类没有 `-`，
 // 于是 `verify.vue 的 verify-feedback-ghost` 被切成 `verify` 去验——ghost 名照样判合法，实测假绿。
-const RE_NAMED = /((?:[A-Za-z0-9_./@-]+\.(?:java|vue|js|ts|cjs|mjs)(?:\s*(?:\/|、|与|和|,)\s*)?)+)\s*(?:的|里)\s*([A-Za-z_][A-Za-z0-9_]{2,}(?:-[A-Za-z0-9_]+)*)(?![\w-])/g;
+const RE_NAMED = /((?:[A-Za-z0-9_./@-]+\.(?:java|vue|js|ts|cjs|mjs|sql)(?:\s*(?:\/|、|与|和|,)\s*)?)+)\s*(?:的|里)\s*([A-Za-z_][A-Za-z0-9_]{2,}(?:-[A-Za-z0-9_]+)*)(?![\w-])/g;
 
 // 全仓 import 过的类名集合：注释里 `Foo#bar` 的 Foo 若在其中，就是 JDK/Spring/MyBatis-Plus 等**外部类**，
 // 不该要求它在本仓有源文件。跨端引用（前端 .vue 的注释提后端 Java 类）也靠这条覆盖——
@@ -147,7 +149,7 @@ for (const f of files) {
     RE_NAMED.lastIndex = 0;
     while ((m = RE_NAMED.exec(raw)) !== null) {
       const filesPart = m[1], sym = m[2];
-      const targets = [...filesPart.matchAll(/[A-Za-z0-9_./@-]+\.(?:java|vue|js|ts|cjs|mjs)/g)].map((x) => x[0]);
+      const targets = [...filesPart.matchAll(/[A-Za-z0-9_./@-]+\.(?:java|vue|js|ts|cjs|mjs|sql)/g)].map((x) => x[0]);
       for (const target of targets) {
         named++;
         const base = target.split("/").pop();
