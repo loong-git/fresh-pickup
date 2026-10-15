@@ -200,7 +200,7 @@ public class AdminV2Controller {
      * {@code ?pageNum=&pageSize=&status=} →
      * {@code {list:[{id,proposedName,proposedAddress,lng,lat,service,contactName,contactPhone,status,auditRemark,auditedAt,createdAt}], total, pageNum, pageSize, filters:{status}}}。
      * <p>闸门/限流/分页/取数同前（D-14/D-16/RB），两条 SQL 共用 {@code StoreApplyMapper.STORE_APPLY_FILTER_WHERE}。
-     * <p>{@code status} 三态白名单 {@code pending}/{@code approved}/{@code rejected}（DEFAULT pending，init.sql:414），
+     * <p>{@code status} 三态白名单 {@code pending}/{@code approved}/{@code rejected}（DEFAULT pending，见 init.sql 的 store_apply），
      * 白名单外 400（D-17）。
      * <p><b>脱敏面（D-15）</b>：{@code contactPhone} 出 {@code PhoneMask.mask} 的掩码值（该列可空，null 原样回 null）；
      * {@code proof_photos} <b>不下发</b>（执照图匿名映射仍是 §9 悬项）、{@code user_id} 不下发、

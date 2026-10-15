@@ -110,7 +110,7 @@ public class AdminServiceImpl implements AdminService {
      * 路径段是请求方可控的（{@code /api/pay/<随便一串>/wx-notify} 没有长度闸门），超 64 字符会让整行审计
      * 撞 1406 被本类那两层 catch 静默吞掉——正是 BE-2 说过的「不可发现的脱审」。
      * 按 BE-2 的既有裁定处理：<b>「审计行必须存在」优先于「审计行有内容」</b>，截到列宽而不是丢行。
-     * （正常订单号是 {@code orders.id VARCHAR(50)}，init.sql:62，永远走不到截断这一支。）
+     * （正常订单号是 {@code orders.id VARCHAR(50)}，见 init.sql 的 orders，永远走不到截断这一支。）
      */
     private static final int AUDIT_TARGET_ID_MAX = 64;
 

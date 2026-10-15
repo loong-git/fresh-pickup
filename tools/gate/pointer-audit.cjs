@@ -7,11 +7,11 @@ const path = require("path");
 //   AMBIGUOUS      目标文件名在仓库里有多份，无法确定指的是哪一个
 //   DRIFT(--drift)  注释写下那一刻目标行的内容，与现在同一行号的内容不同 —— 行号漂到别的有效代码上，
 //                  isJunk 抓不到（那是 junk 判据的结构性盲区，F-26 里靠子代理 git 考古才补上的）
-const ROOTS = ["backEnd/src/main", "front-admin/src", "front-merchant", "front-partner"];
+const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner"];
 // 索引面要比扫描面宽：三端注释里大量引用 C 端 front/ 的文件（detail.vue/order.vue/search.vue…），
 // 不把 front 收进索引就会把它们误报成 NOT_FOUND（我第一版就误报了 19 条）。front 只被索引、不被扫描。
 const INDEX_ONLY = ["front"];
-const EXTS = new Set([".java", ".vue", ".js", ".ts"]);
+const EXTS = new Set([".java", ".vue", ".js", ".ts", ".sql"]);
 const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "target", "static"]);
 
 function walk(dir, acc) {
@@ -62,7 +62,7 @@ const isJunk = (line) => {
 // 目标写法可以是全路径/子路径/裸文件名：先按尾部路径匹配，匹配不上才退回 basename。
 // 之前的正则字符类不含 "/"，`front/api/index.js:70` 会被截成 `index.js:70`，
 // 于是四端同名的 index.js 让跨端引用天然落进 AMBIGUOUS（假阳性，F-26 清单里的 #17 就是它造成的）。
-const RE = /((?:[A-Za-z0-9_.@-]+[\\/]+)*[A-Za-z0-9_.-]+\.(?:java|vue|js|ts))[:：]([0-9]+(?:\s*[-/]\s*[0-9]+)*)/g;
+const RE = /((?:[A-Za-z0-9_.@-]+[\\/]+)*[A-Za-z0-9_.-]+\.(?:java|vue|js|ts|sql))[:：]([0-9]+(?:\s*[-/]\s*[0-9]+)*)/g;
 
 const norm = (p) => p.replace(/\\/g, "/");
 function resolveCandidates(target, fromFile) {
@@ -94,7 +94,7 @@ function blameCommit(file, line) {
     const map = {};
     try {
       // porcelain 每条元数据块以一行 \t 开头的内容行收尾；块头是 "<sha> <原行号> <当前行号>"
-      const out = cp.execFileSync("git", ["blame", "--line-porcelain", "--", file], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+      const out = cp.execFileSync("git", ["blame", "--line-porcelain", "--", file], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
       let sha = null, lnNo = null;
       for (const ln of out.split(/\r?\n/)) {
         const h = ln.match(/^([0-9a-f]{40}) \d+ (\d+)/);
@@ -113,7 +113,7 @@ function lineAtCommit(commit, file, line) {
   if (showCache.has(k)) return showCache.get(k);
   let v = null;
   try {
-    const out = cp.execFileSync("git", ["show", `${commit}:${norm(file)}`], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+    const out = cp.execFileSync("git", ["show", `${commit}:${norm(file)}`], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
     v = out.split(/\r?\n/)[line - 1] || "";
   } catch (e) { v = null; }
   showCache.set(k, v);
@@ -127,7 +127,7 @@ function lineAtCommit(commit, file, line) {
 // 做法：一行里先按 RE 处理"名:号"；再把行内**剩余的** `:NNN` 回溯绑定到它左边最近的 anchor 文件，按同判据验。
 // 报出来的 kind 前缀 BARE_ 以区别于紧邻式指针，方便我判断是新盲区还是老问题。
 const RE_BARE = /[:：]([0-9]+)(?:\s*[-–]\s*([0-9]+))?/g;
-const RE_ANCHOR = /([A-Za-z0-9_.-]+\.(?:java|vue|js|ts))/g;
+const RE_ANCHOR = /([A-Za-z0-9_.-]+\.(?:java|vue|js|ts|sql))/g;
 const findings = [];
 let total = 0;
 let totalMulti = 0;
@@ -150,6 +150,11 @@ for (const f of files) {
   lines.forEach((raw, idx) => {
     const trimmed = raw.trim();
     // 只看注释行，避免把代码里的字符串常量当指针
+    // 【为什么 .sql 只做靶子、不做来源（F-49 实测后定的）】把 `--` 加进这张表就能扫 SQL 注释，
+    // 实测代价是行号指针面 97→160、`--drift` 的 DEAD 从基线 4 顶到 **34**（其中相当一部分是 blame 打不通
+    // 造成的噪声，也有真漂移）。那不是本批的债，混进来只会让基线被"顺手放宽"。
+    // 所以 F-49 只让 `.sql` 当**被指向的靶子**（今天因此捞出 6 条 Java→init.sql/m17 的失效指针），
+    // 来源面留给单独一批（先真裁定，再动基线）。
     if (!/^(\/\/|\/\*|\*|<!--|#)/.test(trimmed) && !/(\*|\/\/).*[A-Za-z0-9_-]+\.(java|vue|js|ts):[0-9]/.test(raw)) return;
     let m;
     RE.lastIndex = 0;
@@ -174,7 +179,12 @@ for (const f of files) {
         const hit = tl[a - 1];
         if (a > tl.length) { findings.push({ file: f, line: idx + 1, kind: "OUT_OF_RANGE", target, a, len: tl.length }); continue; }
         if (isJunk(hit)) { findings.push({ file: f, line: idx + 1, kind: "SUSPECT_EMPTY", target, a, at: (hit || "").trim().slice(0, 40) }); continue; }
-        if (WANT_DRIFT && commit && !/^0+$/.test(commit)) {
+        // 【`.sql` 不参与 DRIFT 比对（F-49 定案）】结构性判据（越界 / 命中空行）对 SQL 靶子完全成立——
+        // 今天正是它捞出 6 条 Java→init.sql/m17 的失效指针。但「注释写下那一刻这行是什么内容」在 SQL 上**不成立**：
+        // init.sql 是追加式的（每批加表加列都往上插行），拿末触 commit 比同一行号，实测把 DEAD 从基线 4 顶到 **30**，
+        // 里面绝大多数是「SQL 长大了」而不是「指针写错了」。面一变宽基线就得重立，而重立只能靠放宽——
+        // 那是门禁腐蚀的最快路径，所以宁可让 DRIFT 这一档不覆盖 SQL，也不去动那个 4。
+        if (WANT_DRIFT && commit && !/^0+$/.test(commit) && !/\.sql$/i.test(target) && !/\.sql$/i.test(f)) {
           const then = lineAtCommit(commit, rc.cands[0], a);
           if (then != null) {
             const tt = String(then).trim(), nt = String(hit || "").trim();
@@ -224,6 +234,11 @@ for (const f of files) {
         const pos = bm.index;
         const prevChar = raw[pos - 1];
         if (prevChar === '"' || prevChar === "'") continue;              // JSON 示例里的 "code":401 不是指针
+        // 冒号前紧邻的是数字 → 那是 **时间/比例**（`23:00`、`4:3`），不是指针。
+        // F-49 实测：把 `.sql` 加进 RE_ANCHOR 之后，init.sql 注释里「（m18-migration.sql 同步，…23:00 全局截单）」
+        // 被回溯绑定成 `m18-migration.sql:0` → SUSPECT_EMPTY 假阳。锚面一宽，这类"名字与数字隔着半句话"的
+        // 误绑就会长出来，守卫得跟着加宽。
+        if (/[0-9]/.test(prevChar || "")) continue;
         if (/#([A-Za-z0-9_]+)$/.test(raw.slice(Math.max(0, pos - 40), pos))) continue; // Foo#bar:NN 归 symbol-audit 管
         if (anchors.some((x) => x.at + x.name.length === pos)) continue;  // 紧邻式已由主 RE 处理过
         const left = anchors.filter((x) => x.at < pos).pop();
