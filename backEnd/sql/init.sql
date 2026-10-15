@@ -2,8 +2,8 @@
 -- 生鲜配送小程序 - 数据库初始化脚本
 -- 执行方式：mysql -u root -p < init.sql
 -- ================================================
--- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m18-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
--- 无需再跑 m3~m18 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
+-- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m20-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
+-- 无需再跑 m3~m20 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
 --   m3  dish.on_sale + orders.pickup_date + 六类补齐商品种子（category 注释/image 口径同 m3）
 --   m4  store + user_coupon 表 + orders 自提点快照三列 + dish 秒杀六列 + review.audit_status
 --   m5  user.password_hash
@@ -26,6 +26,10 @@
 --       （m18 ⑪ 的演示主理人归属归位 UPDATE 不并入本文件，且那条链在 m18 里受 @m18_demo_owner 开关控制、默认 0 不执行（BE-1）：
 --        新库无待归位的历史绑定，store 种子直接带 owner_user_id 值即可——分工：迁移侧靠开关、init 侧靠种子带值，
 --        同订单表 pickup_code 回填注释先例；store 种子 INSERT 的列清单加 owner_user_id，既有 5 列数值零改动）
+--   m19 admin_user（运营账号表，F-20/G-06 Step 1：username + UNIQUE uk_admin_username + password_hash PBKDF2
+--       + status/last_login_at；零种子——账号由部署侧建，口令只落 gitignore 的本地文件）
+--   m20 admin_audit_log 的 idx_action(action) 与 idx_actor_action(actor, action)（F-49：运营端审计页四枚
+--       「常用筛选」预设 + 独立 COUNT 的索引，选型与实测数字见该表上方注释与 m20-migration.sql）
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -343,7 +347,27 @@ CREATE TABLE IF NOT EXISTS merchant_profile (
 -- ----------------------------
 -- 管理/商家操作审计表（F-12/G-01 M-04 补课，m15-migration.sql:89-101 同步）：现状日志不记操作者
 -- （AdminServiceImpl.java:93），本表 actor 前缀区分 admin:<key摘要> / merchant:<userId>；
--- G-02 商家端写端点随建随写本表（F-13 R6'）
+-- G-02 商家端写端点随建随写本表（F-13 R6'）。
+-- 索引口径与 m20-migration.sql 同步（F-49，两处同步改：新库走本 CREATE 体全量重建，存量库走 m20 幂等加索引）：
+--   下面 idx_action (action) 与 idx_actor_action (actor, action) 这两枚是为运营端审计页（AuditLogs.vue，F-45）建的——
+--   四个精确等值筛选框 + 四枚「常用筛选」预设（AuditLogs.vue 的 QUICK_FILTERS：三枚只按 action 筛、
+--   一枚按 actor+action 筛），且每次查询跑两条 SQL（一页 + 同一 WHERE 的独立 COUNT，
+--   AdminAuditLogMapper#AUDIT_FILTER_WHERE 与它的 #selectAuditLogsPage / #countAuditLogs 两条 @Select），
+--   COUNT 那一半在没有 action/actor 索引时必然全表。
+--   为什么恰好是这两条（主会话在 scratch 库 scratch_f49 实测：同一份建表体 + 50,000 行合成数据，action 六值均匀分布
+--   → dish.update 命中 8,333 行）：加索引前所有带筛选的形态都是 type=index key=PRIMARY extra=Using where;
+--   Backward index scan（倒序全表扫）；加索引后 action 单筛 → type=ref key=idx_action rows=15410；同一 WHERE 的
+--   COUNT(*) 跑 20 次，有索引 Handler_read_next=166,660（=20×8,333，只扫该 action 的索引区间）vs 无索引
+--   Handler_read_rnd_next=1,000,020（=20×50,000，全表）→ 扫描行数 6 倍差；深翻页 LIMIT 40000,20 跑 20 次
+--   544ms vs 无索引 857ms。短路形态不掉索引：Mapper 里 (#{x} IS NULL OR x = #{x}) 那种静态 WHERE 与纯等值写法
+--   执行计划逐字相同，故本批不改任何 SQL/Java。
+--   取复合 idx_actor_action(actor, action) 而不是单列 idx_actor：actor+action 双筛下本方案 key=idx_actor_action
+--   rows=1 且 Extra 里没有 Using where，单列方案 key=idx_actor rows=24564 extra=Using where（要回表再滤）；
+--   actor 单筛由本复合索引的最左前缀覆盖，故不另建第三枚 idx_actor——本表只增不删（每次后台写动作、F-44 起
+--   每一条支付回调拒收都落一行，actor='system:wx-notify'），多一枚索引就是白付一份写入成本。
+--   注：本批只同步 init.sql 与 m20-migration.sql 两处，**m15-migration.sql:89-101 那份 CREATE 体的 KEY 列表未动**，
+--   因此不再与本处逐字相同；两条建库路径仍收敛到同一索引集合——先 init.sql 再重放 m3~m20 时 m15 的
+--   CREATE TABLE IF NOT EXISTS 整句跳过（表已存在），只走 m3~m20 时由 m20 补上这两枚索引，殊途同归。
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '记录ID',
@@ -356,7 +380,9 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
   PRIMARY KEY (id),
   KEY idx_target (target_type, target_id),
-  KEY idx_created (created_at)
+  KEY idx_created (created_at),
+  KEY idx_action (action),
+  KEY idx_actor_action (actor, action)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理/商家操作审计';
 
 -- ----------------------------
