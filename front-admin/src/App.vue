@@ -7,7 +7,7 @@
         <el-tag type="warning" effect="dark" size="small">运营端</el-tag>
       </div>
       <nav class="nav">
-        <router-link to="/overview" class="nav-link" :class="{ active: isActive('/overview') }">当日大盘</router-link>
+        <router-link to="/overview" class="nav-link" :class="{ active: isActive('/overview') }">大盘</router-link><!-- F-55：与 Overview.vue 标题同批去掉「当日」，理由见该处注释 -->
         <router-link to="/audit-logs" class="nav-link" :class="{ active: isActive('/audit-logs') }">审计记录</router-link>
         <!-- F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 只读列表 + 一个 AdminController 旧写端点）。
              FE-G6-10：这四条会改数据，挂橙点区分于前两条只读页，图例跟在最后一条后面。 -->
