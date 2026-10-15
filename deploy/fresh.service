@@ -73,6 +73,18 @@ Environment=ADMIN_KEY=replace-with-admin-key
 #     err=HttpClientErrorException → 连上了但被上游拒（4xx，多为 key 没注入或不对）
 #     err=IllegalStateException    → 上游通了，但返回结构异常或词条为空
 #   注意该端点限流 10 次/分钟/IP，连测别超，否则 429 会被误读成「还是没通」。
+#
+# ---- 上面这条 curl 自证的第二个成因，F-53 ① 起有了一枚对应的旋钮：域名（本段仍全是注释，生效行一条没加）----
+# application.yml 的 dict.base-url 自 F-53 ① 起写成 ${DICT_BASE_URL:<仓里那个默认域名>}，默认值逐字未动，
+# 所以**默认值够用就别设这一枚**——不注入时与改动前行为完全相同。它唯一的用途是让「上游换域名」从一次发版
+# （改代码 → 重新打包 → 重启）降级成一次配置改动：Environment=DICT_BASE_URL=<新域名> 或写进 fresh.env，
+# 再 systemctl daemon-reload && systemctl restart fresh。
+# 反过来，设错它比不设更容易误诊：域名写错 → 连不上上游 → 对外仍是那句 code=400「字典服务暂时不可用」，
+# 上面 err= 分诊里落在 ResourceAccessException 那一支，看着完全像「上游挂了」，真凶却是本机这行配置
+# （而日志侧帮不上忙：DictServiceImpl 只打异常类名、不透出 URL，见上面那一句）。所以结论是：不确定就别设。
+# 本文件同样**不给生效的 Environment=DICT_BASE_URL= 行**，理由与上面同名键那条一致：
+# Environment= 与 EnvironmentFile= 谁覆盖谁取决于 systemd 版本语义，留一行占位反而可能盖掉文件里注入的真值。
+#
 
 # java -jar 方式启动（推荐）：显式 prod profile；日志目录通过 --log.path 传给 logback-spring.xml
 ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /data/fresh/backEnd/fresh-server-1.0.0.jar --spring.profiles.active=prod --log.path=/data/fresh/logs
