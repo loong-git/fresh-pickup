@@ -12,7 +12,7 @@ FAILS=0
 say() { echo "$@"; }
 chk() { if [ "$2" = "$3" ]; then say "  OK   $1: $2"; else say "  FAIL $1: 实际=[$2] 期望=[$3]"; FAILS=$((FAILS+1)); fi; }
 
-say "=== 1) 后端全量测试（离线，87 条基线）==="
+say "=== 1) 后端全量测试（离线，124 条基线，F-51 后）==="
 if [ -n "${SKIP_MVN:-}" ]; then
   say "  SKIP 本次显式跳过 mvn（例如与编辑类代理并发时：两个 mvn 同写一个 target/ 会互相破坏）"
 else
