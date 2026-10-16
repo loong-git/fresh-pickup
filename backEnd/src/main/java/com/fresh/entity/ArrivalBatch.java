@@ -11,7 +11,9 @@ import java.time.LocalDateTime;
 /**
  * 到货批次 arrival_batch（F-18.10 第 3 条建表 / F-18.12 第 6 条读写，m18-migration.sql ⑧）。
  *
- * <p>D-19：一期只有「读 + 确认」，批次生成器属运营端 G-05，故本表只有演示种子一行
+ * <p>D-19：一期只有「读 + 确认」，故本表只有演示种子一行。F-60 订正：这里与 m18/init.sql 曾写「批次生成器属
+ * 运营端 G-05」，那是双重指错——G-05 是商家端营销参与态+数据看板，运营端是 G-06，两期都没有批次生成页；
+ * 本表在代码里**至今没有任何写入方**（只有 ArrivalBatchMapper 的一条按店+日期查询），批次只能由平台直接写库。
  * （store 1 / 明日 / planned）+ 主理人确认动作。
  * {@code uk_store_date (store_id, batch_date)} 既钉死「一店一日一批次」，也是种子 INSERT IGNORE 的幂等依据。
  *

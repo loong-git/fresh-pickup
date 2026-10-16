@@ -249,7 +249,10 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
     @Override
     public Map<String, Object> arrivals(List<Long> storeIds, Long storeIdArg, String date) {
         Long storeId = resolveStoreId(storeIds, storeIdArg);
-        // 缺省=明日（D-19/m18 演示种子那一行的日期），让「当日未确认」警示条在验收现场演示得出来
+        // 缺省=明日。F-60 订正本行原注释：它当时写着「= m18 演示种子那一行的日期，让『当日未确认』警示条
+        // 在验收现场演示得出来」——那是假话：种子日期是写死的 2026-10-13，装库当天之后就不可能是"明日"，
+        // 而两个前端调用方（批次页/警示条）都显式传 date，这个缺省只有直调接口的调用方会走到。
+        // 缺省值本身保留（对直调者是合理默认），只是不再声称它有演示功能。
         LocalDate effectiveDate = date == null || date.trim().isEmpty()
                 ? LocalDate.now().plusDays(1)
                 : parseDate(date.trim());

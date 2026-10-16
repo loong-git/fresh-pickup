@@ -1,8 +1,8 @@
 <template>
   <view class="page-container">
-    <!-- ==================== 1. 日期条（默认今天） ====================
-             显示值优先取后端回显的 data.date（arrivals 端点确实回显，PartnerStoreServiceImpl.java:300）；
-             步进基准用本次请求带出去的 queryDate（照 pickup-plan.vue:239-250 定稿）——慢网下连点时回显
+    <!-- ==================== 1. 日期条（首屏默认明日，见 tomorrowStr 的理由） ====================
+             显示值优先取后端回显的 data.date（arrivals 端点确实回显，PartnerStoreServiceImpl 里 data.put("date", ...)）；
+             步进基准用本次请求带出去的 queryDate（照 pickup-plan.vue 的 stepDay 定稿）——慢网下连点时回显
              还是上一轮的日期，以它为准会把第 2、3 次点击算成同一天的 +1，点击被吞掉。 ==================== -->
     <view class="card date-card">
       <view class="date-field-row">
@@ -37,10 +37,15 @@
       </view>
     </view>
 
-    <!-- ==================== 4. 空态：措辞按 §3 逐字（批次由平台生成，不是「加载失败」也不是「没货」） ==================== -->
+    <!-- ==================== 4. 空态 ====================
+             原文案「批次由平台生成，见 G-05 运营端」是双重指错，已删：G-05 实为「商家端营销参与态 + 数据看板」
+             （07 册 §G-05，F-19 已交付），运营端是 G-06，而**两期都没有批次生成页**——全系统对 arrival_batch
+             只有「读 + 确认」两个接口，零写入端点。不能把主理人指向一个不存在的页面。
+             仍然不说「加载失败」也不说「没货」：前者是骗，后者越界（本页不知道货）。 ==================== -->
     <view v-else-if="viewState === 'empty'" class="card empty-card">
       <view class="empty-row">
-        <text class="empty-text">当日无到货批次（批次由平台生成，见 G-05 运营端）</text>
+        <text class="empty-text">{{ effectiveDate || '该日' }} 无到货批次记录</text>
+        <text class="empty-sub">批次由平台侧配货，当前版本未开放平台端录入；如应有货未到，请联系平台运营</text>
       </view>
       <view class="empty-actions">
         <text class="guide-link" @click="stepDay(-1)">看前一天</text>
@@ -217,7 +222,7 @@ export default {
     // 每次进入重拉（确认动作在别的页/别的设备做过也要第一时间反映）。
     // 不传 resetView：日期没变就不该把已有卡片整页换成加载态白卡（静默重拉成功后直接覆盖，
     // 姿势照 pickup-plan.vue 的 onShow）
-    if (!this.queryDate) this.queryDate = this.todayStr()
+    if (!this.queryDate) this.queryDate = this.tomorrowStr()
     // X-4b：回页重拉要过读侧闸门。onShow 属「页面自己发的请求」而不是用户的点击，所以它没有旁路资格——
     // 批次页与核销台来回切几次就是在往 arrivals 读桶（PartnerController#arrivals，USER 30/60）连续续发。
     // 闸门只加在**这一处调用点**，loadBatches 本体保持无闸门（那条豁免是刻意的：用户主动步进/回到今天
@@ -430,6 +435,13 @@ export default {
     todayStr() {
       return this.fmtDate(this.newToday())
     },
+    // 首屏默认落点=明日。批次是「明天要到的货」，默认今天会让这一页在绝大多数时间里
+    // 显示成「当日无到货批次」，而那不是异常、只是看错了日期。页内保留「今天」快捷按钮可回退。
+    tomorrowStr() {
+      const d = this.newToday()
+      d.setDate(d.getDate() + 1)
+      return this.fmtDate(d)
+    },
     newToday() {
       const n = new Date()
       return new Date(n.getFullYear(), n.getMonth(), n.getDate())
@@ -447,7 +459,10 @@ export default {
       return (n < 10 ? '0' : '') + n
     },
     // ==================== 渲染辅助（只渲染白名单键：id/storeId/batchDate/status/confirmTime/remark/items，
-    //                items 内 id/batchId/dishId/dishName/expectedQty/actualQty —— 见 PartnerStoreServiceImpl.java:270-294） ====================
+    //                items 内 id/batchId/dishId/dishName/expectedQty/actualQty）
+    //                白名单就是 PartnerStoreServiceImpl#arrivals 里逐键 put 的那一段，键名本行已抄全，
+    //                所以刻意不挂行号：F-60 在后端加了几行注释，带行号的写法当场被顶偏（pointer-audit 实测报过）。
+    // ====================
     batchKey(b, bi) {
       const id = b && b.id
       return (id === null || id === undefined || id === '') ? 'x' + bi : 'b' + id
@@ -678,6 +693,11 @@ export default {
 .batch-feedback-neutral { color: #666666; background-color: #F5F5F5; }
 .batch-feedback-err { color: #E02020; background-color: #FFF1F0; }
 .batch-feedback-cooling { color: #E02020; background-color: #FFF7F0; }
+
+/* 空态改两行式：主句只说事实（哪一天没有批次记录），副句说「这事该找谁」。
+   common.css 的 .empty-row 是横向居中，两个 text 并排会把长句挤成竖条，这里按本页需要改纵向。 */
+.empty-row { flex-direction: column; align-items: center; gap: 12rpx; }
+.empty-sub { font-size: 22rpx; color: #BBBBBB; text-align: center; padding: 0 30rpx; line-height: 34rpx; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

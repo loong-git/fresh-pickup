@@ -1,11 +1,12 @@
 <template>
   <view class="page-container">
-    <!-- ==================== 1. 到货警示条（可关，F-18.17 §2 + FE-2 逐店聚合） ====================
+    <!-- ==================== 1. 到货警示条（可关，F-18.17 §2 + FE-2 逐店聚合 + F-60 文案拆分） ====================
              数据源：GET /api/partner/stores 拿名下门店集合 → 逐店 GET /api/partner/arrivals?date=今天&storeId=该店
              （FE-2：只发一次不带 storeId 的请求 = 服务端 Collections.min 挑一家，而待取清单覆盖名下全部店，
                别家店没确认就是漏报，所以这里显式逐店查后聚合；D-9「当日批次未确认」的唯一依据不变）
-             显示条件：聚合结果里存在「今日无批次 或 有 status !== 'confirmed' 批次」的门店
-             文案：名下多店 → 「N 家店今日批次未确认，货可能未到」；只有一家 → 保持原句
+             显示条件：聚合结果里存在「今日无批次 或 有 status !== 'confirmed' 批次」的门店（判据不变）
+             文案（F-60）：两类分别成句、可并列——「今日批次未确认」/「今日没有到货批次记录」，
+               多店各带家数。原句把两种事实混说成「未确认」，主理人会去翻一条并不存在的批次。
              请求失败：整条不显示——提示本身一旦「报错还亮着」就会把「没查到」说成「货没到」，
              那就是误导源；故这次失败静默（不打 console、不留 spinner），也绝不并入页面四态
              （清单那两次请求才是本页四态的主人）。 ==================== -->
@@ -212,13 +213,17 @@ export default {
       writeRetryLock: 0,
       writeRetryLockTimer: null,
       // ===== 到货警示条 =====
-      // null = 还没查/这次没查成（不显示）；true = 今日确有未确认批次（显示）；false = 今日已确认（不显示）
+      // null = 还没查/这次没查成（不显示）；true = 今日确有「该有货却没落定」的门店（显示）；false = 今日全部已确认（不显示）
       alertUnconfirmed: null,
-      // FE-2 聚合读数：名下几家店、其中几家「今日无批次或有未确认批次」；两个数都要在条上说话
+      // FE-2 聚合读数 + F-60 文案拆分：名下几家店，其中几家「有批次但未确认」、几家「今日压根没有批次」。
+      // 两个数是**两件不同的事**，必须分开数、分开说：前者是「货到了没点确认」，后者是「平台没配货记录」，
+      // 混成一句「批次未确认」会让主理人去翻一条并不存在的批次。判据不变（任一种都算异常态、都亮条），
+      // 只是不再让一句文案同时冒充两种事实。
       alertStoreTotal: 0,
       alertPendingCount: 0,
+      alertNoBatchCount: 0,
       // FE-6：「去看批次」这一跳要落到哪个日期——名下确有未确认批次就用那一批的 batchDate，
-      // 今日整日无批次（批次由平台在明日生成）就用明日，避免跳进批次页的今日空态死胡同
+      // 今日整日无批次就用明日（批次页首屏也默认明日），避免跳进批次页的今日空态死胡同
       alertTargetDate: '',
       // 关闭只在本页实例内生效：每次回页都重弹同一条，等于逼主理人再关一次
       alertDismissed: false
@@ -229,12 +234,16 @@ export default {
     alertVisible() {
       return this.alertUnconfirmed === true && !this.alertDismissed
     },
-    // FE-2 文案：名下多店时把「几家没确认」写在条上（只有一家时不必数一遍，保持原句）
+    // FE-2 多店计数 + F-60 文案拆分：两种异常各说各的，同时存在就两句并列（不合并成一句含混话）
     alertText() {
-      const n = Number(this.alertPendingCount)
-      const total = Number(this.alertStoreTotal)
-      if (total > 1 && n > 0) return n + ' 家店今日批次未确认，货可能未到'
-      return '今日批次未确认，货可能未到'
+      const u = Number(this.alertPendingCount)
+      const n = Number(this.alertNoBatchCount)
+      const multi = Number(this.alertStoreTotal) > 1
+      const parts = []
+      if (u > 0) parts.push(multi ? u + ' 家店今日批次待确认' : '今日批次未确认')
+      if (n > 0) parts.push(multi ? n + ' 家店今日没有批次记录' : '今日没有到货批次记录')
+      if (!parts.length) return ''
+      return parts.join('，') + '，货可能未到'
     },
     canSubmit() {
       return this.code.length === 6 && !this.verifying && this.writeRetryLock === 0
@@ -437,28 +446,32 @@ export default {
           this.alertUnconfirmed = null
           this.alertStoreTotal = 0
           this.alertPendingCount = 0
+          this.alertNoBatchCount = 0
           return
         }
         const results = await Promise.all(ids.map((id) => getPartnerArrivals({ date: today, storeId: id })))
         let pending = 0
+        let noBatch = 0
         let firstPendingDate = ''
         results.forEach((res) => {
           const data = (res && res.data) || {}
           const batches = Array.isArray(data.list) ? data.list : []
-          // 空 list = 今日根本没有批次（批次由平台生成，见 G-05 运营端）：按契约同样算「货可能未到」
           const unconfirmedRows = batches.filter((b) => (b && b.status) !== BATCH_CONFIRMED)
-          if (!batches.length || unconfirmedRows.length) {
+          // F-60：两种情况分开计数，但**判据一字未动**——任一种都算「今日没有落定的货」，条都要亮。
+          // 空 list 只是「平台没给这一天配批次记录」，不是「有批次没确认」，所以文案不能混着说。
+          if (!batches.length) {
+            noBatch++
+          } else if (unconfirmedRows.length) {
             pending++
             // 有真批次就用它的 batchDate 作为跳转目标；今日整日无批次才落到明日（FE-6）
-            if (!firstPendingDate && unconfirmedRows.length) {
-              const d = String(unconfirmedRows[0].batchDate || '')
-              if (/^\d{4}-\d{2}-\d{2}$/.test(d)) firstPendingDate = d
-            }
+            const d = String(unconfirmedRows[0].batchDate || '')
+            if (!firstPendingDate && /^\d{4}-\d{2}-\d{2}$/.test(d)) firstPendingDate = d
           }
         })
         this.alertStoreTotal = ids.length
         this.alertPendingCount = pending
-        this.alertUnconfirmed = pending > 0
+        this.alertNoBatchCount = noBatch
+        this.alertUnconfirmed = pending + noBatch > 0
         this.alertTargetDate = firstPendingDate || this.stepDayStr(1, today)
       } catch (e) {
         // 静默：提示条不是本页的主数据源，它挂了就把整页拖进错误态，用户会以为「清单也读不到」

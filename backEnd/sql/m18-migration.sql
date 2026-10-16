@@ -10,8 +10,11 @@
 --    D-21 一用户一期最多 1 条 pending 由应用层校验；BE-3 裁定（F-18.20 C 行）另加生成列 pending_guard +
 --    唯一键 uk_user_pending(user_id, pending_guard) 作并发双 pending 的库侧闸门——NULL 不参与唯一性，
 --    rejected/approved 历史行仍放行，「rejected → 再提交」不受影响）；
--- ③ arrival_batch + arrival_item 到货批次（D-19：一期只做读 + 确认，批次生成器属运营端 G-05，故本文件必须带演示种子，
---    否则核销台的「当日未确认」警示条在验收现场永远演示不出来）；uk_store_date (store_id, batch_date) 既钉死一店一日一批次，
+-- ③ arrival_batch + arrival_item 到货批次（D-19：一期只做读 + 确认，故本文件必须带演示种子；
+--    F-60 订正：原注写「批次生成器属运营端 G-05」是双重指错——G-05 实为「商家端营销参与态+数据看板」（07 册 §G-05，
+--    F-19 已交付），运营端是 G-06，两期都没有批次生成页；至今全系统对 arrival_batch 零写入端点，
+--    批次只能由平台直接写库。因此「演示得出来」这句也不再成立：下面 ⑩ 的种子 batch_date 是写死日期，
+--    装库次日起就落不进任何页面的默认日期，别把它当长期验收依据）；uk_store_date (store_id, batch_date) 既钉死一店一日一批次，
 --    也是演示种子 INSERT IGNORE 幂等的唯一依据；
 -- ④ 演示主理人归属归位段（⑪，受 ⓪ 开关 @m18_demo_owner 控制，默认 0=不执行；BE-1 裁定见该段注释）。
 -- 仅对已按 init.sql + m3~m17-migration.sql 建库的存量库执行；新库直接用同步后的 init.sql 全量重建（init.sql 不写 ⑪ 的归位 UPDATE，
