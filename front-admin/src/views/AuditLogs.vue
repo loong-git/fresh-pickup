@@ -168,13 +168,13 @@ const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 // 预设值取自 backEnd 里**真正会落 admin_audit_log** 的写入点，逐条实测（不是照 javadoc 举例造）：
 //   grep -rnE "writeAudit\(|NOTIFY_REJECT_ACTOR|private static final String ACTION" backEnd/src/main/java --include=*.java
 // 由该结果 + AdminAuthServiceImpl:152/321（AUDIT_ACTION_LOGIN='admin.login'、actor='admin_user:'+id）
-// 与四处落库点（row.setActor：AdminServiceImpl:521 / AdminAuthServiceImpl:360 /
+// 与四处落库点（row.setActor：AdminServiceImpl#insertAudit / AdminAuthServiceImpl:360 /
 //  MerchantDishServiceImpl:433 / MerchantServiceImpl:249，全走同一个 AdminAuditLogMapper.insert）汇总，
 // 会落库的 action 实测共 12 个：
-//   Admin 轨 5 个（AdminServiceImpl:201/231/260/315/417）
+//   Admin 轨 5 个（AdminServiceImpl 的 updateOrderStatus / updateDish / auditReview / createMerchant / auditStoreApply 各一处）
 //     order.status / dish.update / review.audit / merchant.create / store_apply.audit
-//     ← actor = admin:<key 摘要 8>（静态密钥轨）或 admin_user:<id>（运营 JWT 轨，auditActor:626 归一）
-//   系统 1 个（AdminServiceImpl:444）  pay.notify_reject  ← actor = system:wx-notify（F-44，没有人在场）
+//     ← actor = admin:<key 摘要 8>（静态密钥轨）或 admin_user:<id>（运营 JWT 轨，auditActor 归一）
+//   系统 1 个（AdminServiceImpl#recordNotifyReject）  pay.notify_reject  ← actor = system:wx-notify（F-44，没有人在场）
 //   登录 1 个（AdminAuthServiceImpl:361）  admin.login     ← actor = admin_user:<id>
 //   商家轨 6 个（MerchantDishServiceImpl:166/263/310/333、MerchantServiceImpl:166/175）
 //     dish.create / dish.update / dish.stock / dish.onsale / merchant.profile / merchant.upload
@@ -183,8 +183,10 @@ const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 //   1) pay.notify_reject —— 本片的存在理由，actor 固定，配 actor 一起填才筛得准；
 //   2) admin.login —— 「谁登录过」，actor 是逐人变化的 admin_user:<id>，故只填 action、不填 actor；
 //   3) order.status / 4) store_apply.audit —— 只有 AdminServiceImpl 一处写入点（单轨，action 即足够定责）。
-// 没选 dish.update：它在 AdminServiceImpl:231 与 MerchantDishServiceImpl:263 各写一次，
+// 没选 dish.update：它在 AdminServiceImpl#updateDish 与 MerchantDishServiceImpl:263 各写一次，
 // 单给一枚 action 会把两轨的行混在一起，反而造出「谁改了菜品」的误读（页首注释同一件事）。
+// F-61：本段里指向 AdminServiceImpl 的引用一律改成**方法名**而不是行号——F-61 给取消加理由时在该类插了
+// 几十行，所有行号引用当场作废；被反复引用的文件挂行号就是定时炸弹，能具名的全部具名。
 // ⚠ 这四枚的字符全落在服务端 FILTER_PATTERN（^[A-Za-z0-9_.:-]{1,64}$，AdminV2ServiceImpl#FILTER_PATTERN）内，
 //    且 audit-logs 面**没有值域白名单**（白名单只管 orders/reviews/dishes/store-applies 那几枚），
 //    所以填进去是「按值等值过滤」而不是「白名单外 400」。

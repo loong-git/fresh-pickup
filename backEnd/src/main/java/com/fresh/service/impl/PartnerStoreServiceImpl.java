@@ -78,7 +78,7 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
     private static final String STORE_NOT_FOUND_MSG = "门店不存在";
     private static final String BATCH_NOT_FOUND_MSG = "批次不存在";
 
-    /** ops_log detail 序列化用（Jackson ObjectMapper 线程安全，静态复用同 AdminServiceImpl:64 姿势） */
+    /** ops_log detail 序列化用（Jackson ObjectMapper 线程安全，静态复用同 AdminServiceImpl#AUDIT_MAPPER 姿势） */
     private static final ObjectMapper DETAIL_MAPPER = new ObjectMapper();
 
     @Autowired

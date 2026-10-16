@@ -122,7 +122,7 @@
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <!-- 服务端状态机只允许 pending_pickup 迁出（AdminServiceImpl:149 那句「当前状态不可变更」就是这个门）。
+            <!-- 服务端状态机只允许 pending_pickup 迁出（AdminServiceImpl#updateOrderStatus 那句「当前状态不可变更」就是这个门）。
                  非待自提的行没有可用迁出 → 显示一句实况说明，而不是摆两个必然被 400 拒掉的按钮钓运营来点。
                  这不是「本地改行」：这一格读的是<b>服务端上一轮回的行值</b>，写完一律重拉列表（见 runWrite 那一行）。 -->
             <template v-if="row.status === 'pending_pickup'">
@@ -347,6 +347,37 @@ async function askConfirm(message) {
   }
 }
 
+/**
+ * F-61 取消理由输入。取消 = 单方面终止一笔已付款交易（后端会回补库存、已支付单置 pay_status=2
+ * 「已退款」并按明细回退销量），所以这一枚刻意不是 confirm 而是 <b>prompt</b>：空白理由在前端就拒收，
+ * 不给发出请求的机会——后端同样必填（AdminServiceImpl 那句「取消订单必须填写原因」），
+ * 两边同判据、谁先到都不影响结论，前端的这一道只是让运营不必点下去才知道要填。
+ * 返回 null = 点取消/关闭/Esc（等价「什么都没发生」）；返回字符串 = 已 trim 的理由。
+ * 上限 255 与后端 @Size 同值，也与入驻审核意见同值——长度口径全站只留一把。
+ */
+async function askReason(message) {
+  try {
+    const r = await ElMessageBox.prompt(message, '取消订单需填写原因', {
+      confirmButtonText: '确认取消该订单',
+      cancelButtonText: '返回（不发出任何请求）',
+      inputPlaceholder: '例如：顾客要求退款 / 缺货无法履约 / 重复下单',
+      inputType: 'textarea',
+      inputValidator: (v) => {
+        const s = String(v == null ? '' : v).trim()
+        if (!s) return '取消订单必须填写原因'
+        if (s.length > 255) return '原因不能超过 255 字'
+        return true
+      },
+      closeOnClickModal: false,
+      distinguishCancelAndClose: true,
+      customClass: 'admin-write-confirm'
+    })
+    return String((r && r.value) || '').trim()
+  } catch (e) {
+    return null
+  }
+}
+
 // 确认文案：把后果写全（口径逐条来自 AdminServiceImpl#updateOrderStatus），不写「确定吗？」。
 function confirmTextOf(id, status) {
   if (status === 'completed') {
@@ -369,7 +400,17 @@ function confirmTextOf(id, status) {
 async function onWrite(row, status) {
   // 写侧在飞守卫：写请求未回、或列表正在重拉时一律不再发（与按钮的 :disabled 互为双保险）
   if (submitting.value || viewState.value === 'loading') return
-  const ok = await askConfirm(confirmTextOf(row.id, status))
+  // 取消走「理由输入框」（F-61，必填），核销走普通二次确认（现场履约收尾，不逼运营编一句话）
+  const needReason = status === 'cancelled'
+  let reason = ''
+  let ok = false
+  if (needReason) {
+    const r = await askReason(confirmTextOf(row.id, status))
+    ok = r !== null
+    reason = r || ''
+  } else {
+    ok = await askConfirm(confirmTextOf(row.id, status))
+  }
   if (!ok) {
     // 确认框被取消 → 这一行之上没有任何网络调用，只如实说明「什么都没发生」
     writeResult.value = {
@@ -384,7 +425,7 @@ async function onWrite(row, status) {
   writeResult.value = null
   try {
     // row.id 是服务端回的 19 位雪花<b>字符串</b>，原样交给请求层拼路径（纪律：绝不 Number() 化，一化就丢精度 → 假 404）
-    const envelope = await updateAdminOrderStatus(row.id, status)
+    const envelope = await updateAdminOrderStatus(row.id, status, needReason ? reason : undefined)
     writeResult.value = {
       kind: 'success',
       title: status === 'completed' ? '核销已提交' : '取消已提交',

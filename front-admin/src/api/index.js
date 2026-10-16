@@ -445,18 +445,24 @@ export function getAdminStoreApplies(pageNum, pageSize, filters) {
 //   写成功与否由页面重拉列表核对，绝不本地改行（纪律 3）。
 
 /**
- * 订单核销/取消：PUT /api/admin/orders/{id}/status，body {status}
+ * 订单核销/取消：PUT /api/admin/orders/{id}/status，body {status, reason?}
  * @param {string} id 订单 id（**服务端回的原样字符串**，19 位雪花，绝不 Number()）
  * @param {string} status 'completed'（核销）| 'cancelled'（取消）；其余值服务端 400
  *        「status 仅允许 completed（核销）或 cancelled（取消）」；查无此单 404「订单不存在」；
  *        非 pending_pickup 的单 400「当前状态不可变更（仅待自提订单可核销/取消）」
+ * @param {string} [reason] 取消理由（F-61）：**status=cancelled 时服务端必填**，空白即 400
+ *        「取消订单必须填写原因（会回补库存并置已退款，需可追责）」；>255 字 400「取消原因不能超过 255 字」。
+ *        核销不传（不本地化空串下发——服务端「空则 detail 不落这一键」，前端也不该替它决定写什么）
  * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「订单状态已更新」
  */
-export function updateAdminOrderStatus(id, status) {
+export function updateAdminOrderStatus(id, status, reason) {
+  const body = { status }
+  // 空串/null/undefined 一律不下发 reason 键：让「没填」与「填了空白」在后端判据里保持可分
+  if (reason !== undefined && reason !== null && String(reason) !== '') body.reason = reason
   return request({
     url: '/api/admin/orders/' + encodeURIComponent(String(id)) + '/status',
     method: 'PUT',
-    data: { status }
+    data: body
   })
 }
 

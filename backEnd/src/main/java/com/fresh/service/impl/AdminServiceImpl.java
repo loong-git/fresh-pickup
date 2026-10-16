@@ -85,6 +85,10 @@ public class AdminServiceImpl implements AdminService {
     /** 兜底 detail：两侧都装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（BE-2 的硬要求） */
     private static final String AUDIT_MINIMAL_DETAIL = "{\"old\":\"audit truncated\",\"new\":\"audit truncated\"}";
 
+    /** 三键留痕的兜底（F-61）：形状必须与正常写入一致，兜底不许偷偷换形状（理由正是这次要留住的东西） */
+    private static final String AUDIT_MINIMAL_DETAIL_WITH_REASON =
+            "{\"old\":\"audit truncated\",\"new\":\"audit truncated\",\"reason\":\"audit truncated\"}";
+
     // ---- F-44（微信支付回调拒收留痕）的四枚钉死列值 + 两枚兜底常量 ----
     //      为什么落在 admin_audit_log：init.sql:392 的 ops_log 表注释明写「本表只收商家/主理人/申请人现场动作
     //      ——平台侧动作一律走 admin_audit_log」，回调裁定是平台侧事件。列形状全部落在
@@ -158,10 +162,16 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     @Transactional
-    public void updateOrderStatus(String orderId, String status, String actor) {
+    public void updateOrderStatus(String orderId, String status, String reason, String actor) {
         String target = status == null ? "" : status.trim();
         if (!ALLOWED_TARGETS.contains(target)) {
             throw new BizException("status 仅允许 completed（核销）或 cancelled（取消）");
+        }
+        // F-61：取消必填理由。判据放在查库之前——理由缺失是请求自身的缺陷，
+        // 不该先花一次 SELECT 再告诉调用方"你少填了一个字段"，也不该让 404 与 400 抢先后。
+        String why = reason == null ? "" : reason.trim();
+        if (OrderServiceImpl.STATUS_CANCELLED.equals(target) && why.isEmpty()) {
+            throw new BizException("取消订单必须填写原因（会回补库存并置已退款，需可追责）");
         }
         Order order = orderMapper.selectById(orderId);
         if (order == null) {
@@ -198,7 +208,13 @@ public class AdminServiceImpl implements AdminService {
         }
         log.info("管理端更新订单状态: orderId={}, {} -> {}", orderId, order.getStatus(), target);
         // R6 补课：审计在置态成功后写（幂等早退分支无状态变化，不产生留痕）
-        writeAudit(auditActor(actor), "order.status", "order", orderId, order.getStatus(), target);
+        // F-61：有理由才落第三键——核销通常无理由，此时 detail 仍是 {"old","new"} 两键，
+        // 与既有运营端渲染和 SQL 手册口径逐字相同；空串冒充"填了但没内容"是要不得的。
+        if (why.isEmpty()) {
+            writeAudit(auditActor(actor), "order.status", "order", orderId, order.getStatus(), target);
+        } else {
+            writeAuditWithReason(auditActor(actor), "order.status", "order", orderId, order.getStatus(), target, why);
+        }
     }
 
     @Override
@@ -489,6 +505,24 @@ public class AdminServiceImpl implements AdminService {
     }
 
     /**
+     * 带理由的写留痕（F-61，当前只有 {@code order.status} 的取消用）：detail 变三键
+     * {@code {"old","new","reason"}}。兜底常量必须<b>同形状</b>也是三键——理由恰恰是这次改动
+     * 唯一要留住的东西，截断时退化成两键就等于把它删了。
+     */
+    /**
+     * 带理由的写留痕（F-61，当前只有 {@code order.status} 的取消用）：detail 变三键
+     * {@code {"old","new","reason"}}。兜底常量必须<b>同形状</b>也是三键——理由恰恰是这次改动
+     * 唯一要留住的东西，截断时退化成两键就等于把它删了。
+     * <p>刻意<b>不叫 writeAudit</b>：既有那个「detail + minimalDetail + ip」的七参重载签名与本方法
+     * 逐字相同（七个 String），同名会直接撞车。
+     */
+    private void writeAuditWithReason(String actor, String action, String targetType, String targetId,
+                                      String oldVal, String newVal, String reason) {
+        writeAudit(actor, action, targetType, targetId,
+                buildAuditDetail(oldVal, newVal, reason), AUDIT_MINIMAL_DETAIL_WITH_REASON, currentIp());
+    }
+
+    /**
      * 审计写入核心（本类唯一一份，两趟兜底）：detail 由调用方给完整形状，装不下时退成 {@code minimalDetail} 再试一次。
      *
      * @param detail        第一趟写入的完整 detail（必须是合法 JSON）
@@ -542,6 +576,23 @@ public class AdminServiceImpl implements AdminService {
         String head = "{\"old\":\"truncated\",\"new\":";
         String clippedNew = clipJsonLiteral(newJson, AUDIT_DETAIL_MAX - head.length() - 1);
         return clippedNew != null ? head + clippedNew + "}" : AUDIT_MINIMAL_DETAIL;
+    }
+
+    /**
+     * 三键版（F-61）：{@code {"old","new","reason"}}。预算分配与两键版相反——<b>先牺牲 reason</b>，
+     * 因为 old/new 那一对是"改了什么"的主证，reason 是"为什么"的补强；整体仍装不下才落三键最小兜底。
+     */
+    private String buildAuditDetail(String oldVal, String newVal, String reason) {
+        String oldJson = jsonValue(dropUnpairedSurrogates(oldVal));
+        String newJson = jsonValue(dropUnpairedSurrogates(newVal));
+        String reasonJson = jsonValue(dropUnpairedSurrogates(reason));
+        String detail = "{\"old\":" + oldJson + ",\"new\":" + newJson + ",\"reason\":" + reasonJson + "}";
+        if (detail.length() <= AUDIT_DETAIL_MAX) {
+            return detail;
+        }
+        String head = "{\"old\":" + oldJson + ",\"new\":" + newJson + ",\"reason\":";
+        String clippedReason = clipJsonLiteral(reasonJson, AUDIT_DETAIL_MAX - head.length() - 1);
+        return clippedReason != null ? head + clippedReason + "}" : AUDIT_MINIMAL_DETAIL_WITH_REASON;
     }
 
     /**

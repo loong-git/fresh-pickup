@@ -59,7 +59,7 @@ public class MerchantServiceImpl implements MerchantService {
     /** 兜底 detail：两侧都装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（BE-2 的硬要求） */
     private static final String AUDIT_MINIMAL_DETAIL = "{\"old\":\"audit truncated\",\"new\":\"audit truncated\"}";
 
-    /** 审计 detail 序列化用（Jackson ObjectMapper 线程安全，静态复用同 AdminServiceImpl:64 姿势） */
+    /** 审计 detail 序列化用（Jackson ObjectMapper 线程安全，静态复用同 AdminServiceImpl#AUDIT_MAPPER 姿势） */
     private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
 
     @Autowired

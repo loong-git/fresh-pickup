@@ -197,7 +197,7 @@ public class RecommendServiceImpl implements RecommendService {
         // F-02.1 s5 输入：候选的过审评论按 dish 聚合 rating 均值。
         // 口径裁定：文档字面写"audit_status=approved"，但本系统审核流不存在 'approved' 值——
         // 评价正常入库为 NULL、软词命中为 pending（ReviewServiceImpl:98-103）、管理端过审置 NULL、
-        // 驳回物理删除（AdminServiceImpl:134-145）。按 F-02.4"评分仅取过审评论、与线上展示口径一致"，
+        // 驳回物理删除（AdminServiceImpl#auditReview 的 reject 支）。按 F-02.4"评分仅取过审评论、与线上展示口径一致"，
         // 裁定为"audit_status 非 pending"，与评价列表过滤（ReviewServiceImpl:44-45）及
         // 好评率回写（DishMapper#refreshGoodRate）同口径；无过审评论 → 0.5 中性
         Map<Long, Double> reviewScore = new HashMap<>();

@@ -140,7 +140,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     private static final long LOCK_RETRY_FALLBACK_SECONDS = 600L;
 
     // ---------------------------------------------------------------
-    // 审计旁路常量（admin_audit_log.detail VARCHAR(500)，列宽与兜底串照 OpsLogWriter:26-30 / AdminServiceImpl:80-84）
+    // 审计旁路常量（admin_audit_log.detail VARCHAR(500)，列宽与兜底串照 OpsLogWriter 那两枚常量 / AdminServiceImpl 的 AUDIT_DETAIL_MAX 与 AUDIT_MINIMAL_DETAIL）
     // ---------------------------------------------------------------
 
     private static final int AUDIT_DETAIL_MAX = 500;

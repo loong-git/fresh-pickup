@@ -92,7 +92,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
     private static final Pattern BG_COLOR_PATTERN =
             Pattern.compile("^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$", Pattern.CASE_INSENSITIVE);
 
-    /** 审计 detail 序列化用（Jackson ObjectMapper 线程安全，静态复用同 AdminServiceImpl:64 姿势） */
+    /** 审计 detail 序列化用（Jackson ObjectMapper 线程安全，静态复用同 AdminServiceImpl#AUDIT_MAPPER 姿势） */
     private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
 
     @Autowired

@@ -95,7 +95,7 @@
         <el-table-column prop="createdAt" label="提交时间" min-width="160" />
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <!-- 服务端只允许 pending 迁出，且「审核结论不可翻转」（AdminServiceImpl:338 那句
+            <!-- 服务端只允许 pending 迁出，且「审核结论不可翻转」（AdminServiceImpl#auditStoreApply 那句
                  「该申请已审核完成，不可再次审核」就是这个门）。非 pending 的行没有可用动作 →
                  摆一句实况说明，不摆两个必然被拒的按钮。读的是服务端刚回的行值，不是本地状态。 -->
             <template v-if="row.status === 'pending'">

@@ -25,9 +25,11 @@ public interface AdminService {
     /**
      * 订单状态更新：仅允许 pending_pickup → completed（核销）/ cancelled（取消，回补库存）
      *
-     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     * @param reason 取消理由（F-61）：{@code status=cancelled} 时必填、空白即 400；
+     *               {@code completed} 时可空，空则审计 detail 不落这一键（不写空串冒充"填了但没内容"）
+     * @param actor  本次调用者身份，见类注释（null = 静态密钥轨）
      */
-    void updateOrderStatus(String orderId, String status, String actor);
+    void updateOrderStatus(String orderId, String status, String reason, String actor);
 
     /**
      * 商品部分更新：price / stock / onSale 仅更新传入字段
