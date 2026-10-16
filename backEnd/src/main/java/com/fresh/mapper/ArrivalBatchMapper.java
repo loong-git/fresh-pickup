@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -60,4 +61,27 @@ public interface ArrivalBatchMapper extends BaseMapper<ArrivalBatch> {
             + "FROM arrival_batch WHERE id = #{id} "
             + "AND store_id IN <foreach item='sid' collection='storeIds' open='(' separator=',' close=')'>#{sid}</foreach></script>")
     Map<String, Object> selectForConfirm(@Param("id") Long id, @Param("storeIds") List<Long> storeIds);
+
+    /**
+     * F-62「货已到点」判定：给 C 端订单列表回显「已到店，去拿货」用的一条只读键查询。
+     *
+     * <p><b>与上面三条的归属口径不同，别照抄</b>：这里的 {@code storeIds} 不是
+     * {@code ATTR_PARTNER_STORE_IDS}，而是「本页面内订单自己的 store_id」——调用方
+     * {@code OrderServiceImpl#getOrders} 已先按 token userId 过滤订单，故能进来的 store_id 天然只可能是
+     * 该用户下过单的自提点，不存在横向越权。出参也刻意收成「自提点ID 与 批次日期 拼成的一枚字符串键」，
+     * 不出批次 id、不出 remark、不出任何他人订单信息。
+     *
+     * <p>键在 SQL 里 {@code CONCAT} 成字符串而不是回两列：DATE 隐式转成 {@code 'yyyy-MM-dd'}、BIGINT 转十进制串，
+     * 与 Java 侧「storeId 拼井号拼 pickupDate」的产物逐字相等，从而绕开
+     * {@code Map<String,Object>} 里日期列到底映射成哪种类型的歧义。
+     *
+     * <p>注释里刻意不用「列名+井号+列名」那种写法：javadoc 会把「某词+井号+某词」读成具名引用，
+     * 被 symbol-audit 判成「找不到该类」的假缺陷（本机实测，改了三处才归零）。
+     */
+    @Select("<script>SELECT DISTINCT CONCAT(store_id, '#', batch_date) FROM arrival_batch "
+            + "WHERE status = 'confirmed' "
+            + "AND store_id IN <foreach item='sid' collection='storeIds' open='(' separator=',' close=')'>#{sid}</foreach> "
+            + "AND batch_date IN <foreach item='d' collection='dates' open='(' separator=',' close=')'>#{d}</foreach></script>")
+    List<String> selectConfirmedArrivalKeys(@Param("storeIds") Collection<Long> storeIds,
+                                            @Param("dates") Collection<LocalDate> dates);
 }

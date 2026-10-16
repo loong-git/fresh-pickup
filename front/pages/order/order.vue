@@ -38,6 +38,14 @@
           </view>
         </view>
 
+        <!-- F-62 到货提示条：主理人确认货已到自提点后，点亮这一单的行动指引（此前 C 端永远看不到「能不能来取」）。
+             点亮依据是服务端派生的 goodsArrived，不是前端按日期自己猜——批次状态只有后端读得到。
+             只认严格 true：字段缺失或为 null 一律不点亮（判据见 methods#canPickupNow）。 -->
+        <view v-if="canPickupNow(order)" class="arrive-tip">
+          <text class="arrive-icon">🚚</text>
+          <text class="arrive-text">货已到店，去拿货</text>
+        </view>
+
         <view class="order-items">
           <view class="order-item" v-for="(item, idx) in (order.items || [])" :key="idx">
             <text class="oi-name">{{ item.dishName }}</text>
@@ -316,6 +324,14 @@ export default {
     canShowCode(order) {
       return !!(order && order.pickupCode) && this.payStatus(order) === 1 && order.status === 'pending_pickup'
     },
+    // F-62「货已到点」判据。前两个条件刻意与 canShowCode 同口径（未支付无码也无货可拿；核销/取消后这条指引就该消失），
+    // 第三个条件 goodsArrived 由后端按本单 (store_id, pickup_date) 是否命中一条已确认到货的 arrival_batch 派生。
+    // 必须写 === true 而非 truthy：本仓 Jackson 无全局 NON_NULL，后端不填的出口（下单响应等）会把 null 真写进 JSON，
+    // 而 store_id 为空的单后端一律判 false——「不知道到没到」与「没到」都不该点亮。
+    canPickupNow(order) {
+      return !!(order && order.goodsArrived === true)
+        && this.payStatus(order) === 1 && order.status === 'pending_pickup'
+    },
     showCode(order) {
       this.codeOrder = order
     },
@@ -385,6 +401,11 @@ export default {
 .pay-unpaid { color: #FF6600; background-color: #FFF3EB; }
 /* 已退款徽标（已支付单取消后端置 pay_status=2）：灰底灰字弱化展示 */
 .pay-refund { color: #999999; background-color: #F5F5F5; }
+
+/* F-62 到货提示条：绿底整行，与下方取货码高亮行同色系（同一条「到店取货」动线的两步：能不能来 / 来了报什么） */
+.arrive-tip { display: flex; align-items: center; gap: 10rpx; padding: 14rpx 24rpx; background-color: #E8F8EF; border-bottom: 1rpx solid #D6EFDF; }
+.arrive-icon { font-size: 26rpx; }
+.arrive-text { font-size: 26rpx; font-weight: 700; color: #07C160; }
 
 .order-items { padding: 14rpx 24rpx; }
 .order-item { display: flex; align-items: center; padding: 10rpx 0; }

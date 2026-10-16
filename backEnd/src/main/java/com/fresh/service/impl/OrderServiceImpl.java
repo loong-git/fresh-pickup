@@ -11,6 +11,7 @@ import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
 import com.fresh.entity.Store;
 import com.fresh.entity.UserCoupon;
+import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
@@ -29,8 +30,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -66,6 +69,9 @@ public class OrderServiceImpl implements OrderService {
     private DishMapper dishMapper;
     @Autowired
     private StoreMapper storeMapper;
+    /** F-62 只读用到 arrival_batch 的「已确认到货」键；写入方仍在主理人端（confirmById） */
+    @Autowired
+    private ArrivalBatchMapper arrivalBatchMapper;
     @Autowired
     private CouponService couponService;
 
@@ -259,6 +265,8 @@ public class OrderServiceImpl implements OrderService {
 
         // 明细批量 IN 查询（消 N+1，T-M1-08 验收⑤）
         loadItems(orders);
+        // F-62「货已到点」：同样一次批量查，绝不在循环里逐单查 arrival_batch
+        markGoodsArrived(orders);
         // 手机号脱敏 138****1234
         orders.forEach(o -> o.setPhone(maskPhone(o.getPhone())));
 
@@ -345,6 +353,44 @@ public class OrderServiceImpl implements OrderService {
                 .sorted(Comparator.comparing(OrderItem::getId))
                 .collect(Collectors.groupingBy(OrderItem::getOrderId));
         orders.forEach(o -> o.setItems(grouped.getOrDefault(o.getId(), List.of())));
+    }
+
+    /**
+     * F-62：把页内「待自提 + 已支付 + 有自提点」的单标出「货已到自提点」（C 端据此显示「已到店，去拿货」）。
+     *
+     * <p>一次批量查：把候选行的 store_id 与 pickup_date 各去重成一枚 IN，SQL 侧只回
+     * 「自提点ID 与 批次日期 拼成的一枚字符串键」（口径与理由见 ArrivalBatchMapper#selectConfirmedArrivalKeys）。
+     *
+     * <p>先显式把每行清成 {@code null} 再判定：本字段是唯一的赋值处，而 Jackson 会把 null 真写进 JSON，
+     * 「没参与判定」与「判定为未到货」必须是两种可区分的形态（前者 null、后者 false），
+     * 否则将来任何复用本方法的出口都可能读到上一轮的残留态。
+     */
+    private void markGoodsArrived(List<Order> orders) {
+        List<Order> candidates = new ArrayList<>();
+        for (Order order : orders) {
+            order.setGoodsArrived(null);
+            if (STATUS_PENDING_PICKUP.equals(order.getStatus())
+                    && order.getPayStatus() != null && order.getPayStatus() == 1
+                    && order.getStoreId() != null && order.getPickupDate() != null) {
+                candidates.add(order);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+        Set<Long> storeIds = new HashSet<>();
+        Set<LocalDate> dates = new HashSet<>();
+        for (Order order : candidates) {
+            storeIds.add(order.getStoreId());
+            dates.add(order.getPickupDate());
+        }
+        Set<String> confirmedKeys = new HashSet<>(
+                arrivalBatchMapper.selectConfirmedArrivalKeys(storeIds, dates));
+        for (Order order : candidates) {
+            // 键两侧同为 ISO yyyy-MM-dd：SQL 侧 DATE 隐式转串，本侧 LocalDate#toString
+            order.setGoodsArrived(
+                    confirmedKeys.contains(order.getStoreId() + "#" + order.getPickupDate()));
+        }
     }
 
     /** 138****1234 */

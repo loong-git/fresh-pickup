@@ -47,4 +47,21 @@ public class Order {
     private LocalDateTime updateTime;
     @TableField(exist = false)
     private List<OrderItem> items;
+    /**
+     * 「货已到自提点」派生态（F-62，<b>非 DB 列</b>）：本单的 {@code (store_id, pickup_date)} 命中
+     * 一条 {@code arrival_batch.status='confirmed'}（主理人已确认到货）时为 {@code true}。
+     *
+     * <p><b>为什么不落列</b>：到货是「门店 × 日期」的事实（{@code uk_store_date} 一店一日一批次），不是订单
+     * 自己的事实。落列就得在批次确认时反查该店该日全部待取单批量 UPDATE，于是「先确认后下单」「改批次日期」
+     * 「回填历史单」三类空洞全要另写代码兜；派生读一次算一次，批次状态一变，C 端口径同步变。
+     *
+     * <p><b>只在 {@code GET /api/orders} 里填</b>（{@code OrderServiceImpl#markGoodsArrived}），其它出口
+     * （下单响应、商家/主理人/运营各自的白名单出参）一律 {@code null}——本仓无全局 {@code NON_NULL} 配置，
+     * {@code null} 会真的出现在 JSON 里，故消费方判据必须写 {@code === true}，不可写 truthy 之外的宽松比较。
+     * 赋值范围刻意收窄到「{@code pending_pickup} 且已支付且 {@code store_id} 非空」三类条件同时成立的单：
+     * 已完成/已取消的单显示「去拿货」是假指引，无自提点的单无从归因批次（该空洞见 2026-10-16 登记的
+     * 8 单 {@code store_id IS NULL}，本字段把它们如实判为「未到货」而不是替它们编一个）。
+     */
+    @TableField(exist = false)
+    private Boolean goodsArrived;
 }
