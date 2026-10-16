@@ -72,7 +72,7 @@ public class AdminController {
     @Autowired
     private AdminUserMapper adminUserMapper;
 
-    /** 订单核销/取消：PUT /api/admin/orders/{id}/status，body {status}（completed/cancelled） */
+    /** 订单核销/取消：PUT /api/admin/orders/{id}/status，body {status, reason?}（completed/cancelled；F-61 起取消必填 reason） */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // Admin 端点无 JWT userId，按 IP 维度（§2.10a）
     @PutMapping("/orders/{id}/status")
     public R<Void> updateOrderStatus(@RequestHeader(value = "X-Admin-Key", required = false) String key,
@@ -83,7 +83,7 @@ public class AdminController {
         if (grant.denied() != null) {
             return grant.denied();
         }
-        adminService.updateOrderStatus(id, dto.getStatus(), grant.actor());
+        adminService.updateOrderStatus(id, dto.getStatus(), dto.getReason(), grant.actor());
         return R.ok(null, "订单状态已更新");
     }
 
