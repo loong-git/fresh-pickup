@@ -50,6 +50,14 @@
         </view>
 
         <view class="order-info">
+          <!-- F-59 取货码：此前这一行在整个 C 端不存在（全仓零 pickupCode 引用），码只落在库与主理人端，
+               提货人到店无从报码。数据本就在 GET /api/orders 出参里（Order#pickupCode），故零新接口、零新 SQL。
+               放第一行且高亮：站在店里，这是这一屏唯一要看的东西。 -->
+          <view v-if="canShowCode(order)" class="info-row info-row-code" @click="showCode(order)">
+            <text class="info-label">取货码</text>
+            <text class="info-val code-val">{{ order.pickupCode }}</text>
+            <text class="code-hint">点击放大</text>
+          </view>
           <view class="info-row">
             <text class="info-label">地址</text>
             <text class="info-val">{{ order.address || '到店自提（以自提点为准）' }}</text>
@@ -117,6 +125,18 @@
         <text class="empty-label">该状态下暂无订单</text>
       </template>
     </view>
+
+    <!-- F-59 取货码出示层：主理人端核销台要的是「6 位数字」，而列表里那行 24rpx 的字在店门口隔着一个人递过去看不清，
+         所以点开放大成屏。码只在「已支付 + 待自提」时存在（见 canShowCode），点遮罩或关闭即收起。 -->
+    <view v-if="codeOrder" class="code-mask" @click="hideCode">
+      <view class="code-panel" @click.stop>
+        <text class="code-lead">到店报这 6 位数字</text>
+        <text class="code-digits">{{ codeOrder.pickupCode }}</text>
+        <text class="code-meta">{{ codeOrder.storeName || '到店自提（以自提点为准）' }}</text>
+        <text class="code-meta">自提日 {{ codeOrder.pickupDate || '--' }}</text>
+        <button class="code-close" @click="hideCode">关闭</button>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -152,6 +172,8 @@ export default {
       cancelingId: '',
       // 去支付防重锁：正在支付的订单 id
       payingId: '',
+      // F-59 取货码出示层当前展示的那一单（null=收起）
+      codeOrder: null,
       // 错误态标记（M3-T-05 部分）：重置加载（首屏/重试）接口异常时置 true，显示错误态而非空态
       loadError: false,
       statusMap: STATUS_MAP
@@ -265,8 +287,15 @@ export default {
       // await uni.requestPayment({ provider: 'wxpay', ... })
       // #endif
       try {
-        await mockPay(order.id)
-        uni.showToast({ title: '支付成功', icon: 'success' })
+        const paid = await mockPay(order.id)
+        // F-59：与首页收银台同一处理——码在这这一刻才存在，先回进提示；随后 loadOrders 刷新，
+        // 该单的「取货码」行也就出现了（两处支付入口行为必须一致，不能一处有一处没有）
+        const picked = paid && paid.data && paid.data.pickupCode
+        if (picked) {
+          uni.showToast({ title: '支付成功，取货码 ' + picked, icon: 'none', duration: 3000 })
+        } else {
+          uni.showToast({ title: '支付成功', icon: 'success' })
+        }
         this.loadOrders(true)
       } catch (e) {
         // 401（登录态失效）：request 层已清登录态，页面响应式切换登录引导态；其余失败 toast 保留现场
@@ -279,6 +308,19 @@ export default {
     payStatus(order) {
       const v = Number(order && order.payStatus != null ? order.payStatus : (order && order.pay_status))
       return v === 1 || v === 2 ? v : 0
+    },
+    // 取货码可见性判据（与后端发码时机同源，不是前端偏好）：
+    // ① 码是「支付成功那一刻」才生成的，下单时 orders.pickup_code 为 NULL → 未支付一律不显示，也不显示空白占位；
+    // ② 核销完成（completed）或被取消（cancelled）后码已无用，继续留在列表里等于把凭证长期摊在旁人眼前 → 收掉。
+    // 走 payStatus() 而不是直读 order.payStatus：后端字段名两种形态都要兼容，判据不能在这里开第二套。
+    canShowCode(order) {
+      return !!(order && order.pickupCode) && this.payStatus(order) === 1 && order.status === 'pending_pickup'
+    },
+    showCode(order) {
+      this.codeOrder = order
+    },
+    hideCode() {
+      this.codeOrder = null
     },
     // 手机号脱敏兜底展示（后端已脱敏则原样显示）：138****1234
     maskPhone(p) {
@@ -356,6 +398,18 @@ export default {
 .info-row { display: flex; align-items: flex-start; padding: 12rpx 0; }
 .info-label { font-size: 22rpx; color: #999999; width: 80rpx; flex-shrink: 0; }
 .info-val { font-size: 22rpx; color: #666666; flex: 1; }
+
+/* F-59 取货码行与出示层：字号刻意大于其余信息行——这一行是顾客在店门口唯一要递出去看的东西，
+   和「地址/手机/时间」不是一个优先级。颜色跟站内已支付徽标同族（#07C160 系），不新造色板。 */
+.info-row-code { align-items: center; }
+.code-val { font-size: 34rpx; font-weight: 700; letter-spacing: 4rpx; color: #07A05A; }
+.code-hint { font-size: 20rpx; color: #BBBBBB; flex-shrink: 0; }
+.code-mask { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.72); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.code-panel { width: 600rpx; padding: 56rpx 40rpx 40rpx; background: #FFFFFF; border-radius: 24rpx; display: flex; flex-direction: column; align-items: center; }
+.code-lead { font-size: 26rpx; color: #666666; }
+.code-digits { font-size: 108rpx; font-weight: 800; letter-spacing: 12rpx; color: #1A1A1A; margin: 24rpx 0 8rpx; }
+.code-meta { font-size: 24rpx; color: #999999; margin-top: 8rpx; text-align: center; }
+.code-close { margin-top: 40rpx; width: 320rpx; height: 76rpx; line-height: 76rpx; font-size: 28rpx; color: #FFFFFF; background: #07A05A; border-radius: 38rpx; border: none; }
 
 .order-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12rpx; padding: 18rpx 24rpx; border-top: 1rpx solid #F5F5F5; }
 .of-label { font-size: 24rpx; color: #999999; }

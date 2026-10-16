@@ -1375,8 +1375,17 @@ export default {
       // await uni.requestPayment({ provider: 'wxpay', ... })
       // #endif
       try {
-        await mockPay(this.cashierOrderId)
-        uni.showToast({ title: '支付成功', icon: 'success' })
+        const paid = await mockPay(this.cashierOrderId)
+        // F-59：取货码是支付成功那一刻才由服务端生成的（下单时 orders.pickup_code 为 NULL），
+        // 此刻正是顾客最该看到它的时点，所以把码直接回进提示，省掉「再跳去订单页找」这一跳。
+        // 取不到码（老数据/异常）时退回原来那句「支付成功」，不显示「取货码 undefined」。
+        // 完整的大字号出示层在订单页（toast 几秒就消失，站店里看不清）。
+        const picked = paid && paid.data && paid.data.pickupCode
+        if (picked) {
+          uni.showToast({ title: '支付成功，取货码 ' + picked, icon: 'none', duration: 3000 })
+        } else {
+          uni.showToast({ title: '支付成功', icon: 'success' })
+        }
         this.closeCashier()
         this.showPayPopup = false
         this.$store.commit('clearCart')

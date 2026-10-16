@@ -543,7 +543,9 @@ export default {
 
 /* ==================== 1. 筛选卡 ==================== */
 .filter-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
-/* 三 tab：视觉照 front/pages/order/order.vue:321-328 .status-tab，配色用商家端主红（与 dishes.vue .dish-tab 同一档） */
+/* 三 tab：视觉照 front/pages/order/order.vue 的 .status-tab 规则，配色用商家端主红（与 dishes.vue .dish-tab 同一档）。
+   刻意不写行号：F-59 在 C 端那一页插了取货码行，把原先的 :321-328 顶到了别处——能按选择器具名的指针就别挂行号，
+   否则每次改 C 端都要来修一次这里。 */
 .order-tabs { display: flex; gap: 12rpx; }
 .order-tab {
   flex: 1; text-align: center;
