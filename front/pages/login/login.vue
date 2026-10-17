@@ -171,6 +171,11 @@ export default {
     if (options && typeof options.invite === 'string' && options.invite.trim()) {
       this.inviteCode = options.invite.trim().slice(0, 16)
     }
+    // 登录态早已存在、又是被「去登录」带着 redirect 进来的：目标页就是他要回去的地方，
+    // 停在登录页只会被读成"刚才那下没生效"→ 直接回跳。
+    // 不带 redirect 的情况仍停留：那是主动来设密码的入口（全站设密码只在这一页），跳走反而丢了功能。
+    const user = this.$store.state.user
+    if (this.redirect && user && user.token) this.goAfterLogin()
   },
   onUnload() {
     // 登录验证码倒计时定时器清理（对照首页 onUnload 对内嵌登录区块的处理）
@@ -254,7 +259,11 @@ export default {
           uni.showToast({ title: '登录成功', icon: 'success' })
           this.goAfterLogin()
         } else {
+          // 未设密码时登录态其实已经写好了，此前只弹一枚 toast 就把人留在登录页等下方那张设密码卡，
+          // 看着完全像"登录成功却没跳转"（库里全部账号的 password_hash 都是空的，等于人人必撞）。
+          // 改为把选择明确摆出来：现在设（停留展示卡区，维持原设计）或先进首页（正常跳转，下次登录再问）。
           uni.showToast({ title: '登录成功', icon: 'none' })
+          this.askSetPassword()
         }
       } catch (e) {
         this.smsLogging = false
@@ -315,6 +324,19 @@ export default {
     // 暂不设置直接进入：未设密码用户跳过卡区，防困在登录页（回跳规则与登录成功一致）
     skipSetPassword() {
       this.goAfterLogin()
+    },
+    // 未设密码时的去留选择。放在这里而不是只靠卡区下方那行「暂不设置，直接进入」小字：
+    // 库里所有账号的 password_hash 目前都是空的，等于每个人验证码登录都会落进这个分支，
+    // 只弹一枚 toast 就把页面停在登录页，用户看到的信号是「登录成功却没跳转」。
+    // 只要没明确选「现在设置」就跳转（含点遮罩/关闭），不把人留在原地。
+    askSetPassword() {
+      uni.showModal({
+        title: '登录成功',
+        content: '这个账号还没有登录密码。现在设置，下次就能用密码登录；先跳过则直接进入，下次登录会再问一次。',
+        confirmText: '现在设置',
+        cancelText: '先进首页',
+        success: (r) => { if (!r.confirm) this.goAfterLogin() }
+      })
     },
     // ==================== 登录后跳转（FRONT_CONTRACT） ====================
     // 带 redirect 参数则解码回跳（须为 / 开头的页面路径，防脏参数跳坏），否则 reLaunch 回首页
