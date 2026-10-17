@@ -262,7 +262,7 @@ export default {
           // 未设密码时登录态其实已经写好了，此前只弹一枚 toast 就把人留在登录页等下方那张设密码卡，
           // 看着完全像"登录成功却没跳转"（库里全部账号的 password_hash 都是空的，等于人人必撞）。
           // 改为把选择明确摆出来：现在设（停留展示卡区，维持原设计）或先进首页（正常跳转，下次登录再问）。
-          uni.showToast({ title: '登录成功', icon: 'none' })
+          // 不再先弹 toast：showToast 与 showModal 同帧竞争有被吞的风险，而 modal 一旦被吞用户就又困在原页。
           this.askSetPassword()
         }
       } catch (e) {
@@ -335,7 +335,10 @@ export default {
         content: '这个账号还没有登录密码。现在设置，下次就能用密码登录；先跳过则直接进入，下次登录会再问一次。',
         confirmText: '现在设置',
         cancelText: '先进首页',
-        success: (r) => { if (!r.confirm) this.goAfterLogin() }
+        success: (r) => { if (!r.confirm) this.goAfterLogin() },
+        // modal 弹不出来（极端环境/被上层拦截）时也必须跳走——这条分支存在的唯一理由就是
+        // 绝不再把已登录的人留在登录页，所以宁可放弃设密码引导也不能困住他
+        fail: () => this.goAfterLogin()
       })
     },
     // ==================== 登录后跳转（FRONT_CONTRACT） ====================
