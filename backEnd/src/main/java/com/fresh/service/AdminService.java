@@ -1,7 +1,10 @@
 package com.fresh.service;
 
+import com.fresh.dto.AdminArrivalDepartDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
+
+import java.util.Map;
 
 /**
  * 管理端薄版服务（T-M3-09）：鉴权（F-20 Step 2 起为双轨）在 Controller 层完成，此处只做业务。
@@ -94,4 +97,41 @@ public interface AdminService {
      * @param ip         来源 IP，口径与限流闸门一致（{@code rate-limit.trust-proxy}），null 即列可空
      */
     void recordNotifyReject(String code, int httpStatus, String orderId, String ip);
+
+    /**
+     * 发车只读预览（F-63）：按店 + 批次日期回「已有批次态 + 应发汇总」，只读动作不写审计（RF 只约束写动作）。
+     *
+     * <p>出参形状钉死在契约：{@code storeId / storeName / date / existing / plan / orderCount / dishKinds /
+     * departable}，其中 existing 为 null 或 {@code {id, status, confirmTime, itemCount}}、plan 行为
+     * {@code {dishId, dishName, qty}}；departable = 无批次，或既有批次 status 落在 planned/arriving 白名单
+     * （与发车判据同一套集合，前端据此禁用按钮）。
+     * date 非法形状 400（复用既有文案）；门店不存在 404「门店不存在」——storeName 取自门店行，
+     * 查无门店时这个出参形状根本填不出来，404 是唯一自洽出口。
+     *
+     * <p>预览<b>不判</b>「早于今天」：departable 的公式契约已钉死、不含日期项，
+     * 过去日期的拒绝只发生在发车侧（判据顺序第 ② 步）。
+     */
+    Map<String, Object> arrivalPreview(Long storeId, String date);
+
+    /**
+     * 运营端「发车」（F-63）：平台统一配货模型下 {@code arrival_batch} 唯一的运行期创建方，发车即 arriving。
+     *
+     * <p><b>判据顺序钉死</b>（防 404 与 400 抢先后）：① DTO 的 {@code @Valid} 形状 →
+     * ② batchDate 形状非法或早于今天 → 400（<b>在一切查库之前</b>，单测用
+     * {@code verify(storeMapper, never())} 钉住）→ ③ 查 store，查无 404「门店不存在」→
+     * ④ 已有批次 status 落在 confirmed/short → 400 拒（货已收，再发车是造假；库与审计都不动）→
+     * ⑤ 按菜汇总为空 → 400「该店该日没有可发车的订单」（不建空批次）→
+     * ⑥ 写批次 + 明细 + 审计。整体 {@code @Transactional}，任一步抛异常整体回滚。
+     *
+     * <p><b>决策点钉死项</b>：不提供 planned 入口（发车直达 arriving）；expected_qty 由系统按订单明细
+     * 汇总、不收任何数字入参；已有 planned/arriving 批次走<b>幂等重算明细</b>（先删后批量插，
+     * 撞 uk_store_date 的并发只可能是「查无之后被人抢插」，按 400「该店该日已有批次，请刷新后重试」处理）。
+     *
+     * <p><b>汇总口径</b>：{@code OrderItemMapper#selectArrivalPlanByStore} 与商家备货单的
+     * {@code selectPickupPlanByStore} 逐字同口径（只差去掉 merchant_id 过滤；未支付单计入应发数），
+     * 两边每道菜数字不一致就是事故。店级单数另走去重孪生条，不按 dish 分组求和冒充。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    Map<String, Object> departArrival(AdminArrivalDepartDTO dto, String actor);
 }

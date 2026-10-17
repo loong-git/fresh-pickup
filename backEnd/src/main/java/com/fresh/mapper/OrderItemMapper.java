@@ -291,4 +291,49 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
             + "WHERE id = #{orderItemId} AND merchant_id = #{merchantId} "
             + "AND fulfill_status != 'shortage'")
     int markShortage(@Param("orderItemId") Long orderItemId, @Param("merchantId") Long merchantId);
+
+    // ------------------------------------------------------------------
+    // F-63 运营端「发车」应发汇总（两条只读 @Select，口径的家在本文件是为了和上方商家备货单同屏可比对）。
+    // 与上方 F-17 那组的归属规则不同，这一组是<b>平台全量视角</b>：运营点发车读的是全平台该店该日的订单，
+    // 本就没有 merchant_id 可带——「不存在不带该条件的读路径」那条归属纪律管的是商家面
+    // （值只来自 AuthInterceptor.ATTR_MERCHANT_ID），不适用于本组，也不构成对本组的豁免（这里无归属方）。
+    // 一致性硬断言（F-63 的存在理由）：selectArrivalPlanByStore 必须与 selectPickupPlanByStore
+    // <b>逐字同口径</b>——STRAIGHT_JOIN、pickup_date 等值、store_id 等值、排除 cancelled、
+    // GROUP BY dish 两列、SUM(quantity)、不过滤 pay_status（决策点 7）——只差去掉 merchant_id 过滤；
+    // 两边每道菜的数字不一致就是事故。
+    // ------------------------------------------------------------------
+
+    /**
+     * 发车预览与批次明细的按菜汇总（决策点 2：expected_qty = 该店该日订单明细按菜求和）。
+     * GROUP BY 收成 oi.dish_id、oi.dish_name 两列：storeId 是等值入参，店级分组列在这里恒为常量，
+     * 去掉不改变任何一组的求和；ORDER BY 尾缀 quantity DESC 与上方店级过滤那条逐字相同。
+     * ⚠ 按 dish 分组的行若再带 COUNT(DISTINCT o.id)，那是「含该菜的订单数」，一笔多菜订单会在多行
+     * 各计一次，不能当店级单数用（上方 countPickupOrdersPerStore 那条注释的坑在这里同样成立）——
+     * 店级去重单数走下方孪生条，两条各回各的数。
+     * 实测 order_item.dish_id NOT NULL（init.sql 建表），不存在「按 NULL 归并」那一步的取舍。
+     */
+    @Select("SELECT oi.dish_id AS dishId, oi.dish_name AS dishName, "
+            + "SUM(oi.quantity) AS quantity "
+            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE o.pickup_date = #{date} "
+            + "AND o.store_id = #{storeId} "
+            + "AND o.status <> 'cancelled' "
+            + "GROUP BY oi.dish_id, oi.dish_name "
+            + "ORDER BY quantity DESC")
+    List<Map<String, Object>> selectArrivalPlanByStore(@Param("date") LocalDate date,
+                                                      @Param("storeId") Long storeId);
+
+    /**
+     * 店级去重单数（上方坑的孪生条，模式照 countPickupOrdersForStore）：谓词与
+     * selectArrivalPlanByStore 逐字相同，只不按 dish 分组。这里不收 storeId 之外的归属入参、
+     * 也不必 GROUP BY o.store_id——谓词已把它钉成单值，COUNT(DISTINCT o.id) 直接回一行标量
+     * （空集回 0，不会回空列表；COUNT 回 BIGINT，方法签名用 long，对齐 countOrderItemsByDate 的写法）。
+     */
+    @Select("SELECT COUNT(DISTINCT o.id) "
+            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE o.pickup_date = #{date} "
+            + "AND o.store_id = #{storeId} "
+            + "AND o.status <> 'cancelled'")
+    long countArrivalOrdersForStore(@Param("date") LocalDate date,
+                                    @Param("storeId") Long storeId);
 }

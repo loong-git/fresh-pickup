@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 到货批次 mapper（F-18.12 第 6 条）：一条按归属集合 + 日期读批次、一条四条件确认 UPDATE。
+ * 到货批次 mapper（F-18.12 第 6 条）：一条按归属集合 + 日期读批次、一条四条件确认 UPDATE（F-62 加一条键查询、F-63 加一条发车翻态 UPDATE）。
  *
  * <p>手写 SQL 的必要性同 PartnerOrderMapper：确认那条 UPDATE 的 WHERE 必须<b>同时</b>含
  * 归属集合（{@code store_id IN (…)}）与状态白名单，且「影响行数 0」要能被 Service 定性成
@@ -84,4 +84,17 @@ public interface ArrivalBatchMapper extends BaseMapper<ArrivalBatch> {
             + "AND batch_date IN <foreach item='d' collection='dates' open='(' separator=',' close=')'>#{d}</foreach></script>")
     List<String> selectConfirmedArrivalKeys(@Param("storeIds") Collection<Long> storeIds,
                                             @Param("dates") Collection<LocalDate> dates);
+
+    /**
+     * 发车翻态（F-63 决策点 1「发车即 arriving」）：把已有 planned/arriving 批次钉到 arriving，
+     * 给四态里此前观测不到的 arriving 提供唯一进入路径（建种子之外的运行期唯一写入方）。
+     * <p>状态白名单与本文件 confirmById 的迁移门对称：planned/arriving 才许翻，
+     * confirmed/short 一律 0 行——那两态 Service 在第 ④ 步已按 400 拦下，这里的 IN 是
+     * 「先查之后、并发窗口里刚被主理人确认到货」的纵深防线，0 行同样定性成 400，绝不无门裸写。
+     * <p>已是 arriving 时仍回 1 行：本仓数据源 URL 未带 useAffectedRows=true，Connector/J 按
+     * matched rows 计数，重复发车把同一枚值再写一遍不算失败（决策点 3 的幂等重算正走这条路径）。
+     */
+    @Update("UPDATE arrival_batch SET status = 'arriving' "
+            + "WHERE id = #{id} AND status IN ('planned', 'arriving')")
+    int markArriving(@Param("id") Long id);
 }

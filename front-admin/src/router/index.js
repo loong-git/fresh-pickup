@@ -54,6 +54,13 @@ const routes = [
     component: () => import('../views/StoreApplies.vue'),
     meta: { requiresAuth: true }
   },
+  // F-63 到货发车：运营端批次创建方（preview 只读 + depart 写）。同一套 requiresAuth 守卫，动态 import 不进首屏包。
+  {
+    path: '/arrivals',
+    name: 'arrivals',
+    component: () => import('../views/Arrivals.vue'),
+    meta: { requiresAuth: true }
+  },
   // 未知路径统一改道大盘：运营端没有为第四种落点写死文案，回到已知态更实在
   { path: '/:pathMatch(.*)*', redirect: '/overview' }
 ]

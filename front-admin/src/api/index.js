@@ -196,21 +196,27 @@ export function waitDurationText(seconds) {
  * 统一请求封装：只有 admin_token 存在时才带 Authorization: Bearer <token>；
  * 登录请求传 loginRequest:true → **强制不带 Authorization**（F-20.11 写死，防未来回退：
  * 后端 BE-20-1 后带了也不会 403，但「匿名端点不该出现凭证」这条纪律不依赖后端行为）。
+ * F-63 新增 anonymous:true → 同样强制不带 Authorization，但**不改变 401 语义**（loginRequest 会把 401
+ * 当业务失败不清态不跳转，anonymous 不需要那条例外）。为什么门店列表必须走这一档：
+ * AuthInterceptor 的双向 typ 隔离铁律会把带运营 JWT（typ=admin）的、路径不在 /api/admin 前缀下的请求
+ * 直接 403（该拦截段在 preHandle 的 requiresLogin 判定之前，按「typ=admin 反隔离」具名即可，不挂行号指针）；
+ * GET /api/stores 恰好就在 admin 前缀之外——带上我们必然的 Bearer 反而是假故障。
  * 超时用 AbortController（fetch 没有 timeout 参数，只有 signal 能把「分层超时」这一档如实实现）。
  */
 function request(options) {
   const method = (options.method || 'GET').toUpperCase()
   const loginRequest = options.loginRequest === true
+  const skipAuth = loginRequest || options.anonymous === true
   const isSubmit = method !== 'GET'
   // 超时档位：登录 20s（提交档）；其余 GET 查询 10s
   const timeoutMs = isSubmit ? TIMEOUT_SUBMIT : TIMEOUT_QUERY
 
   const headers = { 'Content-Type': 'application/json' }
-  if (!loginRequest) {
+  if (!skipAuth) {
     const token = getStoredToken()
     if (token) headers.Authorization = 'Bearer ' + token
   } else {
-    // 显式声明：登录请求绝不带 Authorization（不留「以后顺手给 request 加默认头」的余地）
+    // 显式声明：登录请求与匿名端点绝不带 Authorization（不留「以后顺手给 request 加默认头」的余地）
     delete headers.Authorization
   }
 
@@ -519,6 +525,75 @@ export function auditAdminStoreApply(id, action, remark) {
   return request({
     url: '/api/admin/store-applies/' + encodeURIComponent(String(id)) + '/audit',
     method: 'PUT',
+    data: body
+  })
+}
+
+// ==================== F-63 到货发车（preview 只读 + depart 写 + 公开门店列表） ====================
+// 契约真源：docs/上线任务文档.md「F-63｜运营端「发车」」的「接口形状（BE/FE 共用）」一节，
+// 后端并行按同一份写——本层字段名一律逐字照抄契约，不做任何改名/补键/兜底推算。
+// 参数名有个刻意的不对称：preview 的查询参数是 `date`，发车 body 里是 `batchDate`，
+// 照契约各写各的，不许互换（同 front-partner/api/index.js 对 arrivals/orders 参数名不同源的纪律）。
+
+/**
+ * 门店下拉数据源（**既有公开端点**，本片不新开后端端点）：GET /api/stores
+ * 出参 data 是**数组**（不是 {list,total} 分页信封）：每行键集合恒八键
+ * id,name,address,service,status,lng,lat,createdAt（Store.java 类注释 D-23 的门禁断言）；
+ * id 是自增小整数（非 19 位雪花），status ∈ open（营业）| closed（停业）。
+ * 全站既有约定（StoreController 类注释 + front C 端 pickup 页同姿势）：**停业门店前端置灰不可选**，
+ * 页面按此渲染，本层不筛不滤、原样透传。
+ * ⚠ 必须 anonymous（不带 Authorization）：带运营 JWT 打非 /api/admin/** 端点会被
+ *   AuthInterceptor 的双向 typ 隔离直接 403（见 request() 上方注释），那是链路纪律不是权限问题。
+ * 限流：IP 30 次/分（StoreController#list 的 @RateLimit，读档）。
+ */
+export function getStores() {
+  return request({
+    url: '/api/stores',
+    method: 'GET',
+    anonymous: true
+  })
+}
+
+/**
+ * 发车前预览（只读）：GET /api/admin/arrivals/preview?storeId={id}&date={yyyy-MM-dd}
+ * 出参恰七键（契约逐字）：
+ * {storeId, storeName, date,
+ *  existing: null | {id, status, confirmTime, itemCount},
+ *  plan: [{dishId, dishName, qty}],
+ *  orderCount, dishKinds, departable}
+ * departable = existing == null || status ∈ {planned, arriving}；页面只读这一枚布尔做闸门，
+ * 不在本地重拼该判定（confirmed/short 的语义由服务端裁决）。
+ * existing.confirmTime 为服务端定形串或 null，页面原样显示、不二次格式化。
+ * 鉴权同 AdminController 旧面（X-Admin-Key 或运营 JWT）；限流按文档锚点与只读列表同档（IP 30 次/分）。
+ * @param {number|string} storeId 门店 id（自增小整数，非雪花）
+ * @param {string} date YYYY-MM-DD；空值由 withQuery 挡下不下发（服务端自定缺省，页面不依赖它——本页永远显式给值）
+ */
+export function getArrivalPreview(storeId, date) {
+  return request({
+    url: withQuery('/api/admin/arrivals/preview', { storeId, date }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 发车（写）：POST /api/admin/arrivals，body {storeId, batchDate, remark?}
+ * 成功 200 → data {batchId, status:'arriving', itemCount, dishKinds, orderCount, idempotent}，
+ * message「已发车，批次进入到货中」；idempotent=true（该店该日已有 planned/arriving 批次）时
+ * message「该店该日批次已在途，已按最新订单重算明细」。
+ * 失败文案以服务端原文为准（判据顺序契约钉死：@Valid 形状 → 过去日期 400 → 门店不存在 404 →
+ * 已 confirmed/short 400 → 无可发订单 400）；本层不猜各句原文。
+ * 限流：Admin 写面 IP 10 次/60。
+ * ⚠ 写成功与否由页面重拉 preview 核对，绝不本地改状态（纪律 3）。
+ * @param {number|string} storeId 门店 id
+ * @param {string} batchDate YYYY-MM-DD（早于今天服务端 400）
+ * @param {string} [remark] 备注，可空；空串/null/undefined **整个键不下发**（照 updateAdminOrderStatus 的 reason 姿势）
+ */
+export function departArrival(storeId, batchDate, remark) {
+  const body = { storeId, batchDate }
+  if (remark !== undefined && remark !== null && String(remark) !== '') body.remark = String(remark)
+  return request({
+    url: '/api/admin/arrivals',
+    method: 'POST',
     data: body
   })
 }

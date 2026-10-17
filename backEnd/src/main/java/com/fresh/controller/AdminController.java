@@ -3,6 +3,7 @@ package com.fresh.controller;
 import com.fresh.annotation.RateLimit;
 import com.fresh.common.JwtUtil;
 import com.fresh.common.R;
+import com.fresh.dto.AdminArrivalDepartDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminOrderStatusDTO;
@@ -14,12 +15,14 @@ import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
@@ -42,7 +45,8 @@ import java.util.Map;
  * - v2 只读面（Step 3）：{@code AdminV2Controller} 挂 /api/admin/v2/**，复用本包的 {@link #requireAdminJwtOnly}。
  * - 运营端点：订单核销/取消、商品改价/补库存/上下架（部分更新）、评价审核（T-M4-05 收口：
  *   命中软词 pending 的评价人工过审/驳回，否则列表默认不展示、永久不可见）、
- *   平台代开通商家（F-12/M-05 一期）、入驻申请审核（F-18.12 第 3 条，第五个端点）。
+ *   平台代开通商家（F-12/M-05 一期）、入驻申请审核（F-18.12 第 3 条，第五个端点）、
+ *   发车只读预览与发车（F-63：arrival_batch 唯一的运行期创建方，发车即 arriving）。
  * 异常统一交给 common/GlobalExceptionHandler 脱敏转信封。
  */
 @RestController
@@ -155,6 +159,52 @@ public class AdminController {
                 body == null ? null : body.get("remark"),
                 grant.actor());
         return R.ok(null, "申请已审核");
+    }
+
+    /**
+     * 发车只读预览（F-63）：{@code GET /api/admin/arrivals/preview?storeId=&date=yyyy-MM-dd} →
+     * {@code {storeId, storeName, date, existing, plan, orderCount, dishKinds, departable}}
+     * （形状与服务语义见 {@code AdminService#arrivalPreview}；只读动作不写审计，RF 只约束写动作）。
+     * <p>闸门照本面其余端点（双轨 {@link #checkKeyOrOperator}，静态密钥与运营 JWT 都放行——本页是运营台
+     * 新页不是 v2 只读面，不挂 JWT-only 那道更严的闸）；限流按契约锚点取 v2 只读列表那一档（30/60s），
+     * 比写端点松、与其余只读面同格。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档：照 AdminV2Controller 列表端点（F-63 锚点指定）
+    @GetMapping("/arrivals/preview")
+    public R<Map<String, Object>> arrivalPreview(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                 @RequestHeader(value = "Authorization", required = false) String authz,
+                                                 @RequestParam("storeId") Long storeId,
+                                                 @RequestParam("date") String date) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封逐字节内容不变、只重铺泛型参数：AdminGrant 的 denied 是旧 5 端点定型成的 R<Void>，
+            // 闸门只有一份（不许复制 401 文案），这里按同 code/message 重建同形信封
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.arrivalPreview(storeId, date));
+    }
+
+    /**
+     * 运营端「发车」（F-63）：{@code POST /api/admin/arrivals}，body {@code {storeId, batchDate, remark?}}。
+     * 平台统一配货模型下批次唯一的创建方，发车即 arriving；判据顺序、幂等重算与 400/404 定性
+     * 全部钉在 {@code AdminService#departArrival} 的接口注释上，本方法只做闸门与 message 二选一
+     * （两句 message 逐字照契约：idempotent=true 报「已按最新订单重算明细」，false 报「已发车，批次进入到货中」）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // R6 随建随挂：Admin 新写端点必带限流（照 updateOrderStatus 档）
+    @PostMapping("/arrivals")
+    public R<Map<String, Object>> departArrival(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                @RequestHeader(value = "Authorization", required = false) String authz,
+                                                @Valid @RequestBody AdminArrivalDepartDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            return R.fail(denied.getCode(), denied.getMessage());   // 同上：只重铺泛型，信封内容与文案一份真源
+        }
+        Map<String, Object> data = adminService.departArrival(dto, grant.actor());
+        return R.ok(data, Boolean.TRUE.equals(data.get("idempotent"))
+                ? "该店该日批次已在途，已按最新订单重算明细"
+                : "已发车，批次进入到货中");
     }
 
     /**

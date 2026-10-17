@@ -11,8 +11,9 @@ import lombok.Data;
  * <p>本表<b>无唯一键</b>（演示种子的幂等靠 SQL 里的 {@code WHERE NOT EXISTS} 守卫，不是 INSERT IGNORE），
  * 也<b>没有 created_at 列</b>——照 m18 建表原文，实体别多写一列。
  *
- * <p>D-19 一期只读：{@code actual_qty}/{@code short_reason} 是「短少联动」的列位，
- * 一期主理人确认到货<b>不写</b>这两列（短少登记只在商家侧 fulfill_status 那条链上，见 D-9）。
+ * <p>读与确认路径都不写 {@code actual_qty}/{@code short_reason}（D-19：一期主理人确认到货只翻批次态）；
+ * F-63 运营端发车新增的写入方也只写 {@code expected_qty}（按订单明细汇总的应发数）——
+ * 清点两列至今无人写（短少登记只在商家侧 fulfill_status 那条链上，见 D-9）。
  */
 @Data
 @TableName("arrival_item")

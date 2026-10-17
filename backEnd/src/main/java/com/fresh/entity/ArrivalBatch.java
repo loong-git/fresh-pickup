@@ -11,12 +11,14 @@ import java.time.LocalDateTime;
 /**
  * 到货批次 arrival_batch（F-18.10 第 3 条建表 / F-18.12 第 6 条读写，m18-migration.sql ⑧）。
  *
- * <p>D-19：一期只有「读 + 确认」。全系统对本表的写路径经 2026-10-17 穷尽列举，只有两处：
- * ① 建库种子（init.sql 与 m18-migration.sql 各一条 {@code INSERT IGNORE}，灌 store 1 / 明日 / planned，
- * 只在重建库或重放迁移时执行，<b>不是运行期能力</b>）；② {@code ArrivalBatchMapper#confirmById} 那一条
- * UPDATE（把 planned/arriving 推到 confirmed）。<b>由此得两条硬结论</b>：没有任何端点能<b>创建</b>批次，
- * 也没有任何端点能把状态写成 {@code arriving} 或 {@code short}——这两个值在四态字典与确认白名单里
- * 都活着，却是运行期永远观测不到的纸面状态，只能靠平台直接写库造出来。
+ * <p>arrival_batch 的运行期写路径（F-63 起为三处，此前长期只有后两处）：
+ * ① {@code AdminServiceImpl#departArrival}——运营端「发车」建批次（status 直接 arriving，
+ * 这是批次<b>创建</b>与 {@code arriving} 态进入的唯一运行期入口；平台统一配货模型给了它业务资格）；
+ * ② {@code ArrivalBatchMapper#markArriving}——对既有 planned/arriving 批次幂等翻态（发车重算明细前）；
+ * ③ {@code ArrivalBatchMapper#confirmById}——主理人确认到货，把 planned/arriving 推到 confirmed。
+ * 另有建库种子（init.sql 与 m18-migration.sql 各一条 {@code INSERT IGNORE}，灌 store 1 / 明日 / planned，
+ * 只在重建库或重放迁移时执行，<b>不是运行期能力</b>）。
+ * {@code short} 至今没有任何运行期写入方，仍是只能靠平台直接写库造出来的纸面状态。
  *
  * <p>F-60 订正：这里与 m18/init.sql 曾写「批次生成器属运营端 G-05」，那是双重指错——G-05 是商家端
  * 营销参与态+数据看板，运营端是 G-06，两期都没有批次生成页。

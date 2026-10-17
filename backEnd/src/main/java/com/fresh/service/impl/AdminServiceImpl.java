@@ -8,9 +8,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
+import com.fresh.dto.AdminArrivalDepartDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.entity.AdminAuditLog;
+import com.fresh.entity.ArrivalBatch;
+import com.fresh.entity.ArrivalItem;
 import com.fresh.entity.Dish;
 import com.fresh.entity.Merchant;
 import com.fresh.entity.MerchantProfile;
@@ -21,6 +24,8 @@ import com.fresh.entity.Store;
 import com.fresh.entity.StoreApply;
 import com.fresh.entity.User;
 import com.fresh.mapper.AdminAuditLogMapper;
+import com.fresh.mapper.ArrivalBatchMapper;
+import com.fresh.mapper.ArrivalItemMapper;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.MerchantProfileMapper;
@@ -45,9 +50,15 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 管理端薄版服务实现（T-M3-09）：
@@ -724,5 +735,214 @@ public class AdminServiceImpl implements AdminService {
             // 绝不把异常抛出去打断主事务——审计是旁路，见 writeAudit 的 R6/M-04 注释）
             return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
         }
+    }
+
+    // ==================================================================
+    // F-63 运营端「发车」：本类第六个写方法，也是 arrival_batch 唯一的运行期创建方
+    //（平台统一配货模型下，中央仓就是平台自己，运营点发车业务上有资格）。
+    // 新依赖与常量一律追加在文件末尾、中段零改动——本类被仓内行号指针引用，
+    // 净零行变化的纪律见 NOTIFY_REJECT_ACTION 那条注释原文（本次唯一例外是 import 段加行）。
+    // ==================================================================
+
+    /** 发车后的批次态（决策点 1：发车即 arriving，不提供 planned 入口；arriving 此前是运行期不可达态） */
+    private static final String BATCH_STATUS_ARRIVING = "arriving";
+
+    /** 可发车的既有批次态（幂等重算明细，决策点 3 的一半）；与 ArrivalBatchMapper#markArriving 的 IN 白名单逐字相同 */
+    private static final Set<String> BATCH_STATUSES_DEPARTABLE = Set.of("planned", BATCH_STATUS_ARRIVING);
+
+    /** 货已收/已登短少的态：再发车是造假，400 拒（决策点 3 的另一半；short 至今没有任何运行期写入方） */
+    private static final Set<String> BATCH_STATUSES_CLOSED = Set.of("confirmed", "short");
+
+    /** 批次日期形状闸门（与商家面、v2 面同一枚正则，不另立口径） */
+    private static final Pattern BATCH_DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
+
+    /** 400 脏参文案（RF 红线：逐字复用 GlobalExceptionHandler 已有的那句，不新增句子） */
+    private static final String BAD_REQUEST_MSG = "请求参数有误，请检查后重试";
+
+    /** F-63 发车链的两个新依赖（只被下面两个方法使用；追加式写法同上方 F-18.12 那批） */
+    @Autowired
+    private ArrivalBatchMapper arrivalBatchMapper;
+    @Autowired
+    private ArrivalItemMapper arrivalItemMapper;
+
+    /**
+     * 发车只读预览（F-63）：判据与出参形状的完整口径见接口注释。只读不写审计（RF），
+     * 也不进事务——三条 SELECT 读到的既有态本来就允许在响应后立刻被别人改写，快照一致性不是本片的要求。
+     */
+    @Override
+    public Map<String, Object> arrivalPreview(Long storeId, String date) {
+        LocalDate day = parseBatchDate(date);
+        Store store = storeMapper.selectById(storeId);
+        if (store == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "门店不存在");
+        }
+        List<Map<String, Object>> batches = arrivalBatchMapper.selectBatchesByStoreAndDate(storeId, day);
+        Map<String, Object> existing = null;
+        // departable 必须与 departArrival 的拒判据**同集合**：日期这一维此前只落在 depart 侧，
+        // 于是过去日期会得到「预览说可发车、点下去回 400」的自相矛盾。停业不在这里判——
+        // 全站对 closed 的口径是「前端置灰、服务端不校验」（Store 类注释原文），此处不破例。
+        boolean departable = !day.isBefore(LocalDate.now());
+        if (!batches.isEmpty()) {
+            Map<String, Object> batch = batches.get(0);
+            String status = (String) batch.get("status");
+            departable = departable && BATCH_STATUSES_DEPARTABLE.contains(status);
+            existing = new LinkedHashMap<>();
+            existing.put("id", batch.get("id"));
+            existing.put("status", status);
+            existing.put("confirmTime", batch.get("confirmTime"));
+            existing.put("itemCount", arrivalItemMapper.sumExpectedQtyByBatchId(toLong(batch.get("id"))));
+        }
+        List<Map<String, Object>> planRows = orderItemMapper.selectArrivalPlanByStore(day, storeId);
+        List<Map<String, Object>> plan = new ArrayList<>(planRows.size());
+        for (Map<String, Object> row : planRows) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("dishId", row.get("dishId"));
+            line.put("dishName", row.get("dishName"));
+            line.put("qty", toInteger(row.get("quantity")));
+            plan.add(line);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("storeId", storeId);
+        out.put("storeName", store.getName());
+        out.put("date", day.toString());
+        out.put("existing", existing);
+        out.put("plan", plan);
+        out.put("orderCount", orderItemMapper.countArrivalOrdersForStore(day, storeId));
+        out.put("dishKinds", plan.size());
+        out.put("departable", departable);
+        return out;
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> departArrival(AdminArrivalDepartDTO dto, String actor) {
+        LocalDate day = parseBatchDate(dto.getBatchDate());
+        // ②「早于今天」在一切查库之前：日期过期是请求自身的缺陷，不该先烧一次 SELECT 再拒（单测钉死）
+        if (day.isBefore(LocalDate.now())) {
+            throw new BizException("批次日期不能早于今天");
+        }
+        // ③ 批次归属与出参店名都钉在门店行上，查无即 404，不往下花任何查询
+        Store store = storeMapper.selectById(dto.getStoreId());
+        if (store == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "门店不存在");
+        }
+        // ④ uk_store_date 保证一店一日至多一行：先查后插（第 ⑥ 步的 INSERT 以这次读为前提）
+        List<Map<String, Object>> batches =
+                arrivalBatchMapper.selectBatchesByStoreAndDate(dto.getStoreId(), day);
+        Map<String, Object> batch = batches.isEmpty() ? null : batches.get(0);
+        if (batch != null && BATCH_STATUSES_CLOSED.contains((String) batch.get("status"))) {
+            throw new BizException("该店该日货已收货或已登记短少，不可再发车");
+        }
+        // ⑤ 应发数唯一来源 = 该店该日订单明细按菜汇总（决策点 2，不收数字入参；口径见接口注释的一致性声明）
+        List<Map<String, Object>> planRows = orderItemMapper.selectArrivalPlanByStore(day, dto.getStoreId());
+        if (planRows.isEmpty()) {
+            throw new BizException("该店该日没有可发车的订单");
+        }
+        // 店级去重单数走孪生条：按 dish 分组行里的「含该菜订单数」会把一笔多菜订单在多行各计一次，
+        // 拿它求和当单数就是虚报（OrderItemMapper 上方登记过的坑）
+        long orderCount = orderItemMapper.countArrivalOrdersForStore(day, dto.getStoreId());
+
+        // ⑥ 写批次：查无才插；已有 planned/arriving 则翻到 arriving 后幂等重算明细
+        Long batchId;
+        boolean idempotent = batch != null;
+        if (idempotent) {
+            batchId = toLong(batch.get("id"));
+            // 种子行的 planned 也借发车翻到 arriving（发车直达 arriving，不提供 planned 入口）；
+            // 条件白名单挡的是「第 ④ 步读过后、并发窗口里刚被主理人确认到货」——0 行与第 ④ 步同判据同文案
+            if (arrivalBatchMapper.markArriving(batchId) == 0) {
+                throw new BizException("该店该日货已收货或已登记短少，不可再发车");
+            }
+        } else {
+            ArrivalBatch newBatch = new ArrivalBatch();
+            newBatch.setStoreId(dto.getStoreId());
+            newBatch.setBatchDate(day);
+            newBatch.setStatus(BATCH_STATUS_ARRIVING);
+            // remark 留白归一为 null：null 字段不进 INSERT（MP 默认 NOT_NULL 策略）→ 列走 DEFAULT NULL，
+            // 空串不是「没填」，是「填了个空」，这一区分留给主理人端批次页的展示
+            newBatch.setRemark(dto.getRemark() == null || dto.getRemark().isBlank()
+                    ? null : dto.getRemark().trim());
+            try {
+                arrivalBatchMapper.insert(newBatch);   // 自增 id 回填 newBatch.getId()
+            } catch (DuplicateKeyException e) {
+                // 撞 uk_store_date 的唯一可能：④ 查无之后、INSERT 之前被人抢先建了同店同日批次——
+                // 如实 400 让操作者刷新重看现场，不吞异常、更不改成「替别人重算明细」（那是越权覆盖）
+                throw new BizException("该店该日已有批次，请刷新后重试");
+            }
+            batchId = newBatch.getId();
+        }
+
+        List<ArrivalItem> items = new ArrayList<>(planRows.size());
+        int itemCount = 0;
+        for (Map<String, Object> row : planRows) {
+            ArrivalItem item = new ArrivalItem();
+            item.setBatchId(batchId);
+            item.setDishId(toLong(row.get("dishId")));
+            item.setExpectedQty(toInteger(row.get("quantity")));
+            items.add(item);
+            itemCount += item.getExpectedQty();
+        }
+        // 明细幂等重算 = 按批次删 + 一条 foreach 批量插：本表无唯一键，撞不了键也防不住并发撞键，
+        // 只能先删后插（硬要求：禁止循环单条 INSERT，那是 N+1）
+        arrivalItemMapper.deleteByBatchId(batchId);
+        arrivalItemMapper.insertBatchItems(items);
+
+        log.info("管理端发车: batchId={}, storeId={}, batchDate={}, itemCount={}, dishKinds={}, orderCount={}, idempotent={}",
+                batchId, dto.getStoreId(), day, itemCount, planRows.size(), orderCount, idempotent);
+
+        // 兜底 detail 传它自己（recordNotifyReject 同纪律）：四键定长短值、离列宽 500 远着呢，
+        // 真走到第二趟也必须保持同一形状，换成 {"old","new"} 就把契约钉死的 detail 形状破了
+        String detail = departAuditDetail(dto.getStoreId(), day, itemCount, idempotent);
+        writeAudit(auditActor(actor), "arrival.depart", "arrival_batch", String.valueOf(batchId),
+                detail, detail, currentIp());
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("batchId", batchId);
+        out.put("status", BATCH_STATUS_ARRIVING);
+        out.put("itemCount", itemCount);
+        out.put("dishKinds", planRows.size());
+        out.put("orderCount", orderCount);
+        out.put("idempotent", idempotent);
+        return out;
+    }
+
+    /**
+     * 批次日期解析：形状闸门 + 交 LocalDate 裁决真日期（2026-02-30 这类假日期 400），
+     * 年小于 1 也挡在 Java 层——MySQL 的 DATE 没有年 0，放 0000 一族进 SQL 比较是 500 不是 400
+     * （F-20.29 BE-G6-4 同纪律）。BizException 是 RuntimeException，不会被下面的 catch 吞掉重包。
+     */
+    private LocalDate parseBatchDate(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (!BATCH_DATE_PATTERN.matcher(value).matches()) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        try {
+            LocalDate parsed = LocalDate.parse(value);
+            if (parsed.getYear() < 1) {
+                throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+            }
+            return parsed;
+        } catch (DateTimeException e) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+    }
+
+    /** 发车审计 detail：契约钉死四键（store / date / items / idempotent），全定值短串，上界远小于列宽 500 */
+    private String departAuditDetail(Long storeId, LocalDate day, int itemCount, boolean idempotent) {
+        ObjectNode detail = AUDIT_MAPPER.createObjectNode();
+        detail.put("store", storeId);
+        detail.put("date", day.toString());
+        detail.put("items", itemCount);
+        detail.put("idempotent", idempotent);
+        return detail.toString();
+    }
+
+    /** Map 结果集 BIGINT 列归一（照 PartnerStoreServiceImpl 的既有写法）：非 Number 即缺列，回 null 交调用方定性 */
+    private static Long toLong(Object value) {
+        return value instanceof Number number ? number.longValue() : null;
+    }
+
+    /** 聚合列转 Integer：SUM 在 MySQL 下回 BigDecimal、COUNT 回 Long，绝不假设 Integer（同 MerchantOrderServiceImpl#toInteger 的理由） */
+    private static int toInteger(Object value) {
+        return value instanceof Number number ? number.intValue() : 0;
     }
 }
