@@ -9,9 +9,9 @@
 其余全部不给：**无 DDL**（`CREATE/ALTER/DROP/INDEX/TRUNCATE`）、无 `GRANT OPTION`、无 `TRIGGER`、无全局权限（除隐式 `USAGE ON *.*`，即「能连、零权限」）。
 
 - **为什么 DELETE 必须有**：运营端驳回评价是**物理删除**——
-  `backEnd/src/main/java/com/fresh/service/impl/AdminServiceImpl.java:226` 的
-  `reviewMapper.deleteById(reviewId)`（同方法 `:212` selectById、`:220` update 为过审分支），
-  MyBatis-Plus 的 `deleteById` 会生成 `DELETE FROM review …`。因此 `application-prod.yml:1`
+  `backEnd/src/main/java/com/fresh/service/impl/AdminServiceImpl#auditReview` 里的
+  `reviewMapper.deleteById(reviewId)`（同方法内另有 `selectById` 一处、过审分支 `update` 一处），
+  MyBatis-Plus 的 `deleteById` 会生成 `DELETE FROM review …`。因此 `application-prod.yml`
   那句「仅 SELECT/INSERT/UPDATE/DELETE」是对的；「无 DELETE」是过时的验收表述。
 - **为什么不给 DDL**：全仓运行时无任何建表/改表语句（运行时代码里无 `ALTER/CREATE/DROP TABLE`
   字面量），建库与迁移全部由**人工**执行 `backEnd/sql/*.sql`（`init.sql` + `m3~m19-migration.sql`）。

@@ -9,8 +9,9 @@
 #
 # 权限为什么恰好是这四项（含 DELETE）：
 #   - DELETE 为运行必需，非疏漏：运营端驳回评价走物理删除——
-#       backEnd/src/main/java/com/fresh/service/impl/AdminServiceImpl.java:226
+#       backEnd/src/main/java/com/fresh/service/impl/AdminServiceImpl#auditReview 里的
 #       reviewMapper.deleteById(reviewId) → MyBatis-Plus 生成 DELETE FROM review …。
+#       （此处原先挂的是行号，本仓已连续四批因加行把它顶偏，改成具名引用不再漂。）
 #   - DDL 一律不给：全仓运行时无任何建表/改表语句（grep 运行时代码无
 #       "ALTER/CREATE/DROP TABLE" 字面量），建库/迁移全部由人工执行
 #       backEnd/sql/*.sql（init.sql + m3~m19-migration.sql）完成。应用账号无需 DDL。

@@ -73,7 +73,7 @@
             <text class="item-qty">应收 {{ countOf(it.expectedQty) }}</text>
             <text class="item-qty">实收 {{ actualText(it) }}</text>
             <!-- 短少原因：契约 §3 列了 shortReason，但后端明细 SQL 一条都不出这个键
-                 （ArrivalItemMapper:27-31 只 SELECT 六列），所以「有键才渲染」，不替后端编一个 -->
+                 （ArrivalItemMapper#selectItemsByBatchIds 只 SELECT 六列），所以「有键才渲染」，不替后端编一个 -->
             <text v-if="shortReasonText(it) !== ''" class="item-short">短少：{{ shortReasonText(it) }}</text>
           </view>
           <view v-if="!itemsOf(b).length" class="item-line">
@@ -533,7 +533,7 @@ export default {
     itemsOf(b) {
       return (b && Array.isArray(b.items)) ? b.items : []
     },
-    // 明细行商品名：后端 LEFT JOIN dish 带出 dishName（ArrivalItemMapper:27-31），
+    // 明细行商品名：后端 LEFT JOIN dish 带出 dishName（ArrivalItemMapper#selectItemsByBatchIds），
     // 但 dish 被平台删掉时该列为 NULL —— 此时按契约渲染「商品#<dishId>」，
     // 绝不在前端另发一次商品列表请求去补名（那是把一次 JOIN 换成一次越权查询 + 一笔分叉债）
     itemName(it) {
