@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fresh.common.BizException;
 import com.fresh.common.JwtUtil;
 import com.fresh.common.PasswordUtil;
+import com.fresh.common.R;
 import com.fresh.entity.User;
 import com.fresh.mapper.UserMapper;
 import com.fresh.service.AuthService;
@@ -42,17 +43,41 @@ public class AuthServiceImpl implements AuthService {
     /** 内存验证码存储：key=手机号；量级为活跃登录手机号，登录成功/过期时清理，无需持久化 */
     private final Map<String, CodeEntry> codeStore = new ConcurrentHashMap<>();
 
-    /** 同手机号发送时间戳（F-04.2 前置安全项自限）：60s 间隔 + 每日 10 次上限；内存计数重启清零，dev 可接受 */
+    /** 同手机号发送时间戳（F-04.2 前置安全项自限）：60s 间隔 + 24h 滑动窗上限；内存计数重启清零 */
     private final Map<String, List<Long>> sendTimestamps = new ConcurrentHashMap<>();
 
     /** 同手机号发送间隔 60s（F-04.2 前置安全项） */
     private static final long SEND_INTERVAL_MILLIS = 60 * 1000L;
 
-    /** 同手机号每日发送上限 10 次（F-04.2 前置安全项） */
-    private static final int SEND_DAILY_LIMIT = 10;
+    /**
+     * 同手机号 24h 滑动窗发送上限（F-04.2 起为 10，F-65 按用户决定放宽到 100）。
+     * ⚠ 这条拦的是"对单一号码的骚扰与计费轰炸"，<b>不是防验证码爆破</b>——爆破由下面那道
+     * {@code CODE_FAIL_LOCK_THRESHOLD} 拦。dev 下它是纯摩擦（无真实短信通道）；
+     * prod 接真实短信后 100 条/日/号 = 攻击者可对任意号码刷 100 条计费短信，上线前需复核此值。
+     */
+    private static final int SEND_DAILY_LIMIT = 100;
 
     /** 每日上限滑动窗 24h */
     private static final long DAILY_WINDOW_MILLIS = 24 * 60 * 60 * 1000L;
+
+    /**
+     * 验证码失败锁（F-65）：同一手机号连续答错 5 次即锁 10 分钟并作废当前码。
+     *
+     * <p><b>补这一道是因为此前的闸门方向是反的</b>：{@code sendCode} 有 60s + 24h 两层自限，
+     * 而 {@code login} 答错<b>既不计数也不作废</b>——码在 5 分钟 TTL 内可被无限次重试；
+     * 端点上那枚 IP 维度 5 次/60s 换个代理就绕过，等于对爆破零防护。
+     * 结果就是旧配置只拦得住正常用户（本项目自己的验收脚本就反复把号码烧到上限），拦不住攻击者。
+     *
+     * <p>阈值与时长刻意与 D-14 取货码核销那道锁同口径（5 次 / 10 分钟 / 429 带
+     * {@code data.retryAfterSeconds}），不另立一套。
+     */
+    private static final int CODE_FAIL_LOCK_THRESHOLD = 5;
+
+    /** 验证码失败锁锁定期 10 分钟 */
+    private static final long CODE_FAIL_LOCK_TTL_MILLIS = 10 * 60 * 1000L;
+
+    /** key=手机号；到期由下一次访问按 lockUntil 自然判定，不起清理任务（量级与 codeStore 同阶） */
+    private final Map<String, CodeFail> codeFails = new ConcurrentHashMap<>();
 
     /** dev 固定验证码（auth.dev-code）；为空表示短信通道未接入（prod 配置为空串） */
     @Value("${auth.dev-code:}")
@@ -74,8 +99,10 @@ public class AuthServiceImpl implements AuthService {
             throw new BizException("短信通道未接入，请联系管理员");
         }
         // F-04.2 前置安全项（同手机号自限，防配合固定验证码无限造号刷邀请冻结现金）：
-        // 60s 内重复发送拒绝（429）；24h 滑动窗内超 10 次拒绝（429）
+        // 60s 内重复发送拒绝（429）；24h 滑动窗内超 SEND_DAILY_LIMIT 次拒绝（429）
         long now = System.currentTimeMillis();
+        // 锁定期内连发码也拒：否则被锁的人会以为"重发一张新码就能接着试"，那道锁等于没锁
+        assertCodeNotLocked(phone, now);
         List<Long> stamps = sendTimestamps.computeIfAbsent(phone, k -> new ArrayList<>());
         synchronized (stamps) {
             stamps.removeIf(t -> now - t > DAILY_WINDOW_MILLIS);
@@ -95,15 +122,20 @@ public class AuthServiceImpl implements AuthService {
     @Transactional // F-01.2/F-04：建号 + 邀请码写回 + 绑定 + 冻结邀请人现金同事务，任一失败整体回滚
     public Map<String, Object> login(String phone, String code, String inviteCode) {
         // —— 验证码校验：一次性，命中即作废；过期清理 ——
+        long now = System.currentTimeMillis();
+        assertCodeNotLocked(phone, now);
         CodeEntry entry = codeStore.get(phone);
-        if (entry == null || entry.expireAt < System.currentTimeMillis()) {
+        if (entry == null || entry.expireAt < now) {
             codeStore.remove(phone);
+            // 无码/过期不计失败：那不构成一次有效猜测，计上只会误伤"想了一会儿才输"的正常人
             throw new BizException("验证码错误");
         }
         if (!entry.code.equals(code == null ? "" : code.trim())) {
+            recordCodeFail(phone, now);
             throw new BizException("验证码错误");
         }
         codeStore.remove(phone);
+        codeFails.remove(phone);
 
         // —— 静默注册：user.phone UNIQUE，并发首登唯一约束冲突后回读 ——
         boolean isNew = false;
@@ -251,7 +283,48 @@ public class AuthServiceImpl implements AuthService {
         return phone.substring(0, 3) + "****" + phone.substring(7);
     }
 
+    /**
+     * 验证码失败锁检查（F-65）。必须在比对任何码之前调用。
+     * 剩余时长取真实差值向上取整经 {@code data.retryAfterSeconds} 下发，不在文案里写死秒数
+     * （与 D-14 取货码那道锁同一口径）。
+     */
+    private void assertCodeNotLocked(String phone, long now) {
+        CodeFail fail = codeFails.get(phone);
+        if (fail == null || fail.lockUntil() <= now) {
+            return;
+        }
+        long retryAfterSeconds = (fail.lockUntil() - now + 999) / 1000;
+        log.warn("验证码失败锁定期内被拒: phone={}, 剩余={}s", mask(phone), retryAfterSeconds);
+        throw new BizException(R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS,
+                Map.of("retryAfterSeconds", retryAfterSeconds));
+    }
+
+    /**
+     * 答错记账（F-65）。到阈值才上锁，所以正常人手滑一两次不受任何影响；
+     * 上锁的同时作废当前码，否则攻击者拿到锁定期结束还能拿同一张码接着试。
+     * 计数走 {@code compute} 保证并发下不丢计数（多实例部署时它是内存态、各自独立，
+     * 与 codeStore/sendTimestamps 同一已知边界，见类注释）。
+     */
+    private void recordCodeFail(String phone, long now) {
+        CodeFail after = codeFails.compute(phone, (k, cur) -> {
+            int count = (cur == null ? 0 : cur.count()) + 1;
+            // 上锁即把计数归零：出锁后重新给 5 次机会，而不是接着上一次的数往下走
+            return count >= CODE_FAIL_LOCK_THRESHOLD
+                    ? new CodeFail(0, now + CODE_FAIL_LOCK_TTL_MILLIS)
+                    : new CodeFail(count, 0L);
+        });
+        if (after.lockUntil() > 0L) {
+            codeStore.remove(phone);
+            log.warn("验证码连续答错 {} 次：锁定该手机号登录与发码 {} 分钟并作废当前码: phone={}",
+                    CODE_FAIL_LOCK_THRESHOLD, CODE_FAIL_LOCK_TTL_MILLIS / 60000, mask(phone));
+        }
+    }
+
     /** 验证码条目：code + 过期时间戳 */
     private record CodeEntry(String code, long expireAt) {
+    }
+
+    /** 验证码失败记录（F-65）：窗口内已答错次数 + 锁到期时间戳（0=未锁） */
+    private record CodeFail(int count, long lockUntil) {
     }
 }
