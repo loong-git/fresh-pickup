@@ -255,16 +255,10 @@ export default {
         this.loggedInThisSession = true
         this.hasPassword = data.hasPassword === true
         this.smsLogging = false
-        if (data.hasPassword === true) {
-          uni.showToast({ title: '登录成功', icon: 'success' })
-          this.goAfterLogin()
-        } else {
-          // 未设密码时登录态其实已经写好了，此前只弹一枚 toast 就把人留在登录页等下方那张设密码卡，
-          // 看着完全像"登录成功却没跳转"（库里全部账号的 password_hash 都是空的，等于人人必撞）。
-          // 改为把选择明确摆出来：现在设（停留展示卡区，维持原设计）或先进首页（正常跳转，下次登录再问）。
-          // 不再先弹 toast：showToast 与 showModal 同帧竞争有被吞的风险，而 modal 一旦被吞用户就又困在原页。
-          this.askSetPassword()
-        }
+        // 登录成功后一律直接跳转（用户 2026-10-18 定：不要弹去留询问）。
+        // 设密码卡区仍留在本页，主动打开登录页即可到达——见 skipSetPassword 上方那条后果说明。
+        uni.showToast({ title: '登录成功', icon: 'success' })
+        this.goAfterLogin()
       } catch (e) {
         this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
@@ -321,25 +315,14 @@ export default {
         this.showToast((e && e.message) || '网络异常')
       }
     },
-    // 暂不设置直接进入：未设密码用户跳过卡区，防困在登录页（回跳规则与登录成功一致）
+    // 卡区下方那行「暂不设置，直接进入」的出口（回跳规则与登录成功一致）。
+    // ⚠ 后果说明（2026-10-18 用户定「登录成功直接进入、不要弹问」，我提示过、他选择接受）：
+    //   设密码是这一页独有的功能（全站只有 login.vue 调 /api/auth/set-password）。
+    //   登录成功后既不停留也不问，普通用户就没有路径走到这张卡上——要设密码得手动访问登录页
+    //   （已登录且不带 redirect 时 onLoad 会停留并显示卡区）。
+    //   将来若要让用户自助设密码，需在「我的」页补一个入口，那是另一片。
     skipSetPassword() {
       this.goAfterLogin()
-    },
-    // 未设密码时的去留选择。放在这里而不是只靠卡区下方那行「暂不设置，直接进入」小字：
-    // 库里所有账号的 password_hash 目前都是空的，等于每个人验证码登录都会落进这个分支，
-    // 只弹一枚 toast 就把页面停在登录页，用户看到的信号是「登录成功却没跳转」。
-    // 只要没明确选「现在设置」就跳转（含点遮罩/关闭），不把人留在原地。
-    askSetPassword() {
-      uni.showModal({
-        title: '登录成功',
-        content: '这个账号还没有登录密码。现在设置，下次就能用密码登录；先跳过则直接进入，下次登录会再问一次。',
-        confirmText: '现在设置',
-        cancelText: '先进首页',
-        success: (r) => { if (!r.confirm) this.goAfterLogin() },
-        // modal 弹不出来（极端环境/被上层拦截）时也必须跳走——这条分支存在的唯一理由就是
-        // 绝不再把已登录的人留在登录页，所以宁可放弃设密码引导也不能困住他
-        fail: () => this.goAfterLogin()
-      })
     },
     // ==================== 登录后跳转（FRONT_CONTRACT） ====================
     // 带 redirect 参数则解码回跳（须为 / 开头的页面路径，防脏参数跳坏），否则 reLaunch 回首页
