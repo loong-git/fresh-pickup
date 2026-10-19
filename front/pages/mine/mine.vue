@@ -445,8 +445,9 @@ export default {
     },
     // 游客态登录入口：跳独立登录页并携带 redirect，登录成功后解码回跳本页
     goLogin() { uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/mine/mine') }) },
-    // 账号安全行：同入口跳登录页（登录态下该页展示设置密码卡区，语义即设置/重置密码）
-    goSecurity() { uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/mine/mine') }) },
+    // 账号安全行：跳登录页设置/重置密码。intent=setpwd 是这条路的承重墙——缺了它，
+    // login.vue onLoad 那条「已登录且带 redirect 就回跳」会把人原地弹回，卡区根本看不到（F-66 实测）。
+    goSecurity() { uni.navigateTo({ url: '/pages/login/login?intent=setpwd&redirect=' + encodeURIComponent('/pages/mine/mine') }) },
     // ==================== F-08 更换手机号卡区 ====================
     // 行尾「更换/收起」小按钮：切换内联卡区（不跳页；@click.stop 已隔离 cell 整行 goSecurity）。
     // 收起即复位两步表单与双倒计时（契约：中途放弃不产生半态）

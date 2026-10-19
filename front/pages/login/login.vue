@@ -131,6 +131,7 @@ export default {
     return {
       activeTab: 'sms', // 当前 tab：'sms' 验证码登录 | 'password' 密码登录
       redirect: '', // onLoad 传入的 redirect 原串，跳转时才解码（非法编码兜底回首页）
+      intent: '', // F-66：onLoad 的 intent 参数，只认 setpwd，含义见 onLoad 内注释
       inviteCode: '', // F-01：onLoad 传入的邀请码（邀请链接 ?invite=），仅验证码登录提交时透传给后端
       // 验证码登录表单
       smsPhone: '',
@@ -159,6 +160,12 @@ export default {
     showSetPassword() {
       const user = this.$store.state.user
       if (!user || !user.token) return false
+      // intent=setpwd 时恒显示，不再靠 hasPassword 判：它只在本会话登录响应里有值，而密码登录必然
+      // 把它置成 true——用它当判据会把「重置密码」这条路堵成一张没有出口的裸页。
+      // "困住人"在这里不是推演而是实测过的（F-66）：本页 navigationStyle:custom 没有原生返回栏，
+      // 而 uni-app H5 这段 hash 导航不新增 history 条目、reLaunch 之后按浏览器返回仍停在当前页——
+      // 两条退路都没有，唯一的应用内出口「暂不设置，直接进入」又写在这张卡里面。
+      if (this.intent) return true
       return this.hasPassword !== true
     }
   },
@@ -171,11 +178,17 @@ export default {
     if (options && typeof options.invite === 'string' && options.invite.trim()) {
       this.inviteCode = options.invite.trim().slice(0, 16)
     }
+    // F-66：只认白名单值。其余一切（脏参数、大小写变体、空串）都留空，留空才走自动回跳那条 F-64 规则
+    if (options && typeof options.intent === 'string' && options.intent.trim() === 'setpwd') {
+      this.intent = 'setpwd'
+    }
     // 登录态早已存在、又是被「去登录」带着 redirect 进来的：目标页就是他要回去的地方，
     // 停在登录页只会被读成"刚才那下没生效"→ 直接回跳。
-    // 不带 redirect 的情况仍停留：那是主动来设密码的入口（全站设密码只在这一页），跳走反而丢了功能。
+    // 不带 redirect 的情况仍停留：那是主动来设密码的入口，跳走反而丢了功能。
+    // 「我的 → 账号安全」这条也带 redirect，但它的真实意图是设密码——靠 intent=setpwd 区分。
+    // 谁拥有意图谁说话，本页不猜（F-66 实测：无此守卫时该入口 100% 被弹回，卡区根本看不到）。
     const user = this.$store.state.user
-    if (this.redirect && user && user.token) this.goAfterLogin()
+    if (this.redirect && user && user.token && !this.intent) this.goAfterLogin()
   },
   onUnload() {
     // 登录验证码倒计时定时器清理（对照首页 onUnload 对内嵌登录区块的处理）
@@ -256,9 +269,11 @@ export default {
         this.hasPassword = data.hasPassword === true
         this.smsLogging = false
         // 登录成功后一律直接跳转（用户 2026-10-18 定：不要弹去留询问）。
-        // 设密码卡区仍留在本页，主动打开登录页即可到达——见 skipSetPassword 上方那条后果说明。
+        // 例外：带 intent=setpwd 进来的——他点的是「我的 → 账号安全」，进来时登录态已失效才被迫先登录，
+        // 登录完跳回「我的」等于这次登录白做、密码还是没设成，得再点一次才到得了（F-66 R-2）。
+        // 停留的出口由 showSetPassword 在 intent 时恒真来保证：卡区必渲染，卡内那行就是出口。
         uni.showToast({ title: '登录成功', icon: 'success' })
-        this.goAfterLogin()
+        if (!this.intent) this.goAfterLogin()
       } catch (e) {
         this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
@@ -286,9 +301,10 @@ export default {
         this.loggedInThisSession = true
         this.hasPassword = data.hasPassword === true
         this.pwdLogging = false
-        // 密码登录成功即已设密码：设置卡区随之隐藏，直接按 redirect 规则跳转
+        // 密码登录成功即已设密码：不带 intent 时卡区随之隐藏并按 redirect 规则跳转；
+        // 带 intent=setpwd 时停留且卡区仍显示（showSetPassword 的 intent 支），这一路的语义就是「重置密码」
         uni.showToast({ title: '登录成功', icon: 'success' })
-        this.goAfterLogin()
+        if (!this.intent) this.goAfterLogin()
       } catch (e) {
         this.pwdLogging = false
         this.showToast((e && e.message) || '网络异常')
@@ -308,8 +324,9 @@ export default {
         this.settingPwd = false
         uni.showToast({ title: '设置成功，下次可用密码登录', icon: 'none' })
         // 本会话登录成功的用户：设置密码完成即按 redirect 规则跳转；
-        // 进入页面时已登录的用户（非本会话登录）：停留本页，卡区随 hasPassword=true 隐藏
-        if (this.loggedInThisSession) this.goAfterLogin()
+        // intent=setpwd（从「账号安全」进来的）：他是专门来设密码的，设完即按 redirect 回原页；
+        // 其余（已登录、不带 redirect 主动访问）：停留本页，卡区随 hasPassword=true 隐藏
+        if (this.loggedInThisSession || this.intent) this.goAfterLogin()
       } catch (e) {
         this.settingPwd = false
         this.showToast((e && e.message) || '网络异常')
@@ -317,10 +334,11 @@ export default {
     },
     // 卡区下方那行「暂不设置，直接进入」的出口（回跳规则与登录成功一致）。
     // ⚠ 后果说明（2026-10-18 用户定「登录成功直接进入、不要弹问」，我提示过、他选择接受）：
-    //   设密码是这一页独有的功能（全站只有 login.vue 调 /api/auth/set-password）。
-    //   登录成功后既不停留也不问，普通用户就没有路径走到这张卡上——要设密码得手动访问登录页
-    //   （已登录且不带 redirect 时 onLoad 会停留并显示卡区）。
-    //   将来若要让用户自助设密码，需在「我的」页补一个入口，那是另一片。
+    //   登录成功后既不停留也不问，所以这张卡不会自己出现在登录流程里。
+    //   设密码卡区全站只在本页（只有 login.vue 调 /api/auth/set-password），但登录态下有两条到达路径：
+    //   ① 「我的 → 账号安全」：goSecurity 带 intent=setpwd，onLoad 见到它就不自动回跳（F-66）；
+    //   ② 不带 redirect 主动访问本页：onLoad 停留并显示卡区。
+    //   这一页之外没有别的地方能设密码。
     skipSetPassword() {
       this.goAfterLogin()
     },
