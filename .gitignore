@@ -28,6 +28,14 @@ HANDOFF.md
 CLAUDE.md
 HANDOFF.md
 docs/
+
+# 用户 2026-10-19 定：除 README 族外，任何 .md 不入库、不推送。
+# 已跟踪的三个（README.md、deploy/README-least-privilege.md、tools/gate/README.md）不受本规则影响——
+# .gitignore 只约束未进索引的文件；将来若有内部文档被 add，由 tools/gate/f28-gate.sh §11 拦住。
+# 注意：docs/ 整目录已被忽略，其内的 .md 无法再用 ! 解禁，正是所需语义。
+*.md
+!README.md
+!README-*.md
 技术文档.md
 模板.jpg
 需求.txt

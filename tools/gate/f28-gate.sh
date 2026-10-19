@@ -12,7 +12,7 @@ FAILS=0
 say() { echo "$@"; }
 chk() { if [ "$2" = "$3" ]; then say "  OK   $1: $2"; else say "  FAIL $1: 实际=[$2] 期望=[$3]"; FAILS=$((FAILS+1)); fi; }
 
-say "=== 1) 后端全量测试（离线，124 条基线，F-51 后）==="
+say "=== 1) 后端全量测试（离线，154 条基线，F-65 后）==="
 if [ -n "${SKIP_MVN:-}" ]; then
   say "  SKIP 本次显式跳过 mvn（例如与编辑类代理并发时：两个 mvn 同写一个 target/ 会互相破坏）"
 else
@@ -205,6 +205,18 @@ else
   PHONE=$(printf '%s\n' "$ADD" | grep -E '1[3-9][0-9]{9}' | grep -v '13800001234' | grep -vcE '420000[0-9]{18}' || true)
   chk "非测试基线的手机号形态命中" "${PHONE:-0}" "0"
 fi
+
+say "=== 11) 除 README 族外，任何 .md 不得被跟踪（用户 2026-10-19 定：md 除 README 一律不提交不推送）==="
+# 判据只数「非 README 的已跟踪 .md」=0，**不写死 README 的个数**（将来加一个 README 就假红，
+# 而假红的判据等于没有判据）。README 族 = README.md 与 README-<说明>.md，含任意子目录下的。
+BADMD=$(git ls-files '*.md' | grep -vE '(^|/)README(-[A-Za-z0-9._-]+)?\.md$' | grep -c . || true)
+chk "非 README 族的已跟踪 .md" "${BADMD:-0}" "0"
+if [ "${BADMD:-0}" != "0" ]; then
+  say "  ↓ 处置：git rm --cached <文件> 并在 .gitignore 补规则；已进公开历史的须另行裁定（force-push 是红线）"
+  git ls-files '*.md' | grep -vE '(^|/)README(-[A-Za-z0-9._-]+)?\.md$' | sed 's/^/    /'
+fi
+# 工作区里存在内部 .md 是正常的（docs/ 整目录本就被忽略），这里只保证它们进不了 git 索引
+say "  ℹ 当前已跟踪的 .md 清单：$(git ls-files '*.md' | tr '\n' ' ')"
 
 say "=== 结论 ==="
 git status --porcelain | sed 's/^/  /'
