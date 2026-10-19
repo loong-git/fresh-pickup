@@ -84,54 +84,23 @@
         />
       </view>
       <button class="btn-main" :class="{ 'btn-main-disabled': pwdLogging }" :disabled="pwdLogging" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : '登录' }}</text></button>
-      <text class="form-hint form-hint-loose">未设置密码？先用验证码登录，登录后即可在下方设置密码</text>
-      <text class="form-hint">忘记密码？用验证码登录后可重新设置</text>
-    </view>
-
-    <!-- ==================== 5. 设置密码卡区（仅登录态且非"已知已设密码"时展示） ==================== -->
-    <view class="set-pwd-card" v-if="showSetPassword">
-      <text class="set-pwd-title">设置密码</text>
-      <text class="set-pwd-desc">设置后下次可用密码登录，无需再等验证码</text>
-      <view class="input-capsule card-input">
-        <input
-          class="capsule-input"
-          v-model="newPassword"
-          :password="true"
-          maxlength="20"
-          placeholder="请输入新密码（6-20位）"
-          placeholder-style="color:#BBBBBB;"
-        />
-      </view>
-      <view class="input-capsule card-input">
-        <input
-          class="capsule-input"
-          v-model="confirmPassword"
-          :password="true"
-          maxlength="20"
-          placeholder="请再次输入新密码"
-          placeholder-style="color:#BBBBBB;"
-        />
-      </view>
-      <button class="btn-main" :class="{ 'btn-main-disabled': settingPwd }" :disabled="settingPwd" @click="confirmSetPassword"><text>{{ settingPwd ? '设置中…' : '设置密码' }}</text></button>
-      <text class="set-pwd-skip" @click="skipSetPassword">暂不设置，直接进入</text>
+      <text class="form-hint form-hint-loose">还没有密码？先用验证码登录，之后到「我的 → 账号安全」设置</text>
+      <text class="form-hint">忘记密码？登录后到「我的 → 账号安全」重新设置</text>
     </view>
   </view>
 </template>
 
 <script>
-// 独立登录页（多多买菜风格）：验证码登录 / 密码登录双 tab + 设置密码卡区。
+// 独立登录页（多多买菜风格）：验证码登录 / 密码登录双 tab。
 // 登录成功写入登录态严格对照首页购物车弹层 loginAndPay 的 setUser commit 字段；
 // 跳转遵循 FRONT_CONTRACT：带 redirect 参数（encodeURIComponent 后的页面路径）时解码回跳，否则 reLaunch 回首页。
-// hasPassword 三态来源：本会话 login 响应 data.hasPassword（true=已设密码，false=未设）；
-// 进入页面时已登录（store 有 token）但无本会话 login 响应时为 null，按可设置展示（setPassword 可重复覆盖，无害）。
-import { sendCode, login, loginByPassword, setPassword } from '@/api/index.js'
+import { sendCode, login, loginByPassword } from '@/api/index.js'
 
 export default {
   data() {
     return {
       activeTab: 'sms', // 当前 tab：'sms' 验证码登录 | 'password' 密码登录
       redirect: '', // onLoad 传入的 redirect 原串，跳转时才解码（非法编码兜底回首页）
-      intent: '', // F-66：onLoad 的 intent 参数，只认 setpwd，含义见 onLoad 内注释
       inviteCode: '', // F-01：onLoad 传入的邀请码（邀请链接 ?invite=），仅验证码登录提交时透传给后端
       // 验证码登录表单
       smsPhone: '',
@@ -143,30 +112,7 @@ export default {
       // 密码登录表单
       pwdPhone: '',
       pwdPassword: '',
-      pwdLogging: false,
-      // 设置密码卡区
-      newPassword: '',
-      confirmPassword: '',
-      settingPwd: false,
-      // 密码态三态：true/false 来自本会话 login 响应；null=未知（进入页面时已登录）
-      hasPassword: null,
-      // 本会话是否完成过登录：区分"进入页面时已登录"的用户（其设置密码成功后停留本页不回跳）
-      loggedInThisSession: false
-    }
-  },
-  computed: {
-    // 设置密码卡区显隐：登录态（store 有 token）且非"已知已设密码"时展示；
-    // hasPassword===true（已设）不显示，false/null（未设或未知）显示
-    showSetPassword() {
-      const user = this.$store.state.user
-      if (!user || !user.token) return false
-      // intent=setpwd 时恒显示，不再靠 hasPassword 判：它只在本会话登录响应里有值，而密码登录必然
-      // 把它置成 true——用它当判据会把「重置密码」这条路堵成一张没有出口的裸页。
-      // "困住人"在这里不是推演而是实测过的（F-66）：本页 navigationStyle:custom 没有原生返回栏，
-      // 而 uni-app H5 这段 hash 导航不新增 history 条目、reLaunch 之后按浏览器返回仍停在当前页——
-      // 两条退路都没有，唯一的应用内出口「暂不设置，直接进入」又写在这张卡里面。
-      if (this.intent) return true
-      return this.hasPassword !== true
+      pwdLogging: false
     }
   },
   onLoad(options) {
@@ -178,17 +124,11 @@ export default {
     if (options && typeof options.invite === 'string' && options.invite.trim()) {
       this.inviteCode = options.invite.trim().slice(0, 16)
     }
-    // F-66：只认白名单值。其余一切（脏参数、大小写变体、空串）都留空，留空才走自动回跳那条 F-64 规则
-    if (options && typeof options.intent === 'string' && options.intent.trim() === 'setpwd') {
-      this.intent = 'setpwd'
-    }
     // 登录态早已存在、又是被「去登录」带着 redirect 进来的：目标页就是他要回去的地方，
     // 停在登录页只会被读成"刚才那下没生效"→ 直接回跳。
-    // 不带 redirect 的情况仍停留：那是主动来设密码的入口，跳走反而丢了功能。
-    // 「我的 → 账号安全」这条也带 redirect，但它的真实意图是设密码——靠 intent=setpwd 区分。
-    // 谁拥有意图谁说话，本页不猜（F-66 实测：无此守卫时该入口 100% 被弹回，卡区根本看不到）。
+    // 不带 redirect 的情况仍停留：他本来就是来登录的，跳走反而把登录这一步丢了。
     const user = this.$store.state.user
-    if (this.redirect && user && user.token && !this.intent) this.goAfterLogin()
+    if (this.redirect && user && user.token) this.goAfterLogin()
   },
   onUnload() {
     // 登录验证码倒计时定时器清理（对照首页 onUnload 对内嵌登录区块的处理）
@@ -244,9 +184,9 @@ export default {
       if (this.smsTimer) { clearInterval(this.smsTimer); this.smsTimer = null }
       this.smsCountdown = 0
     },
-    // 验证码登录：POST /api/auth/login（响应 data 含 hasPassword；F-01/F-05 新号注册时随请求透传 inviteCode 绑定邀请关系
+    // 验证码登录：POST /api/auth/login（F-01/F-05 新号注册时随请求透传 inviteCode 绑定邀请关系
     // 并冻结邀请人现金，新人券不再自动发放、由新人在领券中心领取；老用户携带无效邀请码由后端忽略，前端不区分）。
-    // 已设密码：登录完成按 redirect 规则跳转；未设密码：停留本页展示设置密码卡，设置成功/跳过后再跳转
+    // 登录成功后一律按 redirect 规则跳转。
     async loginBySms() {
       if (this.smsLogging) return
       const phone = (this.smsPhone || '').trim()
@@ -265,15 +205,10 @@ export default {
           // 登录后「我的」页头像回落默认 SVG，须透传入 store（setUser {...DEFAULT_USER,...payload} 保底）
           avatar: (data.user && data.user.avatar) || null
         })
-        this.loggedInThisSession = true
-        this.hasPassword = data.hasPassword === true
         this.smsLogging = false
         // 登录成功后一律直接跳转（用户 2026-10-18 定：不要弹去留询问）。
-        // 例外：带 intent=setpwd 进来的——他点的是「我的 → 账号安全」，进来时登录态已失效才被迫先登录，
-        // 登录完跳回「我的」等于这次登录白做、密码还是没设成，得再点一次才到得了（F-66 R-2）。
-        // 停留的出口由 showSetPassword 在 intent 时恒真来保证：卡区必渲染，卡内那行就是出口。
         uni.showToast({ title: '登录成功', icon: 'success' })
-        if (!this.intent) this.goAfterLogin()
+        this.goAfterLogin()
       } catch (e) {
         this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
@@ -298,49 +233,14 @@ export default {
           // R8 头像链路补全（轮1 找茬）：同验证码登录口径，透传后端已回传的 data.user.avatar
           avatar: (data.user && data.user.avatar) || null
         })
-        this.loggedInThisSession = true
-        this.hasPassword = data.hasPassword === true
         this.pwdLogging = false
-        // 密码登录成功即已设密码：不带 intent 时卡区随之隐藏并按 redirect 规则跳转；
-        // 带 intent=setpwd 时停留且卡区仍显示（showSetPassword 的 intent 支），这一路的语义就是「重置密码」
+        // 密码登录成功即已设密码：直接按 redirect 规则跳转
         uni.showToast({ title: '登录成功', icon: 'success' })
-        if (!this.intent) this.goAfterLogin()
+        this.goAfterLogin()
       } catch (e) {
         this.pwdLogging = false
         this.showToast((e && e.message) || '网络异常')
       }
-    },
-    // ==================== 设置密码卡区 ====================
-    // 设置密码：POST /api/auth/set-password（需登录，token 由 request 层自动携带）；前端先行 6-20 位校验与两次一致校验
-    async confirmSetPassword() {
-      if (this.settingPwd) return
-      const pwd = this.newPassword || ''
-      if (pwd.length < 6 || pwd.length > 20) { this.showToast('请输入6-20位密码'); return }
-      if (pwd !== (this.confirmPassword || '')) { this.showToast('两次输入的密码不一致'); return }
-      this.settingPwd = true
-      try {
-        await setPassword(pwd)
-        this.hasPassword = true
-        this.settingPwd = false
-        uni.showToast({ title: '设置成功，下次可用密码登录', icon: 'none' })
-        // 本会话登录成功的用户：设置密码完成即按 redirect 规则跳转；
-        // intent=setpwd（从「账号安全」进来的）：他是专门来设密码的，设完即按 redirect 回原页；
-        // 其余（已登录、不带 redirect 主动访问）：停留本页，卡区随 hasPassword=true 隐藏
-        if (this.loggedInThisSession || this.intent) this.goAfterLogin()
-      } catch (e) {
-        this.settingPwd = false
-        this.showToast((e && e.message) || '网络异常')
-      }
-    },
-    // 卡区下方那行「暂不设置，直接进入」的出口（回跳规则与登录成功一致）。
-    // ⚠ 后果说明（2026-10-18 用户定「登录成功直接进入、不要弹问」，我提示过、他选择接受）：
-    //   登录成功后既不停留也不问，所以这张卡不会自己出现在登录流程里。
-    //   设密码卡区全站只在本页（只有 login.vue 调 /api/auth/set-password），但登录态下有两条到达路径：
-    //   ① 「我的 → 账号安全」：goSecurity 带 intent=setpwd，onLoad 见到它就不自动回跳（F-66）；
-    //   ② 不带 redirect 主动访问本页：onLoad 停留并显示卡区。
-    //   这一页之外没有别的地方能设密码。
-    skipSetPassword() {
-      this.goAfterLogin()
     },
     // ==================== 登录后跳转（FRONT_CONTRACT） ====================
     // 带 redirect 参数则解码回跳（须为 / 开头的页面路径，防脏参数跳坏），否则 reLaunch 回首页
@@ -453,20 +353,6 @@ export default {
   font-size: 32rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
-/* 提交飞行中禁用态：置灰提示"登录中…/设置中…"，防重复提交（对照首页 .btn-confirm-disabled） */
+/* 提交飞行中禁用态：置灰提示"登录中…"，防重复提交（对照首页 .btn-confirm-disabled） */
 .btn-main.btn-main-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
-
-/* ==================== 5. 设置密码卡区 ==================== */
-.set-pwd-card {
-  margin-top: 48rpx; padding: 36rpx 32rpx;
-  background-color: #FFF7F6; border-radius: 32rpx;
-}
-.set-pwd-title { display: block; font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1; }
-.set-pwd-desc { display: block; margin-top: 14rpx; font-size: 22rpx; color: #999999; line-height: 1.5; }
-.set-pwd-card .input-capsule { margin-top: 24rpx; margin-bottom: 0; background-color: #FFFFFF; }
-.set-pwd-card .btn-main { margin-top: 32rpx; }
-.set-pwd-skip {
-  display: block; margin-top: 24rpx;
-  font-size: 24rpx; color: #E02020; text-align: center;
-}
 </style>
