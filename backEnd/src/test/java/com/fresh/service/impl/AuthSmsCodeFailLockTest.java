@@ -38,7 +38,7 @@ import static org.mockito.Mockito.when;
  */
 class AuthSmsCodeFailLockTest {
 
-    private static final String PHONE = "13800001111";
+    private static final String PHONE = "13800001234";
     private static final String DEV_CODE = "123456";
     private static final int THRESHOLD = 5;
 

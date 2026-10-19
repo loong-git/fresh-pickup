@@ -82,7 +82,7 @@ class OrderGoodsArrivedFlagTest {
         o.setPayStatus(payStatus);
         o.setStoreId(storeId);
         o.setPickupDate(pickupDate == null ? null : LocalDate.parse(pickupDate));
-        o.setPhone("13800001111");
+        o.setPhone("13800001234");
         return o;
     }
 

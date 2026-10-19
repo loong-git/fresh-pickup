@@ -326,7 +326,8 @@ export default {
         if (Number(e && e.code) === 429) this.startRetryLock(e)
         else this.stopRetryLock()
         // 翻页失败（已有列表在手）不动整页态：保留现场只 toast，商家可再点一次「加载更多」；
-        // 首屏/重拉失败才整页换错误卡（照 front/pages/order/order.vue:215-223 的分流）
+        // 首屏/重拉失败才整页换错误卡（照 front/pages/order/order.vue 中 loadOrders 里那条 reset 分流，
+        // 不挂行号：C 端那一页插行频繁，挂行号必漂——F-62 就把它顶偏过一次，本次是收账）
         if (reset || !this.list.length) {
           this.viewState = 'error'
         } else {
