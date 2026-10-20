@@ -153,7 +153,7 @@ function judgeDiff(p, oldRev, newRev) {
   const oldLines = readLinesFromRev(oldRev || "HEAD", p);
   const newMask = newLines ? insideClosedMask(newLines, p) : null;
   const oldMask = oldLines ? insideClosedMask(oldLines, p) : null;
-  return rows.map((r) => {
+  return pairInlineComments(rows.map((r) => {
     const body = r.body;
     const t = String(body).trim();
     let kind;
@@ -164,7 +164,47 @@ function judgeDiff(p, oldRev, newRev) {
       kind = (mask && r.no >= 1 && r.no <= mask.length && mask[r.no - 1]) ? "COMMENT" : "NONCOMMENT";
     }
     return { kind, sign: r.sign, no: r.no, body };
-  });
+  }));
+}
+
+// 剥掉行内注释后的**代码部分**。只处理同一行内的 `/* … */` 与首个 `//` 之后的内容。
+// 不做词法分析（字符串里的 `//`、URL 会被一起切掉），这是刻意的：判据要的是「old 与 new 的
+// 代码部分**逐字相等**」，同形被切两边仍相等；而真改了代码（`a = 1;` → `a = 2;`）切完还是不等，
+// 所以剥得粗只会**少豁免**，不会**多放行**——方向必须是这样。
+function codePart(s) {
+  let x = String(s).replace(/\/\*[\s\S]*?\*\//g, "");
+  const i = x.indexOf("//");
+  if (i >= 0) x = x.slice(0, i);
+  return x.replace(/\s+$/, "");
+}
+
+// F-83 CD5：`z-index: 500; /* … */`、`searchHistory: [], // …` 这类**代码与注释同一行**、
+// 只改注释部分的行，行首判据与块续行状态机都判 NONCOMMENT → f27 §2 每批必吃这种假红
+// （实测 F-83 一批 3 处 6 行）。配对规则保守：
+//   ① 只在同一 hunk 内「连续的 - 段紧跟等长的 + 段」时按顺序配对；配不上就整段保持原判；
+//   ② 只有 old/new 的代码部分**逐字相等**才把两行都改判 COMMENT；
+//   ③ 两行原本至少有一行被判 NONCOMMENT 才需要这条豁免（纯注释行不受影响）。
+function pairInlineComments(rows) {
+  const res = rows.slice();
+  let i = 0;
+  while (i < res.length) {
+    if (res[i].sign !== "-") { i++; continue; }
+    let j = i; while (j < res.length && res[j].sign === "-") j++;
+    let k = j; while (k < res.length && res[k].sign === "+") k++;
+    const minus = res.slice(i, j), plus = res.slice(j, k);
+    if (minus.length === plus.length && minus.length > 0) {
+      for (let n = 0; n < minus.length; n++) {
+        const a = minus[n], b = plus[n];
+        if (a.kind === "COMMENT" && b.kind === "COMMENT") continue;
+        if (a.body === b.body) continue;
+        if (codePart(a.body) === codePart(b.body)) {
+          res[i + n].kind = "COMMENT"; res[j + n].kind = "COMMENT";
+        }
+      }
+    }
+    i = k > i ? k : i + 1;
+  }
+  return res;
 }
 
 function main(argv) {

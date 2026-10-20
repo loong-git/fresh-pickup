@@ -27,7 +27,7 @@ OUT=$(echo "$CHANGED" | grep -vE '^(backEnd/src/main/|front/|front-merchant/|fro
 chk "越界文件（应为空）" "$([ -z "$OUT" ] && echo yes || echo no)" "yes"
 [ -n "$OUT" ] && say "$OUT" | sed 's/^/      /'
 
-say "=== 2) 纯注释：非注释变更行数必须 = 0（原始行判据 ∪ 块注释续行状态机；判不准一律算非注释）==="
+say "=== 2) 纯注释：非注释变更行数必须 = 0（原始行首判据 ∪ 块注释续行状态机 ∪ 同行内联注释配对；判不准一律算非注释）==="
 # M1（F-76）：行号归属与块状态机在 tools/gate/probes/block-comment-lines.cjs（两个审计器共用同一套块种定义），
 # bash 只做取数与判定；helper 输出行数与 git diff 对不上就退回旧的行首判据（旧判据更严，只会假 FAIL 不会放行）。
 NONCOMMENT=0; TOTCHG=0
