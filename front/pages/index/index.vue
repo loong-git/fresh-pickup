@@ -1301,11 +1301,26 @@ export default {
       }
       if (this.isCartEmpty) { this.showToast('购物车为空'); return }
       if (this.checkedCount === 0) { this.showToast('请先勾选商品'); return }
+      if (this.dropOffSaleItems() === 0) return
       // 每次新开确认订单弹窗换新幂等键（上一次会话的键不带入）
       this.clientRequestId = ''
       // M4-T-02：每次打开确认订单拉取该用户可用券（已选券随券列表刷新自动重置）
       this.loadMyCoupons()
       this.showPayPopup = true
+    },
+    // 结算前剔除已下架件并点名：只认 onSale===0，列表拉取失败时 dishOf 返回 {} 不误伤在售件。
+    // 返回剩余可结算件数；openAddressPopup 与 submitOrder 都要调——只挂前者会漏掉「弹层停留期间被下架」这条路径
+    dropOffSaleItems() {
+      const checked = this.checkedItems
+      const offSale = checked.filter(item => this.dishOf(item).onSale === 0)
+      if (offSale.length) {
+        offSale.forEach(item => this.$store.commit('toggleChecked', item.id))
+        const offName = this.dishOf(offSale[0]).name || offSale[0].name
+        this.showToast(offSale.length === 1
+          ? `「${offName}」已下架，已从本次结算中剔除`
+          : `「${offName}」等 ${offSale.length} 件已下架，已从本次结算中剔除，其余照常下单`)
+      }
+      return checked.length - offSale.length
     },
     // 生成幂等键：时间戳 + 随机串（base36），长度远小于 64 上限
     genClientRequestId() {
@@ -1317,6 +1332,10 @@ export default {
       if (this.submitting) return
       const phone = (this.pickupPerson && this.pickupPerson.phone) || ''
       if (!/^1[3-9]\d{9}$/.test(phone)) { this.showToast('请先填写提货人手机号'); return }
+      // 与 openAddressPopup 共用同一道守卫：拦住「进页面时已下架、但用户没重进结算」的件。
+      // ⚠ 它拦不住「弹层停留期间才被下架」——dishOf 读的是页面加载时的 dishes 快照，那种情况只能靠
+      // 后端那条 400 兜（实测：弹层开着时改库下架，前端放行、后端整单拒），别把它当成实时校验
+      if (!this.dropOffSaleItems()) return
       if (!this.checkedItems.length) { this.showToast('请先勾选商品'); return }
       // 幂等键：本会话尚未生成时才生成（失败重试/401 重登后续走沿用同一键，服务端幂等防重复建单；
       // 收银台支付成功或下次新开会话时才重置）

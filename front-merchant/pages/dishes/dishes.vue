@@ -186,7 +186,7 @@ export default {
       // 列表重试冷却剩余秒数（429 用）：限流窗口是 1 分钟，窗口内再点只会续桶并把 USER 30 次/分打满
       retryLock: 0,
       retryLockTimer: null,
-      // 图片加载失败标记（按 dish.id）：与 C 端 index.vue:521/770 同款——失败才回退 emoji，
+      // 图片加载失败标记（按 dish.id）：与 C 端 index.vue 的 imgFail / onImgFail 同款——失败才回退 emoji，
       // 成功过的一次性标记在每次重拉后清掉，否则商家换了好图仍显示 emoji
       imgFail: {}
     }
