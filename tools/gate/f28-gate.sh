@@ -188,6 +188,23 @@ SELF="${BASH_SOURCE[0]}"
 BADTICK=$(grep -c 'say "[^"]*`' "$SELF" 2>/dev/null || true)
 chk "say 的双引号串里不得含反引号（会被命令替换执行）" "${BADTICK:-0}" "0"
 
+say "=== 9b) 行尾一致性：本批改到的文件，CR 字节数必须与 HEAD 版本相等（F-82 新增）==="
+# 为什么必须有这条：本机 core.autocrlf=true 且仓库**没有 .gitattributes**，编辑工具能把一份纯 LF 的 .vue
+# 整份转成 CRLF；此时 git diff --numstat 仍显示 1/1、f27 §2/§3/§5 与两个审计器**全绿**——入库 blob 确实还是 LF，
+# 但工作区已悄悄换了一套行尾，后续任何「按字节比对 git show HEAD:f 与工作区」的探针都会得到假差异。
+# 实测来源：F-82 执行者把 index.vue 改成 2110 个 CR 字节，靠自查 CR 计数才发现（当时门禁无一变红）。
+CRLFDRIFT=0
+for f in $(git diff --name-only 2>/dev/null); do
+  case "$f" in
+    *.java|*.vue|*.js|*.ts|*.cjs|*.mjs|*.sh|*.sql|*.md|*.yml|*.json) ;;
+    *) continue ;;
+  esac
+  WT=$(tr -dc '\r' < "$f" 2>/dev/null | wc -c | tr -d ' ')
+  HB=$(git show "HEAD:$f" 2>/dev/null | tr -dc '\r' | wc -c | tr -d ' ')
+  if [ "${WT:-NA}" != "${HB:-NA}" ]; then say "      行尾漂移: $f 工作区CR=${WT:-NA} HEADCR=${HB:-NA}"; CRLFDRIFT=$((CRLFDRIFT+1)); fi
+done
+chk "行尾漂移文件数" "$CRLFDRIFT" "0"
+
 say "=== 10) push 前凭据普查：本地领先 origin 的**全部**新增行（不只本批 staged）==="
 AHEAD=$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)
 if [ "$AHEAD" = "0" ]; then
