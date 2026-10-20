@@ -225,7 +225,7 @@
       </button>
     </view>
 
-    <!-- ==================== 购物车弹层（复刻首页 cart-popup 结构与交互，数据同 store 全局共享） ==================== -->
+    <!-- ==================== 购物车弹层（对照首页 cart-popup 结构，数据同 store 全局共享；差异：本页保留「清空」且勾选圈常驻，首页已移除清空且勾选限管理模式） ==================== -->
     <view class="popup-mask" v-if="showCartDetail" @click="closeCartPopup">
       <view class="cart-popup" @click.stop>
         <!-- 服务保障条（字典 service_tags 渲染，失败回退内置默认） -->
@@ -341,14 +341,14 @@
 
 <script>
 // 独立搜索页（复刻多多买菜搜索页）：首页搜索栏 uni.navigateTo 跳入。
-// 商品卡/购物车栏/购物车弹层结构与样式复制自 pages/index/index.vue（两页均为独立组件 scoped 编译，同名类不冲突），
+// 商品卡/购物车栏/购物车弹层结构与样式对照 pages/index/index.vue（非逐行复刻——本页保留「清空」且勾选常驻），
 // 购物车数据全部走 Vuex store 全局共享（与首页/详情页一致）。
 import { mapState, mapGetters } from 'vuex'
 import { decorateDish } from '@/api/index.js'
 import { getDictGroup, parseCoupon } from '@/api/dict.js'
 import { BASE_URL } from '@/api/config.js'
 
-// 搜索历史 storage 键（与首页共用同键同格式：JSON 字符串数组，去重最多 10 条）
+// 搜索历史 storage 键（本页独立持有：JSON 字符串数组，去重最多 10 条）
 const SEARCH_HISTORY_KEY = 'search_history'
 const SEARCH_HISTORY_MAX = 10
 // 搜索发现默认词库（需求指定 10 个 + 补足 15 个；刷新按钮打乱重排）
@@ -376,7 +376,7 @@ export default {
       rankGeneral: [],     // 榜单一：全量按 soldCount 降序取 14
       rankFresh: [],       // 榜单二：fresh/vegetable/frozen 过滤后按 soldCount 降序取 14
       discoverWords: [],   // 搜索发现词（洗牌后 [{word, emoji, hot}]）
-      searchHistory: [],   // 历史词（storage 键 search_history，与首页共用）
+      searchHistory: [],   // 历史词（storage 键 search_history，本页独立持有）
       // 购物车弹层/提货人弹窗开关与编辑态
       showCartDetail: false,
       editingCart: false,
@@ -420,7 +420,7 @@ export default {
     this.shuffleDiscover()
     this.loadDishes()
     this.loadDicts()
-    // 首页携关键词跳入（首页"搜索"按钮/历史词点击会带 kw）：回填并直接执行搜索
+    // 当前无首页或外部分发 kw 的生产者（index.vue 跳入不带此参数），保留分支待搜索入口改造时启用
     if (options && options.kw) {
       let kw = String(options.kw)
       try { kw = decodeURIComponent(kw) } catch (e) { /* 已是明文则原样使用 */ }
@@ -581,7 +581,7 @@ export default {
       this.searchResults = []
     },
     // ==================== 最近搜索 ====================
-    // 历史词读取（storage 键 search_history，脏数据兜底空数组；与首页同键同格式）
+    // 历史词读取（storage 键 search_history，脏数据兜底空数组；本页独立持有）
     loadSearchHistory() {
       try {
         const cached = uni.getStorageSync(SEARCH_HISTORY_KEY)

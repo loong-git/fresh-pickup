@@ -2,7 +2,7 @@
 // DEFAULT_AVATAR：默认头像（品牌渐变圆底 + 白色人形剪影）——登录用户未设置头像与游客共用；
 // URL-encoded SVG data URI（encodeURIComponent 全量编码防 # 等字符截断 data URI）。
 // fileToAvatarDataURI：H5 选图后 canvas 中心裁方 128×128 输出 JPEG data URI（约 5~30KB，
-// 远低于后端 PUT /api/user/avatar 的 60000 字节上限（UTF-8，AVATAR_MAX_BYTES）与 user.avatar TEXT 列容量）。
+// 远低于后端 POST /api/user/avatar 的 60000 字节上限（UTF-8，AVATAR_MAX_BYTES）与 user.avatar TEXT 列容量）。
 
 const AVATAR_SVG = [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">',
@@ -70,7 +70,7 @@ function utf8Bytes(s) {
   return n
 }
 
-/** 头像长度前端预校验（与后端 PUT 上限一致，超限免一次注定 400 的请求）：
+/** 头像长度前端预校验（与后端 POST 上限一致，超限免一次注定 400 的请求）：
  * 后端按 UTF-8 字节判（UserController.AVATAR_MAX_BYTES=60000，trimmed.getBytes(UTF_8)），
  * 前端同按字节口径，防多字节内容（如 60000 汉字=180000 字节）字符数放行、后端 400 的口径漏判 */
 export function isAvatarTooLarge(dataURI) {

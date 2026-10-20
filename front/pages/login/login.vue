@@ -92,8 +92,8 @@
 
 <script>
 // 独立登录页（多多买菜风格）：验证码登录 / 密码登录双 tab。
-// 登录成功写入登录态严格对照首页购物车弹层 loginAndPay 的 setUser commit 字段；
-// 跳转遵循 FRONT_CONTRACT：带 redirect 参数（encodeURIComponent 后的页面路径）时解码回跳，否则 reLaunch 回首页。
+// 登录成功写入的 setUser commit 字段与首页 payFromCart→登录响应字段口径一致（payFromCart 本身只跳本页不 commit）；
+// 跳转遵循全站约定：带 redirect 参数（encodeURIComponent 后的页面路径）时解码回跳，否则 reLaunch 回首页。
 import { sendCode, login, loginByPassword } from '@/api/index.js'
 
 export default {
@@ -242,7 +242,7 @@ export default {
         this.showToast((e && e.message) || '网络异常')
       }
     },
-    // ==================== 登录后跳转（FRONT_CONTRACT） ====================
+    // ==================== 登录后跳转（全站约定） ====================
     // 带 redirect 参数则解码回跳（须为 / 开头的页面路径，防脏参数跳坏），否则 reLaunch 回首页
     goAfterLogin() {
       let target = '/pages/index/index'

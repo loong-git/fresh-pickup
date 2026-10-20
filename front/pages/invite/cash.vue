@@ -196,7 +196,7 @@ export default {
       inviteError: false,
       inviteLoading: false,
       copying: false,
-      // 规则说明五条（F-04.3 定稿口径：冻结→首单后入账、5 元/新人、10 人封顶、满 20 提全部余额、演示环境模拟到账明示）
+      // 规则说明（F-04.3 定稿口径：冻结→首单后入账、5 元/新人、10 人封顶、满 20 提全部余额、演示环境模拟到账明示）
       rules: [
         '邀请好友注册，TA 完成首单支付后，你的 5 元现金奖励自动入账（注册时先冻结）',
         '每邀请 1 位新人得 5 元，最多奖励 10 人',
@@ -331,7 +331,7 @@ export default {
       }
     },
     // H5 契约（F-01.3）：location.origin + '/#/pages/login/login?invite=' + 邀请码
-    //（邀请码为后端 8 位去混淆字符集 [A-Z2-9]，无需再编码）；非 H5 端本期不做分享，退化为相对路径文本兜底
+    //（邀请码为后端 8 位去混淆字符集，剔除 0/1/I/O 共 32 字符，无需再编码）；非 H5 端本期不做分享，退化为相对路径文本兜底
     buildInviteLink() {
       const hashPath = '#/pages/login/login?invite=' + this.inviteCode
       // #ifdef H5

@@ -242,7 +242,7 @@ export default {
       })
     },
     // 选图：H5 动态创建 input[type=file]（accept=image/*）触发相册/文件选择；
-    // change → fileToAvatarDataURI（canvas 128×128 中心裁方 JPEG）→ 预校验长度 → PUT → store 同步。
+    // change → fileToAvatarDataURI（canvas 128×128 中心裁方 JPEG）→ 预校验长度 → POST → store 同步。
     // 动态节点用完即弃（不挂常驻 DOM，避免 uniapp 模板对原生 input 的编译差异）。
     // 轮1 找茬修复：此前只在 change 里 removeChild——用户打开选择器后取消（change 永不触发）
     // 时节点残留 body 累积；补挂 'cancel' 事件（现代浏览器支持）+ 统一 cleanup（两路都走，
@@ -291,7 +291,7 @@ export default {
       // #endif
     },
     // 恢复默认头像：已设置头像先二次确认（U4，与退出登录同款 modal，防误触清空），
-    // 确认后 PUT {avatar:null}（后端列置 NULL）→ store 同步清空 → 展示回默认 SVG；
+    // 确认后 POST {avatar:null}（后端列置 NULL）→ store 同步清空 → 展示回默认 SVG；
     // 未设置头像保持「当前已是默认头像」提示不动
     doResetAvatar() {
       if (this.user && !this.user.avatar) {
@@ -307,7 +307,7 @@ export default {
         }
       })
     },
-    // 头像统一提交：PUT 成功 → setUser 局部合并 avatar（safeSetStorage 同步）→ toast；
+    // 头像统一提交：POST 成功 → setUser 局部合并 avatar（safeSetStorage 同步）→ toast；
     // 失败展示后端文案（400 格式/过大、401 已被 request 层清登录态走重登录）。
     // 轮1 找茬修复（high）：setUser mutation 是 {...DEFAULT_USER, ...payload} 全量替换语义，
     // 只传 {avatar} 会把 token/id/phone 清成游客态——必须展开当前 user 合并（找茬实录）
@@ -318,7 +318,7 @@ export default {
         return
       }
       this._avatarSubmitting = true
-      // U5②：PUT 全程 showLoading，完成（成功/失败/异常三路 finally）hideLoading
+      // U5②：POST 全程 showLoading，完成（成功/失败/异常三路 finally）hideLoading
       uni.showLoading({ title: '处理中…' })
       // 结果 toast 统一延后到 hideLoading 之后发出：uni H5 端 showToast/showLoading 共用
       // 同一容器，先 toast 后 hideLoading 会把结果 toast 一并吞掉（时序坑，前置规避）

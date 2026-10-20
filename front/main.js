@@ -136,7 +136,7 @@ const store = createStore({
 	state: {
 		// 购物车列表（刷新后从本地存储恢复，旧数据读取时 normalize 兜底）
 		cart: loadCartFromStorage(),
-		// 当前分类: 'meat' | 'vegetable'
+		// 当前分类（活代码无消费者，各页用本地同名 data 字段替代）
 		currentCategory: 'meat',
 		// 配送地址
 		address: '',
@@ -234,7 +234,7 @@ const store = createStore({
 		replaceCart(state, list) {
 			state.cart = Array.isArray(list) ? list : []
 		},
-		// 切换分类
+		// 切换分类（活代码无 commit 调用方）
 		setCategory(state, category) {
 			state.currentCategory = category
 		},

@@ -711,7 +711,7 @@ export default {
         uni.reLaunch({ url: '/pages/index/index' })
       }
     },
-    // 登录入口：跳登录页并携带 redirect，登录成功后解码回跳本页（全站同款 FRONT_CONTRACT）
+    // 登录入口：跳登录页并携带 redirect，登录成功后解码回跳本页（全站同款约定）
     goLogin() { uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/free/free') }) },
     // 「明细」轻实现：跳订单页（免费单为 clientRequestId 以 free- 开头的 0 元单）
     onDetail() {
@@ -1386,7 +1386,7 @@ export default {
   display: flex; align-items: center; justify-content: center;
 }
 .btn-claim::after { border: none; }
-/* 进度填充：当日实付越接近门槛，深红铺得越满；达标时铺满全钮 */
+/* 进度填充：购物车合计越接近门槛，深红铺得越满；达标时铺满全钮 */
 .claim-fill {
   position: absolute; left: 0; top: 0; bottom: 0;
   background: linear-gradient(90deg, #FF5A3C 0%, #E02020 100%);

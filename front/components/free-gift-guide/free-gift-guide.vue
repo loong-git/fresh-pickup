@@ -78,7 +78,7 @@ export default {
 .fgg-mask {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   background-color: rgba(0,0,0,.5);
-  z-index: 500; /* 高于两页既有弹层（free 页最高 300 / index 页最高 400），保证引导最上层 */
+  z-index: 500; /* 高于两页既有弹层（free 页最高 200 / index 页最高 400），保证引导最上层 */
   display: flex; align-items: center; justify-content: center;
 }
 /* ✕ 关闭：屏幕右上角（顶部 safe-area 下方），白描边圆圈内含 ✕ */

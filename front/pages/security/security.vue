@@ -127,7 +127,7 @@ export default {
       pcOldPhoneCode: '', // 步骤①当前手机号验证码（本地暂存，步骤②提交时随三参数一并发送）
       pcNewPhone: '', // 步骤②新手机号
       pcNewPhoneCode: '', // 步骤②新手机号验证码
-      pcCodeSending: false, // 验证码发送中（两步按钮共用防抖，同一时刻只会点其中一个）
+      pcCodeSending: false, // 验证码发送中（两步按钮共用重入互斥，同一时刻只会点其中一个）
       pcSubmitting: false, // 「确认更换」提交中防重
       pcCountdown1: 0, // 步骤①当前手机号 60s 倒计时
       pcTimer1: null,

@@ -269,7 +269,7 @@ export default {
 			// 使用点（computeDistances/computeWalkDistances/reverseGeocode/addUserMarker）按本标记
 			// 跳过转换；门店侧（DB GCJ-02 真源）口径不变
 			userCoordIsGcj: false,
-			// 搜索框聚焦标记：onOtherAddressTap 置 true 触发聚焦，blur 后复位以便再次触发
+			// 搜索框聚焦标记：onOtherAddressTap/onOpenLocateTap 当前模板无绑定、本标记恒 false，保留待恢复入口
 			searchFocus: false,
 			// F-06 地图状态：mapReady 地图已初始化（渲染地图卡）/ mapFailed 降级标记（高德 JS 加载或渲染失败，隐地图保列表）
 			mapReady: false,
@@ -1352,7 +1352,7 @@ page {
 	color: #e02020;
 }
 
-/* 静态占位区 */
+/* 静态占位区（F-06 后模板已不引用 .empty-area，保留待未搜索态回归） */
 .empty-area {
 	display: flex;
 	flex-direction: column;
