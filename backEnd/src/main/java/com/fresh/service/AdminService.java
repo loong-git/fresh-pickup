@@ -76,7 +76,7 @@ public interface AdminService {
      * 微信支付回调拒收留痕（F-44）：把「哪一单、因为哪一条原因、回了微信什么码」落进
      * {@code admin_audit_log}，让运营在 front-admin 审计页查得到（此前只有服务器日志）。
      *
-     * <p><b>为什么落在 admin_audit_log 而不是 ops_log</b>：{@code init.sql:392} 的 ops_log 表注释明写
+     * <p><b>为什么落在 admin_audit_log 而不是 ops_log</b>：init.sql 里 {@code ops_log} 的表注释明写
      * 「本表只收商家/主理人/申请人现场动作——平台侧动作一律走 admin_audit_log」。回调裁定是平台侧事件，
      * 按本仓既有边界就归本表，<b>不新建表、不加迁移</b>。
      *

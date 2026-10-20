@@ -175,7 +175,7 @@ public class PayController {
      *    要商户 API 证书私钥才能签名，无凭据时一行都跑不起来；写出来只会得到「编译通过但从未被执行过的对账代码」，
      *    它会在 prod 里静默什么都不做——比不写更危险。连同 {@code WxPayCertificateSource} 的真实实现一起
      *    归入「凭据到手后」那批。回调拒收留痕（L-21-2）<b>已于 F-44 落地</b>：本方法的 catch 是全仓唯一写入点，
-     *    按 {@code admin_audit_log}（平台侧动作的归属表，依据 {@code init.sql:392} 的 ops_log 表注释）
+     *    按 {@code admin_audit_log}（平台侧动作的归属表，依据 init.sql 里 {@code ops_log} 的表注释）
      *    落 {@code actor=system:wx-notify / action=pay.notify_reject / target_type=order /
      *    target_id=订单号或 '-' / detail={"code","httpStatus"} 两键}，运营在 front-admin 审计页直接可查；
      *    判定层那 18 条 reject 分支一处都不自己写，成功结算路径一行都不写。

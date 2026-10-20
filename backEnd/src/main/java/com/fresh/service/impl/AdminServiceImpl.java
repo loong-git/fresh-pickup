@@ -101,7 +101,7 @@ public class AdminServiceImpl implements AdminService {
             "{\"old\":\"audit truncated\",\"new\":\"audit truncated\",\"reason\":\"audit truncated\"}";
 
     // ---- F-44（微信支付回调拒收留痕）的四枚钉死列值 + 两枚兜底常量 ----
-    //      为什么落在 admin_audit_log：init.sql:392 的 ops_log 表注释明写「本表只收商家/主理人/申请人现场动作
+    //      为什么落在 admin_audit_log：init.sql 里 ops_log 的表注释明写「本表只收商家/主理人/申请人现场动作
     //      ——平台侧动作一律走 admin_audit_log」，回调裁定是平台侧事件。列形状全部落在
     //      AdminV2ServiceImpl#FILTER_PATTERN（^[A-Za-z0-9_.:-]{1,64}$）内，运营端零改动即可筛。
 
