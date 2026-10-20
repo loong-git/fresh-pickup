@@ -40,7 +40,7 @@
 
         <!-- F-62 到货提示条：主理人确认货已到自提点后，点亮这一单的行动指引（此前 C 端永远看不到「能不能来取」）。
              点亮依据是服务端派生的 goodsArrived，不是前端按日期自己猜——批次状态只有后端读得到。
-             只认严格 true：字段缺失或为 null 一律不点亮（判据见 methods#canPickupNow）。 -->
+             只认严格 true：字段缺失或为 null 一律不点亮（判据见 order.vue 的 canPickupNow）。 -->
         <view v-if="canPickupNow(order)" class="arrive-tip">
           <text class="arrive-icon">🚚</text>
           <text class="arrive-text">货已到店，去拿货</text>

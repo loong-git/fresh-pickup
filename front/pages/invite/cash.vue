@@ -168,7 +168,7 @@
 import { mapState } from 'vuex'
 import { getCashInfo, withdrawCash, getInviteInfo } from '@/api/index.js'
 
-// prod 环境判断（口径同 config.js:11 BASE_URL）：prod 提现入口置灰，接口保留登录态
+// prod 环境判断（口径同 config.js 的 BASE_URL）：prod 提现入口置灰，接口保留登录态
 const IS_PROD = process.env.NODE_ENV === 'production'
 
 export default {

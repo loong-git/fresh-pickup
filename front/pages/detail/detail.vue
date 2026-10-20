@@ -297,7 +297,7 @@
           <text class="cart-icon">🛒</text>
           <text class="cart-badge" v-if="cartCount > 0">{{ cartCount }}</text>
         </view>
-        <!-- 中：去支付（现价合计）+ 已减金额，点击 toast 演示 -->
+        <!-- 中：去支付（现价合计）+ 已减金额，点击 goPay 真跳转（写 openCheckout 标志后 reLaunch 首页开确认订单） -->
         <view class="bar-pay" @click="goPay">
           <text class="pay-main">去支付¥{{ payText }} ›</text>
           <text class="pay-sub">已减 ¥{{ savingText }}</text>

@@ -13,7 +13,7 @@
         <view class="sticky-header" :class="{ stuck: catTabStuck }">
           <view class="red-header">
             <!-- 一体式搜索白条：🔍 + 真实 input + 竖分隔线 + "搜索"红字（点击区域 padding 0 28rpx，不再独立胶囊） -->
-            <!-- T-M3-02 搜索真实化 + 独立搜索页接管：@input 300ms 防抖即搜（不记历史），@confirm 回车与"搜索"点击同走 onSearch（跳搜索页，携已输入词） -->
+            <!-- T-M3-02 搜索真实化 + 独立搜索页接管：入口只有整条 @click="onSearch" 跳搜索页；防抖与回车即搜随搜索交互迁入搜索页而不存在 -->
             <!-- 搜索入口：整条点击跳独立搜索页（搜索交互全部在搜索页内完成） -->
             <view class="search-box" @click="onSearch">
               <text class="search-icon">🔍</text>
