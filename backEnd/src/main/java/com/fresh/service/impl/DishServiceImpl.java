@@ -114,10 +114,16 @@ public class DishServiceImpl implements DishService {
 
     @Override
     public List<Dish> listSeckill() {
-        // T-M4-03 秒杀场商品集（契约第 3 条）：seckill=1 的商品，id 升序稳定输出；
+        // T-M4-03 秒杀场商品集（契约第 3 条）：打了秒杀标、且在售/有库存/已填秒杀价的商品，id 升序稳定输出；
         // 响应直接携带 DB 真实字段（seckill/seckillPrice/soldCount/limitBuy/tags/goodRate，JSON 驼峰）
         return dishMapper.selectList(new LambdaQueryWrapper<Dish>()
                 .eq(Dish::getSeckill, 1)
+                // 只按秒杀标收录会把下架件塞进首页秒杀卡，用户点进去必吃一个 400
+                .eq(Dish::getOnSale, 1)
+                // stock 每笔下单都经 DishMapper#decreaseStock 扣减，卖空是必然事件而非假设
+                .gt(Dish::getStock, 0)
+                // 计价判据是 seckill==1 且 seckillPrice 非空（OrderServiceImpl#createOrder）：只打标不写价的行会在秒杀卡里打秒杀标却按原价收款
+                .isNotNull(Dish::getSeckillPrice)
                 .orderByAsc(Dish::getId));
     }
 }

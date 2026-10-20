@@ -26,7 +26,7 @@ public interface DishService {
     RecommendVO recommend(Long userId, Long excludeId, Integer limit);
 
     /**
-     * 秒杀场商品集（T-M4-03）：seckill=1 的商品，id 升序稳定输出，
+     * 秒杀场商品集（T-M4-03）：打了秒杀标、且在售/有库存/已填秒杀价的商品，id 升序稳定输出，
      * 直接携带 DB 真实字段（seckillPrice/soldCount/limitBuy/tags/goodRate）。
      */
     List<Dish> listSeckill();

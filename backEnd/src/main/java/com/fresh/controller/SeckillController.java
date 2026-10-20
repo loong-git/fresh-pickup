@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * 秒杀场次接口（T-M4-03，匿名可读）：
- * - dishes = seckill=1 的商品，直接返回 DB 真实字段（seckillPrice/soldCount/limitBuy/tags/goodRate，JSON 驼峰）；
+ * - dishes = 打了秒杀标、且在售/有库存/已填秒杀价的商品，直接返回 DB 真实字段（seckillPrice/soldCount/limitBuy/tags/goodRate，JSON 驼峰）；
  * - 场次固定 start=00:00 / end=23:00（契约），serverTime 取服务端时钟（ISO-8601），
  *   前端倒计时以 serverTime+end 为基准，end 过点后重新拉取——改本机时钟不再影响倒计时。
  */

@@ -124,7 +124,7 @@ public class OrderServiceImpl implements OrderService {
             }
             // 下架资格校验须前置于扣库存：错序会先做一次注定回滚的 UPDATE，并把「库存不足」的误导文案抛给用户
             if (dish.getOnSale() == null || dish.getOnSale() != 1) {
-                throw new BizException("包含已下架商品，请重新选择");
+                throw new BizException("「" + dish.getName() + "」已下架，请重新选择");
             }
             int quantity = itemDTO.getQuantity();
             // T-M4-03 限购以 dish.limit_buy 真实列为准（种子 [2,5,8] 循环），空值退回兜底表
