@@ -211,33 +211,37 @@ import '@/styles/pickup-map.css'
 // 本地兜底门店（M4-T-01：仅 GET /api/stores 请求失败时回退使用，与 M4 后端种子数据一致；
 // 页面正常运行数据一律来自接口，此处不是写死数据源）；FALLBACK 无 lng/lat 字段，
 // 走 F-06 降级链：hasCoord 豁免 → 不进地图/不参与距离排序，列表功能完整
+// ⚠ F-90 脱敏（2026-10-20）：原四家是真实门店名 + 门牌级地址，现换成与 init.sql / m4 种子**逐字相同**的演示值。
+// 本条注释原先自称「与 M4 后端种子数据一致」而 service 实为四处不同（这里写 '冷冻/冷藏'，种子里 id=1 是
+// '支持冷冻/冷藏'、2/3/4 是 '冷冻冷藏'）——那是一句失实的注释，本轮把两侧收成同一个值。
+// 这条数据一共四个副本（本文件、main.js 的 DEFAULT_PICKUP_POINT、init.sql、m4），改一处必须四处同步
 const FALLBACK_STORES = [
 	{
 		id: 1,
-		name: '高黎柱发士多店(请自备袋子谢谢)',
-		address: '广东省佛山市顺德区容桂高黎环涌西路桥灵坊23号',
-		service: '冷冻/冷藏',
+		name: '容桂东堤示范店(请自备袋子谢谢)',
+		address: '广东省佛山市顺德区容桂示范路1号',
+		service: '支持冷冻/冷藏',
 		status: 'open'
 	},
 	{
 		id: 2,
-		name: '高黎惠民百货店',
-		address: '广东省佛山市顺德区容桂高黎惠民路12号',
-		service: '冷冻/冷藏',
+		name: '容桂中堤示范店',
+		address: '广东省佛山市顺德区容桂示范东路12号',
+		service: '冷冻冷藏',
 		status: 'open'
 	},
 	{
 		id: 3,
-		name: '容桂天佑城自提点',
-		address: '广东省佛山市顺德区容桂街道天佑城B座1层',
-		service: '冷冻/冷藏',
+		name: '容桂西堤示范店',
+		address: '广东省佛山市顺德区容桂示范西街8号',
+		service: '冷冻冷藏',
 		status: 'open'
 	},
 	{
 		id: 4,
-		name: '朝阳社区便利店',
-		address: '广东省佛山市顺德区容桂朝阳路38号',
-		service: '冷冻/冷藏',
+		name: '容桂南堤示范店',
+		address: '广东省佛山市顺德区容桂示范南路38号',
+		service: '冷冻冷藏',
 		status: 'closed'
 	}
 ]

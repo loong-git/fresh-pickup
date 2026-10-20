@@ -189,22 +189,27 @@ CREATE TABLE store (
     INDEX idx_owner (owner_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自提点门店表';
 
--- 种子 4 家：沿用前端现有自提点数据（3 家营业 + 1 家停业），显式 id 保证快照引用稳定
+-- 种子 4 家（F-90 脱敏：原为真实门店名与门牌级地址、且法定代表人真名同时写在前端执照页，2026-10-20 经用户批准
+-- 全数换成演示值；用户限定「位置必须在容桂、不得超出」，故名/址/坐标三者一律取「容桂 + 示范」形态的虚构点）。
+-- 显式 id 保证快照引用稳定：orders.store_id 已引用 1/2，**id 不许重排**。
 -- owner_user_id（m18-migration.sql 同步，05 册 A2.1 演示主理人形态）：id=1 绑 user 1（主理人工作台演示店），
--- 2/3 平台直营、4 停业未入驻均为 NULL——与 m18 ⑪ 归位段同口径；既有 5 列数值零改动
+-- 2/3 平台直营、4 停业未入驻均为 NULL——与 m18 ⑪ 归位段同口径
 INSERT INTO store (id, name, address, service, status, owner_user_id) VALUES
-(1, '高黎柱发士多店(请自备袋子谢谢)', '广东省佛山市顺德区容桂高黎环涌西路桥灵坊23号', '支持冷冻/冷藏', 'open', 1),
-(2, '高黎惠民百货店', '广东省佛山市顺德区容桂高黎惠民路12号', '冷冻冷藏', 'open', NULL),
-(3, '容桂天佑城自提点', '广东省佛山市顺德区容桂街道天佑城B座1层', '冷冻冷藏', 'open', NULL),
-(4, '朝阳社区便利店', '广东省佛山市顺德区容桂朝阳路38号', '冷冻冷藏', 'closed', NULL);
+(1, '容桂东堤示范店(请自备袋子谢谢)', '广东省佛山市顺德区容桂示范路1号', '支持冷冻/冷藏', 'open', 1),
+(2, '容桂中堤示范店', '广东省佛山市顺德区容桂示范东路12号', '冷冻冷藏', 'open', NULL),
+(3, '容桂西堤示范店', '广东省佛山市顺德区容桂示范西街8号', '冷冻冷藏', 'open', NULL),
+(4, '容桂南堤示范店', '广东省佛山市顺德区容桂示范南路38号', '冷冻冷藏', 'closed', NULL);
 
--- 坐标真源（m13-migration.sql 同步，F-06.7.2 R6）：高德 Geocoder/PlaceSearch 双源实测 2026-10-05，
--- GCJ-02 与前端高德底图同源（前端门店坐标直用不转换）；id=2 为 PlaceSearch 纠错值
--- （Geocoder 门牌号级误匹配偏 8km，详见 m13-migration.sql 头注）。UPDATE 幂等可重跑
-UPDATE store SET lng = 113.341634, lat = 22.779372 WHERE id = 1;
-UPDATE store SET lng = 113.345527, lat = 22.774019 WHERE id = 2;
-UPDATE store SET lng = 113.270704, lat = 22.760571 WHERE id = 3;
-UPDATE store SET lng = 113.243995, lat = 22.757834 WHERE id = 4;
+-- 坐标真源（m13-migration.sql 同步）：GCJ-02，与前端高德底图同源（门店坐标直用不转换）；
+-- F-90 起这 4 个点是**演示值**，不再是高德对真实门牌的实测结果。取值方式必须写成可复算的，否则下一个人
+-- 无法判断它们是否"随便填的"：把原 id=1(113.341634,22.779372) 与 id=4(113.243995,22.757834) 连成一条线
+-- （斜率 0.220588 度lat/度lng），在 lng 上取 113.332 / 113.310 / 113.290 / 113.270 四个等距点反算 lat。
+-- 这样四点必落在原门店带（容桂街道境内、西北—东南主轴）上，高德路径规划有路网，
+-- 而又不与任何真实门牌重合。UPDATE 幂等可重跑
+UPDATE store SET lng = 113.332000, lat = 22.777247 WHERE id = 1;
+UPDATE store SET lng = 113.310000, lat = 22.772394 WHERE id = 2;
+UPDATE store SET lng = 113.290000, lat = 22.767982 WHERE id = 3;
+UPDATE store SET lng = 113.270000, lat = 22.763570 WHERE id = 4;
 
 -- ----------------------------
 -- 用户优惠券表（T-M4-02）
