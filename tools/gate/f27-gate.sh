@@ -16,29 +16,49 @@ chk() { # chk 名称 实际 期望
 # （原先这里有一行 BASE_REF=dee75b2 的 F-27 期 diff 基线，全脚本没引用过它——纯注释批的门禁
 #  一律看「工作区 vs HEAD」，把某个历史提交写死在这里只会误导下一个读脚本的人，故删除。）
 
-say "=== 1) 面积：只许 backEnd/src/main + front-merchant + front-partner ==="
+say "=== 1) 面积：只许 backEnd/src/main + front-merchant + front-partner + tools/gate ==="
 CHANGED=$(git diff --name-only 2>/dev/null)
-OUT=$(echo "$CHANGED" | grep -vE '^(backEnd/src/main/|front-merchant/|front-partner/)' || true)
+# tools/gate/ 是 F-76 加进来的：门禁自身的纯注释批（改判据说明、改注释里的指针）此前必假红
+# （实测 F-76 那批 §1 报「越界 4 文件」）。加宽这一条不降低保护——本门禁真正的杀伤力在 §2（纯注释）
+# 与 §3（add==del 零行位移），拿 f27 验收一个改了工具**代码**的批，§2 一定红。
+OUT=$(echo "$CHANGED" | grep -vE '^(backEnd/src/main/|front-merchant/|front-partner/|tools/gate/)' || true)
 chk "越界文件（应为空）" "$([ -z "$OUT" ] && echo yes || echo no)" "yes"
 [ -n "$OUT" ] && say "$OUT" | sed 's/^/      /'
 # front/** 与 front-admin/** 必须零字节改动（契约 FC-5）
 NFRONT=$(echo "$CHANGED" | grep -cE '^(front/|front-admin/)' || true)
 chk "front/ 与 front-admin/ 改动文件数" "$NFRONT" "0"
 
-say "=== 2) 纯注释：非注释变更行数必须 = 0（原始行判据，不剥空白）==="
+say "=== 2) 纯注释：非注释变更行数必须 = 0（原始行判据 ∪ 块注释续行状态机；判不准一律算非注释）==="
+# M1（F-76）：行号归属与块状态机在 tools/gate/probes/block-comment-lines.cjs（两个审计器共用同一套块种定义），
+# bash 只做取数与判定；helper 输出行数与 git diff 对不上就退回旧的行首判据（旧判据更严，只会假 FAIL 不会放行）。
 NONCOMMENT=0; TOTCHG=0
 for f in $CHANGED; do
-  while IFS= read -r line; do
-    body=${line:1}                      # 去掉行首的 + / -
-    TOTCHG=$((TOTCHG+1))
-    if [[ "$body" =~ ^[[:space:]]*(//|\*|/\*|\<!--) ]]; then
-      continue
-    elif [[ "$body" =~ ^[[:space:]]*$ ]]; then
-      NONCOMMENT=$((NONCOMMENT+1)); say "      空行变动: $f"
-    else
-      NONCOMMENT=$((NONCOMMENT+1)); say "      非注释: $f :: ${body:0:70}"
-    fi
-  done < <(git diff -U0 -- "$f" 2>/dev/null | grep -E '^[-+]' | grep -vE '^([-+]{3})' | grep -v '^\ No newline' || true)
+  HC=$(node tools/gate/probes/block-comment-lines.cjs --diff-judge "$f" 2>/dev/null || true)
+  EXPECT=$(git diff -U0 -- "$f" 2>/dev/null | grep -E '^[-+]' | grep -vE '^([-+]{3})' | grep -v '^\ No newline' | grep -c '' || true)
+  GOT=$(printf '%s' "$HC" | grep -c '' || true)
+  if [ -n "$HC" ] && [ "$GOT" = "$EXPECT" ]; then
+    while IFS=$'\t' read -r kind body; do
+      TOTCHG=$((TOTCHG+1))
+      case "$kind" in
+        COMMENT) ;;
+        BLANK) NONCOMMENT=$((NONCOMMENT+1)); say "      空行变动: $f" ;;
+        *) NONCOMMENT=$((NONCOMMENT+1)); say "      非注释: $f :: ${body:0:70}" ;;
+      esac
+    done <<< "$HC"
+  else
+    say "      状态机不可用（helper 行数=$GOT git 行数=$EXPECT）→ 退回行首判据: $f"
+    while IFS= read -r line; do
+      body=${line:1}                      # 去掉行首的 + / -
+      TOTCHG=$((TOTCHG+1))
+      if [[ "$body" =~ ^[[:space:]]*(//|\*|/\*|\<!--) ]]; then
+        continue
+      elif [[ "$body" =~ ^[[:space:]]*$ ]]; then
+        NONCOMMENT=$((NONCOMMENT+1)); say "      空行变动: $f"
+      else
+        NONCOMMENT=$((NONCOMMENT+1)); say "      非注释: $f :: ${body:0:70}"
+      fi
+    done < <(git diff -U0 -- "$f" 2>/dev/null | grep -E '^[-+]' | grep -vE '^([-+]{3})' | grep -v '^\ No newline' || true)
+  fi
 done
 say "  变更行合计=$TOTCHG"
 chk "非注释变更行数" "$NONCOMMENT" "0"
@@ -56,20 +76,20 @@ PA=$(node tools/gate/pointer-audit.cjs 2>&1 | head -1 || true)
 say "  $PA"
 SUS=$(echo "$PA" | sed -n 's/.*可疑 \([0-9]\+\) 条.*/\1/p' || true)
 chk "可疑条数" "${SUS:-NA}" "0"
-# DRIFT 线索总量「不许变多」——基线不写死（原来手填 F-27 期的 61，本仓已降到个位数，
-# 写死的数字会一路失真）。改读 tools/gate/baselines/drift_total_baseline.txt（F-48 起基线进版本库）；
-# 没有该文件就退化成只报数不判红。
+# DRIFT 线索**绝对总数**自 F-76 起只报数、不判红。原判据「不许变多」读 tools/gate/baselines/drift_total_baseline.txt（=7），
+# 而实测改前 14、改后 11 全都 >7 → **这道门在 HEAD 上是恒红的**，等于一条"存在但每次都假红"的判据。
+# 恒假红比不生效更糟：它训练每个跑门禁的人忽略 FAIL。降格的理由不是数字难看，而是它与 f28 §7.7 的定案直接冲突
+# （`f28-gate.sh:164` 原文「判据只取 DEAD 不升，绝对数按 F-27 定案当线索用」）——同一个 --drift 读数，
+# 一个门禁拿它判红、另一个只当线索，两套真相必然有一套是错的。硬门只留 f28 §7.7 那道（DEAD ≤ 基线）。
 node tools/gate/pointer-audit.cjs --drift > logs/out/f27_drift_after.txt 2>&1 || true
 DAFTER=$(sed -n 's/.*可疑 \([0-9]\+\) 条.*/\1/p' logs/out/f27_drift_after.txt | head -1 || true)
-DBASE=$(cat tools/gate/baselines/drift_total_baseline.txt 2>/dev/null || echo "")
-say "  DRIFT 线索总量=${DAFTER:-NA}（基线=${DBASE:-未设}；A 类噪音留着是对的，所以只判「不许变多」）"
-if [ -n "${DAFTER:-}" ] && [ -n "$DBASE" ] && [ "$DAFTER" -gt "$DBASE" ]; then say "      FAIL DRIFT 变多"; FAILS=$((FAILS+1)); fi
+say "  DRIFT 线索总量=${DAFTER:-NA}（只报数；分流后的 DEAD 才判红，见 f28 §7.7）"
 
 say "=== 5) 语法与编译 ==="
 export JAVA_HOME="D:\\jdk_17"; export PATH="/d/jdk_17/bin:$PATH"
 for f in $CHANGED; do
   case "$f" in
-    *.js) node --check "$f" >/dev/null 2>&1 && say "  OK   $f" || { say "  FAIL $f 语法"; FAILS=$((FAILS+1)); } ;;
+    *.js|*.cjs|*.mjs) node --check "$f" >/dev/null 2>&1 && say "  OK   $f" || { say "  FAIL $f 语法"; FAILS=$((FAILS+1)); } ;;
     *.vue)
       # 权威姿势=模块模式：把 <script> 段原样抽到 .mjs 再 node --check。
       # 用「剥 import + new Function」会在**多行 import**上假报错（本仓 dish-edit.vue 就因此被误判过一次，

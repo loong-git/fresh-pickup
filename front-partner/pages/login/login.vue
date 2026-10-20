@@ -15,7 +15,7 @@
 
     <!-- ==================== 3. 「名下还没有绑定的自提点」引导态（stores 回 403）
              与商家端「暂无商家权限」同源但结论不同：主理人身份不占 user.role，而是
-             store.owner_user_id 的归属集合（AuthInterceptor:108-118 集合为空即 403）。
+             store.owner_user_id 的归属集合（AuthInterceptor.java 的 ATTR_PARTNER_STORE_IDS 集合为空即 403）。
              账号本身是登录成功的，故不清登录态、不跳工作台，给两条明确去向：
              ①「去申请入驻」（pages/apply/apply 已注册于 pages.json:34，真 navigateTo 过去）
              ②「重新检查」（平台刚给这个账号绑店后自救，不用重收验证码）——它带 429 秒级冷却 ==================== -->

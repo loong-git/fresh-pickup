@@ -1,5 +1,7 @@
 const fs = require("fs");
 const path = require("path");
+// F-76 M3：块注释续行的判据与 f27 §2 共用同一个 helper，避免「f27 认为是注释、审计器认为不是」两套真相。
+const bc = require("./probes/block-comment-lines.cjs");
 
 // 扫描四端源码里「注释中的跨文件行号指针」，逐条与真实代码对账，只吐可疑项。
 // 判据（保守，宁可多报由人判）：
@@ -147,6 +149,7 @@ function commitAt(commit) {
 
 for (const f of files) {
   const lines = fs.readFileSync(f, "utf8").split(/\r?\n/);
+  const inBlock = bc.insideClosedMask(lines, f);
   lines.forEach((raw, idx) => {
     const trimmed = raw.trim();
     // 只看注释行，避免把代码里的字符串常量当指针
@@ -155,7 +158,8 @@ for (const f of files) {
     // 造成的噪声，也有真漂移）。那不是本批的债，混进来只会让基线被"顺手放宽"。
     // 所以 F-49 只让 `.sql` 当**被指向的靶子**（今天因此捞出 6 条 Java→init.sql/m17 的失效指针），
     // 来源面留给单独一批（先真裁定，再动基线）。
-    if (!/^(\/\/|\/\*|\*|<!--|#)/.test(trimmed) && !/(\*|\/\/).*[A-Za-z0-9_-]+\.(java|vue|js|ts):[0-9]/.test(raw)) return;
+    // F-76 M3 并集的第三支：`<!--`…`-->` / `/*`…`*/` 里的裸续行也是注释行（原两支一字未动，见 R-B）。
+    if (!/^(\/\/|\/\*|\*|<!--|#)/.test(trimmed) && !/(\*|\/\/).*[A-Za-z0-9_-]+\.(java|vue|js|ts):[0-9]/.test(raw) && !inBlock[idx]) return;
     let m;
     RE.lastIndex = 0;
     while ((m = RE.exec(raw)) !== null) {

@@ -82,8 +82,8 @@
         </view>
 
         <!-- 确认到货：仅 status ∈ {planned, arriving} 可点（与后端四条件 UPDATE 的 IN 白名单同集合，
-             ArrivalBatchMapper:46-49）。confirmed 置灰并显确认时间；short 也置灰——后端对它给 400
-             「该批次已登记短少，不可直接确认」（PartnerStoreServiceImpl.java:328-331），按钮留着就是诱骗报错 -->
+             ArrivalBatchMapper#confirmById）。confirmed 置灰并显确认时间；short 也置灰——后端对它给 400
+             「该批次已登记短少，不可直接确认」（PartnerStoreServiceImpl.java 的 BATCH_SHORT），按钮留着就是诱骗报错 -->
         <button
           class="btn-main batch-confirm"
           :class="{ 'btn-disabled': !canConfirm(b) || confirmingId !== null || writeRetryLock > 0 }"

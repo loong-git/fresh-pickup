@@ -1,5 +1,7 @@
 const fs = require("fs");
 const path = require("path");
+// F-76 M3：块注释续行判据与 f27 §2、pointer-audit 共用同一个 helper（同一套块种定义，不留两套真相）。
+const bc = require("./probes/block-comment-lines.cjs");
 
 // F-30 具名引用审计器：验「注释里写的符号名到底存不存在」。
 // 为什么需要它：F-26/F-27 把 52 条行号指针换成符号名，pointer-audit 的行号审计面从 195 缩到 144，
@@ -55,11 +57,12 @@ function content(f) {
   if (!contentCache.has(f)) contentCache.set(f, fs.readFileSync(f, "utf8"));
   return contentCache.get(f);
 }
-function isCommentLine(line) {
+function isCommentLine(line, inBlock) {
   const t = line.trim();
   // `--` 是 SQL 的现行注释（F-49 补：m20/init.sql 的整段口径注释里全是 `Xxx.java:NN` 与 `Foo#bar` 引用，
   // 旧版把 .sql 加了进 EXTS 却漏了这一条 → SQL 注释里的引用一条都没验过，还打着「可疑 0」的绿）。
-  return /^(\/\/|\/\*|\*|<!--|--|#)/.test(t) || /(?:\/\/|\*)[^\n]*[A-Za-z0-9_]+[#.]/.test(line);
+  // F-76 M3 并集的第三支 inBlock：`<!--`…`-->` / `/*`…`*/` 的裸续行（原两支一字未动，见 R-B）。
+  return /^(\/\/|\/\*|\*|<!--|--|#)/.test(t) || /(?:\/\/|\*)[^\n]*[A-Za-z0-9_]+[#.]/.test(line) || inBlock === true;
 }
 
 const RE_HASH = /([A-Za-z0-9_]{3,})#([a-zA-Z_][a-zA-Z0-9_]*)((?::[0-9]+(?:\s*[-/]\s*[0-9]+)?))?/g;
@@ -87,8 +90,9 @@ let checked = 0, hybrid = 0, sections = 0, external = 0, named = 0;
 
 for (const f of files) {
   const lines = content(f).split(/\r?\n/);
+  const inBlock = bc.insideClosedMask(lines, f);
   lines.forEach((raw, idx) => {
-    if (!isCommentLine(raw)) return;
+    if (!isCommentLine(raw, inBlock[idx])) return;
     let m;
     RE_HASH.lastIndex = 0;
     while ((m = RE_HASH.exec(raw)) !== null) {

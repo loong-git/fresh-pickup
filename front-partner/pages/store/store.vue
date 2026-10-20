@@ -186,7 +186,7 @@
 //    @JsonIgnoreProperties(ignoreUnknown = true) 上就被丢掉（不报错也不生效），前端留输入口就是静默假成功；
 // ③ contactPhone 的回包是 PhoneMask.mask 的脱敏值（RD 红线，PartnerStoreServiceImpl#toOwnerView 只出 mask 结果），
 //    明文根本到不了本页，所以这一栏的初值恒为空串、留空恒等于「不改」，本页不给「清空电话」这条路（见 phoneHint）；
-// ④ 四态单值互斥 loading|error|empty|ready（照 workspace.vue:147-148 / verify.vue:138 的纪律，不叠布尔；F-25/P-4 重测），
+// ④ 四态单值互斥 loading|error|empty|ready（照 workspace.vue / verify.vue 的 viewState 单值纪律，不叠布尔；F-25/P-4 重测），
 //    冷却锁只在 code===429 起，onUnload 成对清定时器，所有请求走 @/api/index.js（页内零原生请求）。
 // ⑤ 「未保存离开」守卫（FE-11）：有改动时返回弹一次 showModal，总闸是一枚 leaving 布尔，
 //    写法照母版 front-merchant/pages/dish-edit/dish-edit.vue 的 leaving（不造第二套状态机）；

@@ -20,7 +20,7 @@
 
     <!-- ==================== 3. 空态：名下还没有可用的自提点
              两个来源都落这里（见 script）：① GET /api/partner/stores 回 403——token 有效但
-             store.owner_user_id 归属集合为空（AuthInterceptor:108-118，R.CODE_FORBIDDEN）；
+             store.owner_user_id 归属集合为空（AuthInterceptor.java 的 ATTR_PARTNER_STORE_IDS，R.CODE_FORBIDDEN）；
              ② 200 但数组为空（后端走不到，纯防契约漂移的兜底闸，绝不因此放行渲染工作台内容）。
              这不是错误态：重试永远失败（店不会自己长出来），故给的两条去向是「申请入驻」与「换个账号」，
              另留一条「重新检查」——平台刚把门店绑定到这个手机号时，点它只重发一次请求，不必重收验证码。 ==================== -->
@@ -41,7 +41,7 @@
           <text class="store-name">{{ storeName }}</text>
           <!-- 多店主理人：本页取列表第一条展示，并把「共 N 家店」如实标出来。
                一期不做门店切换控件，但把「本页正在展示的这家」的 id 透传给门店信息页（见 onEntryTap），
-               否则 store 页会退回后端缺省「名下 id 最小的一家」（PartnerStoreServiceImpl.java:360-369），
+               否则 store 页会退回后端缺省「名下 id 最小的一家」（PartnerStoreServiceImpl#resolveStoreId），
                多店时两页显示的很可能不是同一家。 ==================== -->
           <text v-if="multiStoreText" class="count-tag">{{ multiStoreText }}</text>
         </view>

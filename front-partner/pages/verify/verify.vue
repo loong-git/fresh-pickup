@@ -49,7 +49,7 @@
     </view>
 
     <!-- ==================== 3. 待取清单的日期条 ====================
-             步进基准优先本次请求带出去的 queryDate（照 pickup-plan.vue:239-250 定稿）：
+             步进基准优先本次请求带出去的 queryDate（照 pickup-plan.vue 的 stepDay 定稿）：
              慢网下连点时后端回显还是上一轮的日期，以它为准会把第 2、3 次点击算成同一天的 +1（点被吞掉） -->
     <view class="card date-card">
       <view class="date-field-row">
