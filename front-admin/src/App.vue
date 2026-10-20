@@ -11,7 +11,7 @@
         <router-link to="/audit-logs" class="nav-link" :class="{ active: isActive('/audit-logs') }">审计记录</router-link>
         <!-- F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 只读列表 + 一个 AdminController 旧写端点）。
              FE-G6-10：这四条会改数据，挂橙点区分于前两条只读页，图例跟在最后一条后面。 -->
-        <router-link to="/orders" class="nav-link" :class="{ active: isActive('/orders') }"><span class="nav-dot" title="本页会改数据"></span>核销台</router-link>
+        <router-link to="/orders" class="nav-link" :class="{ active: isActive('/orders') }" title="全量订单列表 + 代门店核销/取消。主理人端那个按取货码核销的「核销台」不在这个入口。"><span class="nav-dot" title="本页会改数据"></span>订单管理</router-link>
         <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }"><span class="nav-dot" title="本页会改数据"></span>商品管理</router-link>
         <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
         <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }"><span class="nav-dot" title="本页会改数据"></span>入驻审核</router-link>

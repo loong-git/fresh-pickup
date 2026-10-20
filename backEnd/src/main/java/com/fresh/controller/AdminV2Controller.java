@@ -17,7 +17,7 @@ import java.util.Map;
  * <b>GET 映射</b>——大盘（四指标 + F-50 的当日回调拒收两键）+ 审计日志分页 + 四条运营列表（orders / dishes / reviews / store-applies）。
  * v2 <b>至今不挂任何写映射</b>（POST/PUT/DELETE 三类一个都不出现，验收断言「写映射 0、GET 映射恰 6」，
  * 与本文件的注解计数逐字相等）：
- * 核销台/商品管理/评价审核/入驻审核四个 P0 页的<b>写</b>动作仍走 {@link AdminController} 的旧 5 端点
+ * 订单管理/商品管理/评价审核/入驻审核四个 P0 页的<b>写</b>动作仍走 {@link AdminController} 的旧 5 端点
  * （D-7 明令不在 v2 重复造写接口），本批给它们的是<b>列表数据源</b>，两者不重叠。
  *
  * <p><b>鉴权只认运营 JWT</b>：六条端点<b>方法体</b>第一行调 {@link AdminController#requireAdminJwtOnly}（F-20.6 第 6 条备好的那把闸门，
@@ -113,7 +113,7 @@ public class AdminV2Controller {
     }
 
     /**
-     * 运营端订单列表（F-20.18，{@code GET /api/admin/v2/orders}，核销台的数据源）：
+     * 运营端订单列表（F-20.18，{@code GET /api/admin/v2/orders}，订单管理页的数据源）：
      * {@code ?pageNum=&pageSize=&status=&storeId=&date=} →
      * {@code {list:[{id,totalPrice,address,phone,pickupDate,status,createTime,updateTime,storeId,storeName,storeAddress,payStatus,payTime}], total, pageNum, pageSize, filters:{status,storeId,date}}}。
      * <p>闸门/限流/返回类型与前两条<b>逐字同一套</b>（D-14）：{@code requireAdminJwtOnly} 复用、不复制第二份三重判定；

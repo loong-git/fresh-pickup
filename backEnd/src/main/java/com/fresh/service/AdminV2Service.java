@@ -79,7 +79,7 @@ public interface AdminV2Service {
     // ------------------------------------------------------------------
 
     /**
-     * 运营端订单列表（{@code GET /api/admin/v2/orders}），核销台的数据源。
+     * 运营端订单列表（{@code GET /api/admin/v2/orders}），订单管理页的数据源。
      *
      * @param pageNum  缺省 1；&lt;1 或脏值 → 400（不夹到边界）
      * @param pageSize 缺省 20；值域 [1,100]，越界 → 400

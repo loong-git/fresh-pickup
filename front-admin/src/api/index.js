@@ -346,7 +346,7 @@ export function getAdminAuditLogs(pageNum, pageSize, filters) {
 // 本层与页面都不许拼回明文。
 
 /**
- * 运营端订单列表（核销台数据源）：GET /api/admin/v2/orders
+ * 运营端订单列表（订单管理页数据源）：GET /api/admin/v2/orders
  * 行内键（AdminV2ServiceImpl#orders 里逐键重拼的白名单，AdminV2Controller 的 javadoc 同一份）：
  * id,totalPrice,**address**,phone,pickupDate,status,createTime,updateTime,storeId,storeName,storeAddress,payStatus,payTime。
  * ⚠ `pickup_code` / `user_id` / `client_request_id` 三键在 SQL 层连列都没 SELECT（D-15 禁下发），

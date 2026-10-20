@@ -269,7 +269,7 @@ public class AdminV2ServiceImpl implements AdminV2Service {
     }
 
     /**
-     * 运营端订单列表（F-20.18，核销台数据源）。与 auditLogs 同一套骨架：分页闸门 → 筛选闸门 →
+     * 运营端订单列表（F-20.18，订单管理页数据源）。与 auditLogs 同一套骨架：分页闸门 → 筛选闸门 →
      * 独立 COUNT → 越界短路 → 取页 → 逐键重拼 → 回显 filters。
      * <p>脱敏只在这一层发生：SQL 取回的是 {@code phone} 原文（否则就得在 SQL 里 CONCAT 出第二份掩码口径，
      * 而 D-15 点名复用 {@link PhoneMask}），出参前一行 {@code PhoneMask.mask} 把它换成 {@code 138****1234}，

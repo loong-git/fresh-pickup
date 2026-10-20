@@ -4,7 +4,7 @@
          只在 loading/error/forbidden 块内出现，ready 态一个字都不露，运营在日常态读不出这一页会不会动数据。
          本页有核销与取消两个写动作，所以常驻「本页会改数据」。 -->
     <div class="page-head">
-      <h2 class="page-title">核销台</h2>
+      <h2 class="page-title">订单管理</h2>
       <el-tag type="danger" effect="dark" size="small" class="mode-badge">本页会改数据</el-tag>
     </div>
     <p class="page-note">
@@ -155,7 +155,7 @@
 </template>
 
 <script setup>
-// 核销台（F-20.22 Step 5b-2 四页之一）：
+// 订单管理（F-20.22 Step 5b-2 四页之一；原名「核销台」，与主理人端 verify.vue 撞名，2026-10-20 改）：
 //   列表 = GET /api/admin/v2/orders（5b-1 交付的只读 v2 列表；status/storeId/date 三个筛选全可选、精确等值）
 //   写   = PUT /api/admin/orders/{id}/status（AdminController 旧面，运营 JWT 第二轨，F-20.17 事实 2 已实测整条写链路可用）
 // 三条本页级纪律：

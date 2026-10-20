@@ -29,7 +29,7 @@ const routes = [
   },
   // F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 的 v2 只读列表 + 一个 AdminController 旧写端点）。
   // 与既有两页同一套 requiresAuth: true —— 守卫读的是同一个 getStoredToken()，四页新页不必各写一条守卫。
-  // 四页一律动态 import：核销台/商品管理/评价审核/入驻审核各自的表与写侧文案不进首屏包。
+  // 四页一律动态 import：订单管理/商品管理/评价审核/入驻审核各自的表与写侧文案不进首屏包。
   {
     path: '/orders',
     name: 'orders',
