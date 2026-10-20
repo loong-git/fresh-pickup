@@ -138,7 +138,7 @@
           <button class="btn-sub" :class="{ 'btn-sub-disabled': writeBlocked || busySale || onSale === 0 || writeGates.sale.seconds > 0 }" :disabled="writeBlocked || busySale || onSale === 0 || writeGates.sale.seconds > 0" @click="changeOnSale(0)"><text>下架</text></button>
         </view>
         <!-- 语义（后端已改）：on_sale=0 既撤出推荐位，也会被下单链路硬拦
-             （OrderServiceImpl:120 拒 on_sale!=1，文案「包含已下架商品，请重新选择」），故 hint 照实说「不能下单」 -->
+             （OrderServiceImpl#createOrder 的 for 循环拒 on_sale!=1，文案「〈商品名〉已下架，请重新选择」），故 hint 照实说「不能下单」 -->
         <text class="field-hint">下架后该商品不能下单，同时已从推荐位撤出</text>
         <!-- 上下架支的常驻反馈行（X-7b）：两个按钮点的是同一个方法，因此这一行报的就是同一把锁
              （MerchantDishController#setOnSale）；秒数只从 writeGates.sale 那一枚现取 -->
@@ -244,7 +244,7 @@ function categoryRetryGapMs(res) {
   const n = categoryBackendSeconds(res)
   return n > 0 ? n * 1000 : CATEGORY_RETRY_GAP_FALLBACK_MS
 }
-// 背景色合法形态（FEB-5）：C 端 detail.vue:28 把它绑到 background 简写（不是 background-color），
+// 背景色合法形态（FEB-5）：C 端 detail.vue 的 slide-poster 用 background 简写绑 g.bg（由 dish.bgColor 衍生，不是 background-color），
 // url(//a.co/x) 这类是「合法 CSS」——只在本地预览上兜底不够，脏值必须在下发前就拦掉。
 // 本页预览（safeColor）与提交校验（validate）共用这一份正则
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
@@ -980,7 +980,7 @@ export default {
       if ((this.form.emoji || '').length > 50) return fail('表情符号过长（50 字以内）', 'emoji')
       const bgColor = (this.form.bgColor || '').trim()
       if (bgColor.length > 20) return fail('背景色值过长（20 字以内）', 'bgColor')
-      // FEB-5：本页预览（safeColor）拦不住下发——脏值照原样进库，而 C 端 detail.vue:28 绑的是 background 简写，
+      // FEB-5：本页预览（safeColor）拦不住下发——脏值照原样进库，而 C 端 detail.vue 的 slide-poster 绑的是 background 简写（g.bg 由 dish.bgColor 衍生），
       // url(//a.co/x) 是合法 CSS（外呼追踪面）。非空且不是 #RGB/#RRGGBB/#RRGGBBAA 就拦在提交前
       if (bgColor && !HEX_COLOR_RE.test(bgColor)) return fail('背景色请用 #RRGGBB 形式，如 #FFF1E6', 'bgColor')
       return null

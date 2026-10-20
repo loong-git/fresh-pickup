@@ -188,7 +188,7 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
      * 看板汇总（契约 F-19.2 D-4 的 ①②③，一行四列）：
      * ① {@code gmvBeforeCoupon} = {@code IFNULL(SUM(oi.price*oi.quantity),0)}——**券前**口径：
      *   {@code oi.price} 是下单时的成交单价快照（秒杀件为秒杀价，OrderServiceImpl:146），
-     *   而 {@code orders.total_price} 是券抵扣后的订单级金额（OrderServiceImpl:161），两者天然差一张券，
+     *   而 {@code orders.total_price} 是券抵扣后的订单级金额（OrderServiceImpl#createOrder 落库前减 couponAmount），两者天然差一张券，
      *   所以本列不叫「已收款」，出参文案随 D-5 口径隔离卡说明。
      * ② {@code orderCount} = {@code COUNT(DISTINCT oi.order_id)}（明细级去重，一笔多菜订单只算一单；
      *   上方 countPickupOrdersPerStore 那条注释说过「聚合行里的 dish 级 orderCount 不能当单级数用」，

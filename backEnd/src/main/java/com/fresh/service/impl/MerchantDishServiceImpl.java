@@ -83,7 +83,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
 
     /**
      * 卡片背景色形态白名单（BE-4① / F-13.10 #4）：# + 3/6/8 位十六进制，或空串/null。
-     * 为什么 @Size(max=20) 挡不住：C 端 front/pages/detail/detail.vue:28 绑的是 **background 简写**，
+     * 为什么 @Size(max=20) 挡不住：C 端 front/pages/detail/detail.vue 的 slide-poster 用 **background 简写**绑 g.bg（由 dish.bgColor 衍生），
      * `url(//a.co/x)` 只有 12 字符、是合法 CSS → 商家可把任意外链塞进背景并让全站访客去请求它。
      * 正则与商家端 front-merchant/pages/dish-edit/dish-edit.vue 的 safeColor（computed）同一字符集
      * （那里写 /^#[0-9a-fA-F]{3,8}$/，本处按简报钉成 3|6|8 三档、并用 CASE_INSENSITIVE 覆盖它的 A-F，

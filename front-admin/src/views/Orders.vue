@@ -110,7 +110,7 @@
              库里 orders.address 实测 <b>71/71 全是空串</b>（nulls=0、empties=71、valued=0），
              首屏 20 行该列一律挂 .muted 显示空白——一列固定占 180px 的宽度、却永远没有内容，
              只会把真正有信息的列挤出横向滚动区。写侧也没有任何路径会给它值：
-             OrderServiceImpl:98 只是透传 C 端 dto.getAddress()（本仓 C 端是自提模式，不下发该字段），
+             OrderServiceImpl#createOrder 只是透传 C 端 dto.getAddress()（本仓 C 端是自提模式，不下发该字段），
              FreeServiceImpl:211 直接写死 ""。所以<b>本页不再渲染这一列</b>；
              后端出参的 address 键照旧下发（不改后端、不改库），页面不读它就是了。 -->
         <el-table-column label="门店 ID" min-width="90">
