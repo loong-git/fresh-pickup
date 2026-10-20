@@ -252,7 +252,7 @@
             <text class="cart-total-symbol">¥</text>
             <text class="cart-total-price">{{ fmtPrice(cartTotalPrice) }}</text>
           </view>
-          <text class="cart-reduced">已减 ¥{{ fmtPrice(cartSaving) }}</text>
+          <text class="cart-reduced" v-if="showCartSaving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
         </view>
       </view>
       <button class="btn-pay" @click="goPayFromFree">
@@ -290,7 +290,7 @@
         <view class="helper-bar">
           <text class="hb-title">凑单助手</text>
           <text class="hb-divider">|</text>
-          <text class="hb-text">已减 {{ fmtPrice(cartSaving) }} 元，下单立享</text>
+          <text class="hb-text" v-if="showCartSaving">已减 {{ fmtPrice(cartSaving) }} 元，下单立享</text>
         </view>
         <scroll-view class="cart-popup-scroll" scroll-y>
           <view v-if="isCartEmpty" class="cart-popup-empty"><text>购物车是空的，去挑点好货吧</text></view>
@@ -310,7 +310,7 @@
                   <text class="fci-name">{{ item.name }}</text>
                 </view>
                 <view class="fci-price-row">
-                  <text class="fci-original">¥{{ fmtPrice(item.originalPrice) }}</text>
+                  <text class="fci-original" v-if="canShowOriginal(item)">¥{{ fmtPrice(item.originalPrice) }}</text>
                   <view class="fci-price-line">
                     <text class="fci-symbol">¥</text>
                     <text class="fci-price">{{ fmtPrice(item.price) }}</text>
@@ -349,7 +349,7 @@
               <text class="fci-symbol">¥</text>
               <text class="ctb-price-num">{{ fmtPrice(cartTotalPrice) }}</text>
             </view>
-            <text class="ctb-saving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
+            <text class="ctb-saving" v-if="showCartSaving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
           </view>
           <button class="btn-pay-popup" :class="{ 'btn-pay-disabled': isCartEmpty }" @click="payFromCartFree"><text>立即支付</text></button>
         </view>
@@ -491,7 +491,7 @@ export default {
   },
   computed: {
     ...mapState(['user', 'cart', 'pickupPerson']),
-    ...mapGetters(['cartCount', 'cartTotalPrice', 'isCartEmpty', 'cartSaving', 'checkedCount']),
+    ...mapGetters(['cartCount', 'cartTotalPrice', 'isCartEmpty', 'cartSaving', 'showCartSaving', 'checkedCount']),
     // 管理模式是否全选（口径同首页 allChecked：购物车非空且全部已勾选）
     allChecked() { return this.cart.length > 0 && this.cart.every(item => item.checked) },
     // 已勾选项列表（管理模式批量删除遍历用，口径同首页 checkedItems）
@@ -1025,6 +1025,10 @@ export default {
       const d = this.dishOf(item)
       if (d && typeof d.seckill === 'boolean') return d.seckill
       return item.unitSave > 1
+    },
+    // 弹层商品行划线价展示判据：条件式只在 store 的 hasRealOriginalPrice getter 里，本页只引用
+    canShowOriginal(item) {
+      return this.$store.getters.hasRealOriginalPrice(item.originalPrice, item.price)
     },
     // 折扣标签：按 unitSave/originalPrice 换算（如 7.6折），算不出返回空串省略（首页 discountRate 同款）
     discountRate(item) {

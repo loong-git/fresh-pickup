@@ -300,7 +300,7 @@
         <!-- 中：去支付（现价合计）+ 已减金额，点击 goPay 真跳转（写 openCheckout 标志后 reLaunch 首页开确认订单） -->
         <view class="bar-pay" @click="goPay">
           <text class="pay-main">去支付¥{{ payText }} ›</text>
-          <text class="pay-sub">已减 ¥{{ savingText }}</text>
+          <text class="pay-sub" v-if="showCartSaving">已减 ¥{{ savingText }}</text>
         </view>
         <!-- 右：直角大红块两行，点击加购可连续累加（到限购只提示） -->
         <button class="btn-grab btn-grab-right" @click="addToCart">
@@ -406,10 +406,12 @@ export default {
       const num = s.replace(/^已卖/, '').replace(/件$/, '')
       return num ? `${num}人买过` : '很多人买过'
     },
-    // 非秒杀划线价（1.5 倍现价，异常时返回空串不渲染）
+    // 划线价：只认秒杀件的挂牌价（真实原价），非秒杀件无依据返回空串（模板 v-if 随之整条不渲染）
     originalPriceText() {
-      const p = Number(this.dish.price)
-      return Number.isFinite(p) && p > 0 ? (p * 1.5).toFixed(2) : ''
+      const d = this.dish || {}
+      if (d.seckillPrice == null) return ''
+      if (!this.$store.getters.hasRealOriginalPrice(d.price, d.seckillPrice)) return ''
+      return this.fmtPrice(d.price)
     },
     // 勾选商品应付金额（getter 缺失/为 0 时兜底 0.00，保证两位小数展示）
     payText() {
@@ -419,6 +421,8 @@ export default {
     savingText() {
       return Number(this.$store.getters.cartSaving || 0).toFixed(2)
     },
+    // 「已减」是否展示：判据只在 store 的 showCartSaving getter 里，本页只引用（避免"已减 ¥0.00"）
+    showCartSaving() { return this.$store.getters.showCartSaving },
     // 商品参数数据源（固定常量 + 按 unit 合成规格）：页内参数表与"查看全部"弹层共用，保证两处一致
     paramList() {
       const unit = this.dish.unit || '件'

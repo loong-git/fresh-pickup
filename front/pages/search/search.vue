@@ -216,7 +216,7 @@
             <text class="cart-total-symbol">¥</text>
             <text class="cart-total-price">{{ fmtPrice(cartTotalPrice) }}</text>
           </view>
-          <text class="cart-reduced">已减 ¥{{ fmtPrice(cartSaving) }}</text>
+          <text class="cart-reduced" v-if="showCartSaving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
         </view>
       </view>
       <button class="btn-pay" @click="goPayFromSearch">
@@ -254,7 +254,7 @@
         <view class="helper-bar">
           <text class="hb-title">凑单助手</text>
           <text class="hb-divider">|</text>
-          <text class="hb-text">已减 {{ fmtPrice(cartSaving) }} 元，下单立享</text>
+          <text class="hb-text" v-if="showCartSaving">已减 {{ fmtPrice(cartSaving) }} 元，下单立享</text>
         </view>
         <!-- 商品行（有商品时滚动；空车时显示居中占位） -->
         <scroll-view v-if="cart.length > 0" class="cart-items" scroll-y>
@@ -272,12 +272,12 @@
                   <text class="ci-name">{{ item.name }}</text>
                 </view>
                 <view class="ci-desc-row">
-                  <text class="ci-restore">即将恢复原价</text>
+                  <text class="ci-restore" v-if="canShowOriginal(item)">即将恢复原价</text>
                   <text class="ci-sold" v-if="dishOf(item).soldText">{{ dishOf(item).soldText }}</text>
                   <text class="ci-limit" v-if="dishOf(item).limitBuy">限购{{ dishOf(item).limitBuy }}件</text>
                 </view>
                 <view class="ci-price-row">
-                  <text class="ci-original">¥{{ fmtPrice(item.originalPrice) }}</text>
+                  <text class="ci-original" v-if="canShowOriginal(item)">¥{{ fmtPrice(item.originalPrice) }}</text>
                   <view class="ci-price-line">
                     <text class="ci-symbol">¥</text>
                     <text class="ci-price">{{ fmtPrice(item.price) }}</text>
@@ -313,7 +313,7 @@
               <text class="ci-symbol">¥</text>
               <text class="ctb-price-num">{{ fmtPrice(checkedTotalPrice) }}</text>
             </view>
-            <text class="ctb-saving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
+            <text class="ctb-saving" v-if="showCartSaving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
           </view>
           <button class="btn-pay-popup" :class="{ 'btn-pay-disabled': cart.length === 0 }" @click="payFromCart"><text>立即支付</text></button>
         </view>
@@ -391,7 +391,7 @@ export default {
   },
   computed: {
     ...mapState(['cart', 'pickupPerson', 'user']),
-    ...mapGetters(['cartCount', 'cartTotalPrice', 'isCartEmpty', 'cartSaving', 'checkedCount', 'checkedTotalPrice']),
+    ...mapGetters(['cartCount', 'cartTotalPrice', 'isCartEmpty', 'cartSaving', 'showCartSaving', 'checkedCount', 'checkedTotalPrice']),
     // 购物车 id -> 项 的映射，用于榜单/结果列表判断"已加购"与数量
     cartMap() {
       const map = {}
@@ -704,6 +704,10 @@ export default {
       const d = this.dishOf(item)
       if (d && typeof d.seckill === 'boolean') return d.seckill
       return item.unitSave > 1
+    },
+    // 购物车行划线价/"即将恢复原价"展示判据：条件式只在 store 的 hasRealOriginalPrice getter 里，本页只引用
+    canShowOriginal(item) {
+      return this.$store.getters.hasRealOriginalPrice(item.originalPrice, item.price)
     },
     // 折扣标签：按 unitSave/originalPrice 换算，算不出返回空串省略
     discountRate(item) {

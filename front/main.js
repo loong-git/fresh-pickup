@@ -53,6 +53,13 @@ const DEFAULT_PICKUP_PERSON = {
 	phone: '13800138000'
 }
 
+// 划线价展示判据的唯一实现：原价须为有限数且严格大于现价，否则没有"划线"依据；normalize 与三页展示面均引用它
+function hasRealOriginalPrice(originalPrice, price) {
+	const o = Number(originalPrice)
+	const p = Number(price)
+	return Number.isFinite(o) && Number.isFinite(p) && o > p
+}
+
 // 购物车项兜底 normalize：兼容旧版购物车数据（无 checked/originalPrice/unitSave 等字段），
 // 补齐契约要求的新结构字段，保证页面渲染与金额计算不报错
 function normalizeCartItem(item) {
@@ -60,6 +67,8 @@ function normalizeCartItem(item) {
 	const price = Number(item.price) || 0
 	const quantity = Number(item.quantity) > 0 ? Math.floor(Number(item.quantity)) : 1
 	const stockNum = Number(item.stock)
+	// 秒杀标记：旧数据无此字段时按节省额是否大于 1 元推断（须在清理节省额之前算，判据逐字不变）
+	const seckill = item.seckill === true || (item.seckill === undefined && item.unitSave > 1)
 	return {
 		id: item.id,
 		name: item.name,
@@ -70,14 +79,13 @@ function normalizeCartItem(item) {
 		quantity,
 		// 旧数据无 checked 字段时默认勾选
 		checked: item.checked !== false,
-		// 旧数据无原价字段时按现价 1.5 倍兜底
-		originalPrice: typeof item.originalPrice === 'number' && isFinite(item.originalPrice)
-			? item.originalPrice
-			: +(price * 1.5).toFixed(2),
-		// 旧数据无单件节省字段时按 1 元兜底
-		unitSave: typeof item.unitSave === 'number' && isFinite(item.unitSave) ? item.unitSave : 1,
-		// 秒杀标记：旧数据无此字段时按节省额是否大于 1 元推断
-		seckill: item.seckill === true || (item.seckill === undefined && item.unitSave > 1)
+		// 原价只认秒杀件；旧数据里非秒杀件的 1.5 倍凭空划线价一并清成 null
+		originalPrice: seckill && hasRealOriginalPrice(item.originalPrice, price) ? item.originalPrice : null,
+		// 节省额同理：非秒杀件无依据记 0（0 与旧的 1 都不大于 1，秒杀标记结果不变）
+		unitSave: seckill && Number.isFinite(Number(item.unitSave)) && Number(item.unitSave) > 0
+			? item.unitSave
+			: 0,
+		seckill
 	}
 }
 
@@ -157,7 +165,7 @@ const store = createStore({
 				// 已有同 id 商品只加数量
 				existItem.quantity++
 			} else {
-				// 按契约 normalize：存在秒杀价时以秒杀价入库并记录直降信息，否则按现价 1.5 倍记原价
+				// 按契约 normalize：秒杀件以秒杀价入库、原价记挂牌价（差额真实）；非秒杀件无真实原价，划线价与节省额一律不编造
 				const hasSeckill = dish.seckillPrice != null
 				state.cart.push({
 					id: dish.id,
@@ -169,8 +177,8 @@ const store = createStore({
 					quantity: 1,
 					// 默认勾选
 					checked: true,
-					originalPrice: hasSeckill ? dish.price : +(dish.price * 1.5).toFixed(2),
-					unitSave: hasSeckill ? +(dish.price - dish.seckillPrice).toFixed(2) : 1,
+					originalPrice: hasSeckill ? dish.price : null,
+					unitSave: hasSeckill ? +(dish.price - dish.seckillPrice).toFixed(2) : 0,
 					// 秒杀标记：购物车折扣标签等 UI 依赖它区分秒杀件
 					seckill: hasSeckill
 				})
@@ -290,6 +298,12 @@ const store = createStore({
 		cartSaving(state) {
 			return +(state.cart.reduce((total, item) => total + (item.unitSave || 0) * item.quantity, 0)).toFixed(2)
 		},
+		// 「已减」是否值得展示：无真实节省额（=0）时三页与详情页整条隐藏，避免"已减 ¥0.00"
+		showCartSaving(state, getters) {
+			return Number(getters.cartSaving) > 0
+		},
+		// 划线价展示判据（全仓唯一定义见文件顶部同名纯函数）：页面只引用本 getter，不各自重复"原价>现价"
+		hasRealOriginalPrice: () => (originalPrice, price) => hasRealOriginalPrice(originalPrice, price),
 		// 勾选商品件数（Σ quantity of checked）
 		checkedCount(state) {
 			return state.cart
