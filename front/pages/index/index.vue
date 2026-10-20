@@ -12,7 +12,7 @@
         <!-- ==================== 吸顶层：仅搜索框（原生 sticky 吸附于滚动区顶部；未滚动红底，分类 tab 吸顶时刻随 catTabStuck 切白底） ==================== -->
         <view class="sticky-header" :class="{ stuck: catTabStuck }">
           <view class="red-header">
-            <!-- 一体式搜索白条：🔍 + 真实 input + 竖分隔线 + "搜索"红字（点击区域 padding 0 28rpx，不再独立胶囊） -->
+            <!-- 一体式搜索白条：🔍 + 占位文案（硬编码 text，非 input：整条只作跳搜索页的入口，本页没有输入框） + 竖分隔线 + "搜索"红字（点击区域 padding 0 28rpx，不再独立胶囊） -->
             <!-- T-M3-02 搜索真实化 + 独立搜索页接管：入口只有整条 @click="onSearch" 跳搜索页；防抖与回车即搜随搜索交互迁入搜索页而不存在 -->
             <!-- 搜索入口：整条点击跳独立搜索页（搜索交互全部在搜索页内完成） -->
             <view class="search-box" @click="onSearch">
@@ -54,7 +54,7 @@
           </view>
         </view>
 
-        <!-- ==================== 4. 分类 tab（券区之后、金刚区之前；自身 sticky 吸附于搜索框正下方，始终白底；搜索模式下隐藏让位结果列表） ==================== -->
+        <!-- ==================== 4. 分类 tab（券区之后、金刚区之前；自身 sticky 吸附于搜索框正下方，始终白底；本页无页内搜索态，不随搜索结果让位） ==================== -->
         <view class="cat-tab-bar">
           <view class="cat-tabs">
             <view class="cat-tab" :class="{ active: currentCategory === 'all' }" @click="switchCategory('all')"><text>推荐</text></view>
@@ -66,7 +66,7 @@
           <view class="cat-all" @click="openCategoryPopup"><text>≡ 全部</text></view>
         </view>
 
-        <!-- ==================== 6. 金刚区五宫格（分类 tab 位于券区之后，白面板承接金刚区；搜索模式下隐藏） ==================== -->
+        <!-- ==================== 6. 金刚区五宫格（分类 tab 位于券区之后，白面板承接金刚区；始终渲染，无搜索态开关） ==================== -->
         <view class="cat-sheet">
           <view class="kingkong">
             <view class="kingkong-item" v-for="k in kingkongs" :key="k.key" @click="onKingkongTap(k)">
@@ -76,7 +76,7 @@
           </view>
         </view>
 
-        <!-- ==================== 7. 超级秒杀区块（搜索模式下隐藏） ==================== -->
+        <!-- ==================== 7. 超级秒杀区块（始终渲染，无搜索态开关） ==================== -->
         <view class="seckill-card">
           <view class="seckill-header">
             <text class="seckill-title">⚡ 超级秒杀</text>
@@ -104,7 +104,7 @@
           </scroll-view>
         </view>
 
-        <!-- ==================== 8. 商品列表（多多买菜卡片；搜索模式下展示搜索结果） ==================== -->
+        <!-- ==================== 8. 商品列表（多多买菜卡片；本页无搜索态，列表恒为分类过滤结果） ==================== -->
         <view class="dish-list">
           <!-- 加载失败错误态（≠空态）：点击重试（T-M3-05） -->
           <view class="error-state" v-if="loadError" @click="retryLoad">
@@ -164,7 +164,7 @@
                 </view>
               </view>
             </view>
-            <!-- 空态：搜索模式"没有找到相关商品"，浏览模式"暂无商品"（搜索请求中不显示） -->
+            <!-- 空态只有"暂无商品"一支：搜索结果的空态在 search.vue，本页没有可压住它的请求中态 -->
             <view v-if="!searchLoading && displayDishes.length === 0" class="empty-state">
               <text>暂无商品</text>
             </view>
@@ -536,10 +536,10 @@ export default {
       catDropOpen: false,       // 全部分类面板展开动画状态（translateY 过渡）
       // 搜索区变色态：滚动到达"分类 tab 吸顶位"（tab 文档偏移 - 搜索区高度）后为 true，搜索区由红底切白底
       catTabStuck: false,
-      // 一体式搜索白条内真实 input 的绑定值
-      // 搜索模式（T-M3-02）：true 时列表展示 searchResults，隐藏金刚区/秒杀区/分类 tab
-      searchResults: [],        // 搜索结果（getDishes?keyword= 同源接口，decorateDish 增强）
-      searchLoading: false,     // 搜索请求飞行中（空态在请求中不闪现）
+      // 白条内没有 input 也没有绑定值（整条只有 @click 跳转），下面两键在本页无任何写入点
+      // 本页没有页内搜索模式（无该开关键）：列表恒走分类过滤，金刚区/秒杀区/分类 tab 恒显示，搜索由 pages/search/search 独立页承担
+      searchResults: [],        // 死键：本页零读写，搜索结果的实现只在 search.vue
+      searchLoading: false,     // 死键：只有模板读、无赋值点故恒 false，上方空态实际只看列表长度
       showCartDetail: false,    // 购物车弹层
       showPersonPopup: false,   // 修改提货人弹窗
       showPayPopup: false,      // 支付弹窗（原有流程）
@@ -558,7 +558,7 @@ export default {
       // 提货人表单
       formPersonName: '',
       formPersonPhone: '',
-      // 地址表单（原有流程）
+      // 本页无地址表单 data：自提地址读 pickupPoint.address 快照，提货人用上方 formPerson* 两键
       // 秒杀锚点滚动位置（scroll-view scroll-top）
       mainScrollTop: 0,
       // 优惠券三卡（字典 coupon_template 渲染：word 显示、parseCoupon 拆 threshold/amount/state）
@@ -575,7 +575,7 @@ export default {
       // 当前场次商品（接口 dishes 优先；空时回退本地列表过滤）
       seckillSessionDishes: [],
       // === M4-T-02 优惠券 ===
-      // 当前登录用户券列表（GET /api/coupons/my；used 券在 availableCoupons 过滤）
+      // 当前登录用户券列表（GET /api/coupons，即 api/index.js 的 getMyCoupons；used 券在 availableCoupons 过滤）
       myCoupons: [],
       // 选中的券 id（null=不使用；小计变化时 watch 自动重置）
       selectedCouponId: null,
@@ -603,11 +603,11 @@ export default {
       }
       return list
     },
-    // 列表实际数据源：搜索模式展示搜索结果，浏览模式展示分类过滤结果（T-M3-02）
+    // 列表实际数据源恒为 filteredDishes（displayDishes 内无搜索态分支），故本页不展示搜索结果
     displayDishes() {
       return this.filteredDishes
     },
-    // 热词：默认取当前商品名前 5（本地兜底，点击可再搜）
+    // 本页无热词/历史词计算属性（搜索辅助 UI 不在首页），下接秒杀商品计算
     // 秒杀商品（横向滚动区）：M4-T-03 优先场次接口 dishes（服务端真实秒杀集），回退本地列表过滤
     seckillDishes() {
       if (this.seckillSessionDishes.length > 0) return this.seckillSessionDishes
@@ -629,7 +629,7 @@ export default {
     checkedItems() { return this.cart.filter(item => item.checked) },
     // 是否全部勾选（控制合计栏全选圆圈）
     allChecked() { return this.cart.length > 0 && this.cart.every(item => item.checked) },
-    // 联系信息展示（原有确认订单流程）
+    // 本页无联系信息计算属性：提货人姓名/电话在模板直接渲染 pickupPerson，下接券文案计算
     // 平台优惠条/支付按钮券文案：优先取第一条可用券，按 threshold/amount 拼“满x减y”
     mainCouponText() {
       const list = this.coupons || []
@@ -974,7 +974,7 @@ export default {
     // 「我的」入口：跳个人中心页（身份卡/优惠券/评价/账号安全/退出登录）
     goToMine() { uni.navigateTo({ url: '/pages/mine/mine' }) },
     // ==================== 1. 搜索（搜索页接管版） ====================
-    // 点击搜索框/搜索按钮/回车：跳转独立搜索页 pages/search/search（搜索交互全部在搜索页内完成）
+    // 唯一入口是整条白条的 @click（无独立搜索按钮、无回车监听）：跳转独立搜索页 pages/search/search
     onSearch() {
       uni.navigateTo({ url: '/pages/search/search' })
     },
@@ -1487,7 +1487,7 @@ export default {
   display: flex; align-items: center;
   padding: 16rpx 24rpx;
 }
-/* 一体式搜索白条：圆角 40rpx 高 64rpx，内排 🔍 + input(flex:1) + 竖分隔线 + "搜索"红字（不再独立胶囊） */
+/* 一体式搜索白条：圆角 40rpx 高 64rpx，内排 🔍 + 占位文案 text(flex:1) + 竖分隔线 + "搜索"红字（不再独立胶囊） */
 .search-box {
   flex: 1; min-width: 0;
   box-sizing: border-box;
@@ -1501,7 +1501,7 @@ export default {
   border: 1rpx solid #E02020;
 }
 .search-icon { flex-shrink: 0; font-size: 24rpx; }
-/* 真实 input（H5 编译为 uni-input）：placeholder 颜色走 placeholder-style，输入文字深灰 */
+/* 白条占位文案节点（<text>，非 input，故无 placeholder 概念与 placeholder-style）：flex:1 撑满剩余宽度，文字深灰 */
 .search-input {
   flex: 1; min-width: 0; height: 64rpx; line-height: 64rpx;
   font-size: 26rpx; color: #333333;
@@ -1520,7 +1520,7 @@ export default {
 }
 .search-go-text { font-size: 28rpx; font-weight: 700; color: #E02020; }
 
-/* ==================== 1.5 搜索辅助区（历史词 + 热词胶囊，T-M3-02） ==================== */
+/* ==================== 1.5 搜索辅助区：本页无历史词/热词胶囊，本段无对应规则 ==================== */
 
 /* 主滚动区（纯白背景；吸顶层 sticky 置于内容顶部，滚走后视口内只剩白底） */
 .main-scroll { flex: 1; min-height: 0; background-color: #FFFFFF; }
@@ -1756,7 +1756,7 @@ export default {
 .empty-state { display: flex; align-items: center; justify-content: center; padding: 120rpx 0; }
 .empty-state text { font-size: 26rpx; color: #CCCCCC; }
 
-/* 搜索结果头（T-M3-02）：关键词 + 取消 */
+/* 本页无搜索结果头（关键词 + 取消）节点，故无对应规则 */
 
 /* 加载失败错误态（T-M3-05，≠空态）：文案 + 点击重试按钮 */
 .error-state { display: flex; flex-direction: column; align-items: center; gap: 20rpx; padding: 120rpx 0; }
