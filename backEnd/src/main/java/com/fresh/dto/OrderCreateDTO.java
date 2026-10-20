@@ -39,7 +39,8 @@ public class OrderCreateDTO {
     @Size(max = 500, message = "地址过长")
     private String address;
 
-    /** 自提点ID（T-M4-01，可选）：服务端按 id 查 store 落 name/address 快照；缺省兼容不落 */
+    /** 自提点ID（T-M4-01，必填）：服务端按 id 查 store 落 name/address 快照；无自提点的单在核销侧无从归因，故在入参层就显式失败 */
+    @NotNull(message = "自提点参数不合法")
     @Min(value = 1, message = "自提点参数不合法")
     private Long storeId;
 

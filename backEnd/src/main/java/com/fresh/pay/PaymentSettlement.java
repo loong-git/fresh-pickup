@@ -24,7 +24,7 @@ import java.util.List;
  * 来源与时序（逻辑逐字搬自 {@code MockPayService#payResult} 的支付成功分支，未作任何行为改写）：
  * 条件置态 pay_status=0→1（+ pay_time）→ 明细累加 sold_count → 取货码挂载并回写内存 order →
  * 邀请新人挂钩 → 日志；updated==0 分支只回读返回、不重复任何副作用。
- * 调用方：{@link MockPayService#payResult}（mock 渠道，现网唯一支付通道）与 FreeServiceImpl:249
+ * 调用方：{@link MockPayService#payResult}（mock 渠道，现网唯一支付通道）与 FreeServiceImpl:250
  * （免费领 0 元单直调本方法，F-21.5 Step 2a 起不再经 {@code PayService} 渠道接口）；
  * 未来微信支付转正后由 wx-notify 回调链路（验签/解密/三比对通过的那个事务里）调同一方法（D-21-1 的对偶挂钩），
  * 渠道侧只负责「能不能认定这笔支付成功」的判定与鉴权，入账动作全部收在这一处。
@@ -40,7 +40,7 @@ import java.util.List;
  * ② 取货码写入带 {@code pickup_code IS NULL} 条件（OrderMapper.attachPickupCode），并发二次置态不换码。
  *
  * 失败即整单回滚（F-18.6/D-3）：取货码 5 次仍生成不出来时抛 BizException，调用方事务整体回滚，
- * 杜绝「已支付无码」半态；免费领 0 元单经 FreeServiceImpl:249 直调本方法（{@code settle}）复用同一条链路自动获得取货码。
+ * 杜绝「已支付无码」半态；免费领 0 元单经 FreeServiceImpl:250 直调本方法（{@code settle}）复用同一条链路自动获得取货码。
  *
  * 入参约束：{@code order} 必须是调用方**已加载并完成归属/可支付校验**的那一行（本类不做鉴权，
  * 「非本人 404」「已取消拒」留在各渠道入口）；置态成功后就地回写这个对象并原样返回，

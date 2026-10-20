@@ -71,11 +71,19 @@ if [ -z "${DISH_ID:-}" ]; then
   echo "       ${resp}"
   exit 1
 fi
+# 前置：取 GET /api/stores 第一个自提点——F-80 起 OrderCreateDTO.storeId 必填，不传直接 400
+resp=$($CURL "$BASE_URL/api/stores")
+STORE_ID=$(echo "$resp" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+if [ -z "${STORE_ID:-}" ]; then
+  echo "[FAIL] 步骤2 前置准备：GET /api/stores 未提取到自提点 id"
+  echo "       ${resp}"
+  exit 1
+fi
 
 resp=$($CURL -X POST "$BASE_URL/api/orders" \
   -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-  -d "{\"clientRequestId\":\"$CLIENT_REQUEST_ID\",\"phone\":\"$PHONE\",\"items\":[{\"dishId\":$DISH_ID,\"quantity\":1}]}")
-assert_ok "步骤2 下单 POST /api/orders (dishId=${DISH_ID})" "$resp"
+  -d "{\"clientRequestId\":\"$CLIENT_REQUEST_ID\",\"phone\":\"$PHONE\",\"storeId\":$STORE_ID,\"items\":[{\"dishId\":$DISH_ID,\"quantity\":1}]}")
+assert_ok "步骤2 下单 POST /api/orders (dishId=${DISH_ID}, storeId=${STORE_ID})" "$resp"
 # 订单 id 为雪花字符串（Order 实体首字段，取响应首个 "id":"..."）
 ORDER_ID=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -z "${ORDER_ID:-}" ]; then

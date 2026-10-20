@@ -1302,6 +1302,7 @@ export default {
       if (this.isCartEmpty) { this.showToast('购物车为空'); return }
       if (this.checkedCount === 0) { this.showToast('请先勾选商品'); return }
       if (this.dropOffSaleItems() === 0) return
+      if (!this.ensurePickupStore()) return
       // 每次新开确认订单弹窗换新幂等键（上一次会话的键不带入）
       this.clientRequestId = ''
       // M4-T-02：每次打开确认订单拉取该用户可用券（已选券随券列表刷新自动重置）
@@ -1322,6 +1323,13 @@ export default {
       }
       return checked.length - offSale.length
     },
+    // store_id 收必填后的提交闸门：拿不到 storeId 就不发请求，免得顾客为前端的合法兜底态吃后端那句参数层机器话
+    ensurePickupStore() {
+      const id = this.pickupPoint && this.pickupPoint.storeId
+      if (id != null) return true
+      this.showToast('当前没有可选的自提门店，请稍后再试')
+      return false
+    },
     // 生成幂等键：时间戳 + 随机串（base36），长度远小于 64 上限
     genClientRequestId() {
       return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
@@ -1337,6 +1345,7 @@ export default {
       // 后端那条 400 兜（实测：弹层开着时改库下架，前端放行、后端整单拒），别把它当成实时校验
       if (!this.dropOffSaleItems()) return
       if (!this.checkedItems.length) { this.showToast('请先勾选商品'); return }
+      if (!this.ensurePickupStore()) return
       // 幂等键：本会话尚未生成时才生成（失败重试/401 重登后续走沿用同一键，服务端幂等防重复建单；
       // 收银台支付成功或下次新开会话时才重置）
       if (!this.clientRequestId) this.clientRequestId = this.genClientRequestId()
@@ -1346,8 +1355,8 @@ export default {
         phone,
         items: this.checkedItems.map(item => ({ dishId: item.id, quantity: item.quantity }))
       }
-      // M4-T-01：自提门店快照来源（服务端落 store_id + store_name/store_address 快照列）
-      if (this.pickupPoint && this.pickupPoint.storeId != null) orderData.storeId = this.pickupPoint.storeId
+      // M4-T-01：自提门店快照来源（服务端落 store_id + store_name/store_address 快照列）；缺 storeId 的路径已被上方闸门拦死
+      orderData.storeId = this.pickupPoint.storeId
       // M4-T-02：使用优惠券（服务端校验归属/status=available/满减门槛后抵扣重算；
       // 不满足门槛 400"未满足满减条件"由下方 catch toast 保留现场）
       if (this.selectedCoupon) orderData.couponId = this.selectedCoupon.id

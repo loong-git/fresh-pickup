@@ -4,6 +4,7 @@ import com.fresh.dto.FreeClaimDTO;
 import com.fresh.entity.Dish;
 import com.fresh.entity.FreeActivity;
 import com.fresh.entity.Order;
+import com.fresh.entity.Store;
 import com.fresh.entity.User;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.FreeActivityMapper;
@@ -48,7 +49,7 @@ import static org.mockito.Mockito.when;
  * 直接 new FreeServiceImpl 并按字段名灌进 @Autowired 槽位，**不连库、不起 Spring 容器**
  * （形态照 {@code PaymentSettlementTest} / {@code RecommendServiceTest}：纯内存断言，期望值手工可推）。
  *
- * 要钉住的三件事：
+ * 要钉住的四件事：
  * ① 0 元领取走到结算接缝：{@code settlement.settle(order, payTime)} 恰调一次，送进去的是**刚 INSERT 的那一行**
  *    （同订单号、pay_status=0），且是回读出来的 DB 行（totalPrice 标度 0.00）——这正是 Step 2a 选「回读一次」
  *    的理由：改前 {@code MockPayService#payResult} 内部本来就 selectById 一次，SELECT 条数与响应字段值双双不变；
@@ -57,6 +58,8 @@ import static org.mockito.Mockito.when;
  *    本类的 @Autowired 字段集合里只剩 PaymentSettlement，渠道开关从此打不到免费领；
  * ③ 判定顺序不动：门槛未满足时在进接缝之前就拒（文案逐字「再挑选40.10元，今天带走免费商品」，
  *    与上线任务文档 F-21.4 G-F 行的实测读数同值），结算接缝零交互、连回读都不发生。
+ * ④ F-80/S2 建单必须有店：服务端自选选空（全店停业）即抛 BizException，主单连 INSERT 都不发——
+ *    收口前这条支路会静默落 store_id=NULL，那种单核销侧永远查不到。
  *
  * 未覆盖（如实登记）：{@code @Transactional} 回滚语义（取货码失败整单回滚）归 PaymentSettlementTest 与
  * 主会话端到端；本单测的 mock 不执行 SQL，也不经过 MP 的 MetaObjectHandler 填充。
@@ -120,11 +123,21 @@ class FreeServiceImplSettleTest {
         user.setPhone("13800001234");
         when(userMapper.selectById(USER_ID)).thenReturn(user);
         when(orderMapper.selectOne(any())).thenReturn(null);              // client_request_id 未命中 → 走新建
-        when(storeMapper.selectOne(any())).thenReturn(null);              // 无营业中门店：快照三列留空，不影响结算
+        when(storeMapper.selectOne(any())).thenReturn(openStore());        // F-80 起建单的必需前提：选不出营业门店即显式失败（反向见 ④）
         when(orderMapper.insert(any(Order.class))).thenReturn(1);
         // 回读「刚插入的那一行」：pay_status=0、total_price 按 DECIMAL(10,2) 读出 0.00（改前 payResult 内那次 selectById 同值）
         when(orderMapper.selectById(any())).thenAnswer(inv -> dbRowOf(inv.getArgument(0)));
         when(settlement.settle(any(Order.class), any(LocalDateTime.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    /** 营业中门店行（服务端自选的那一家；F-80 起它是建单的前提而非可选项） */
+    private Store openStore() {
+        Store s = new Store();
+        s.setId(1L);
+        s.setName("自提点一");
+        s.setAddress("广东省佛山市顺德区");
+        s.setStatus("open");
+        return s;
     }
 
     /** 在售商品行（免费商品与购物车商品共用构造，仅价格/库存不同） */
@@ -222,5 +235,20 @@ class FreeServiceImplSettleTest {
         verify(settlement, never()).settle(any(Order.class), any(LocalDateTime.class));
         verify(orderMapper, never()).selectById(any());
         verify(orderMapper, never()).insert(any(Order.class));
+    }
+
+    // —— ④ F-80/S2：一家营业中门店都选不出来时显式失败，不再静默插 store_id=NULL ——
+    // 与 fixture ①（有店→走到结算）配成双向：只验一边等于没验。
+    @Test
+    void claimFailsLoudlyWhenNoOpenStoreIsSelectable() {
+        stubPathUpToSettlement("25.00");                        // 门槛/限量/白名单全通过，唯独没有营业门店
+        when(storeMapper.selectOne(any())).thenReturn(null);
+
+        BizException ex = assertThrows(BizException.class,
+                () -> freeService.claim(USER_ID, FREE_DISH_ID, List.of(cartItem(CART_DISH_ID, 2))));
+
+        assertEquals("自提点不存在，请重新选择", ex.getMessage(), "复用下单主链路既有串，本片零新增文案");
+        verify(orderMapper, never()).insert(any(Order.class));   // NULL 单连插都不许插
+        verify(settlement, never()).settle(any(Order.class), any(LocalDateTime.class));
     }
 }

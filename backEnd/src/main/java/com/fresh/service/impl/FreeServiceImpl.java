@@ -223,11 +223,12 @@ public class FreeServiceImpl implements FreeService {
         order.setPickupDate(OrderServiceImpl.resolvePickupDate(LocalDateTime.now()));
         Store store = storeMapper.selectOne(new LambdaQueryWrapper<Store>()
                 .eq(Store::getStatus, "open").orderByAsc(Store::getId).last("LIMIT 1"));
-        if (store != null) {
-            order.setStoreId(store.getId());
-            order.setStoreName(store.getName());
-            order.setStoreAddress(store.getAddress());
+        if (store == null) {
+            throw new BizException("自提点不存在，请重新选择");   // F-80 一期运营不变量「永远至少有一家营业门店」（用户 2026-10-20 批准）：选空即显式失败，不再静默插 NULL
         }
+        order.setStoreId(store.getId());
+        order.setStoreName(store.getName());
+        order.setStoreAddress(store.getAddress());
         orderMapper.insert(order);
 
         OrderItem item = new OrderItem();
