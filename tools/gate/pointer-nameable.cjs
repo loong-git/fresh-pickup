@@ -6,8 +6,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const ROOTS = ["backEnd/src/main", "front-admin/src", "front-merchant", "front-partner"];
-const INDEX_ONLY = ["front"];
+const ROOTS = ["backEnd/src/main", "front-admin/src", "front-merchant", "front-partner", "front"]; // front 自 F-77 与其余三个审计器同面，四处必须一起改
 const EXTS = new Set([".java", ".vue", ".js", ".ts"]);
 const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "target", "static"]);
 
@@ -25,7 +24,6 @@ function walk(dir, acc) {
 const files = [];
 for (const r of ROOTS) walk(r, files);
 const indexed = files.slice();
-for (const r of INDEX_ONLY) walk(r, indexed);
 
 const byName = new Map();
 for (const f of indexed) {

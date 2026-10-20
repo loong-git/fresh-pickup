@@ -23,8 +23,10 @@ const bc = require("./probes/block-comment-lines.cjs");
 // 【ROOTS 必须含 backEnd/src/test】注释里 `WxPayNotifyTest#everyRejectBranch...` 这类指向测试类的具名引用
 // 是真实存在的（F-44 出货代码里就有，且方法名逐字对得上），但 test 树此前不在索引里 → 判成
 // CLASS_FILE_NOT_FOUND 的**假阳**。F-28 定过同类纪律：索引/扫描面必须覆盖被指向的树，否则计数不可用。
-const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner"];
-const INDEX_ONLY = ["front"];
+// front/ 自 F-77 起与 pointer-audit 同面（此前只当靶子）。升面依据是实测：可疑 0、DEAD 0。
+// **两个审计器的来源面必须一字相同**——否则会回到「一台机器验过、另一台没验」的假绿形态
+// （F-77 就是靠这条抓到的：front 进 pointer-audit 全绿，进 symbol-audit 却报出 1 条 CLASS_FILE_NOT_FOUND）。
+const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner", "front"];
 const EXTS = new Set([".java", ".vue", ".js", ".ts", ".sql"]);
 const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "target", "static"]);
 const norm = (p) => p.split("\\").join("/");
@@ -43,7 +45,6 @@ function walk(dir, acc) {
 const files = [];
 for (const r of ROOTS) walk(r, files);
 const indexed = files.slice();
-for (const r of INDEX_ONLY) walk(r, indexed);
 
 // 类名 -> 文件列表（Foo -> [path/Foo.java, ...]）
 const byClass = new Map();
@@ -66,6 +67,11 @@ function isCommentLine(line, inBlock) {
 }
 
 const RE_HASH = /([A-Za-z0-9_]{3,})#([a-zA-Z_][a-zA-Z0-9_]*)((?::[0-9]+(?:\s*[-/]\s*[0-9]+)?))?/g;
+// Vue options-API 的键名当"类名"用时的形态（`methods#canPickupNow`）。本仓 `Foo#bar` 的约定是「Java 类 # 成员」，
+// 但 uni-app/Vue 的页里 methods/computed 这些键也长得像个名字 → 走 byClass 必然查不到源文件，
+// 报 CLASS_FILE_NOT_FOUND 是假阳。**不能简单跳过**（跳过=把这类引用变成新盲区），
+// 改按「member 是**当前这个文件**里的成员」验：定义形态 `foo()` 或 `foo:` 命中即合法，否则报 VUE_MEMBER_NOT_FOUND。
+const VUE_OPTION_KEYS = /^(methods|computed|data|props|watch|setup|created|mounted|onLoad|onShow|onReady|onPullDownRefresh|filters)$/;
 const RE_SECTION = /([A-Za-z0-9_.-]+\.(?:java|vue|js|ts|sql))\s*(?:的|里)\s*[「『]([^」』]{2,24})[」』]/g;
 // 形态 C：`(文件[ / 、 与]*N+) 的|里 符号名`，符号名不含中文、至少 3 字符。
 // 连字符复合名必须整体吃掉（CSS 类族 `.verify-feedback-ok` 就是这样）：第一版字符类没有 `-`，
@@ -101,6 +107,14 @@ for (const f of files) {
       const cands = byClass.get(cls) || [];
       checked++;
       if (cands.length === 0) {
+        // Vue options-API 键当类名（`methods#foo`）→ 验 foo 在本文件里是成员，不跳过
+        if (VUE_OPTION_KEYS.test(cls)) {
+          const ok = new RegExp("\\b" + member + "\\s*[(:]").test(content(f));
+          if (ok && !withLine) continue;
+          if (ok) { hybrid++; findings.push({ kind: "HYBRID_POINTER", file: f, line: idx + 1, ref: cls + "#" + member + withLine }); }
+          else findings.push({ kind: "VUE_MEMBER_NOT_FOUND", file: f, line: idx + 1, ref: cls + "#" + member });
+          continue;
+        }
         // 外部类（JDK/Spring/MyBatis-Plus…）在本仓没有源文件是**正常的**，按全仓 import 集合放行
         if (importedNames.has(cls)) { external++; continue; }
         findings.push({ kind: "CLASS_FILE_NOT_FOUND", file: f, line: idx + 1, ref: cls + "#" + member });

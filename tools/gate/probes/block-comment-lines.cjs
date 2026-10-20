@@ -12,8 +12,9 @@ const path = require("path");
 const cp = require("child_process");
 
 const KINDS = [["<!--", "-->"], ["/*", "*/"]];
-// 与 pointer-audit.cjs / symbol-audit.cjs 完全同一套来源面与扩展名，否则 --stat 的 300 与它们看见的不是同一个面。
-const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner"];
+// 与 pointer-audit.cjs / symbol-audit.cjs / pointer-nameable.cjs 完全同一套来源面与扩展名，
+// 否则 --stat 报的续行数与它们看见的不是同一个面（四处必须一起改，F-77 把 front 升为来源面时就是四处同步）。
+const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner", "front"];
 const EXTS = new Set([".java", ".vue", ".js", ".ts", ".sql"]);
 const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "target", "static"]);
 // 两处旧的行首判据各自原样保留（R-B：扩面只做并集，原分支一条不许删），本模块只负责补「块注释续行」这一支：

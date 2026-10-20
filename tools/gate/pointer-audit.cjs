@@ -9,10 +9,10 @@ const bc = require("./probes/block-comment-lines.cjs");
 //   AMBIGUOUS      目标文件名在仓库里有多份，无法确定指的是哪一个
 //   DRIFT(--drift)  注释写下那一刻目标行的内容，与现在同一行号的内容不同 —— 行号漂到别的有效代码上，
 //                  isJunk 抓不到（那是 junk 判据的结构性盲区，F-26 里靠子代理 git 考古才补上的）
-const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner"];
-// 索引面要比扫描面宽：三端注释里大量引用 C 端 front/ 的文件（detail.vue/order.vue/search.vue…），
-// 不把 front 收进索引就会把它们误报成 NOT_FOUND（我第一版就误报了 19 条）。front 只被索引、不被扫描。
-const INDEX_ONLY = ["front"];
+const ROOTS = ["backEnd/src/main", "backEnd/src/test", "backEnd/sql", "front-admin/src", "front-merchant", "front-partner", "front"];
+// front/ 自 F-77 起从「只当靶子」升为「也扫描来源」。此前只索引不扫描的原因仍然成立：三端注释里大量引用
+// C 端文件（detail.vue/order.vue/search.vue…），不收进索引会把它们误报成 NOT_FOUND（我第一版就误报了 19 条）。
+// 升到来源面的依据是实测存量：可疑 0、DEAD 0，只多 1 条带行号指针 + 2 条裸号（252 文件 vs 原 228）。
 const EXTS = new Set([".java", ".vue", ".js", ".ts", ".sql"]);
 const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "target", "static"]);
 
@@ -31,7 +31,6 @@ function walk(dir, acc) {
 const files = [];
 for (const r of ROOTS) walk(r, files);
 const indexed = files.slice();
-for (const r of INDEX_ONLY) walk(r, indexed);
 
 // 建索引：basename -> 全路径列表
 const byName = new Map();

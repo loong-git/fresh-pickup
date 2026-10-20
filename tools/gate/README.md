@@ -48,7 +48,7 @@
 区间反序（REVERSED_RANGE）、目标文件名歧义（AMBIGUOUS/NOT_FOUND）。含三条修法：一条指针并列多号、
 **裸号回溯绑定**（BARE_ 前缀，`照 dishes.vue:187（data）/ :417` 这种号与名分离的形态）、
 **无扩展名类名指针**（CLASS_ 前缀，`MerchantDishServiceImpl:166` 这种不带 .java 的形态）。
-怎么让它红：在任一被扫描文件（`backEnd/src/main`、`front-admin/src`、`front-merchant`、`front-partner`）的注释里写
+怎么让它红：在任一被扫描文件（`backEnd/src/main`、`backEnd/sql`、`front-admin/src`、`front-merchant`、`front-partner`、`front`）的注释里写
 `ResponseUtil.java:2`（该文件第 2 行是空行）→ 报 SUSPECT_EMPTY；写 `ResponseUtil.java:9999` → 报 OUT_OF_RANGE。删掉即回绿。
 （F-48 这两条在 `logs/scratch69/pa/` 搭的**隔离最小树**里实测过，没碰真实源码：ROOTS 是相对 cwd 的，
 所以拿一个临时目录当「假仓库根」就能自验，不必污染工作区。）
