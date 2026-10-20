@@ -35,10 +35,13 @@
 已知盲区：见 §5b 与「.secret-list 缺失」两节。
 
 ### f27-gate.sh —— 纯注释批专用（「只许改注释、零行位移、面积受限」）
-判什么：改动面积（只许 `backEnd/src/main` + `front-merchant` + `front-partner` + `tools/gate`，`front/` 与 `front-admin/` 零字节）、
+判什么：改动面积（只许 `backEnd/src/main` + **四端全放**（`front`/`front-merchant`/`front-partner`/`front-admin`）+ `tools/gate`）、
 非注释变更行必须 0、每文件 add == del、指针面可疑 = 0、DRIFT 总量只报数不判红（F-76 起，理由见下面基线那节）、
 .vue 用「模块模式」`node --check`、敏感串。
-怎么让它红：在一个 `.vue` 里加一行真代码（非注释）→ §1/§2/§3 三条一起红。
+`front/` 与 `front-admin/` 是 2026-10-20 用户授权纳进来的（原「契约 FC-5：这两处零字节」作废）。**纳进来不降低保护**：
+对它们的约束来自 §2 + §3，而不是来自"不许碰"；改交易语义的批本来就不该用 f27 验收（f27 只验纯注释）。
+怎么让它红：在任一被允许目录的 `.vue` 里加一行真代码（非注释）→ §2 + §3 红；
+放进**面积外**的目录（如 `scripts/`）→ §1 也红。⚠ 别再用「在 `front/` 里加代码 → §1 红」当自验姿势，那条已随 FC-5 作废。
 还原后再跑一遍，确认三节回到 OK。
 注意：§5 的编译分支是 `if echo "$CHANGED" | grep -q '^backEnd/'`——**只要工作区有 backEnd 改动，跑 f27 就会触发 `mvn -o compile`**。
 不想跑 mvn 就别在 backEnd 留改动（F-48 的植入自验只跑 f28，不跑 f27，就是这个原因）。

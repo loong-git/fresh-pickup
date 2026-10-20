@@ -16,17 +16,16 @@ chk() { # chk 名称 实际 期望
 # （原先这里有一行 BASE_REF=dee75b2 的 F-27 期 diff 基线，全脚本没引用过它——纯注释批的门禁
 #  一律看「工作区 vs HEAD」，把某个历史提交写死在这里只会误导下一个读脚本的人，故删除。）
 
-say "=== 1) 面积：只许 backEnd/src/main + front-merchant + front-partner + tools/gate ==="
+say "=== 1) 面积：只许 backEnd/src/main + 四端 + tools/gate ==="
 CHANGED=$(git diff --name-only 2>/dev/null)
 # tools/gate/ 是 F-76 加进来的：门禁自身的纯注释批（改判据说明、改注释里的指针）此前必假红
 # （实测 F-76 那批 §1 报「越界 4 文件」）。加宽这一条不降低保护——本门禁真正的杀伤力在 §2（纯注释）
 # 与 §3（add==del 零行位移），拿 f27 验收一个改了工具**代码**的批，§2 一定红。
-OUT=$(echo "$CHANGED" | grep -vE '^(backEnd/src/main/|front-merchant/|front-partner/|tools/gate/)' || true)
+# front/ 与 front-admin/ 是 2026-10-20 用户授权纳进来的（原「契约 FC-5：这两处零字节」已作废）。
+# 纳进来不降低保护：对它们的约束来自 §2 + §3，不是来自"不许碰"；真要改交易语义的批本来就不能用 f27 验收。
+OUT=$(echo "$CHANGED" | grep -vE '^(backEnd/src/main/|front/|front-merchant/|front-partner/|front-admin/|tools/gate/)' || true)
 chk "越界文件（应为空）" "$([ -z "$OUT" ] && echo yes || echo no)" "yes"
 [ -n "$OUT" ] && say "$OUT" | sed 's/^/      /'
-# front/** 与 front-admin/** 必须零字节改动（契约 FC-5）
-NFRONT=$(echo "$CHANGED" | grep -cE '^(front/|front-admin/)' || true)
-chk "front/ 与 front-admin/ 改动文件数" "$NFRONT" "0"
 
 say "=== 2) 纯注释：非注释变更行数必须 = 0（原始行判据 ∪ 块注释续行状态机；判不准一律算非注释）==="
 # M1（F-76）：行号归属与块状态机在 tools/gate/probes/block-comment-lines.cjs（两个审计器共用同一套块种定义），
