@@ -295,7 +295,8 @@
         <scroll-view class="cart-popup-scroll" scroll-y>
           <view v-if="isCartEmpty" class="cart-popup-empty"><text>购物车是空的，去挑点好货吧</text></view>
           <template v-else>
-            <view class="cart-popup-item" v-for="item in cart" :key="item.id">
+            <!-- 下架件只变灰+挂角标，勾选/删除/步进一律不拦；判据同首页结算剔除的 onSale===0（undefined 是列表没拉到，按 !==1 会误伤在售件）；变灰读本页 onLoad 拉的 dishes 快照（仅拉取失败时 onShow 重试），非实时 -->
+            <view class="cart-popup-item" :class="{ 'fci-offsale': dishOf(item).onSale === 0 }" v-for="item in cart" :key="item.id">
               <!-- 勾选圆圈（仅管理模式展示，点击走 Vuex toggleChecked mutation；阻止冒泡） -->
               <view v-if="editingFree" class="check-circle" :class="{ checked: item.checked }" @click.stop="toggleCheckFree(item)">
                 <text v-if="item.checked">✓</text>
@@ -317,6 +318,7 @@
                   </view>
                   <!-- 折扣标签：仅秒杀件显示，按 unitSave/originalPrice 换算，算不出省略（首页弹层同款） -->
                   <text class="fci-discount" v-if="isSeckillItem(item) && discountRate(item)">{{ discountRate(item) }}</text>
+                  <text class="fci-offsale-tag" v-if="dishOf(item).onSale === 0">已下架</text>
                 </view>
               </view>
               <!-- 右侧：管理模式单件「删除」 / 常规模式步进器（走 Vuex increaseById/decreaseById，均阻止冒泡） -->
@@ -1719,6 +1721,9 @@ export default {
 /* 商品行富卡片（对照首页弹层 ci-* 同款数值；fci- 前缀防与本页 .dish-* 等类名冲突，scoped 隔离） */
 .cart-popup-item { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 0; border-bottom: 1rpx solid #F5F5F5; }
 .cart-popup-item:last-child { border-bottom: none; }
+/* 下架行只做视觉告知：只降透明度与字色，不用 pointer-events（那会悄悄改掉交互）；勾选/删除/步进与结算路径零改动 */
+.fci-offsale { opacity: .55; }
+.fci-offsale-tag { font-size: 20rpx; font-weight: 600; color: #666666; flex-shrink: 0; }
 .fci-img {
   width: 120rpx; height: 120rpx; flex-shrink: 0;
   border-radius: 8rpx; overflow: hidden;

@@ -258,7 +258,8 @@
         </view>
         <!-- 商品行（有商品时滚动；空车时显示居中占位） -->
         <scroll-view v-if="cart.length > 0" class="cart-items" scroll-y>
-          <view class="cart-item" v-for="item in cart" :key="item.id">
+          <!-- 下架件只变灰+挂角标，勾选/删除/步进一律不拦；判据同首页结算剔除的 onSale===0（undefined 是列表没拉到，按 !==1 会误伤在售件）；变灰读本页 onLoad 拉的 dishes 快照，非实时 -->
+          <view class="cart-item" :class="{ 'ci-offsale': dishOf(item).onSale === 0 }" v-for="item in cart" :key="item.id">
             <view class="check-circle" :class="{ checked: item.checked }" @click.stop="toggleCheck(item)">
               <text v-if="item.checked">✓</text>
             </view>
@@ -275,6 +276,7 @@
                   <text class="ci-restore" v-if="canShowOriginal(item)">即将恢复原价</text>
                   <text class="ci-sold" v-if="dishOf(item).soldText">{{ dishOf(item).soldText }}</text>
                   <text class="ci-limit" v-if="dishOf(item).limitBuy">限购{{ dishOf(item).limitBuy }}件</text>
+                  <text class="ci-offsale-tag" v-if="dishOf(item).onSale === 0">已下架</text>
                 </view>
                 <view class="ci-price-row">
                   <text class="ci-original" v-if="canShowOriginal(item)">¥{{ fmtPrice(item.originalPrice) }}</text>
@@ -1233,6 +1235,9 @@ export default {
 .ci-restore { font-size: 20rpx; font-weight: 600; color: #E02020; flex-shrink: 0; }
 .ci-sold { font-size: 20rpx; color: #999999; flex-shrink: 0; }
 .ci-limit { font-size: 20rpx; color: #999999; }
+/* 下架行只做视觉告知：只降透明度与字色，不用 pointer-events（那会悄悄改掉交互）；勾选/删除/步进与结算路径零改动 */
+.ci-offsale { opacity: .55; }
+.ci-offsale-tag { font-size: 20rpx; font-weight: 600; color: #666666; flex-shrink: 0; }
 .ci-price-row { display: flex; align-items: baseline; gap: 12rpx; }
 .ci-original { font-size: 20rpx; color: #BBBBBB; text-decoration: line-through; }
 .ci-price-line { display: flex; align-items: baseline; }
