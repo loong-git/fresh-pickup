@@ -3,18 +3,23 @@
 # F-48：本脚本与它调用的四个审计器 + 两份 DRIFT 基线一起从 logs/（被 .gitignore 忽略，等于不存在）
 #       搬进 tools/gate/（tracked）。跑法：在**仓库根**执行 `bash tools/gate/f28-gate.sh`；
 #       产物与临时文件仍写 logs/（忽略区，正确）。§1 可用 SKIP_MVN=1 跳过 mvn（并发/不需要时）。
+# F-87：§2 可用 SKIP_SMOKE=1 跳过 smoke——它每次会给基线号发一次验证码，而该号 24h 总量只有 100 次
+#       （F-65 按用户决定收的），门禁跑一次就烧掉用户手动走查的一次额度。**两个 SKIP 都会在结论区
+#       显式列出**：跳过必须留下痕迹，不能让"跳过"因为看起来和跑过一样而变成默认动作。
 # 陷阱规避（HANDOFF §8 逐条对应）：
 #   退出码一律 `> file 2>&1; echo $?`，绝不接管道
 #   grep -c 命中 0 会退出 1 → 全部 || true
 #   基线绝不手填，全部现场从 HEAD 或活体请求现算
 #   中文不经控制台往返：期望串走文件
 FAILS=0
+SKIPPED=""
 say() { echo "$@"; }
 chk() { if [ "$2" = "$3" ]; then say "  OK   $1: $2"; else say "  FAIL $1: 实际=[$2] 期望=[$3]"; FAILS=$((FAILS+1)); fi; }
 
 say "=== 1) 后端全量测试（离线，154 条基线，F-65 后）==="
 if [ -n "${SKIP_MVN:-}" ]; then
   say "  SKIP 本次显式跳过 mvn（例如与编辑类代理并发时：两个 mvn 同写一个 target/ 会互相破坏）"
+  SKIPPED="$SKIPPED §1(mvn)"
 else
 export JAVA_HOME="D:\\jdk_17"; export PATH="/d/jdk_17/bin:$PATH"
 ( cd backEnd && mvn -o test > ../logs/out/f28_test.txt 2>&1 ); T_EXIT=$?
@@ -28,9 +33,16 @@ chk "Failures+Errors" "$( [ "$TF" = "0+0" ] && echo 0 || echo nonzero )" "0"
 fi
 
 say "=== 2) C 端全链路冒烟（脚本在 scripts/，不在 logs/）==="
+if [ -n "${SKIP_SMOKE:-}" ]; then
+  say "  SKIP 本次显式跳过 smoke：它每跑一次就给基线号发一次验证码，而该号 24h 总量只有 100 次（F-65 收的），"
+  say "       门禁跑一次就吃掉用户手动走查的一次额度。代价写在结论区：跳过即本批**未经 C 端全链路证明**，"
+  say "       提交前必须由主会话不带本开关整跑一次"
+  SKIPPED="$SKIPPED §2(smoke)"
+else
 ( bash scripts/smoke.sh > logs/out/f28_smoke.txt 2>&1 ); S_EXIT=$?
 chk "smoke.sh 退出码" "$S_EXIT" "0"
 tail -1 logs/out/f28_smoke.txt | sed 's/^/  /'
+fi
 
 say "=== 3) 统一信封活体基线（HTTP 恒 200 + 401 不带 data 载荷）==="
 BASE=http://127.0.0.1:3001
@@ -237,6 +249,10 @@ say "  ℹ 当前已跟踪的 .md 清单：$(git ls-files '*.md' | tr '\n' ' ')"
 
 say "=== 结论 ==="
 git status --porcelain | sed 's/^/  /'
+if [ -n "$SKIPPED" ]; then
+  say "  WARN 本批被显式跳过的节：${SKIPPED# } —— 这些节没有产生任何证明，读数全绿不等于它们过了"
+  say "       （SKIP_MVN / SKIP_SMOKE 是给并发跑与省发码额度用的，不是给「这次应该不用跑吧」用的）"
+fi
 say "FAIL 计数=$FAILS"
 [ "$FAILS" -gt 0 ] && say "有 $FAILS 条 FAIL——先复核门禁自身再判实现"
 exit 0
