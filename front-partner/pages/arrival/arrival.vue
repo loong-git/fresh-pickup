@@ -133,7 +133,7 @@ const CONFIRMABLE_STATUS = ['planned', 'arriving']
 const BATCH_CONFIRMED = 'confirmed'
 const BATCH_SHORT = 'short'
 
-// 批次状态中文说法：字典里没有的值原样透出，不替后端猜中文名（同 plan-orders.vue:120 的纪律）
+// 批次状态中文说法：字典里没有的值原样透出，不替后端猜中文名（同 plan-orders.vue 的 STATUS_TEXT 那条纪律）
 const STATUS_TEXT = { planned: '计划到货', arriving: '到货中', confirmed: '已确认', short: '已登记短少' }
 const STATUS_TONE = { planned: 'info', arriving: 'warn', confirmed: 'ok', short: 'err' }
 

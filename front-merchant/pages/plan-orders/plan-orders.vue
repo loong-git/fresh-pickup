@@ -88,6 +88,24 @@
                  但这里不依赖对方行为——少写半个条件就是一处「上游改了才会出错」的隐性耦合 -->
             <text v-if="showUnpaid(it)" class="item-tag item-tag-unpaid">未支付</text>
           </view>
+          <!-- ==================== F-69 缺货登记：入口与显示同处，两者互斥 ====================
+               刻意单独占一行，不并进上面那行 status 角标之后：上面说的是「这一单走到哪一步」，
+               这一行说的是「这一行菜备够不够」——fulfill_status 在库里就是与订单三态正交的旁路列
+               （后端注释原文：pickup-plan 的聚合口径不计它），并排显示就会被读成同一种标签。
+               已登记的行不给入口、只给标记（判据：幂等不靠用户自觉，也不给「我到底点过没有」留猜测）；
+               没登记的行给按钮。v-if / v-else 这一对就是互斥的实现处，不存在第三种同屏形态。 -->
+          <view class="item-line item-shortage-line">
+            <text v-if="isShortage(it)" class="item-tag item-tag-shortage">已登记缺货</text>
+            <view
+              v-else
+              class="item-btn-shortage"
+              :class="{ 'item-btn-shortage-cooling': shortageRetryLock > 0 || shortageSubmitting }"
+              hover-class="pill-hover"
+              @click="askRegisterShortage(it)"
+            >
+              <text>{{ shortageButtonText }}</text>
+            </view>
+          </view>
         </view>
       </view>
 
@@ -107,11 +125,13 @@
 </template>
 
 <script>
-// 商家端供货明细（G-03 / F-17 只读页）：GET /api/merchant/order-items 分页列出逐条订单行。
-// 三条页面纪律：① 状态/日期只交后端过滤，页内零过滤；② page/size 以回显值为准（后端「夹而不拒」）；
-// ③ 手机号只显示 maskedPhone 语义的脱敏值，本页干脆不渲染联系电话（备货用不上，少一处明文面）。
+// 商家端供货明细（G-03 / F-17 建页时是只读页；F-69 起多一条写侧动作 PUT order-items/{id}/shortage 登记缺货）：
+// GET /api/merchant/order-items 分页列出逐条订单行。
+// 四条页面纪律：① 状态/日期只交后端过滤，页内零过滤；② page/size 以回显值为准（后端「夹而不拒」）；
+// ③ 手机号只显示 maskedPhone 语义的脱敏值，本页干脆不渲染联系电话（备货用不上，少一处明文面）；
+// ④ F-69 新增：登记缺货成功后只改「这一行」的 fulfillStatus，不整表重拉（理由见 markRowShortage）。
 // 归属由服务端 @RequestAttribute 解析，页面不发任何 merchantId；401 由 api 层清态回登录页，本页不处理跳转。
-import { getMerchantOrderItems, retrySecondsOf, coolingFullText, coolingLeadText, cooldownPillText } from '@/api/index.js'
+import { getMerchantOrderItems, registerShortage, retrySecondsOf, coolingFullText, coolingLeadText, cooldownPillText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -127,6 +147,19 @@ const STATUS_TEXT = { pending_pickup: '待自提', completed: '已完成', cance
 // 回速（30 次/分实测只有 2 秒）是桶回充一格的间隔，不代表重试一定不挨 429 —— 两个数不是一回事，别混用。
 // 本页触底自动加载与「加载更多」都归这枚闸门管，故回落偏保守（锁长一点）比锁短更稳。
 const RETRY_COOLING_SECONDS = 60
+
+// F-69 写侧闸门回落档（端点 @RateLimit(limit = 10, windowSeconds = 60)）。与读侧同值但**另起一把锁**：
+// 限流桶身份含方法名，共用一把会让「登记挨了 429」连带把翻页/切 tab 一起冻住，报出的时长也不是用户等的那把。
+// 数值口径照 api 层 retrySecondsOf——它是「后端不给数时的保守上限」，不是能念给用户的等待时长。
+const SHORTAGE_RETRY_COOLING_SECONDS = 60
+
+// 写侧那把锁在冷却文案里的锁名（X-5：一屏有多把独立锁时，每一处都点名自己报的是哪一把）
+const COOLING_LOCK_LABEL_SHORTAGE = '缺货登记'
+
+// 这一行的缺货标记取值：后端把 fulfill_status 钉死成 shortage 一个值（OrderItemMapper#markShortage
+// 的 SET 侧），页面只认这一个值——normal 与任何脏值都按「未登记」处理、照样给入口，
+// 不给脏值编一个「已登记」的显示（脏值要能被当场看见，同 statusText 那条纪律）
+const FULFILL_STATUS_SHORTAGE = 'shortage'
 
 export default {
   data() {
@@ -155,7 +188,15 @@ export default {
       // 429 冷却剩余秒数（>0 时重试按钮与触底自动加载同时熄 fire）与驱动它的定时器：
       // 与 dishes.vue 同口径，否则每次点/每滚一次都在给这个限流桶续命
       retryLock: 0,
-      retryLockTimer: null
+      retryLockTimer: null,
+      // F-69：登记缺货那把**写侧桶**自己的闸门（与上方读侧 retryLock 各管一枚桶，互不清对方的锁——
+      // 理由见 SHORTAGE_RETRY_COOLING_SECONDS 那段：一把锁管两桶会反向误锁，且报出的时长不是用户等的那把。
+      // 本页族里同形的先例是 dishes.vue 的 catRetryLock、dish-edit.vue 的 writeGates）
+      shortageRetryLock: 0,
+      shortageRetryLockTimer: null,
+      // 一次只允许一条登记请求在途（连点在确认框到回包之间会把 PUT 打出第二条）：
+      // 后端幂等，多打只是白烧写侧配额；这条守卫同时驱动按钮的「提交中」文案
+      shortageSubmitting: false
     }
   },
   computed: {
@@ -203,6 +244,14 @@ export default {
     // 永不同屏）：句式生成在 api 层 cooldownPillText，归因由同卡 errorLeadText 那一行给出（X-5）
     retryPillText() {
       return cooldownPillText(this.retryLock)
+    },
+    // F-69 缺货登记按钮的文字（写侧那把锁在这一屏**不带数**：X-5「一把锁一屏一处带数」，
+    // 而这一屏那处数落在点击时被拦/刚撞 429 那一声 toast 上，由 coolingFullText 现取实时剩余秒数生成。
+    // 这里只说「现在按下去不会发请求」这件事，一个数字都不出现——更不许出现任何写死的时长）
+    shortageButtonText() {
+      if (this.shortageSubmitting) return '登记中…'
+      if (this.shortageRetryLock > 0) return '冷却中'
+      return '登记缺货'
     }
   },
   onLoad(query) {
@@ -244,6 +293,8 @@ export default {
     // 冷却计时器随页销毁一起清：setInterval 挂在 window 上，不摘就会在页面卸载后
     // 继续每秒写一次已死组件的状态（照 dishes.vue 的 onUnload 收尾）
     this.stopRetryLock()
+    // F-69：写侧那把锁是第二枚定时器，必须成对摘掉（漏掉就是「页面没了、锁还在跑」的内存泄漏）
+    this.stopShortageRetryLock()
   },
   methods: {
     // ==================== 数据加载 ====================
@@ -393,9 +444,10 @@ export default {
     loadMore() {
       // 429 冷却闸门同样要拦住自动触底：只拦错误卡上的按钮的话，限流后往下滚会一路续桶，
       // 把该商家其它读接口（备货单、商品列表）一起打死
-      // 这一路刻意**不走 retryCoolingBlocked**（不给 toast）：它由触底/滚轮自动触发（:498、onReachBottom），
-      // 用户没有点击行为，弹「太频繁」是莫名其妙；手动那一颗在模板 :97-99 已置灰并把秒数写在按钮文案上，
-      // 反馈并不缺
+      // 这一路刻意**不走 retryCoolingBlocked**（不给 toast）：它由触底/滚轮自动触发
+      //（本页的 onReachBottom 与 onPageWheel 末尾那句 loadMore，两处都在这一条闸门之后收口），
+      // 用户没有点击行为，弹「太频繁」是莫名其妙；手动那一颗在模板的 .load-more 块里已按 retryLock
+      // 置灰并把秒数写在按钮文案上，反馈并不缺
       if (this.retryLock > 0) return
       if (this._loadingList || !this.hasMore) return
       this.fetchList(false)
@@ -497,6 +549,117 @@ export default {
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
       this.retryLock = 0
+    },
+    // ==================== F-69 缺货登记：入口 → 二次确认 → PUT（无 body）→ 只改这一行 ====================
+    // 这一片是本仓「写不进去、写进去也看不见」那个双向缺口的落点：后端 F-18.8 第 5 条把端点与读侧字段
+    // 都备好了（fulfillStatus 已在 GET order-items 的出参里），前端两半都没接。所以入口与显示必须同片交付，
+    // 只做入口等于登记完自己看不见。
+    // 与订单三态的关系（也是确认框那句话的依据）：fulfill_status 是 order_item 上的旁路列，
+    // 与 orders.status 正交，后端注释明写 pickup-plan 的聚合口径不计它——本页不因它改任何状态说法。
+    // 已登记（fulfillStatus === 'shortage'）的行不渲染按钮、渲染标记，两者由模板那一对 v-if/v-else 保证互斥；
+    // 幂等虽然后端兜（重复点也只是第二个 200，不会落第二行 ops_log），但白烧配额且用户读不出「我点过没有」。
+    // 这一列是不是已登记缺货。只认后端钉死的那个取值（见 FULFILL_STATUS_SHORTAGE）：
+    // normal 与任何脏值都按「没登记」处理、照样给入口，不替后端把脏值编成一个好看的显示
+    isShortage(it) {
+      return !!(it && it.fulfillStatus === FULFILL_STATUS_SHORTAGE)
+    },
+    // 点击入口：先过写侧闸门，再要一次二次确认。
+    // 确认框不是礼节：登记只有 normal→shortage 这一个方向，后端没有任何回退端点，按下去就收不回来。
+    askRegisterShortage(it) {
+      // 闸门放在任何副作用之前，且**不静默**：给一句带后端真值秒数的 toast（X-4 那三条纪律与读侧同源，
+      // 数值只来自 retrySecondsOf 转述的 data.retryAfterSeconds，页内零推算）
+      if (this.shortageRetryLock > 0) {
+        uni.showToast({ title: coolingFullText(COOLING_LOCK_LABEL_SHORTAGE, this.shortageRetryLock), icon: 'none' })
+        return
+      }
+      // 在途守卫：确认框到回包之间再点一次就会多出第二条 PUT（判据 2 要的是「恰好 1 次」，
+      // 而后端幂等只保证不写坏、不保证不白烧那枚 10 次/分 的写侧配额）
+      if (this.shortageSubmitting) return
+      // 已登记行模板里就不给入口了，这里再兜一层：列表可能在别处（onShow 重拉）刚变成已登记态
+      if (this.isShortage(it)) return
+      const orderItemId = it && it.orderItemId
+      if (orderItemId === null || orderItemId === undefined || orderItemId === '') {
+        // 行没有主键就打不出这条 PUT（路径参数就是行身份）。如实说一句，
+        // 绝不静默——「按下去没反应」会被读成页面坏了（dish-edit.vue 的 saveText 那段立过同款纪律：
+        // 灰按钮只换颜色、不给说法，商家就以为是网络卡）
+        uni.showToast({ title: '该行没有明细编号，无法登记缺货', icon: 'none' })
+        return
+      }
+      // 文案与判据同源，两条都在这儿钉着：
+      // ① 不能说「订单变成缺货」——订单三态里没有「缺货」这一档，登记动的是旁路列；
+      // ② 不能暗示订单状态被改变——所以明写「不改变订单本身的状态」，把正交这件事说给商家而不是只写在注释里；
+      // ③ 不写「主理人/顾客会看到」：那两端当前根本不读这一列（fulfillStatus 在四个前端里此前零引用），
+      //    说了就是假指引，本仓一直在打的正是这一族。屏上现在唯一读得到它的地方就是这一页。
+      uni.showModal({
+        title: '登记缺货',
+        content: '确认把「' + this.dishNameOf(it) + '」这一行登记为缺货吗？该行会显示「已登记缺货」标记，'
+          + '只改这一行的缺货标记，不改变订单本身的状态（待自提 / 已完成 / 已取消不受影响），本页也没有撤销入口。',
+        confirmText: '确认登记',
+        cancelText: '再想想',
+        confirmColor: '#E02020',
+        success: (r) => {
+          if (r && r.confirm) this.registerShortageRow(orderItemId)
+        }
+      })
+    },
+    // 确认后那一条 PUT：本方法只在 modal 的 confirm 支被调用，所以「点一次确认 = 至多一条 PUT」
+    async registerShortageRow(orderItemId) {
+      this.shortageSubmitting = true
+      try {
+        const res = await registerShortage(orderItemId)
+        // 只有 200 才改行：首次登记与幂等命中同为 200，两条都该进「已登记」态（判据 3 的落点）
+        this.markRowShortage(orderItemId)
+        // toast 用后端信封 message 原文（MerchantFulfillController#registerShortage 的 R.ok(null,「已登记缺货」)），
+        // 页面不另写一句同义的话——同一件事在两处各说一遍就是两处漂移面
+        uni.showToast({ title: (res && res.message) || '已登记缺货', icon: 'none' })
+      } catch (e) {
+        if (e && Number(e.code) === 401) {
+          // 401 由请求层做完（清 merchant_token + toast「请先登录」+ 回登录页），这里不补第二句、更不改行
+          return
+        }
+        if (e && Number(e.code) === 429) {
+          // 起的是**写侧那把**闸门（读侧 retryLock 一个字节都不碰：两枚桶互不相干，
+          // 清了/起了对方的锁就回到 X-1 那个病）
+          this.startShortageRetryLock(e)
+          uni.showToast({ title: coolingFullText(COOLING_LOCK_LABEL_SHORTAGE, this.shortageRetryLock), icon: 'none' })
+          return
+        }
+        // 其余（403 写闸门 / 404 行不存在或非本店 / 400 / 500 / 网络异常）一律 toast 后端 message 原文。
+        // 404 在这里有两种来源且**同码同文案**（服务端的防枚举口径就是不给「这行存在」的信号），
+        // 页面不猜是哪一种、也不据此说「已登记」——失败却显示成已登记，就是把没发生的事说成发生了（判据 4）
+        uni.showToast({ title: (e && e.message) || '缺货登记失败，请稍后重试', icon: 'none' })
+      } finally {
+        this.shortageSubmitting = false
+      }
+    },
+    // 成功后只改这一行（判据 2 明写「没有整表重拉」）。为什么不 fetchList 重来一次：
+    // ① 重拉打的是读侧那枚 GET order-items 的桶，登记一行烧一次读额度，连着登记几行会把列表自己限死；
+    // ② 重拉会把商家正看着的位置与翻开的第 N 页冲回第一页，比「状态慢半拍」更讨人嫌。
+    // 换整个数组而不是按下标就地赋值：与 appendRows 同一套「一次替换一个新引用」的纪律，
+    // 不依赖就地变更的侦测时机；:key 走 rowKey(orderItemId)，换新对象也不会让行重建或串位。
+    markRowShortage(orderItemId) {
+      const key = String(orderItemId)
+      const idx = this.list.findIndex((r) => String(r && r.orderItemId) === key)
+      // 找不到 = 列表在这条请求在途期间已被重拉/换条件清掉；那一次回包里服务端就带着 fulfillStatus，
+      // 无需也不该再补（补了就是往一份不属于本次条件的新列表里塞旧行）
+      if (idx < 0) return
+      const next = this.list.slice()
+      next[idx] = Object.assign({}, next[idx], { fulfillStatus: FULFILL_STATUS_SHORTAGE })
+      this.list = next
+    },
+    // 写侧闸门的形状与上面读侧那把逐字同构（同一个 retrySecondsOf 取值口径、同样每秒自减、
+    // 同样在 onUnload 成对摘掉），只有回落档换成写侧桶的窗口长度
+    startShortageRetryLock(err) {
+      this.stopShortageRetryLock()
+      this.shortageRetryLock = retrySecondsOf(err, SHORTAGE_RETRY_COOLING_SECONDS)
+      this.shortageRetryLockTimer = setInterval(() => {
+        this.shortageRetryLock--
+        if (this.shortageRetryLock <= 0) this.stopShortageRetryLock()
+      }, 1000)
+    },
+    stopShortageRetryLock() {
+      if (this.shortageRetryLockTimer) { clearInterval(this.shortageRetryLockTimer); this.shortageRetryLockTimer = null }
+      this.shortageRetryLock = 0
     },
     // ==================== 跳转 ====================
     goWorkspace() {
@@ -641,6 +804,26 @@ export default {
 }
 .item-tag-status { color: #999999; background-color: #F5F5F5; }
 .item-tag-unpaid { color: #FFFFFF; background-color: #E02020; }
+
+/* ==================== 5b. 缺货登记那一行（F-69） ==================== */
+/* 单独一行而不是并进上面那行 status 角标之后：fulfill_status 是与订单三态正交的旁路列，
+   两枚并排就会被读成同一种标签（「文案与判据同源」要的正是别把这两件事混起来） */
+.item-shortage-line { margin-top: 10rpx; }
+/* 「已登记缺货」= 实心标记、不可点。刻意不用 .item-tag-unpaid 那种纯红底白字：
+   同一行两枚红底反色 tag 会互相冒充，而未支付与缺货是两件事 */
+.item-tag-shortage { color: #B01818; background-color: #FFF1F0; }
+/* 「登记缺货」= 可点胶囊，形状照本页 .date-clear（红描边 + 同一个按下态 pill-hover）。
+   刻意不套 .item-tag 的 4rpx 12rpx 内边距：那是标签的高度，拿来做按目标太小 */
+.item-btn-shortage {
+  display: inline-flex; align-items: center;
+  font-size: 20rpx; font-weight: 600; color: #E02020; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  padding: 8rpx 24rpx;
+}
+/* 冷却中 / 请求在途：置灰取值口径同 .btn-more.btn-more-cooling（#BBBBBB / #EEEEEE）再加 not-allowed。
+   写在上一条之后、与它同特异度，靠源码顺序压过它（同 .btn-more.btn-more-cooling 的打法）。
+   这一处刻意不出数字——X-5「一把锁一屏一处带数」，那处数在点击时被拦/刚撞 429 的那一声 toast 上 */
+.item-btn-shortage-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 
 /* ==================== 6. 加载更多 ==================== */
 .load-more { display: flex; flex-direction: column; align-items: center; margin-top: 24rpx; }

@@ -121,7 +121,7 @@
         </view>
       </view>
 
-      <!-- 加载更多：触底自动 + 按钮兜底（照 plan-orders.vue:96-102）；终态「共 N 条」用 max(total, 已加载行数) -->
+      <!-- 加载更多：触底自动 + 按钮兜底（照 plan-orders.vue 的 .load-more 块）；终态「共 N 条」用 max(total, 已加载行数) -->
       <view class="load-more">
         <button v-if="hasMore" class="btn-more" :class="{ 'btn-more-cooling': retryLock > 0 }"
           :disabled="loadingMore || retryLock > 0" @click="loadMore">

@@ -378,6 +378,11 @@ export function resendPillText(seconds) {
 
 /**
  * 统一请求封装：有 token 才带 Authorization: Bearer <token>；其余判定全在 handleEnvelope
+ *
+ * options.noBody === true 是「这个端点不收请求体」的显式声明（F-69 的缺货登记是第一个用户）：
+ * 这一支把 data 交 undefined 而不是默认的 {}。差别不是洁癖——`{}` 会被序列化成一枚两字节非空的
+ * '{}' 请求体，于是「无 body」这条契约面（后端类注释原文：收 @RequestBody 只会多一个可被伪造的
+ * 入参面）在网络上根本断不成真。不传该键时行为逐字不变，其余调用方零影响。
  */
 const request = (options) => {
   const method = (options.method || 'GET').toUpperCase()
@@ -390,7 +395,7 @@ const request = (options) => {
     uni.request({
       url: BASE_URL + options.url,
       method,
-      data: options.data || {},
+      data: options.noBody === true ? undefined : (options.data || {}),
       timeout: isSubmit ? TIMEOUT_SUBMIT : TIMEOUT_QUERY,
       header,
       success: (res) => handleEnvelope(res, resolve, reject),
@@ -753,6 +758,28 @@ export function getMerchantOrderItems(query) {
   if (src.page) data.page = Number(src.page)
   if (src.size) data.size = Number(src.size)
   return request({ url: '/api/merchant/order-items', method: 'GET', data })
+}
+
+// ==================== 缺货登记（F-69） ====================
+// 单列一节：本条定性口径与上方那组只读接口不同（200 含「幂等命中」、404 含「不是你的行」），并进去会被读错。
+
+/**
+ * 登记缺货：PUT /api/merchant/order-items/{orderItemId}/shortage，**无请求体**
+ * （端点不收 @RequestBody，fulfill_status 取值由服务端钉死，故走 noBody 支；超时落写侧档 TIMEOUT_SUBMIT）。
+ * 归属由服务端 WHERE 判定：他商家行与不存在的行同为 404「订单不存在」，不给枚举者存在信号。
+ * 限流 @RateLimit(10/60s) 的桶身份含方法名 → 与读侧 order-items 那枚桶互不相干，
+ * 页面侧因此必须各起一把冷却锁；429 的 data.retryAfterSeconds 原样透出，折算与起闸归页面。
+ * 出参 {code:200, data:null, message:'已登记缺货'}，首次与幂等命中同为 200、信封不区分。
+ * ⚠ 改的是 order_item.fulfill_status 旁路标记，与订单三态 orders.status 正交，不得据它改订单状态的说法。
+ * @param {string|number} orderItemId - 明细行主键（GET order-items 出参的 orderItemId 原值）
+ * @returns {Promise<{code:number,data:null,message:string}>}
+ */
+export function registerShortage(orderItemId) {
+  return request({
+    url: '/api/merchant/order-items/' + encodeURIComponent(orderItemId) + '/shortage',
+    method: 'PUT',
+    noBody: true
+  })
 }
 
 // ==================== 数据看板与营销参与态（G-05 / F-19，两张只读卡） ====================
