@@ -270,6 +270,17 @@ fi
 # 工作区里存在内部 .md 是正常的（docs/ 整目录本就被忽略），这里只保证它们进不了 git 索引
 say "  ℹ 当前已跟踪的 .md 清单：$(git ls-files '*.md' | tr '\n' ' ')"
 
+say "=== 12) 门禁自述与 README 同步：本脚本每个节号都必须被 README 提到（F-93d 新）==="
+# 起因是 F-93c 那次手工核对：f28 实有 15 个节号，而 README 漏了 §6b 一句。
+# 这类漂移不会让任何行为出错，所以只能靠判据盯着——加一节而不写文档，本来不会有人发现。
+# 本节自指：它自己也在被检查之列，所以今后新加一节就必须同时改 README，否则这里直接红。
+MISS=""
+for n in $(grep -oE 'say "=== [0-9]+(\.[0-9]+)?[a-z]?\)' tools/gate/f28-gate.sh | sed 's/.*=== //; s/)//' | sort -u); do
+  grep -q "§$n" tools/gate/README.md || MISS="$MISS §$n"
+done
+chk "README 漏提的节号数" "$([ -z "$MISS" ] && echo 0 || printf '%s' "$MISS" | wc -w | tr -d ' ')" "0"
+[ -n "$MISS" ] && say "      漏提：$MISS —— 到 tools/gate/README.md 的 f28 节「判什么」里补上它"
+
 say "=== 结论 ==="
 git status --porcelain | sed 's/^/  /'
 if [ -n "$SKIPPED" ]; then
