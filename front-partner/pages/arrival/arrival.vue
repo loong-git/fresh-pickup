@@ -45,7 +45,7 @@
     <view v-else-if="viewState === 'empty'" class="card empty-card">
       <view class="empty-row">
         <text class="empty-text">{{ effectiveDate || '该日' }} 无到货批次记录</text>
-        <text class="empty-sub">批次由平台侧配货，当前版本未开放平台端录入；如应有货未到，请联系平台运营</text>
+        <text class="empty-sub">批次由平台侧配货，本页只读；如应有货未到，请联系平台运营</text>
       </view>
       <view class="empty-actions">
         <text class="guide-link" @click="stepDay(-1)">看前一天</text>
