@@ -13,6 +13,7 @@
 #   中文不经控制台往返：期望串走文件
 FAILS=0
 SKIPPED=""
+PUSH_BLOCK=""
 say() { echo "$@"; }
 chk() { if [ "$2" = "$3" ]; then say "  OK   $1: $2"; else say "  FAIL $1: 实际=[$2] 期望=[$3]"; FAILS=$((FAILS+1)); fi; }
 
@@ -235,6 +236,28 @@ else
   chk "非测试基线的手机号形态命中" "${PHONE:-0}" "0"
 fi
 
+say "=== 10b) commit message 隐私普查：本地领先 origin 的**提交说明**里不许有真实门店/人名/执照号 ==="
+# 为什么单开一条：§10 扫的是 git diff 的新增行，而 **commit message 根本不在 diff 里**。
+# F-90 那次为了论证「法人名与门店名同源、两条一拼能定位到人」，把真实人名写进了提交说明——
+# 一片以清除隐私为目的的改动，自己造了一个新的泄露载体，而 §10 当时全绿。这条就是那次自打脸之后补的。
+# 判成 WARN 而不是 FAIL，理由要说清：未推送历史的改写（amend / rebase）在本仓是红线，处置权在用户，
+# 拿它卡住所有本地提交等于把"待裁定"变成"永久红"；但它同时必须是 **push 前置阻断项**——
+# 一旦推上去就和 §5 的 bcc2b8f 一样进公开历史、删不掉了。所以它进结论区的 push 阻断清单。
+if [ ! -f logs/.pii-list ]; then
+  SKIPPED="$SKIPPED §10b(无 logs/.pii-list)"
+  say "  SKIP logs/.pii-list 不存在（与 .secret-list 同处理：清单只在本地，绝不入库）"
+else
+  git log origin/master..HEAD --format='%h %s%n%b' > logs/out/push_precheck.msgs.txt 2>/dev/null
+  MHIT=$(grep -f logs/.pii-list logs/out/push_precheck.msgs.txt 2>/dev/null | grep -c . || true)
+  if [ "${MHIT:-0}" = "0" ]; then
+    say "  OK   提交说明里的隐私锚命中: 0"
+  else
+    say "  WARN 提交说明里的隐私锚命中 ${MHIT} 行 → **push 前必须由用户裁定处置，未推历史不许自行 amend**："
+    grep -n -f logs/.pii-list logs/out/push_precheck.msgs.txt 2>/dev/null | cut -c1-100 | sed 's/^/      /'
+    PUSH_BLOCK="$PUSH_BLOCK 提交说明含隐私锚 ${MHIT} 行"
+  fi
+fi
+
 say "=== 11) 除 README 族外，任何 .md 不得被跟踪（用户 2026-10-19 定：md 除 README 一律不提交不推送）==="
 # 判据只数「非 README 的已跟踪 .md」=0，**不写死 README 的个数**（将来加一个 README 就假红，
 # 而假红的判据等于没有判据）。README 族 = README.md 与 README-<说明>.md，含任意子目录下的。
@@ -252,6 +275,10 @@ git status --porcelain | sed 's/^/  /'
 if [ -n "$SKIPPED" ]; then
   say "  WARN 本批被显式跳过的节：${SKIPPED# } —— 这些节没有产生任何证明，读数全绿不等于它们过了"
   say "       （SKIP_MVN / SKIP_SMOKE 是给并发跑与省发码额度用的，不是给「这次应该不用跑吧」用的）"
+fi
+if [ -n "$PUSH_BLOCK" ]; then
+  say "  BLOCK push 前置阻断项：${PUSH_BLOCK# } —— 本批**可以本地提交**，但**不具备 push 条件**，"
+  say "       未推送历史的 amend/rebase 需用户裁定（本仓红线：不改写历史、不 force-push）"
 fi
 say "FAIL 计数=$FAILS"
 [ "$FAILS" -gt 0 ] && say "有 $FAILS 条 FAIL——先复核门禁自身再判实现"
