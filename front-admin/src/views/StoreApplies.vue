@@ -348,7 +348,7 @@ function confirmTextOf(row, action, trimmedRemark) {
   if (action === 'approve') {
     return '通过将入驻申请 ' + row.id + '「' + row.proposedName + '」并【发布门店】。\n\n'
       + '· 同一事务里做三件事：① 申请置为 approved 并记审核时间；② 新建一条 store（名称/地址/坐标/服务/联系电话'
-      + '全部取自本申请行）；③ 写一条 admin_audit_log。任一步失败整体回滚，不留「已发布却没置态」的半态。\n'
+      + '全部取自本申请行）；③ 写一条 admin_audit_log（第③步是旁路，失败只记日志、不回滚）。①②任一步失败整体回滚，不留「已发布却没置态」的半态。\n'
       + '· 新店的 store.owner_user_id 会被绑成【申请人】——这是这家店归属的唯一生产写入点，'
       + '此后这家店由主理人端（front-partner）自己管理。\n'
       + '· 【不可翻转】：通过后这条申请不能再驳回（服务端回「该申请已审核完成，不可再次审核」）。\n'

@@ -339,7 +339,7 @@ async function loadPreview() {
     if (!preview.value) {
       viewState.value = 'error'
       errorCode.value = 0
-      errorText.value = '预览接口回了 200 但 data 是空——没有可渲染的七键读数，本页不拿空壳当 ready 态。'
+      errorText.value = '预览接口回了 200 但 data 是空——没有可渲染的八键读数，本页不拿空壳当 ready 态。'
       return
     }
     // 显示日期一律以回包 date 回显为准（预览契约回显该键）；回显缺失才退回本次请求值
