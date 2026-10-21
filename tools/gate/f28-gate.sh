@@ -258,6 +258,56 @@ else
   fi
 fi
 
+say "=== 10c) 树级隐私普查：本地 HEAD 的树与已公开的 origin/master 的树整体扫清单（F-94 新）==="
+# 为什么 §10/§10b 不足以证明"隐私已清"：那两条都只看 origin/master..HEAD 这一段的**增量**
+# （新增行 / 提交说明），它们能证明"这批没带入"，**证明不了"当前内容不含"**。
+# 2026-10-21 第一次把这条盲区跑出来：§10/§10b 当时全绿，而 `git grep -f logs/.pii-list origin/master`
+# 实测**已公开那棵树本身命中 6 文件 / 去重 29 行**（脱敏片当时还没推）。我据此把 F-90 的定级
+# 从"唯一残余是公开历史"订正成"公开 HEAD 的当前内容就含真名"——判据没错，错在把"判据绿"当成"性质成立"。
+# 所以这里扫的是**两个 ref 的树**，不扫工作区（工作区含并行代理的半成品，读数不可归因）。
+# 0 命中不许直接引用：同轮必须有一个**正例 ref** 非空，否则等于没测（本仓「自检返空=自检无效」那条）。
+if [ ! -f logs/.pii-list ]; then
+  SKIPPED="$SKIPPED §10c(无 logs/.pii-list)"
+  say "  SKIP logs/.pii-list 不存在（清单只在本地，绝不入库）"
+elif [ ! -s logs/.pii-list ]; then
+  # 空清单必须红，不能 SKIP：实测 `git grep -F -f <空文件>` 会**匹配一切**（拿 HEAD 试出 52 行假命中，
+  # 面里都是 TraceIdFilter.java 这类毫不相关的文件）。判据坏的方向是"假绿"最可怕，但这里连"假红"都带着
+  # 一堆无意义命中面，读的人无法分辨，所以直接判失败并停止扫描——与 §7.5 把"清单没了"变红同一个思路。
+  chk "logs/.pii-list 存在且非空（空清单会让 git grep 匹配一切）" "1" "0"
+else
+  # 去重到「文件:行号」再数：同一行被多条锚命中只能算一行，否则读数会随清单长度漂移。
+  # 两个 ref 各扫一次；命中面打印必须复用同一个 ref 变量，否则改一处漏一处（坏例实测踩过）。
+  tree_hits() {
+    git grep -n -F -f logs/.pii-list "$1" 2>/dev/null \
+      | sed "s|^$1:||" | awk -F: '{print $1":"$2}' | sort -u | grep -c . || true
+  }
+  SCAN_REV=HEAD
+  HTREE=$(tree_hits "$SCAN_REV")
+  chk "本地 HEAD 树隐私命中行数" "${HTREE:-0}" "0"
+  if [ "${HTREE:-0}" != "0" ]; then
+    say "  ↓ 处置：脱敏片本身没做完就被提交了——先补内容再提交，别推。命中面："
+    git grep -l -F -f logs/.pii-list "$SCAN_REV" 2>/dev/null | sed 's/^/      /'
+  fi
+  # 正例对照：F-90 之前那个提交**必须**非空。它为 0 说明这条普查本身坏了（清单失联/参数顺序错/-F 忘了）。
+  PRE=$(tree_hits 'cf57c33~1')
+  chk "正例对照：脱敏前那次提交实测 ${PRE:-0} 行命中（必须 >0，为 0 = 本判据坏了）" \
+      "$([ "${PRE:-0}" -gt 0 ] && echo 0 || echo 1)" "0"
+  if git rev-parse --verify --quiet origin/master >/dev/null; then
+    OTREE=$(tree_hits origin/master)
+    if [ "${OTREE:-0}" != "0" ]; then
+      # 不做 FAIL：公开树上的旧内容只能靠「把脱敏片推上去」或 GitHub 侧处置来消，两者都在用户手里，
+      # 门禁无权替用户决定，但必须把它摆成 push 前置阻断项——否则推上去等于把脏内容继续留在公开 HEAD。
+      say "  WARN 已公开的 origin/master 树仍含隐私锚 ${OTREE} 行 → **推上脱敏片后本行应自动转 0；在那之前本批不具备 push 条件**"
+      PUSH_BLOCK="$PUSH_BLOCK 公开 origin/master 树含隐私锚 ${OTREE} 行"
+    else
+      chk "origin/master 树隐私命中行数" "0" "0"
+    fi
+  else
+    SKIPPED="$SKIPPED §10c(origin/master 不存在)"
+    say "  SKIP 无 origin/master 引用，公开树那一半无法判定"
+  fi
+fi
+
 say "=== 11) 除 README 族外，任何 .md 不得被跟踪（用户 2026-10-19 定：md 除 README 一律不提交不推送）==="
 # 判据只数「非 README 的已跟踪 .md」=0，**不写死 README 的个数**（将来加一个 README 就假红，
 # 而假红的判据等于没有判据）。README 族 = README.md 与 README-<说明>.md，含任意子目录下的。
