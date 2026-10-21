@@ -67,7 +67,7 @@ public class AdminV2Controller {
      * 只读大盘（F-20.9 #2）：{@code GET /api/admin/v2/overview?date=YYYY-MM-DD}
      * → {@code {orderCount, totalAmount, pendingPickupCount, paidAmount, notifyRejectCount, notifyRejectLastAt}}
      * （后两键 F-50 追加：当日「微信支付回调拒收」的条数 + 最后一次拒收的 HH:mm，前四键形状一字未变）。
-     * 四指标口径逐字照 {@code docs/日常运营SQL手册.md:111-115}（订单口径，与 G-05 券前明细口径分列）；
+     * 四指标口径逐字照 {@code docs/日常运营SQL手册.md:125-132}（订单口径，与 G-05 券前明细口径分列）；
      * date 缺省 = 今日（SQL 侧 CURDATE()），非 {@code YYYY-MM-DD} 形状或假日期 → 400；
      * 金额出两位小数字符串，空数据日四个 0 值不出 null；
      * 拒收那两键同一个自然日窗口，当日没有拒收时 {@code notifyRejectLastAt} 是<b>显式 null</b>（键必在，F-42b 信封纪律）。

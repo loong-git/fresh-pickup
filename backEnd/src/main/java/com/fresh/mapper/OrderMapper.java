@@ -63,7 +63,7 @@ public interface OrderMapper extends BaseMapper<Order> {
      * 大盘四列聚合（F-20.18 收 N-20-2：这条原来是 {@code AdminV2ServiceImpl} 里用继承来的
      * {@code BaseMapper#selectMaps + QueryWrapper} 跑的妥协实现，「读 SQL 全在 mapper 里」这条可 grep 的纪律
      * 当时打了折，本期清单含 OrderMapper 故搬正）。四个表达式与别名逐字照搬前处常量的原文，
-     * 口径仍 = {@code docs/日常运营SQL手册.md:111-115}：{@code COUNT(*)} / {@code IFNULL(SUM(total_price),0)} /
+     * 口径仍 = {@code docs/日常运营SQL手册.md:125-132}：{@code COUNT(*)} / {@code IFNULL(SUM(total_price),0)} /
      * {@code IFNULL(SUM(status='pending_pickup'),0)} /
      * {@code IFNULL(SUM(CASE WHEN pay_status=1 THEN total_price ELSE 0 END),0)}，一行恒回。
      * <p><b>窗口</b>：{@code [当日 00:00, 次日 00:00)} 半开区间，与手册的
