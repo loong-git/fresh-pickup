@@ -42,18 +42,18 @@ import java.util.regex.Pattern;
  *
  * <p><b>防枚举（D-14）</b>：按<b>主理人 userId</b> 计失败次数，5 次/10 分钟上锁；锁定期内
  * <b>连正确码也拒</b>（否则枚举可以搭「偶尔猜中」的车续命）；一次成功核销（含幂等成功）即清零。
- * 计数存内存（Caffeine，写法照 {@code RateLimitInterceptor:34} 的 {@code Cache.newBuilder()}，不引新表）——
+ * 计数存内存（Caffeine，写法照 {@code RateLimitInterceptor:40} 的 {@code Cache.newBuilder()}，不引新表）——
  * <b>单实例有效是已登记的边界</b>，多实例部署要换 Redis（G-07/部署批次）。
  */
 @Slf4j
 @Service
 public class PartnerOrderServiceImpl implements PartnerOrderService {
 
-    /** 清单 size 默认 20、上限 50（夹而不拒并回显生效值，同 MerchantOrderServiceImpl:47-48 范式） */
+    /** 清单 size 默认 20、上限 50（夹而不拒并回显生效值，同 MerchantOrderServiceImpl:69-70 范式） */
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
 
-    /** 出参 date 的形状闸门（照 MerchantOrderServiceImpl:51 的 Pattern），形状过再交 LocalDate 裁决真日期 */
+    /** 出参 date 的形状闸门（照 MerchantOrderServiceImpl:73 的 Pattern），形状过再交 LocalDate 裁决真日期 */
     private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
     /** 取货码形状：6 位数字（D-4）；形状不符 = 参数不对，走 400 且**不计入**枚举失败次数 */
@@ -160,7 +160,7 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
         long total = dateAbsent
                 ? partnerOrderMapper.countOrdersAllDates(storeIds, tab)
                 : partnerOrderMapper.countOrdersByDate(storeIds, effectiveDate, tab);
-        // 短路条件 offset >= total（照 MerchantOrderServiceImpl:176 的 G-3/L4 修法）：
+        // 短路条件 offset >= total（照 MerchantOrderServiceImpl:219-223 的 G-3/L4 修法）：
         // page 无上界，巨大 offset 不必再白跑一条 JOIN 查询；total==0 天然被它覆盖
         List<Map<String, Object>> rows = offset >= total
                 ? List.of()

@@ -44,7 +44,7 @@ import java.util.regex.Pattern;
 public class MerchantDishServiceImpl implements MerchantDishService {
 
     /**
-     * 审计 detail 列宽：admin_audit_log.detail VARCHAR(500)（init.sql:319）。MySQL 严格模式
+     * 审计 detail 列宽：admin_audit_log.detail VARCHAR(500)（init.sql:383）。MySQL 严格模式
      * （STRICT_TRANS_TABLES）下超长 INSERT 报 1406，而 writeAudit 是只 log.warn 的旁路 →
      * **业务写照常提交、审计行凭空消失**，且脏值一旦进了 dish.name，dishBrief 的 old 侧从此每次更新都带它，
      * 这一行商品永久脱审且外部不可发现（F-13.10 #2 实测 0→0 行）。列宽与合法性由 buildAuditDetail 收口。
@@ -86,7 +86,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * 为什么 @Size(max=20) 挡不住：C 端 front/pages/detail/detail.vue 的 slide-poster 用 **background 简写**绑 g.bg（由 dish.bgColor 衍生），
      * `url(//a.co/x)` 只有 12 字符、是合法 CSS → 商家可把任意外链塞进背景并让全站访客去请求它。
      * 正则与商家端 front-merchant/pages/dish-edit/dish-edit.vue 的 safeColor（computed）同一字符集
-     * （那里写 /^#[0-9a-fA-F]{3,8}$/，本处按简报钉成 3|6|8 三档、并用 CASE_INSENSITIVE 覆盖它的 A-F，
+     * （那边 dish-edit.vue 的 HEX_COLOR_RE 已写成 /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/，本处同钉 3|6|8 三档、用 CASE_INSENSITIVE 覆盖它的 A-F，
      *  否则前端色块预览通过、后端 400 的形态会让商家一头雾水；放行的取值集合仍是纯十六进制，无 CSS 注入面）。
      */
     private static final Pattern BG_COLOR_PATTERN =
@@ -158,7 +158,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         dishMapper.insert(dish);
 
         // 回查而非直接返回入参实体：on_sale/seckill/sold_count/good_rate/create_time 等列由 DB DEFAULT
-        // 与种子公式生成（新建默认 on_sale=1 上架，见 init.sql:70 与本类边界回报），商家端列表要读这些列；
+        // 与种子公式生成（新建默认 on_sale=1 上架，见 init.sql:86 与本类边界回报），商家端列表要读这些列；
         // 回查本身也走 id + merchant_id 双条件（R3'，不给无归属读留口子）
         Dish created = detail(merchantId, dish.getId());
         log.info("商家端新增商品: merchantId={}, dishId={}, name={}, price={}, stock={}",
@@ -482,7 +482,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
     /**
      * 旧值快照的列集与 update 的 new 侧**逐一对齐**（BE-4③ / F-13.10 #11）：旧实现只有
      * name/price/stock/onSale/category/unit/limitBuy 七列，答不出「这张图是谁换的」——
-     * 而 new 侧 (:207-215) 明明记了 image/description 长度/tags/emoji/bgColor。
+     * 而 new 侧 (:262-270) 明明记了 image/description 长度/tags/emoji/bgColor。
      * description 取长度摘要而非全文（列是 TEXT，全量会把 500 预算一口吃光；长度差足以说明改没改）；
      * stock/onSale 是 new 侧没有的两列，保留是因为 create 的 detail 与 dish.stock/dish.onsale 审计也走本方法。
      * 超长由 buildAuditDetail 的预算截断兜住，不再靠「少记几列」迁就列宽。

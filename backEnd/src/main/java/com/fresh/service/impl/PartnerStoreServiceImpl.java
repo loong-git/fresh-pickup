@@ -225,7 +225,7 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
             return toOwnerView(before);
         }
 
-        // 影响行数判定 = 授权判定本身（同 MerchantDishServiceImpl:249 的姿势）
+        // 影响行数判定 = 授权判定本身（同 MerchantDishServiceImpl:258 的姿势）
         if (storeMapper.update(patch, wrapper) == 0) {
             throw new BizException(R.CODE_NOT_FOUND, STORE_NOT_FOUND_MSG);
         }
@@ -249,10 +249,10 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
     @Override
     public Map<String, Object> arrivals(List<Long> storeIds, Long storeIdArg, String date) {
         Long storeId = resolveStoreId(storeIds, storeIdArg);
-        // 缺省=明日。F-60 订正本行原注释：它当时写着「= m18 演示种子那一行的日期，让『当日未确认』警示条
-        // 在验收现场演示得出来」——那是假话：种子日期是写死的 2026-10-13，装库当天之后就不可能是"明日"，
-        // 而两个前端调用方（批次页/警示条）都显式传 date，这个缺省只有直调接口的调用方会走到。
-        // 缺省值本身保留（对直调者是合理默认），只是不再声称它有演示功能。
+        // 缺省=明日。这行注释的历史本身是个教训：F-60 曾把原句「= m18 演示种子那一行的日期，所以『当日未确认』
+        // 警示条演示得出来」判成假话，判据是「种子日期写死 2026-10-13」——**那个判据才是假的**：m18:152 实测是
+        // DATE_ADD(CURDATE(), INTERVAL 1 DAY)，git log -S 该串唯一命中创建它的 0b8de6d，从未写死过。
+        // 所以被否证的原句为真（与 PartnerStoreService 侧「缺省=明日，与 m18 演示种子同日」同口径）；两个前端调用方都显式传 date，缺省只有直调者走到。
         LocalDate effectiveDate = date == null || date.trim().isEmpty()
                 ? LocalDate.now().plusDays(1)
                 : parseDate(date.trim());

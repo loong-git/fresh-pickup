@@ -23,7 +23,7 @@ import java.util.Set;
 @Component
 public class OpsLogWriter {
 
-    /** ops_log.detail 列宽（m17-migration.sql:95 VARCHAR(500)）：超长是 1406 的头号成因，写前先夹 */
+    /** ops_log.detail 列宽（m17-migration.sql:83 VARCHAR(500)）：超长是 1406 的头号成因，写前先夹 */
     private static final int DETAIL_MAX = 500;
 
     /** 兜底 detail：完整行装不下时落这一行——「审计行必须存在」优先于「审计行有内容」（照母版 BE-2 硬要求） */
@@ -70,7 +70,7 @@ public class OpsLogWriter {
 
     /**
      * createdAt 不填：ops_log.created_at 由 DB {@code DEFAULT CURRENT_TIMESTAMP} 落值
-     * （m17:96；实体里也是裸声明，照 AdminAuditLog:40，不走 MetaObjectHandler 的 fill）。
+     * （m17:84；实体里也是裸声明，照 AdminAuditLog:40，不走 MetaObjectHandler 的 fill）。
      */
     private void insert(Long operatorUserId, String action, String targetId, String detail) {
         OpsLog row = new OpsLog();

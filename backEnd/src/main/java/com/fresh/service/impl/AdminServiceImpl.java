@@ -83,7 +83,7 @@ public class AdminServiceImpl implements AdminService {
     private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
 
     /**
-     * 审计 detail 列宽与预算口径（admin_audit_log.detail VARCHAR(500)，init.sql:319；BE-2 同型修复）：
+     * 审计 detail 列宽与预算口径（admin_audit_log.detail VARCHAR(500)，init.sql:383；BE-2 同型修复）：
      * MerchantDishServiceImpl 那边按「Jackson 最坏 2 倍」推预算的前提已被 F-13.10 #2 实测证伪——
      * 控制码转成六字符转义串（反斜杠 + u0001）是 **6 倍**，100 个 U+0001 序列化后 602 字符 > 500，STRICT_TRANS_TABLES 下 INSERT 报 1406，
      * 被本方法旧的「catch → log.warn」吞掉 → 业务写照常提交、审计行凭空消失。
@@ -121,7 +121,7 @@ public class AdminServiceImpl implements AdminService {
     private static final String NOTIFY_REJECT_CODE_UNSET = "UNSPECIFIED";
 
     /**
-     * {@code target_id} 列宽（{@code admin_audit_log.target_id VARCHAR(64) NOT NULL}，init.sql:353）。
+     * {@code target_id} 列宽（{@code admin_audit_log.target_id VARCHAR(64) NOT NULL}，init.sql:382）。
      * 路径段是请求方可控的（{@code /api/pay/<随便一串>/wx-notify} 没有长度闸门），超 64 字符会让整行审计
      * 撞 1406 被本类那两层 catch 静默吞掉——正是 BE-2 说过的「不可发现的脱审」。
      * 按 BE-2 的既有裁定处理：<b>「审计行必须存在」优先于「审计行有内容」</b>，截到列宽而不是丢行。
@@ -359,8 +359,8 @@ public class AdminServiceImpl implements AdminService {
      * 先做带 {@code status='pending'} 的那条 UPDATE 可以让「并发二次审核」在第一步就回 0 行短路掉，
      * 连一个白烧的自增 id 都不留（S-3 的姿势，同 {@link #createMerchant} 里的条件 UPDATE）。
      *
-     * <p><b>幂等</b>（照 {@code updateOrderStatus:114-116}）：已是目标态 → 直接成功、<b>不重复 INSERT store</b>、
-     * 不写第二行审计（无状态变化就不该有留痕，同 :144 那行的既有注释口径）。
+     * <p><b>幂等</b>（照 {@code updateOrderStatus:191-193}）：已是目标态 → 直接成功、<b>不重复 INSERT store</b>、
+     * 不写第二行审计（无状态变化就不该有留痕，同 :221 那行的既有注释口径）。
      * 审核结论不可翻转（approved 再 reject / rejected 再 approve → 400）：翻转要连带处理「已发布的店」，
      * 那是二期 Admin 下架链的事，本期封死入口；rejected 后申请人重新提交=新行（D-21）。
      *
@@ -370,13 +370,13 @@ public class AdminServiceImpl implements AdminService {
     @Transactional
     public void auditStoreApply(Long applyId, String action, String remark, String actor) {
         String op = action == null ? "" : action.trim();
-        // 动作白名单复用 ALLOWED_AUDIT_ACTIONS（:61 那份，评价审核与本端点共用，不复制第二份集合）
+        // 动作白名单复用 ALLOWED_AUDIT_ACTIONS（:80 那份，评价审核与本端点共用，不复制第二份集合）
         if (!ALLOWED_AUDIT_ACTIONS.contains(op)) {
             throw new BizException(R.CODE_BAD_REQUEST, "action 仅允许 approve（过审并发布门店）或 reject（驳回）");
         }
         String trimmedRemark = remark == null ? null : remark.trim();
         if (trimmedRemark != null && trimmedRemark.length() > 255) {
-            // audit_remark VARCHAR(255)：严格模式下超长是 1406 而非 400，必须在写库前拦（同列宽纪律见本类 :67-75）
+            // audit_remark VARCHAR(255)：严格模式下超长是 1406 而非 400，必须在写库前拦（同列宽纪律见本类 :85-94）
             throw new BizException(R.CODE_BAD_REQUEST, "审核意见不能超过 255 字");
         }
         boolean approve = ACTION_APPROVE.equals(op);

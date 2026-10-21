@@ -281,7 +281,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
      * 实体一个字段都不透传——所以 {@code passwordHash} 连「被 @JsonIgnore 挡一次」的机会都不给它，
      * {@code status}/{@code lastLoginAt}/{@code createTime} 这些也没出口（本期出参就这三键，门禁 G1 按键名清单核对）。
      * <p>displayName 为 null/空白 → 回退 username（D-5「为空时回 username」）。
-     * Map.of 不容 null，故用 LinkedHashMap（照 AuthServiceImpl:140-149 的同类处理）。
+     * Map.of 不容 null，故用 LinkedHashMap（照 AuthServiceImpl:171-176 的同类处理）。
      */
     private Map<String, Object> successData(String token, AdminUser account) {
         String displayName = account.getDisplayName();
@@ -313,7 +313,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
      * actor={@code admin_user:<id>}、action={@code admin.login}、target_type={@code admin_user}、
      * target_id={@code String.valueOf(id)}、ip=客户端 IP、detail=只有 username（BE-G6-5：ip 由列承载，不再进 detail）。
      *
-     * <p>写失败<b>旁路吞掉</b>，形态逐字照 {@code OpsLogWriter#write :50-69}（即 AdminServiceImpl#writeAudit :392-408 的
+     * <p>写失败<b>旁路吞掉</b>，形态逐字照 {@code OpsLogWriter#write :50-69}（即 AdminServiceImpl#writeAudit :546-561 的
      * 母版）：第一趟完整 detail，任一层原因（1406 超长、字符集、列宽…）失败即退成最小 detail 重试一次，
      * 两趟都失败才 warn——审计凭空消失是不可发现的脱审，所以「失败也要再落一行」优先。
      */
@@ -374,11 +374,11 @@ public class AdminAuthServiceImpl implements AdminAuthService {
      *
      * <p>【为什么必须镜像而不是「直接信 XFF」】成对键的 IP 半边若由请求方随意伪造，
      * 轮换 {@code X-Forwarded-For} 就能让每次失败落进不同键 → 5 次/10 分钟的防枚举锁完全失效
-     * （RateLimitInterceptor:39-48 写的是同一件事，且已实测「无条件信任 XFF 首跳」可完全绕过）。
+     * （RateLimitInterceptor:45-51 写的是同一件事，:127 记的正是「无条件信任 XFF 首跳」可完全绕过）。
      * 审计行的 ip 列也取同一个值：两处口径一致，排障时才对得上。
      *
-     * <p><b>【债登记】本仓第 2 份 clientIp 实现</b>（第 1 份=RateLimitInterceptor:101；
-     * {@code AdminServiceImpl#currentIp :526-532} 是同族第 3 份，但它不解析 XFF、也不受 trust-proxy 控制），
+     * <p><b>【债登记】本仓第 2 份 clientIp 实现</b>（第 1 份=RateLimitInterceptor:129；
+     * {@code AdminServiceImpl#currentIp :714-720} 是同族第 3 份，但它不解析 XFF、也不受 trust-proxy 控制），
      * 与 PhoneMask 同类债，抽公共工具随 G-07（本期不动那两处，越界改存量链路反而扩大回归面）。
      */
     private String clientIp(HttpServletRequest request) {

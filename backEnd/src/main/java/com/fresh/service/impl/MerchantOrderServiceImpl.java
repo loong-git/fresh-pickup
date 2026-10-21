@@ -408,7 +408,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             item.put("dailyQuota", toInteger(row.get("dailyQuota")));
             item.put("dailyClaimed", toInteger(row.get("dailyClaimed")));
             // N-1 同秒杀侧：门槛也出两位小数字符串。free_activity.threshold 是 NOT NULL DEFAULT 50.00
-            // （init.sql:251），不存在「真 NULL」那一档，故不必像 seckillPrice 那样留 null 分支
+            // （init.sql:264），不存在「真 NULL」那一档，故不必像 seckillPrice 那样留 null 分支
             item.put("threshold", moneyText(row.get("threshold")));
             items.add(item);
         }
@@ -416,7 +416,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
     }
 
     /**
-     * 归属自守卫（纵深防御，非可达分支）：AuthInterceptor:83-87 已在 merchant_id 为空时收口 403，
+     * 归属自守卫（纵深防御，非可达分支）：AuthInterceptor:104-111 已在 merchant_id 为空时收口 403，
      * 控制器拿到的 merchantId 恒非 null；这里留一行是为了万一出现不经 /api/merchant/ 前缀的内部调用时，
      * 也不会退化成「条件为空 = 不加条件」的全表读。403 与拦截器同文案（R.MSG_FORBIDDEN），不新增文案。
      */
