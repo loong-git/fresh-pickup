@@ -82,7 +82,7 @@ public class WxPayNotifyRejectException extends RuntimeException {
      * 并且逐枚被真实驱动到）。将来若给本枚举加常量体/字段，那条断言会被编译期形态约束，届时需同步复核。
      *
      * <p>{@code init.sql} 的 {@code admin_audit_log.action} 是 VARCHAR(50)、{@code detail} 是 VARCHAR(500)，
-     * 本组最长成员名 27 字符（{@code RESOURCE_ENVELOPE_INVALID}），装得下、不会被截断成半个码。
+     * 本组最长成员名 26 字符（{@code DECRYPTED_PAYLOAD_NOT_JSON}），次长 25 有**三枚并列**（RESOURCE_ENVELOPE_INVALID／PLATFORM_CERT_UNAVAILABLE／ORDER_AMOUNT_UNCOMPARABLE），装得下、不会被截断成半个码。
      */
     public enum RejectCode {
         /** {@code WxPayNotifyService:108}：{@code mchid} 或 {@code api-v3-key} 未配置（400） */
