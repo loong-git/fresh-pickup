@@ -130,7 +130,7 @@
 
 <script setup>
 // 到货发车（F-63）：运营端补上 arrival_batch 的创建方（平台统一配货，中央仓=平台自己）。
-//   预览 = GET /api/admin/arrivals/preview?storeId=&date=（只读；出参七键，契约见 ../api 同名函数注释）
+//   预览 = GET /api/admin/arrivals/preview?storeId=&date=（只读；出参八键，契约见 ../api 同名函数注释）
 //   发车 = POST /api/admin/arrivals，body {storeId, batchDate, remark?}（Admin 旧面写端点，IP 10 次/分）
 //   门店 = GET /api/stores（既有公开端点，匿名——带运营 JWT 反而被 AuthInterceptor 的 typ=admin 反隔离 403）
 // 三条本页级纪律（逐条照 Orders.vue）：

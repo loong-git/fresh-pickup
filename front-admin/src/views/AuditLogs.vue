@@ -170,9 +170,9 @@ const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 // 由该结果 + AdminAuthServiceImpl:152/321（AUDIT_ACTION_LOGIN='admin.login'、actor='admin_user:'+id）
 // 与四处落库点（row.setActor：AdminServiceImpl#insertAudit / AdminAuthServiceImpl:360 /
 //  MerchantDishServiceImpl:433 / MerchantServiceImpl:249，全走同一个 AdminAuditLogMapper.insert）汇总，
-// 会落库的 action 实测共 12 个：
-//   Admin 轨 5 个（AdminServiceImpl 的 updateOrderStatus / updateDish / auditReview / createMerchant / auditStoreApply 各一处）
-//     order.status / dish.update / review.audit / merchant.create / store_apply.audit
+// 会落库的 action 实测共 13 个：
+//   Admin 轨 6 个（AdminServiceImpl 的 updateOrderStatus / updateDish / auditReview / createMerchant / auditStoreApply / departArrival 各一处）
+//     order.status / dish.update / review.audit / merchant.create / store_apply.audit / arrival.depart
 //     ← actor = admin:<key 摘要 8>（静态密钥轨）或 admin_user:<id>（运营 JWT 轨，auditActor 归一）
 //   系统 1 个（AdminServiceImpl#recordNotifyReject）  pay.notify_reject  ← actor = system:wx-notify（F-44，没有人在场）
 //   登录 1 个（AdminAuthServiceImpl:361）  admin.login     ← actor = admin_user:<id>

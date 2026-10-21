@@ -15,7 +15,7 @@
         <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }"><span class="nav-dot" title="本页会改数据"></span>商品管理</router-link>
         <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
         <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }"><span class="nav-dot" title="本页会改数据"></span>入驻审核</router-link>
-        <!-- F-63 到货发车：写侧页（发车建批次→到货中），挂橙点与其余三条写侧入口同列 -->
+        <!-- F-63 到货发车：写侧页（发车建批次→到货中），挂橙点与其余四条写侧入口同列 -->
         <router-link to="/arrivals" class="nav-link" :class="{ active: isActive('/arrivals') }"><span class="nav-dot" title="本页会改数据"></span>到货发车</router-link>
         <span class="nav-legend" title="橙点入口对应的页面会修改数据，操作前有二次确认">● 会改数据（操作前有二次确认）</span>
       </nav>

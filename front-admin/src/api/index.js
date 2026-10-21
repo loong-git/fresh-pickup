@@ -260,13 +260,13 @@ function withQuery(url, params) {
   return qs ? url + '?' + qs : url
 }
 
-// ==================== 运营登录（匿名端点，唯一不带 Authorization 的请求） ====================
+// ==================== 运营登录（匿名端点；本工程不带 Authorization 的请求共两处，另一处是下面的 getStores） ====================
 
 /**
  * 运营口令登录：POST /api/admin/auth/login，body {username, password}
  * 成功 200 → data {token, displayName, adminUserId}（白名单三键，AdminAuthController:29 逐字）。
  * 失败 401 同一句「用户名或密码错误」（不区分用户不存在/口令错/已禁用/锁定中，D-5 防枚举）；
- * 锁定中的 401 额外在 data 里带 {retryAfterSeconds}（AdminAuthServiceImpl:248，BE-5 通道）。
+ * 锁定中的 401 额外在 data 里带 {retryAfterSeconds}（AdminAuthServiceImpl:276，BE-5 通道）。
  * 另有 IP 令牌桶 5 次/60s → 429（文案「操作过于频繁，请稍后再试」）。
  * @returns {Promise<{code:number,data:{token:string,displayName:string,adminUserId:number},message:string}>}
  */
@@ -401,7 +401,7 @@ export function getAdminDishes(pageNum, pageSize, filters) {
 /**
  * 运营端评价队列（评价审核页数据源）：GET /api/admin/v2/reviews
  * 行内键：id,dishId,rating,content,reviewer,auditStatus,createTime。
- * ⚠ **没有 dishName**（AdminServiceImpl 侧不 JOIN dish，ReviewMapper 的注释点名「菜品名由同批的 dishes 列表
+ * ⚠ **没有 dishName**（AdminV2ServiceImpl 侧不 JOIN dish，ReviewMapper 的注释点名「菜品名由同批的 dishes 列表
  *   在前端对齐」）→ 要显示菜品名只能拿 getAdminDishes 的 id→name 映射，绝不为此改后端。
  * ⚠ `user_id` 禁下发（D-15）。
  * auditStatus 行里是**库里原值**：'pending'=待人工复审、null=展示中；库里不存在「已驳回」这一态
@@ -556,7 +556,7 @@ export function getStores() {
 
 /**
  * 发车前预览（只读）：GET /api/admin/arrivals/preview?storeId={id}&date={yyyy-MM-dd}
- * 出参恰七键（契约逐字）：
+ * 出参恰八键（契约逐字，实测 AdminServiceImpl#arrivalPreview 逐键 put 八次）：
  * {storeId, storeName, date,
  *  existing: null | {id, status, confirmTime, itemCount},
  *  plan: [{dishId, dishName, qty}],
