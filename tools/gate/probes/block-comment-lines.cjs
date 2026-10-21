@@ -22,6 +22,13 @@ const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "target",
 //   RE_HEAD_TOOL = pointer-audit.cjs / symbol-audit.cjs 的形状（含 `#`），只用于 --stat 的差值口径
 const RE_HEAD_F27 = /^(\s*(\/\/|\*|\/\*|<!--))/;
 const RE_HEAD_TOOL = /^(\/\/|\/\*|\*|<!--|#)/;
+// SQL 的单行注释是 `--`，上面两条都不认识它。本模块 ROOTS 一直含 backEnd/sql，但 f27 §1 的允许面
+// 此前不含 sql/，所以这条分支从未被真实用到（F-89f 把 sql 纳进允许面时才补上）。
+// 放行依据（2026-10-21 穷尽实测，不是推测）：20 个 .sql 共 855 行行首 `--`，
+// 其中「`--` 紧跟非空白且非 `-`」这种 MySQL **不认作注释**的形态 = **0 处**——
+// 所以按行首放行不会把真 SQL 当注释。判据只在 .sql 上生效，别的语言一律不变。
+const RE_HEAD_SQL = /^(\s*(--|\/\*|\*))/;
+const isSql = (p) => path.extname(String(p)).toLowerCase() === ".sql";
 
 // 这两种块注释只在下面这些方言里存在；别的扩展名（.sh/.yml/.bat/.md…的 `#` 才是行注释）一律**不算块续行**，
 // 否则 `# front/** 必须零字节改动` 这种 shell 注释会开出幽灵块、把真代码放行（f27 §2 的致命方向）。
@@ -139,7 +146,12 @@ function judgeDiff(p, oldRev, newRev) {
   let oldNo = 0, newNo = 0, inHunk = false;
   const rows = [];
   for (const line of out.split(/\r?\n/)) {
-    if (/^[-+]{3}/.test(line)) { inHunk = false; continue; }
+    // 文件头只能按 git 的真实形状认（`--- a/path` / `+++ b/path` / `/dev/null`），
+    // 绝不能用宽式 /^[-+]{3}/：SQL 注释本身以 `--` 开头，删除行就成了 `---    注释`、
+    // 新增行成了 `+--    注释`，两者都被宽式误判成"离开 hunk"。
+    // 2026-10-21 实测：正因为这个宽式，helper 对 m18 返回 0 行，而"把一条 SQL 注释掉"
+    // （+-- INSERT …）同样会被 f27 §2 静默放行——那是假绿方向，必须堵。
+    if (/^(---|\+\+\+) ((a|b)\/|\/dev\/null)/.test(line)) { inHunk = false; continue; }
     const h = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
     if (h) { oldNo = Number(h[1]); newNo = Number(h[3]); inHunk = true; continue; }
     if (!inHunk) continue;
@@ -158,7 +170,7 @@ function judgeDiff(p, oldRev, newRev) {
     const t = String(body).trim();
     let kind;
     if (t === "") kind = "BLANK";
-    else if (RE_HEAD_F27.test(body)) kind = "COMMENT";
+    else if ((isSql(p) ? RE_HEAD_SQL : RE_HEAD_F27).test(body)) kind = "COMMENT";
     else {
       const mask = r.sign === "+" ? newMask : oldMask;
       kind = (mask && r.no >= 1 && r.no <= mask.length && mask[r.no - 1]) ? "COMMENT" : "NONCOMMENT";

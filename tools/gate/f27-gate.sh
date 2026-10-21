@@ -16,14 +16,18 @@ chk() { # chk 名称 实际 期望
 # （原先这里有一行 BASE_REF=dee75b2 的 F-27 期 diff 基线，全脚本没引用过它——纯注释批的门禁
 #  一律看「工作区 vs HEAD」，把某个历史提交写死在这里只会误导下一个读脚本的人，故删除。）
 
-say "=== 1) 面积：只许 backEnd/src/main + 四端 + tools/gate ==="
+say "=== 1) 面积：只许 backEnd/src/main + backEnd/sql + 四端 + tools/gate ==="
 CHANGED=$(git diff --name-only 2>/dev/null)
 # tools/gate/ 是 F-76 加进来的：门禁自身的纯注释批（改判据说明、改注释里的指针）此前必假红
 # （实测 F-76 那批 §1 报「越界 4 文件」）。加宽这一条不降低保护——本门禁真正的杀伤力在 §2（纯注释）
 # 与 §3（add==del 零行位移），拿 f27 验收一个改了工具**代码**的批，§2 一定红。
 # front/ 与 front-admin/ 是 2026-10-20 用户授权纳进来的（原「契约 FC-5：这两处零字节」已作废）。
 # 纳进来不降低保护：对它们的约束来自 §2 + §3，不是来自"不许碰"；真要改交易语义的批本来就不能用 f27 验收。
-OUT=$(echo "$CHANGED" | grep -vE '^(backEnd/src/main/|front/|front-merchant/|front-partner/|front-admin/|tools/gate/)' || true)
+# backEnd/sql/ 是 F-89f 纳进来的：迁移文件里有**已确证的假事实**（见契约 S9 #8），而探针
+# block-comment-lines.cjs 的 ROOTS 本来就含 backEnd/sql，只有 f27 §1 挡着——面不一致本身就是债。
+# 保护没有变弱：§2 从此要真能认出 `--`（探针已加 RE_HEAD_SQL，放行依据是 855 行实测 0 例外），
+# §3 的 add==del 照旧管住行数。改 SQL 语句本身一律 §2 红。
+OUT=$(echo "$CHANGED" | grep -vE '^(backEnd/src/main/|backEnd/sql/|front/|front-merchant/|front-partner/|front-admin/|tools/gate/)' || true)
 chk "越界文件（应为空）" "$([ -z "$OUT" ] && echo yes || echo no)" "yes"
 [ -n "$OUT" ] && say "$OUT" | sed 's/^/      /'
 
@@ -33,7 +37,7 @@ say "=== 2) 纯注释：非注释变更行数必须 = 0（原始行首判据 ∪
 NONCOMMENT=0; TOTCHG=0
 for f in $CHANGED; do
   HC=$(node tools/gate/probes/block-comment-lines.cjs --diff-judge "$f" 2>/dev/null || true)
-  EXPECT=$(git diff -U0 -- "$f" 2>/dev/null | grep -E '^[-+]' | grep -vE '^([-+]{3})' | grep -v '^\ No newline' | grep -c '' || true)
+  EXPECT=$(git diff -U0 -- "$f" 2>/dev/null | grep -E '^[-+]' | grep -vE '^(---|\+\+\+) ((a|b)/|/dev/null)' | grep -v '^\ No newline' | grep -c '' || true)
   GOT=$(printf '%s' "$HC" | grep -c '' || true)
   if [ -n "$HC" ] && [ "$GOT" = "$EXPECT" ]; then
     while IFS=$'\t' read -r kind body; do
@@ -46,10 +50,13 @@ for f in $CHANGED; do
     done <<< "$HC"
   else
     say "      状态机不可用（helper 行数=$GOT git 行数=$EXPECT）→ 退回行首判据: $f"
+    # 退路必须与探针同口径，否则"降级"反而更严、.sql 必假红（F-89f）。
+    # 注意 =~ 右侧的变量**不能加引号**——加引号就退化成字面量匹配，那正是静默放行/静默拦死的入口。
+    if [ "${f##*.}" = "sql" ]; then HPAT='^[[:space:]]*(--|\*|/\*)'; else HPAT='^[[:space:]]*(//|\*|/\*|<!--)'; fi
     while IFS= read -r line; do
       body=${line:1}                      # 去掉行首的 + / -
       TOTCHG=$((TOTCHG+1))
-      if [[ "$body" =~ ^[[:space:]]*(//|\*|/\*|\<!--) ]]; then
+      if [[ "$body" =~ $HPAT ]]; then
         continue
       elif [[ "$body" =~ ^[[:space:]]*$ ]]; then
         NONCOMMENT=$((NONCOMMENT+1)); say "      空行变动: $f"
