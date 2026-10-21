@@ -23,7 +23,7 @@
              本页第一行透出的是后端 message 原文，且 api 层 handleEnvelope 保证 reject 恒带 message
              （front-merchant/api/index.js:207-211 的 `message || '服务开小差了，请稍后重试'`），所以 500 今天读到的是后端那句
              自己的话、不是「检查网络」；兜底只在 message 缺失时才可能被读到，那时页面手里没有任何码可依据，
-             故不猜成因。网络层失败由 api 层 fail 支的 message「网络异常」（:278）原样透出，无需页面替它断言 -->
+             故不猜成因。网络层失败由 api 层 fail 支的 message「网络异常」（:404 与 :547）原样透出，无需页面替它断言 -->
     <view v-else-if="viewState === 'error'" class="card">
       <view class="error-row">
         <text class="error-text">{{ errorText || '商家资料加载失败，请稍后重试' }}</text>

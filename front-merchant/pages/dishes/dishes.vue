@@ -173,7 +173,7 @@ export default {
       catRetryLock: 0,
       catRetryLockTimer: null,
       // 本枚闸门起点是否真的来自后端 data.retryAfterSeconds（>0 = 是，并记下那一个数）：
-      // categoriesHint 只在它为真时才把秒数印进括号——闸门本身（catRetryLock）两种来源都要起，
+      // categoriesHint 只在它为真时才把秒数写进那一句——闸门本身（catRetryLock）两种来源都要起，
       // 但「等待时长」这个读数只能转述后端给的，不能把本地窗口长度冒充成它（F-24.0 裁定 B-1a）
       catRetryBackendSeconds: 0,
       dishes: [],
@@ -381,7 +381,7 @@ export default {
       // 不是回速：同一档配 Refill.greedy，实测回速 6 秒 —— 回落时这一闸门会多白拦 54 秒，
       // 但拿不到后端真值时宁可保守，也不能报一个假的短数让商家连点续桶
       this.catRetryLock = fromBackend ? secs : CATEGORY_RETRY_FALLBACK_SECONDS
-      // 只有这一枚起点来自后端，categoriesHint 才允许把它渲染成「（Ns）」的等待时长
+      // 只有这一枚起点来自后端，categoriesHint 才允许把它渲染成带时长的那一句（F-28.5 路 B 后是 FULL 形「类目请求太频繁，Ns后可重试」，括号制已消灭）
       this.catRetryBackendSeconds = secs
       this.catRetryLockTimer = setInterval(() => {
         this.catRetryLock--

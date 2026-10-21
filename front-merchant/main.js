@@ -23,7 +23,7 @@ const store = createStore({
 		// 登录身份手机号：403 引导文案的指代来源，与 token 同写同清（老状态无此键时为空串，文案自适配）
 		loginPhone: getStoredLoginPhone(),
 		// GET /api/merchant/me 出参快照：{role,merchantId,name,contactPhone,contactName,status,profile}
-		// null = 本会话尚未成功拉到（登录页/工作台都会以 onShow 重拉覆盖，不做乐观填充）
+		// null = 本会话尚未成功拉到（登录页在 onLoad 复查、工作台每次 onShow 重拉，都不做乐观填充）
 		merchant: null
 	},
 	mutations: {

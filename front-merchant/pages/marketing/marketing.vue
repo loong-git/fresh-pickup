@@ -78,7 +78,7 @@
       <view class="card block-card">
         <view class="card-head">
           <text class="card-title">免费领参与态</text>
-          <!-- U-2/S-1：BE-G5-1 后这个 count 是「本店菜在 free_goods_pool 里且活动在线」的真行数，
+          <!-- U-2/S-1：BE-G5-1 后这个 count 是「本店菜在 free_goods_pool 里」（活动 online/offline 都算）的真行数，
                卡头措辞随之改成「在架可领」——原来那句「已参与」与行内的「活动状态 已下线」在同一屏自相矛盾。
                秒杀卡头保持「已参与 N 件」（那一块没有这层矛盾） -->
           <text class="count-tag">在架可领 {{ countText(freeClaimCount) }} 件</text>
@@ -132,10 +132,10 @@ import '@/styles/common.css'
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/marketing/marketing'
 
-// 上架状态说法与后端列注释同源（init.sql:78 dish.on_sale「1上架/0下架」），出参是数字 0/1 不是布尔
+// 上架状态说法与后端列注释同源（init.sql:86 dish.on_sale「1上架/0下架」），出参是数字 0/1 不是布尔
 const ON_SALE_TEXT = { 1: '在售', 0: '已下架' }
 
-// 免费领活动状态（init.sql:252 free_activity.status「online进行/offline下线」）；
+// 免费领活动状态（init.sql:265 free_activity.status「online进行/offline下线」）；
 // 值域外/空值一律原样透出（见 methods.statusText），不替后端猜中文名
 const FREE_STATUS_TEXT = { online: '进行中', offline: '已下线' }
 
@@ -197,7 +197,7 @@ export default {
       // F-19.8 S-7/U-14 的四路分流（形状照本仓既有分支，只换判据与措辞）：
       // F-28.5 路 B：429 一支改走 api 层 coolingLeadText（归因＋不带数），数只留给下方那枚胶囊（X-5）
       if (this.errorCode === 429) return coolingLeadText('营销参与态')
-      // 404（AuthInterceptor:95-99 注入的 merchant_id 查不到行 →「商家不存在」）是确定性失败，
+      // 404（AuthInterceptor:102-112 注入 merchant_id，Service 侧查无主体行 → MerchantServiceImpl:192「商家不存在」）是确定性失败，
       // 重试永远拿回同一枚错误码，故主文案直出后端 message，不再说「请稍后重试」
       if (this.errorCode === 404) return this.errorText
       // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」

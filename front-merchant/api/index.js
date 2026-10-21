@@ -18,7 +18,7 @@ export const TOKEN_STORAGE_KEY = 'merchant_token'
 // 登录页路由（401 兜底跳转目标，须与 pages.json 首页一致）
 const LOGIN_PAGE = 'pages/login/login'
 
-// 兜底文案与后端码表同源（R.java:23 MSG_UNAUTHORIZED / R.java:30 MSG_FORBIDDEN），信封 message 缺失时才用
+// 兜底文案与后端码表同源（R.java:24 MSG_UNAUTHORIZED / R.java:30 MSG_FORBIDDEN），信封 message 缺失时才用
 // MSG_UNAUTHORIZED 同时是 401 跳登录页前那一声 toast 的文案：同一串只在这一处定义，
 // 页面与请求层不会各写一份「请先登录」而漂移
 const MSG_UNAUTHORIZED = '请先登录'
@@ -97,8 +97,8 @@ export function setUnauthorizedHandler(fn) {
 /**
  * 相对路径 -> 后端可直读 URL：以 '/' 开头的拼 BASE_URL，其余（已是绝对 http(s) URL 等）原样返回；
  * 空值/非字符串回空串。
- * 注意：本函数不解 C 端静态根语义的 /static/images/uploads/<名>——那个路径后端读不到（dev 下会 404），
- * 展示商品图请用 merchantFileUrl()。
+ * 注意：本函数对 C 端静态根语义的 /static/images/uploads/<名> 只拼 BASE_URL、不改前缀——那一路后端读得到
+ * （CorsConfig:70-71 为同一物理目录注册了这条映射，且拦截器只挂 /api/**，匿名可读），但展示商品图请用 merchantFileUrl()。
  */
 export function resolveFileUrl(u) {
   if (typeof u !== 'string' || !u) return ''
@@ -184,7 +184,7 @@ function rejectUnauthorized(reject) {
  * - code 403（已登录但 role!=merchant，或 merchantId 为 NULL）→ 只结构化 reject，
  *   并把后端 message 原样透出给页面渲染「暂无商家权限」引导态；
  *   绝不在此踢回登录页——那是权限问题而非登录失效，当 401 处理会让用户陷在登录死循环里
- * - 其余（400/404/429/500/网络异常）→ reject({code,message,data})，调用方须 toast，全站无静默分支；
+ * - 其余（400/404/429/500/网络异常）→ reject({code,message,data})，调用方须 toast，业务失败面无静默分支（仅快照补拉 syncMerchantSnapshot 两处刻意静默，dishes 页与 dish-edit 页各自注释自陈「失败静默」）；
  *   data 是后端信封的原样透传（信封里没有 data 或不可解析时为 null），
  *   429 的 {retryAfterSeconds} 与 F-22 下发的其余载荷都从这里出，页面按 retrySecondsOf 取用
  */
@@ -219,7 +219,7 @@ function handleEnvelope(res, resolve, reject) {
  * 的 retrySecondsOf 末行 `return fb` 等形）：末行原先 `return fallbackSeconds` 把调用方的原样吐回去，
  * 第二参一旦是 '60' 这种字符串，本函数就返回字符串——三个返回点的形态不再一致，而消费侧
  * 全按数字用它：`retryLock--` 自减、`v-if="!retryLock"` 真假判定、`{{ retryLock }}s` 渲染都要过隐式转换。
- * 今天七个调用点传的都是数字常量 60，`f` 与 `fallbackSeconds` 同值，改动对它们是逐 case 等价。
+ * 今天九个调用点传的都是数字常量 60，`f` 与 `fallbackSeconds` 同值，改动对它们是逐 case 等价。
  * fallbackSeconds 的口径＝该端点 @RateLimit 的 windowSeconds（整个窗口），它是后端不给时的保守上限，
  * 不是回速（30 次/分 档的回速实测只有 2 秒）——两个数不是一回事，页内常量别混用。
  *
@@ -227,17 +227,17 @@ function handleEnvelope(res, resolve, reject) {
  * undefined → 页面 `this.retryLock = undefined` → 所有 `retryLock > 0` 判定恒假 → **闸门敞开不拦**；
  * 更阴的是模板 `!retryLock` 此时为真，冷却整行被藏掉，用户看不到任何异常、控制台也没有声音。
  * 现在非有限正数一律回硬保守值 RETRY_GATE_MIN_SECONDS 并 console.warn 留痕——闸门宁可多关一会儿，
- * 也不能因为一行拷贝就把「等待」这件事整个取消。七个调用点（dashboard/dishes/marketing/pickup-plan/
- * plan-orders/login/dish-edit 的保存闸门）都显式传了数字常量 60，改动对它们是逐字等价的。
+ * 也不能因为一行拷贝就把「等待」这件事整个取消。九个调用点（dashboard/dishes/marketing/pickup-plan/
+ * login 各一处、plan-orders 读侧与缺货写侧各一处、dish-edit 保存与三把写锁共用一处）都显式传了数字常量 60，改动对它们是逐字等价的。
  *
- * data.retryAfterSeconds 全仓有三个产出点、两种语义，本函数只取数值不认语义，三处都能喂进来但含义不同：
+ * data.retryAfterSeconds 全仓有四个产出点、两种语义，本函数只取数值不认语义，四处都能喂进来但含义不同：
  * - backEnd/src/main/java/com/fresh/interceptor/RateLimitInterceptor.java:79 —— 桶的回速
- *   （NanosToWaitForRefill 向上取整、下限 1，实测个位秒），绝大多数 429 出自这里，也是 fallbackSeconds
- *   要对标的档位；
+ *   （NanosToWaitForRefill 向上取整、下限 1，实测个位秒），绝大多数 429 出自这里，也是 fallbackSeconds 要对标的档位；
  * - backEnd/src/main/java/com/fresh/service/impl/AdminAuthServiceImpl.java:276 —— **401**（不是 429）
  *   运营登录防枚举锁定的剩余 TTL，上限 600 秒（LOGIN_FAIL_LOCK_TTL=10 分钟）；
- * - backEnd/src/main/java/com/fresh/service/impl/PartnerOrderServiceImpl.java:217 —— 核销枚举锁的剩余
- *   TTL，同为 600 秒封顶。
+ * - backEnd/src/main/java/com/fresh/service/impl/AuthServiceImpl.java:299 —— 429（F-65 验证码失败锁），
+ *   同一手机号连错 5 次的剩余锁定期，同为 600 秒封顶；
+ * - backEnd/src/main/java/com/fresh/service/impl/PartnerOrderServiceImpl.java:218 —— 核销枚举锁的剩余 TTL，同为 600 秒封顶。
  * 为什么不能与 front-admin/src/api/index.js 的 retryAfterText 互换（两者只是长得像）：
  * retryAfterText 是纯文案转述，函数内零本地推算、拿不到就回空串闭嘴，服务的是「服务端约 N 秒后可再试」
  * 那一句；本函数服务的是闸门，必须永远交出一个能起闸的正数。两个方向拿错都会出事——
@@ -245,7 +245,7 @@ function handleEnvelope(res, resolve, reject) {
  * 拿本函数替文案：后端没给读数时把猜出来的 60 当事实念给用户，撞上 admin 那条 401 时更会把
  * 600 秒的锁定剩余时长当成「保守上限」报出去。所以两边各留各的回落纪律，不许合并。
  */
-// 第二参不合法时的硬保守值：全仓 @RateLimit 的 windowSeconds 最长就是 60 秒这一档（48 处挂载点里 47 处为 60，
+// 第二参不合法时的硬保守值：全仓 @RateLimit 的 windowSeconds 最长就是 60 秒这一档（50 处挂载点里 49 处为 60，
 // 见 MerchantDishController / OrderController / DictController 等），另有 1 处 10 秒——
 // ReviewController.java 的 addReview（limit = 1, windowSeconds = 10），没有比 60 更长的档。
 // 兜到 60 ＝按全仓最长档起闸，是最保守的那个值（原注「实测只有 60 一档」事实错，F-28.1/X-11 订正；结论不变）
@@ -287,7 +287,7 @@ export function retrySecondsOf(err, fallbackSeconds) {
  *   toast 与按钮里的时长要短，`5s后可重试` 比 `5 秒后可重试` 少两个字符宽，不撑破 .error-retry 胶囊）；
  * ②>=61 秒换算成中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）。
  *   分档线刻意含 60（F-38.3）：回落档位的值就是 60，让它留在紧凑档，模板短标签与 pill 才是同一个读法。
- *   这一支刻意不再用 ceil 到分钟的粗化——照抄运营端 waitDurationText 那种会把 600→541 九分钟冻成一个读数，
+ *   这一支刻意不再用 ceil 到分钟的粗化——照抄运营端 waitDurationText 那种会把 600→541 冻成同一个读数「大约 10 分钟」（实测 ceil(541/60)=ceil(600/60)=10），
  *   正是本条任务线在打的「静止读数冒充剩余时间」。
  * 括号制「（Ns）」是第三种形态，本批消灭：它把时长放在句尾括号里，读不出和「后可重试」是同一条规则。
  *
@@ -311,7 +311,7 @@ function coolingSkeleton(label) {
  *   <=60 → 紧凑 `Ns`（沿用全端唯一单位字面量 COOLING_UNIT，与改前逐字节一致）
  *   >=61 → 中文「N 分 MM 秒」，秒位继续走（600→「10 分 00 秒」、601→「10 分 01 秒」）
  * 为什么这里绝不用 ceil 到分钟：照抄运营端 waitDurationText 那种把 60→1 分、600→10 分粗化到整档，
- * 会让 600→541 这九分钟里读数一动不动——那正是本条任务线一直在打的「静止读数冒充剩余时间」。
+ * 会让 600→541 这 60 秒里读数一动不动（那一段全显示「大约 10 分钟」）——那正是本条任务线一直在打的「静止读数冒充剩余时间」。
  * 先判 Number.isFinite 与 >0 再 Math.ceil：顺序反了会把 0.4 抬成「1s」而不是降级成不带数。
  * 返回空串代表「这一处不该出数」，由调用方（coolingFullText / cooldownPillText）的无效降级分支处理。
  *
@@ -509,7 +509,7 @@ export function updateMerchantProfile(fields) {
 
 /**
  * 商家图片上传：POST /api/merchant/uploads（multipart，字段名固定 file，
- * 与 MerchantController.java:74 @RequestParam("file") 对齐；字段名不匹配后端回 400「请选择文件」）
+ * 与 MerchantController.java:88 @RequestParam("file") 对齐；字段名不匹配后端回 400「请选择文件」）
  * 走 uni.uploadFile 而非 request（multipart 边界由运行时生成，手拼 Content-Type 会坏）；
  * Bearer 头需在此手填——request 层的 header 注入到不了这条通道。
  * 出参 {code:200,data:{path:'/static/images/uploads/<随机名>',url:'/uploads/<随机名>'}}（F-13/G-02 决策①方案 A）：
@@ -559,7 +559,7 @@ export function uploadMerchantImage(filePath) {
 
 /**
  * 商品分类字典：GET /api/dict?group=dish_category（匿名可读，DictController.java:29-31）
- * 11 类只选不建（F-13.4）：词条 definition 形如 'code:meat'，code 即 dish.category 列取值（init.sql:67 列注释）。
+ * 11 类只选不建（F-13.4）：词条 definition 形如 'code:meat'，code 即 dish.category 列取值（init.sql:83 列注释）。
  * 分组名只能是 dish_category——后端 GROUP_ID 只登记了四个键（DictServiceImpl.java:36-39），
  * 写成 'category' 会 400「字典分组不存在」（契约 F-13.4 那句 group=category 是错值，已列契约疑点回报）。
  * 模块级缓存的理由：/api/dict 限流是 IP 维度 10 次/分（DictController.java:28 的
@@ -711,7 +711,7 @@ export function adjustMerchantDishStock(id, delta) {
 
 /**
  * 上下架：PUT /api/merchant/dishes/{id}/on-sale，body {onSale}
- * 用 1/0 不用 boolean：dish.on_sale 是 TINYINT、实体列是 Integer onSale（init.sql:70），
+ * 用 1/0 不用 boolean：dish.on_sale 是 TINYINT、实体列是 Integer onSale（init.sql:86），
  * 与后端 MerchantDishOnSaleDTO 及 AdminDishUpdateDTO 同一套口径，免得布尔↔tinyint 两边各猜
  */
 export function setMerchantDishOnSale(id, onSale) {

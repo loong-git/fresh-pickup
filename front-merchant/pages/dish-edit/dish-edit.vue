@@ -232,7 +232,7 @@ const COOLING_LABEL_CATEGORY = '类目'
 // 降级出参 → 后端给的真值秒数（X-13 顺带登记项：把本页这份「读后端值否则回落」与 api 层
 // retrySecondsOf 的取值口径对齐——同样「有限正数才算数」、同样 Math.ceil 向上取整；单位换算留给下面）：
 // 没给 / 不可解析 / 非正数一律回 0，而 0 同时是 categoriesHint「不许印秒数」的判据
-// （与列表页 dishes.vue 的 catRetryBackendSeconds 同一职责：给了数就印进括号，没给就不印）
+// （与列表页 dishes.vue 的 catRetryBackendSeconds 同一职责：给了数就把时长写进那一句，没给就不写）
 function categoryBackendSeconds(res) {
   const n = Number(res && res.degradedRetryAfterSeconds)
   return Number.isFinite(n) && n > 0 ? Math.ceil(n) : 0
@@ -270,7 +270,7 @@ export default {
         price: '',
         unit: '',
         category: '',
-        // 新增态这两个必填字段的初值直接取 DB 列默认（init.sql:69 stock DEFAULT 0 / :74 limit_buy DEFAULT 5）：
+        // 新增态这两个必填字段的初值直接取 DB 列默认（init.sql:85 stock DEFAULT 0 / :90 limit_buy DEFAULT 5）：
         // 后端 @NotNull 缺了就 400，给个有出处的默认值比让商家对着空框猜强（F-13.6 边界 13）
         stock: '0',
         limitBuy: '5',
@@ -313,7 +313,7 @@ export default {
       // 退化原因（与列表页同一分流）：'rate-limited' 是 429（等一会再点），其余是上游不可达（不是商家的错）
       categoriesRateLimited: false,
       // 本次类目闸门的秒数确实转述自后端 data.retryAfterSeconds 时的取值（0 = 不是后端给的）：
-      // categoriesHint 只在它 > 0 时才把数印进括号——闸门两种来源都要起，但「等待时长」这个读数
+      // categoriesHint 只在它 > 0 时才把数写进那一句——闸门两种来源都要起，但「等待时长」这个读数
       // 只能转述后端给的，不能把窗口长度 60 冒充成它（X-7 后半，与列表页 catRetryBackendSeconds 同口径）
       categoryRetryBackendSeconds: 0,
       // 类目锁的**实时剩余秒数**（响应式）：由既有 tickWriteGates 每秒从墙上时钟锚点 _categoryRetryAt 现算后写入，
@@ -626,7 +626,7 @@ export default {
     // 手动重试（红条 hint 的点击口）：闸门时长取最近一次后端给的 retryAfterSeconds（FB-3），
     // 没见过限流响应时按保守上限起闸——字典限流是 IP 维度，连点「点击重试」只会把 429 坐实
     // X-7：这一声刻意不带秒数（与列表页 dishes.vue 的 retryCategories 同口径）。本屏这一把锁的数只出现在
-    // categoriesHint 那行括号里一处（X-5 判据：同一把锁的时长在同一屏只许出现一处），hint 常驻、1.5s 的
+    // categoriesHint 那一行里一处（X-5 判据：同一把锁的时长在同一屏只许出现一处），hint 常驻、1.5s 的
     // toast 一闪而过，把数放在常驻那一行才是「看得见的那个数」
     retryCategories() {
       const now = Date.now()
@@ -656,7 +656,7 @@ export default {
         // 用它覆盖会把上一次刚学到的后端真值冲回保守上限。存下来是给 retryCategories() 的点击侧共用，
         // 两侧各算各的就会出现「hint 说的秒数与闸门拦的秒数对不上」
         // X-7：同一份解析结果同时喂「闸门时长」与「hint 印的秒数」——两处都从 categoryBackendSeconds(res)
-        // 这一枚真值导出，屏上那个数与拦点击的那把锁永远同源（后端没给时它是 0：闸门照起、括号里不印数）
+        // 这一枚真值导出，屏上那个数与拦点击的那把锁永远同源（后端没给时它是 0：闸门照起、句子里不印数）
         if (res && res.degraded) {
           this.categoryRetryBackendSeconds = categoryBackendSeconds(res)
           // 起闸瞬间把实时剩余置为后端给的那枚整轮时长（tickWriteGates 随后每秒从 _categoryRetryAt 覆盖它）；

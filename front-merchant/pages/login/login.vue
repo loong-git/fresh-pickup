@@ -133,11 +133,11 @@ export default {
       codeSending: false,
       smsCountdown: 0,
       smsTimer: null,
-      // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl.java:76-86），
+      // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl.java:101-116），
       // 输入框换号时据此判定是否该收掉上一个号码的冷却
       smsCooldownPhone: '',
       smsLogging: false,
-      // 登录按钮 60s 冷却（429 是 IP 维度限流，AuthController.java:35/:45，两个 tab 的登录按钮共用这一计时）
+      // 登录按钮 60s 冷却（429 是 IP 维度限流，AuthController.java:45/:53，两个 tab 的登录按钮共用这一计时）
       loginLock: 0,
       loginLockTimer: null,
       // 密码登录表单
@@ -347,7 +347,7 @@ export default {
     // 换个账号：清登录态 + 复位表单（403 保留的 token 在这里才清，避免下一个账号串上一账号的态）
     switchAccount() {
       this.$store.commit('clearToken')
-      // 发码倒计时按手机号维度计时（AuthServiceImpl.java:76-86），换号本可立即发码，不能拿上一个号码的计时拦新号；
+      // 发码倒计时按手机号维度计时（AuthServiceImpl.java:101-116），换号本可立即发码，不能拿上一个号码的计时拦新号；
       // loginLock 是 IP 维度限流、与账号无关，故保留不清（清了也只是让用户再撞一次 429）
       this.stopSmsCountdown()
       this.forbidden = false

@@ -109,7 +109,7 @@
         </view>
       </view>
 
-      <!-- 加载更多：触底自动 + 按钮兜底（范式照 front/pages/order/order.vue:90-96）；
+      <!-- 加载更多：触底自动 + 按钮兜底（范式照 front/pages/order/order.vue:106-112）；
            hasMore 用后端回显值，为 false 时整块换成「共 N 条」（N 取 shownTotal，见 computed 注释） -->
       <view class="load-more">
         <button v-if="hasMore" class="btn-more" :class="{ 'btn-more-cooling': retryLock > 0 }"
@@ -201,7 +201,7 @@ export default {
   },
   computed: {
     dateLabel() {
-      // 后端 MerchantOrderController:58 明写本端点「date 为空 = 不限自提日期（无默认值）」：
+      // 后端 MerchantOrderController:63 明写本端点「date 为空 = 不限自提日期（无默认值）」：
       // 这里写成「默认」会让商家把翻出来的历史单当成今天要备的货
       return this.date || '不限日期'
     },
@@ -493,7 +493,7 @@ export default {
       const s = String(v == null ? '' : v).trim()
       return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '日期未回显'
     },
-    // orderId 是 21 位长串（表主键是 varchar），整串显示会把整行撑破：只留后 6 位并前置省略号表明这是截断值
+    // orderId 是 19 位长串（表主键是 varchar(50)，服务端雪花 ID 的出参实测 19 位），整串显示会把整行撑破：只留后 6 位并前置省略号表明这是截断值
     tailOf(v) {
       const s = String(v == null ? '' : v).trim()
       if (!s) return '--'
