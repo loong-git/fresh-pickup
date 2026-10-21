@@ -18,7 +18,7 @@ public interface AdminV2Service {
 
     /**
      * 只读大盘（{@code GET /api/admin/v2/overview}）：单量 / 总金额 / 待自提单数 / 已收款金额四指标，
-     * 口径逐字照 {@code docs/日常运营SQL手册.md:111-115} 的「今日经营概况」那条 SELECT（订单口径，
+     * 口径逐字照 {@code docs/日常运营SQL手册.md:125-132} 的「今日经营概况」那条 SELECT（订单口径，
      * 与 G-05 商家看板的券前明细口径分列、互不换算，D-7）；
      * F-50 再加两键当日回调拒收读数（见下面 @return 的第五、六键）。
      *

@@ -32,7 +32,7 @@ import java.util.Map;
 @Service
 public class DictServiceImpl implements DictService {
 
-    /** 分组代码 → 字典服务 categoryId（契约 M2-7，与 front/api/dict.js GROUP_ID 一致，省一次分类列表请求） */
+    /** 分组代码 → 字典服务 categoryId（契约 M2-7；映射权威在本类——front/api/dict.js 只有 GROUP_NAME、不含 id） */
     private static final Map<String, Integer> GROUP_ID = Map.of(
             "dish_category", 4,
             "coupon_template", 3,

@@ -9,7 +9,7 @@ import java.util.List;
 /** 优惠券服务（T-M4-02）：领取 / 我的券 / 下单核销 / 取消回补 */
 public interface CouponService {
 
-    /** 领券：按固定三档模板发券，同 key 同人仅 1 张 available（重复领取 400） */
+    /** 领券：按固定模板发券，同 key 同人**终身**仅 1 张（F-05.1 修订：TEMPLATES 全量纳入，存在任意记录即 400，含 used/过期） */
     UserCoupon claim(Long userId, String couponKey);
 
     /**

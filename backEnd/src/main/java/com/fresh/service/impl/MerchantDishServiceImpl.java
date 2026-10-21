@@ -76,7 +76,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * （/static/images/dish-N.svg 与 /static/images/uploads/&lt;名&gt;，F-13/G-02 决策①方案 A）。
      * <p>空串=清空该列（C 端退回 emoji/占位兜底，F-13.6bis #21 收窄后的口径），是白名单的另一形态，
      * 故本类不再为它单独设常量。
-     * <p>/uploads/（CorsConfig 对同一物理目录注册的第二条映射）已从白名单剔除，见
+     * <p>/uploads/（CorsConfig 对同一物理目录注册的第一条映射，:68；:70 才是 /static/images/uploads/**）已从白名单剔除，见
      * assertDisplayValue 的 BE-9 说明——它是商家端 dev 预览的显示层形态，不是入库形态。
      */
     private static final String IMAGE_PREFIX_STATIC = "/static/images/";

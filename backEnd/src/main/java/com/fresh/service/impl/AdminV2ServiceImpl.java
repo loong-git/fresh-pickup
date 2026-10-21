@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  * 运营端 v2 只读实现（F-20.9 #2/#3 + F-20.16 + F-20.18 #1~#4）。六个方法都只做
  * 「校验 + 取数 + 白名单重拼」，不参与任何口径计算。
  *
- * <p><b>大盘口径（F-20.9 #2 逐字照 {@code docs/日常运营SQL手册.md:111-115} 的今日经营概况）</b>：
+ * <p><b>大盘口径（F-20.9 #2 逐字照 {@code docs/日常运营SQL手册.md:125-132} 的今日经营概况）</b>：
  * {@code COUNT(*)} / {@code IFNULL(SUM(total_price),0)} / {@code SUM(status='pending_pickup')} /
  * {@code IFNULL(SUM(CASE WHEN pay_status=1 THEN total_price ELSE 0 END),0)}，
  * 窗口是 {@code [当日 00:00, 次日 00:00)} 半开区间，与手册的

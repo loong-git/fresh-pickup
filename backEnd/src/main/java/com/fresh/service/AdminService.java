@@ -103,13 +103,13 @@ public interface AdminService {
      *
      * <p>出参形状钉死在契约：{@code storeId / storeName / date / existing / plan / orderCount / dishKinds /
      * departable}，其中 existing 为 null 或 {@code {id, status, confirmTime, itemCount}}、plan 行为
-     * {@code {dishId, dishName, qty}}；departable = 无批次，或既有批次 status 落在 planned/arriving 白名单
+     * {@code {dishId, dishName, qty}}；departable = 无批次或既有批次 status 落在 planned/arriving 白名单，
      * （与发车判据同一套集合，前端据此禁用按钮）。
      * date 非法形状 400（复用既有文案）；门店不存在 404「门店不存在」——storeName 取自门店行，
      * 查无门店时这个出参形状根本填不出来，404 是唯一自洽出口。
      *
-     * <p>预览<b>不判</b>「早于今天」：departable 的公式契约已钉死、不含日期项，
-     * 过去日期的拒绝只发生在发车侧（判据顺序第 ② 步）。
+     * <p>预览对过去日期<b>不报 400</b>，而是把 departable 置 false（日期这一维实测在实现里生效；F-89 D1 订正：
+     * 本句原写「公式契约不含日期项」抄的是旧契约口径，代码后来补了这一维）。硬 400 只在发车侧（判据顺序第 ② 步）。
      */
     Map<String, Object> arrivalPreview(Long storeId, String date);
 

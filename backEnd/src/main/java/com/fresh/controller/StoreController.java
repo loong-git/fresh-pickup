@@ -13,7 +13,7 @@ import java.util.List;
 
 /**
  * 自提点门店接口（T-M4-01，匿名可读——AuthInterceptor 权限矩阵白名单外默认放行 GET）。
- * 响应 R{code, data:[{id,name,address,service,status,createdAt}]}；status=closed 前端置灰不可选。
+ * 响应 R{code, data:[{id,name,address,service,status,lng,lat,createdAt}]}（八键，与 entity/Store 的 D-23 门禁断言同口径）；status=closed 前端置灰不可选。
  */
 @RestController
 @RequestMapping("/api/stores")

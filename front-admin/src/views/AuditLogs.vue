@@ -3,7 +3,7 @@
     <!-- FE-G6-10（读写可辨）：本页只读（它记录的是**别人的**写动作，自己一个写端点都不调）。
          常驻徽标与写页同一套形态；下句「……写动作的留痕」说的是记录对象，不是本页行为。
          F-45 订正：这一句原先写的是「Admin 侧写动作」，与事实不符——admin_audit_log 里也有商家侧的行，
-         MerchantDishServiceImpl:166/263/310/333 与 MerchantServiceImpl:166/175 走的正是
+         MerchantDishServiceImpl:166/272/319/342 与 MerchantServiceImpl:166/175 走的正是
          AdminAuditLogMapper.insert 这一条通道（actor 前缀 merchant:<userId>）。
          由这个事实得出一条用法约束：**按 action 筛会把两轨的行混在一起**（dish.update 两轨都写），
          要认定「是谁做的」必须看 actor 列——所以下方的预设只给 actor 恒定那一枚配 actor，
@@ -169,21 +169,21 @@ const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 //   grep -rnE "writeAudit\(|NOTIFY_REJECT_ACTOR|private static final String ACTION" backEnd/src/main/java --include=*.java
 // 由该结果 + AdminAuthServiceImpl:152/321（AUDIT_ACTION_LOGIN='admin.login'、actor='admin_user:'+id）
 // 与四处落库点（row.setActor：AdminServiceImpl#insertAudit / AdminAuthServiceImpl:360 /
-//  MerchantDishServiceImpl:433 / MerchantServiceImpl:249，全走同一个 AdminAuditLogMapper.insert）汇总，
+//  MerchantDishServiceImpl:442 / MerchantServiceImpl:249，全走同一个 AdminAuditLogMapper.insert）汇总，
 // 会落库的 action 实测共 13 个：
 //   Admin 轨 6 个（AdminServiceImpl 的 updateOrderStatus / updateDish / auditReview / createMerchant / auditStoreApply / departArrival 各一处）
 //     order.status / dish.update / review.audit / merchant.create / store_apply.audit / arrival.depart
 //     ← actor = admin:<key 摘要 8>（静态密钥轨）或 admin_user:<id>（运营 JWT 轨，auditActor 归一）
 //   系统 1 个（AdminServiceImpl#recordNotifyReject）  pay.notify_reject  ← actor = system:wx-notify（F-44，没有人在场）
 //   登录 1 个（AdminAuthServiceImpl:361）  admin.login     ← actor = admin_user:<id>
-//   商家轨 6 个（MerchantDishServiceImpl:166/263/310/333、MerchantServiceImpl:166/175）
+//   商家轨 6 个（MerchantDishServiceImpl:166/272/319/342、MerchantServiceImpl:166/175）
 //     dish.create / dish.update / dish.stock / dish.onsale / merchant.profile / merchant.upload
 //     ← actor = merchant:<userId>
 // 选这四枚的理由（上限 4，按运营真要查的频率 + 单轨可追责性）：
 //   1) pay.notify_reject —— 本片的存在理由，actor 固定，配 actor 一起填才筛得准；
 //   2) admin.login —— 「谁登录过」，actor 是逐人变化的 admin_user:<id>，故只填 action、不填 actor；
 //   3) order.status / 4) store_apply.audit —— 只有 AdminServiceImpl 一处写入点（单轨，action 即足够定责）。
-// 没选 dish.update：它在 AdminServiceImpl#updateDish 与 MerchantDishServiceImpl:263 各写一次，
+// 没选 dish.update：它在 AdminServiceImpl#updateDish 与 MerchantDishServiceImpl#update 各写一次，
 // 单给一枚 action 会把两轨的行混在一起，反而造出「谁改了菜品」的误读（页首注释同一件事）。
 // F-61：本段里指向 AdminServiceImpl 的引用一律改成**方法名**而不是行号——F-61 给取消加理由时在该类插了
 // 几十行，所有行号引用当场作废；被反复引用的文件挂行号就是定时炸弹，能具名的全部具名。

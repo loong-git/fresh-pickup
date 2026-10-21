@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import java.util.Set;
 
 /**
- * ops_log 唯一写入口（F-18.8 第 3 条）：形态逐字照 {@code AdminServiceImpl#writeAudit :270-286} 的
+ * ops_log 唯一写入口（F-18.8 第 3 条）：形态逐字照 {@code AdminServiceImpl#writeAudit :546-561} 的
  * **旁路双层 try-catch**——第一趟写完整 detail，任一层原因（1406 超长、字符集、列宽…）失败即退成
  * 最小 detail 重试一次，两趟都失败才 warn；**审计失败绝不影响主流程**（调用点已在事务内，
  * 这里吞掉异常等于「不因审计回滚核销/登记」）。
