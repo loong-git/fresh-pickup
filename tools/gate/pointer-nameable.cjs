@@ -86,10 +86,18 @@ for (const f of files) {
       const base = path.basename(target);
       const cands = byName.get(base) || [];
       if (!cands.length) { keep.push({ file: f, line: idx + 1, target, nums, why: "FILE_NOT_INDEXED" }); continue; }
-      // 多份同名文件时按指针里的路径尾段收敛
+      // 多份同名文件时按指针里的路径尾段收敛。
+      // **裸名（指针里没写路径）时绝不能取 use[0]**：2026-10-21 实测 `front-partner/pages/login/login.vue:450`
+      // 指 `workspace.vue:403`，而两工程各有一份 workspace.vue（partner 486 行、merchant 336 行），
+      // endsWith 对两者都成立，use[0] 撞上 merchant 那份就报 OUT_OF_RANGE——**假阳性**；
+      // 更要紧的是反方向：若两份都有第 403 行，它会拿错文件的内容去判 symbolOf，那是**假绿**。
+      // 改法：同工程候选排前，然后逐个候选试到"该行有内容"为止；全部越界才算 OUT_OF_RANGE。
       const pool = cands.length === 1 ? cands : cands.filter((c) => c.replace(/\\/g, "/").endsWith(target.replace(/\\/g, "/")));
-      const use = pool.length ? pool : cands;
-      const at = lines(use[0])[first - 1];
+      const rootOf = (p) => p.replace(/\\/g, "/").split("/")[0];
+      const myRoot = rootOf(f);
+      const use = (pool.length ? pool : cands).slice().sort((a, b) => (rootOf(a) === myRoot ? 0 : 1) - (rootOf(b) === myRoot ? 0 : 1));
+      let at;
+      for (const c of use) { const l = lines(c)[first - 1]; if (l !== undefined) { at = l; break; } }
       if (at === undefined) { keep.push({ file: f, line: idx + 1, target, nums, why: "OUT_OF_RANGE" }); continue; }
       const sym = symbolOf(at);
       if (!sym) {
