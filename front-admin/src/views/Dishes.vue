@@ -131,7 +131,7 @@
 
     <!-- 更新表单也在状态块之外：提交成功后列表会进 loading 态、表格被卸载，
          这时表单若挂在 v-else 里会连带消失，把「刚提交了什么」这段上下文一起弄丢。
-         （el-dialog 在 EP 2.14 里 appendTo 默认就是 body，不必再显式写 append-to-body。） -->
+         （EP 2.14 的 el-dialog：appendTo 默认确实是 "body"，但 teleport 的开关是 `disabled = appendTo==="body" ? !appendToBody : false`，而 appendToBody 默认 false——即**默认不挪**、就地渲染；要把 DOM 挪进 body 必须显式写 append-to-body。F-97 实测订正：原句把这条因果写反了。） -->
     <el-dialog v-model="dialogVisible" :title="dialogTitle"
                width="620px" :close-on-click-modal="false">
       <p class="dialog-note">

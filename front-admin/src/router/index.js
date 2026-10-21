@@ -1,7 +1,7 @@
-// 路由（F-20.11 Step 4 的三页 + F-20.22 Step 5b-2 的四页 = /login 与六个业务页）+ 一条全局前置守卫。
+// 路由（F-20.11 Step 4 的三页 + F-20.22 Step 5b-2 的四页 = /login 与六个业务页；F-63 又加 arrivals 一页，现共 1 + 7）+ 一条全局前置守卫。
 // 依赖方向是单向的：router → api，api 绝不 import router（否则成 api → router → views → api 的静态循环，
 // 与本仓三端 main.js ↔ api 的做法同构）——api 层 401 要跳 /login，靠的是本模块末尾注册的回调。
-// 三页一律动态 import（懒加载），首屏包只装壳。
+// 三页一律动态 import（懒加载），首屏包只装壳——F-97 实测：现在 8 个路由组件**全部**是动态 import，不止那三页。
 // history 模式用 createWebHistory：dev 由 Vite 的 SPA fallback 兜住根路径刷新。
 import { createRouter, createWebHistory } from 'vue-router'
 import { getStoredToken, setUnauthorizedHandler } from '../api'

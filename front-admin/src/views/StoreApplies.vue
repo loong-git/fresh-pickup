@@ -126,7 +126,7 @@
     </template>
 
     <!-- 审核意见表单也在状态块之外（提交后列表会进 loading、表格被卸载，表单若在 v-else 里会连带消失）。
-         el-dialog 在 EP 2.14 里 appendTo 默认即 body，不必显式写 append-to-body。 -->
+         EP 2.14 的 el-dialog 里 appendTo 默认虽是 "body"，teleport 实际由 appendToBody（默认 false）决定，即**默认不挪**；要挪必须显式写 append-to-body（F-97 实测订正原句的反向因果）。 -->
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="620px"
                :close-on-click-modal="false">
       <div class="dialog-target">
