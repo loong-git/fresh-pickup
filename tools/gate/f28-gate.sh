@@ -313,6 +313,17 @@ else
   #   剩下这 4 行是同一个号（`front/main.js` 的 M3-T-10 兼容分支），库里 orders 8 行 + user 1 行，
   #   形态上与"注册过并下过单的正常账号"无法区分，**是不是真号只有用户知道**——所以它留在未裁定集合里
   #   走 push 阻断，既不自作主张塞进排除集（那等于替用户判定它不是隐私），也不塞进 .pii-list（那会永久红）。
+  # 同一棵 HEAD 树再用**凭据**清单扫一遍，与上面隐私那条对称：§10 只扫 ahead diff，
+  # 「当前内容里有没有凭据」这句话此前没有任何判据管过（2026-10-21 首次扫：origin 树 0、HEAD 树也 0）。
+  # 窄排除只放行「判据代码自己」那一行——实测清单第 8 条就是 JWT 形态的**正则字面量本身**，
+  # 而 redact-for-release.sh:16 是定义它的那行（JWT_RE=…），不移植就会永久自指命中。
+  # 去掉这条 grep -v 立刻从 0 变 1，所以它是"放行一行"，不是"放行一个文件"。
+  if [ -f logs/.secret-list ]; then
+    SEC_TREE=$(git grep -n -F -f logs/.secret-list HEAD 2>/dev/null | grep -v 'JWT_RE=' | grep -c . || true)
+    chk "本地 HEAD 树凭据命中行数" "${SEC_TREE:-0}" "0"
+  else
+    SKIPPED="$SKIPPED §10c(无 logs/.secret-list)"
+  fi
   # 这条判据"抓得到陌生号"的证据就是当前这个 4：一个未被裁定的号确实落进了阻断分支而不是被放过。
   # 排除口径只做**整串精确**，实测过整文件豁免的危害：把上面第三条 grep -vF 换成 'front/main.js'
   # 之后命中数从 4 变 **0**——那个陌生号就永远看不见了。与 §10 的 SENTINEL_DIR 同一条纪律。
