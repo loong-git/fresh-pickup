@@ -5,7 +5,7 @@
 // （抽公共包属 npm 依赖，F-18.19 §1 明令不引；真解在 G-05 之后与 C 端同一次动刀时收口）。
 //
 // 口径（不对称转换，HANDOFF §8）：DB 存 GCJ-02 真源——store.lng/lat 与 store_apply.lng/lat 都是
-// DECIMAL(10,6) 的「高德 GCJ-02」值（backEnd/sql/init.sql:401-402 列注释），进图与distance计算直用不转换；
+// DECIMAL(10,6) 的「高德 GCJ-02」值（backEnd/sql/init.sql:178-179 store 与 :439-440 store_apply 两处列注释），进图与distance计算直用不转换；
 // **只有用户设备定位那一侧是 WGS-84**，落到这两列之前必须转成 GCJ-02，否则与门店坐标不同系
 // （R6-2 实测混算有 ~500m 系统性偏移）。
 //

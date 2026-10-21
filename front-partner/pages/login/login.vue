@@ -154,7 +154,7 @@ export default {
       codeSending: false,
       smsCountdown: 0,
       smsTimer: null,
-      // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl.java:76-86），
+      // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl.java:106-113），
       // 输入框换号时据此判定是否该收掉上一个号码的冷却
       smsCooldownPhone: '',
       smsLogging: false,
@@ -173,10 +173,10 @@ export default {
       forbiddenMessage: '',
       // 「重新检查」的 429 冷却剩余秒数（GET /api/partner/stores 是 USER 30 次/分，RateLimit 默认 KeyType.USER）
       // 与 loginLock 分表计时：一个跟登录接口的 IP 维度限流走（与账号无关），一个跟身份判定的用户维度限流走
-      // （换账号就换桶）——合并成一个会把两件事的冷却互相污染。落点与写法照 dishes.vue:187-188（data）/417（429 才起锁）/464（startRetryLock）。
+      // （换账号就换桶）——合并成一个会把两件事的冷却互相污染。落点与写法照 dishes.vue:187-188（data）/448（429 才起锁）/521（startRetryLock）。
       // F-23-fix/FF-6 + F-25/P-4：这串指针被商家端连续加行打断过两次（170-171/378/425 → 177-178/392/439），
       // 现值按 front-merchant/pages/dishes/dishes.vue 当前实况逐条重测：retryLock 在 data 的 187-188、
-      // errorCode===429 才起锁在 417、startRetryLock 方法在 464。
+      // errorCode===429 才起锁在 448、startRetryLock 方法在 521。
       retryLock: 0,
       retryLockTimer: null
     }
@@ -406,7 +406,7 @@ export default {
     // 换个账号：清登录态 + 复位表单（403 保留的 token 在这里才清，避免下一个账号串上一账号的态）
     switchAccount() {
       this.$store.commit('clearToken')
-      // 发码倒计时按手机号维度计时（AuthServiceImpl.java:76-86），换号本可立即发码，不能拿上一个号码的计时拦新号；
+      // 发码倒计时按手机号维度计时（AuthServiceImpl.java:106-113），换号本可立即发码，不能拿上一个号码的计时拦新号；
       // retryLock 是 stores 接口的 USER 维度限流（RateLimit KeyType.USER 默认），换账号即换桶，同样收起；
       // loginLock 是 IP 维度限流、与账号无关，故保留不清（清了也只是让用户再撞一次 429）
       this.stopSmsCountdown()
@@ -447,8 +447,8 @@ export default {
   // （发码按钮的「Ns后重发」+ 两个 tab 登录按钮的「Ns后可重试」）收了进来。
   // 为什么是 computed 而不是让模板直接调 import 进来的函数：uni-app H5（Vue3）的模板表达式只在组件
   // 实例作用域求值，模块级 import 的名字在 <template> 里读不到——商家端登录页母版就是这套 computed 形状。
-  // 为什么这个块放在 methods 之后（母版把它放在 watch 之后）：workspace.vue 用行号指针点名了本页
-  // methods 里的 startRetryLock，插到它前面会让那枚指针漂；Vue 不关心 options 键的先后顺序。
+  // 为什么这个块放在 methods 之后（母版把它放在 watch 之后）：workspace.vue:403 按方法名点名了本页
+  // methods 里的 startRetryLock（实测它只点名、不带行号，谈不上「漂」，但插到 methods 之前会让那次点名在本页里跨块来回找）；Vue 不关心 options 键的先后顺序。
   // 数值一律不动：smsCountdown 仍是「1 分钟 1 码」的业务节奏，走 resendPillText（动词是重发不是重试）；
   // loginLock 仍是 retrySecondsOf 转述的后端真值。两把锁各写在自己那一枚按钮上，控件本身就是归因。
   // 读数变化只在越过 60 那一档：loginLock 回落到 60 时仍出「60s后可重试」（F-38.3 把分档线含 60，为的是与同屏模板短标签逐字同形）；

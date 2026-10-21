@@ -1,4 +1,4 @@
-/* ==================== 生鲜商家端 — 两页共用公共样式 ==================== */
+/* ==================== 生鲜主理人端 — 六页共用公共样式（apply/arrival/login/store/verify/workspace 各 import 一次） ==================== */
 /* 为什么单独成文件而不是写进页面 <style scoped>：
    uniapp 编译器会把页面级 <style> 全 scope 化（R8 三坑之一），跨页共用的类放这里、
    由页面 <script> 里 import '@/styles/common.css' 引入，才是一份全局定义（改一处两端同变）；
@@ -33,7 +33,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .cell-arrow { flex-shrink: 0; font-size: 34rpx; color: #CCCCCC; }
-/* 置灰不可点行（工作台三入口 G-01 占位；灰度手法照用户端 .coupon-disabled） */
+/* 置灰不可点行（工作台四入口的 entryRoute 判灰；四行现已全部在册，这一支只防「在册表漏一行」；灰度手法照用户端 .coupon-disabled） */
 .cell-disabled { opacity: .55; filter: grayscale(.6); }
 
 /* 建设中角标（行尾替代 › 箭头：箭头会误导「可点进」，占位期不给） */
@@ -54,7 +54,7 @@
 }
 .btn-main.btn-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
 
-/* ==================== 引导态（403「暂无商家权限」：浅红卡 + 主红文案，复用游客态引导行纪律） ==================== */
+/* ==================== 引导态（本端 403 的语义是「名下无店」，标题见 login.vue:23「该账号还没有绑定的自提点」：浅红卡 + 主红文案，复用游客态引导行纪律） ==================== */
 .guide-card {
   background-color: #FFF7F0;
   border: 1rpx solid #FFE3E0;

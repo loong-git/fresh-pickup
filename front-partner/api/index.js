@@ -26,7 +26,7 @@ export const TOKEN_STORAGE_KEY = 'partner_token'
 // 登录页路由（401 兜底跳转目标，须与 pages.json 首页一致）
 const LOGIN_PAGE = 'pages/login/login'
 
-// 兜底文案与后端码表同源（R.java:23 MSG_UNAUTHORIZED / R.java:30 MSG_FORBIDDEN），信封 message 缺失时才用
+// 兜底文案与后端码表同源（R.java:24 MSG_UNAUTHORIZED / R.java:30 MSG_FORBIDDEN），信封 message 缺失时才用
 // MSG_UNAUTHORIZED 同时是 401 跳登录页前那一声 toast 的文案：同一串只在这一处定义，
 // 页面与请求层不会各写一份「请先登录」而漂移
 const MSG_UNAUTHORIZED = '请先登录'
@@ -274,7 +274,7 @@ function formatCoolingSeconds(seconds) {
  *      「1 分 00 秒后可重试」，而 ③ 那条判据恰好把这两处判成互相矛盾。
  *      另：60 这一档之外的 <60 区间，本函数输出与那种裸插值本来就逐字同形，收与不收无差；
  *      verify 页「加载更多」那一处走 pill（它转述的也是 retryLock），所以「页内 JS 裸拼 = 0」一刀切成立，
- *      模板里剩下的变量裸插由 logs/cooldown-format-audit.cjs 的形态 B 白名单守着。
+ *      模板里剩下的变量裸插由 tools/gate/cooldown-format-audit.cjs 的形态 B 白名单守着。
  *   ③ 任何**可能越过 60** 的闸门必须走 pill 函数，一秒钟都不许在页内裸拼：
  *      写侧 writeRetryLock 撞 D-14 防枚举锁可达 600（后端 LOCK TTL 10 分钟），登录 loginLock 回落 60
  *      ——这两把的裸插值会往屏上印「600s 后再试」，正是要治的病。
@@ -393,7 +393,7 @@ export function loginPassword(phone, password) {
 }
 
 // ==================== 主理人接口（F-18.8 第 4 条 + F-18.12 第 1/2/4/5/6 条） ====================
-// 归属纪律（RF 红线）：/api/partner/** 的归属一律由服务端从 token 解析（AuthInterceptor:108-118 注入
+// 归属纪律（RF 红线）：/api/partner/** 的归属一律由服务端从 token 解析（AuthInterceptor:114-131 注入
 // ATTR_PARTNER_STORE_IDS），本层不拼任何归属入参；`storeId` 只是 D-22 的「名下多店选一家」选择器，
 // 服务端校验它 ∈ 集合、不在即 404，它既不是归属也不是可改列。
 // 每个函数只拼参数、不写业务分支；判定与文案分流全在页面层按 reject 的 code 走。
@@ -401,7 +401,7 @@ export function loginPassword(phone, password) {
 /**
  * 名下门店列表：GET /api/partner/stores（F-18.8 第 4 条，读 30/分）
  * 出参每行 {id,name,address,status,service}——刻意不含 owner_user_id/contact_phone/photos/
- * daily_capacity/accepting（D-12 最小暴露）；那六列要走 getPartnerStore() 明细才给（F-18.12 第 4 条）。
+ * daily_capacity/accepting（D-12 最小暴露）；这四列要走 getPartnerStore() 明细才给，owner_user_id 两条都不给（F-18.12 第 4 条）。
  * 登录页的身份判定就用它：resolve=200 且数组非空可进工作台；
  * reject 403 = token 有效但名下无店（不是登录失效）；reject 401 由请求层收敛回登录页。
  * @returns {Promise<{code,data:Array<{id:number,name:string,address:string,status:string,service:string}>,message:string}>}
@@ -508,7 +508,7 @@ export function updatePartnerStore(fields) {
  * 两页都显式传 date，是为了让「页面显示的日期」与「请求用的日期」永远同一个值，
  * 不依赖服务端缺省去猜；服务端那个缺省只是给直调接口的调用方兜底。
  * storeId 是 D-22 的「名下多店选一家」选择器（PartnerController.java:130 @RequestParam Long storeId）：
- * 空值 = 取名下 id 最小的一家（PartnerStoreServiceImpl.java:368-371 Collections.min）；集合外的 id → 404。
+ * 空值 = 取名下 id 最小的一家（PartnerStoreServiceImpl.java:377 Collections.min，方法体 :374-383）；集合外的 id → 404。
  * 它既不是归属也不是可改列（RF），归属仍由服务端解析。
  * 两个调用方的现状读数（FE-2/FE-3，别再当成「遗留项待收口」）：
  * ① 核销台的到货警示条**逐店显式传 storeId**——待取清单覆盖名下全部店，只查最小 id 那一家会漏报别家；

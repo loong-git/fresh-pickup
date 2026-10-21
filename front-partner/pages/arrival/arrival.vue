@@ -39,8 +39,8 @@
 
     <!-- ==================== 4. 空态 ====================
              原文案「批次由平台生成，见 G-05 运营端」是双重指错，已删：G-05 实为「商家端营销参与态 + 数据看板」
-             （07 册 §G-05，F-19 已交付），运营端是 G-06，而**两期都没有批次生成页**——全系统对 arrival_batch
-             只有「读 + 确认」两个接口，零写入端点。不能把主理人指向一个不存在的页面。
+             （07 册 §G-05，F-19 已交付），运营端是 G-06；删它的那一刻两期都没有批次生成页——全系统对 arrival_batch
+             只有「读 + 确认」两个接口、零写入端点，不能把主理人指向一个不存在的页面。【读数已过时：F-63 的运营端「到货发车」POST /api/admin/arrivals 已是本表唯一的批次创建方】
              仍然不说「加载失败」也不说「没货」：前者是骗，后者越界（本页不知道货）。 ==================== -->
     <view v-else-if="viewState === 'empty'" class="card empty-card">
       <view class="empty-row">
@@ -117,7 +117,7 @@
 //    绝不为了「页面好看」去前端 JOIN 别的接口补数据。
 // 本表 uk_store_date 保证「一店一日至多一批」，故这一页没有分页（RB 的手写分页在核销台那一页用）。
 // storeId 选择器本页不传（FE-3：一期不提供选店，本页没有选店入口）：留空即由服务端按
-// 「名下 id 最小的一家」解析（PartnerStoreServiceImpl.java:368-371 Collections.min），
+// 「名下 id 最小的一家」解析（PartnerStoreServiceImpl.java:377 Collections.min，方法体 :374-383），
 // 页内那一行「门店编号 N」就是回包的 data.storeId——显示哪家、确认哪家，永远是那一家。
 // 核销台的到货警示条是另一条通道：它逐店**显式带 storeId** 查后聚合（FE-2），管的是「名下几家没确认」，
 // 与本页「只看一家」各说各的事，不构成同一屏上的矛盾结论。
@@ -128,7 +128,7 @@ import '@/styles/common.css'
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/arrival/arrival'
 
-// 可点「确认到货」的状态集合：与后端条件 UPDATE 的 IN 白名单逐字相同（ArrivalBatchMapper:46-49）
+// 可点「确认到货」的状态集合：与后端条件 UPDATE 的 IN 白名单逐字相同（ArrivalBatchMapper:47-50）
 const CONFIRMABLE_STATUS = ['planned', 'arriving']
 const BATCH_CONFIRMED = 'confirmed'
 const BATCH_SHORT = 'short'
@@ -228,7 +228,7 @@ export default {
     // 闸门只加在**这一处调用点**，loadBatches 本体保持无闸门（那条豁免是刻意的：用户主动步进/回到今天
     // 必须立发，否则日期条已变、卡片还是上一天，而 ready 态没有重试入口，那一下就永久丢了）。
     // 被拦时静默、不给 toast（dishes/marketing/dashboard 三页的 onShow 母版同形；冷却中的秒数本来就写在屏上：
-    // 错误卡那一行与「加载更多/重试」那两处）。
+    // 本屏只有错误卡那一行「Ns后可重试」——本页无分页，不存在核销台那种「加载更多」第二处）。
     // 刻意不复制商家端 dishes 页的「刚从新增页返回」例外：本页没有写页可跳（确认就在页内做，
     // 成功后已经 patchBatch 就地变色 + reloadOneBatch 补拉），唯一的外跳是 403 时 reLaunch 回工作台，
     // 那条路上没有任何「回页必须立刻重拉」的新写入。
@@ -350,7 +350,7 @@ export default {
         }
         if (code === 404) {
           // 他店批次与不存在的批次在后端就是同一个 404 同文案（不泄漏行存在性），
-          // 前端跟着拆两支就等于把这枚预言机还回去（PartnerStoreServiceImpl#confirmArrival 两条 BATCH_NOT_FOUND_MSG 出口）
+          // 前端跟着拆两支就等于把这枚预言机还回去（PartnerStoreServiceImpl#confirmArrival 三条同文案出口：他店、不存在、BE-4 并发再读非 confirmed）
           this.setFeedback(key, 'err', '批次不存在或不属于你的门店')
           return
         }

@@ -130,7 +130,7 @@ const STORE_STATUS_OPEN = 'open'
 // F-23.2（补 F-23 漏网的第三处同 pattern）：429 冷却时长不再硬编码 60——后端 429 信封的
 // data.retryAfterSeconds 优先，取不到才回落本地 60。
 // 回落值口径：它是本页所撞限流档（GET /api/partner/stores 与 GET /api/partner/store 都是 USER 维度
-// @RateLimit 30 次/分）的整窗长度，是「后端不给 data 时的保守上限」，不是回速（回速实测 2~12 秒，
+// @RateLimit 30 次/分）的整窗长度，是「后端不给 data 时的保守上限」，不是回速（回速实测约 2 秒，
 // 远小于窗口），两个数不是一回事，别混成一个值。
 const RETRY_FALLBACK_SECONDS = 60
 
@@ -162,7 +162,7 @@ export default {
       // 429 冷却剩余秒数（两条 GET 同档 USER 30 次/分、但各是一枚独立桶——桶身份取「控制器类名 + 方法名」，
       // 见 RateLimitInterceptor#bucketKey；页内共用这一张冷却表是刻意的保守，不是说它们花同一份额度；
       // 起锁秒数不再硬编码：转述后端 429 信封的 data.retryAfterSeconds，取不到才回落 RETRY_FALLBACK_SECONDS；
-      // 落点与写法照 dishes.vue:187-188（data）/ :417（errorCode===429 才起锁）/ :464（startRetryLock）。
+      // 落点与写法照 dishes.vue:187-188（data）/ :448（errorCode===429 才起锁）/ :521（startRetryLock）。
       // F-25/P-4：原指针 177-178/385/432 已被商家端加行打断，上面三个是按 dishes.vue 现况逐条重测的读数）
       retryLock: 0,
       retryLockTimer: null,
@@ -230,7 +230,7 @@ export default {
     // 错误态主文案（两层式照母版与 dishes.vue 的 errorLeadText 口径：主文案是人话，后端原文降为第二行小字）
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次；
     // FF-6 + F-25/P-4：这条指针历史 209-214 → 216-221 → 218-223（每次都只隔着一两次加行），
-    // 现值按 dishes.vue 实况重测＝228-233（computed errorLeadText 本体 228、四支 return 229-232、收尾 233）
+    // 现值按 dishes.vue 实况重测＝235-246（computed errorLeadText 本体 235、各支 return 236-245、收尾 246）
     errorLeadText() {
       // F-28.5 路 A（X-8）：句式收进 coolingText 无参整句——「点得太快了」这一支第三种说法并入全端统一族；
       // FF-1「这行不带时长」的纪律不变（读侧带数处仍是模板的 retryLock 闸门行）
