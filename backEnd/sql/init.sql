@@ -2,8 +2,8 @@
 -- 生鲜配送小程序 - 数据库初始化脚本
 -- 执行方式：mysql -u root -p < init.sql
 -- ================================================
--- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m20-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
--- 无需再跑 m3~m20 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
+-- 结构同步声明（F-13/G-02 Step 0 并库，已同步至 m21-migration.sql）：全新库仅执行本文件即可撑起全部现有链路，
+-- 无需再跑 m3~m21 增量；本文件对既有列定义与既有种子数值零改动（只做加列/加表/加索引/加种子）。
 --   m3  dish.on_sale + orders.pickup_date + 六类补齐商品种子（category 注释/image 口径同 m3）
 --   m4  store + user_coupon 表 + orders 自提点快照三列 + dish 秒杀六列 + review.audit_status
 --   m5  user.password_hash
@@ -30,6 +30,8 @@
 --       + status/last_login_at；零种子——账号由部署侧建，口令只落 gitignore 的本地文件）
 --   m20 admin_audit_log 的 idx_action(action) 与 idx_actor_action(actor, action)（F-49：运营端审计页四枚
 --       「常用筛选」预设 + 独立 COUNT 的索引，选型与实测数字见该表上方注释与 m20-migration.sql）
+--   m21 merchant_apply（F-106 商家自助入驻 · 片 A）：生成列 pending_guard + 唯一键 uk_user_pending(user_id, pending_guard)
+--       照 store_apply 的并发范式，封死同用户并发双 pending；结构与 m21-migration.sql 逐字一致
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -451,6 +453,34 @@ CREATE TABLE IF NOT EXISTS store_apply (
     KEY idx_user_status (user_id, status),
     UNIQUE KEY uk_user_pending (user_id, pending_guard)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主理人入驻申请（D-20 申请侧 /api/store-applies/ 登录即可；D-21 同用户最多 1 条 pending=应用层校验 + uk_user_pending 库侧闸门双保险；审核动作写 admin_audit_log，见 D-5 两表边界）';
+
+-- ----------------------------
+-- 商家入驻申请表（F-106 片 A，m21-migration.sql 同步，结构与迁移文件逐字一致）：
+-- 申请侧 /api/merchant-applies 登录即可（申请时名下无商家，入口不能挂 /api/merchant/，否则角色闸门自锁）；
+-- 审核侧 /api/admin/merchant-applies/{id}/audit——approve 同事务五步：查申请/幂等 → INSERT merchant
+-- （contact_phone 取申请人 user.phone，不取表单）→ INSERT merchant_profile(approved) → 条件 UPDATE user
+-- （WHERE merchant_id IS NULL，影响行数≠1 回滚）→ 置申请态 + admin_audit_log；
+-- 并发范式照 store_apply（m18 ⑦b）：生成列 pending_guard + uk_user_pending(user_id, pending_guard)，
+-- NULL 不参与唯一性，封死同用户并发双 pending，rejected/approved 历史行仍放行（驳回后可再次申请）。
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS merchant_apply (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT COMMENT '申请ID',
+  user_id            BIGINT       NOT NULL COMMENT '申请人 user.id（逻辑外键 user.id；申请时名下无商家，故入口不能挂 /api/merchant/）',
+  merchant_name      VARCHAR(100) NOT NULL COMMENT '拟用商家名称',
+  contact_name       VARCHAR(50)  NULL COMMENT '联系人姓名',
+  business_license   VARCHAR(255) NULL COMMENT '营业执照图 URL（/static/images/uploads/ 前缀，单张）',
+  legal_person       VARCHAR(50)  NULL COMMENT '法人姓名',
+  address            VARCHAR(255) NULL COMMENT '经营地址',
+  settlement_account VARCHAR(64)  NULL COMMENT '结算账户（三期结算启用，列位预留）',
+  status             VARCHAR(20)  NOT NULL DEFAULT 'pending' COMMENT 'pending待审核/approved通过/rejected驳回',
+  pending_guard      VARCHAR(1) GENERATED ALWAYS AS (IF(status='pending','p',NULL)) STORED COMMENT '并发防护生成列',
+  audit_remark       VARCHAR(255) NULL COMMENT '审核意见（驳回原因供申请人展示）',
+  audited_at         DATETIME     NULL COMMENT '审核时间；NULL=未审',
+  created_at         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_pending (user_id, pending_guard),
+  KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家入驻申请';
 
 -- ----------------------------
 -- 到货批次表（F-18.10/G-04 Step 4a，m18-migration.sql 同步，列口径逐字照该文件 ⑧）：

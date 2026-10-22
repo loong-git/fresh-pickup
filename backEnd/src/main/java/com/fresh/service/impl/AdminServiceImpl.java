@@ -16,6 +16,7 @@ import com.fresh.entity.ArrivalBatch;
 import com.fresh.entity.ArrivalItem;
 import com.fresh.entity.Dish;
 import com.fresh.entity.Merchant;
+import com.fresh.entity.MerchantApply;
 import com.fresh.entity.MerchantProfile;
 import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
@@ -27,6 +28,7 @@ import com.fresh.mapper.AdminAuditLogMapper;
 import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.ArrivalItemMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantApplyMapper;
 import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.MerchantProfileMapper;
 import com.fresh.mapper.OrderItemMapper;
@@ -166,6 +168,10 @@ public class AdminServiceImpl implements AdminService {
     private StoreApplyMapper storeApplyMapper;
     @Autowired
     private StoreMapper storeMapper;
+
+    /** F-106 片 A：商家自助入驻申请审核（只被 auditMerchantApply 使用） */
+    @Autowired
+    private MerchantApplyMapper merchantApplyMapper;
 
     /** 管理密钥：与 AdminController.checkKey 同源配置（ADMIN_KEY 环境变量优先），仅用于算摘要做审计 actor */
     @Value("${ADMIN_KEY:admin-dev-key}")
@@ -443,6 +449,132 @@ public class AdminServiceImpl implements AdminService {
         // ③ 审计（写门店与写申请同事务，审计本身是旁路：writeAudit 双层 try-catch 吞异常，绝不打断主事务）
         writeAudit(auditActor(actor), "store_apply.audit", "store_apply", String.valueOf(applyId),
                 "status=" + apply.getStatus(), newSide);
+    }
+
+    /**
+     * 商家自助入驻申请审核（F-106 片 A）：approve 同事务五步、顺序不可调换；reject 只置态 + 审计、不删行。
+     *
+     * <p><b>五步</b>：① 查申请（不存在 404；action 白名单 400；已 approved/rejected → 幂等成功直接返回）
+     * → ② INSERT merchant（{@code contact_phone} 取申请人 {@code user.phone}，<b>绝不取申请表单</b>——
+     * 表单可以由申请人替别人填号，user 行才是可信绑定）→ ③ INSERT merchant_profile(audit_status='approved')
+     * → ④ 条件 UPDATE user（{@code WHERE id=? AND merchant_id IS NULL}，影响行数≠1 抛异常回滚，
+     * 同 {@code createMerchant} 的 TOCTOU 姿势）→ ⑤ 条件 UPDATE 申请置 approved + admin_audit_log。
+     *
+     * <p><b>为什么第⑤步仍带 {@code status='pending'} 条件</b>：本仓未开 useAffectedRows，matched-rows 语义下
+     * 少了这个条件，并发第二笔也会回 1 行、重复通过。带上后并发第二笔在此回 0 → 抛异常整体回滚，
+     * 连第②③步刚插入的 merchant / merchant_profile 一起回滚，不留「已发布却没置态」的半态。
+     *
+     * <p><b>幂等</b>：已 approved/rejected 再审直接成功，不重复 INSERT merchant、不写第二行审计——
+     * 契约 §0.2② 明确「已审核一律幂等返回」，与本类 {@code auditStoreApply} 的「翻转结论 400」不同，
+     * 这里按商家申请契约执行，不复制 store_apply 的翻转判定。
+     *
+     * <p>审计 detail 只放状态与 merchantId/remark，<b>绝不放手机号</b>（RD：admin_audit_log 也不许落明文手机号）。
+     */
+    @Override
+    @Transactional
+    public void auditMerchantApply(Long applyId, String action, String remark, String actor) {
+        String op = action == null ? "" : action.trim();
+        // 动作白名单复用 ALLOWED_AUDIT_ACTIONS（:80 那份，评价审核与本端点共用，不复制第二份集合）
+        if (!ALLOWED_AUDIT_ACTIONS.contains(op)) {
+            throw new BizException(R.CODE_BAD_REQUEST, "action 仅允许 approve（过审并开通商家）或 reject（驳回）");
+        }
+        String trimmedRemark = remark == null ? null : remark.trim();
+        if (trimmedRemark != null && trimmedRemark.isEmpty()) {
+            trimmedRemark = null;
+        }
+        if (trimmedRemark != null && trimmedRemark.length() > 255) {
+            // audit_remark VARCHAR(255)：严格模式下超长是 1406 而非 400，必须在写库前拦
+            throw new BizException(R.CODE_BAD_REQUEST, "审核意见不能超过 255 字");
+        }
+        boolean approve = ACTION_APPROVE.equals(op);
+        if (!approve && trimmedRemark == null) {
+            // reject 必填：驳回原因要回给申请人看（契约 §0.2②）
+            throw new BizException(R.CODE_BAD_REQUEST, "驳回时必须填写审核意见");
+        }
+
+        // ① 查申请 + 幂等：已 approved/rejected 直接成功（不再重复发布）
+        MerchantApply apply = merchantApplyMapper.selectById(applyId);
+        if (apply == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "申请不存在");
+        }
+        if (!APPLY_PENDING.equals(apply.getStatus())) {
+            log.info("管理端商家入驻申请审核幂等命中: applyId={}, status={}", applyId, apply.getStatus());
+            return;
+        }
+
+        if (approve) {
+            // ② INSERT merchant：contact_phone 取申请人 user.phone，不取申请表单
+            User applicant = userMapper.selectById(apply.getUserId());
+            if (applicant == null) {
+                // 逻辑外键失配（user 被清）时不允许凭空造出无主商家；抛异常回滚
+                throw new BizException(R.CODE_BAD_REQUEST, "申请人不存在，无法开通商家");
+            }
+            Merchant m = new Merchant();
+            m.setName(apply.getMerchantName());
+            m.setContactPhone(applicant.getPhone());
+            m.setContactName(apply.getContactName());
+            m.setStatus("active");
+            merchantMapper.insert(m);                       // 自增 id 回填 m.getId()
+
+            // ③ INSERT merchant_profile(approved)
+            MerchantProfile mp = new MerchantProfile();
+            mp.setMerchantId(m.getId());
+            mp.setBusinessLicense(apply.getBusinessLicense());
+            mp.setLegalPerson(apply.getLegalPerson());
+            mp.setAddress(apply.getAddress());
+            mp.setSettlementAccount(apply.getSettlementAccount());
+            mp.setAuditStatus(APPLY_APPROVED);
+            mp.setAuditedAt(LocalDateTime.now());
+            merchantProfileMapper.insert(mp);
+
+            // ④ 条件 UPDATE user：真正的防线是 WHERE merchant_id IS NULL；影响行数≠1 → 抛异常回滚
+            int rows;
+            try {
+                rows = userMapper.update(null, new LambdaUpdateWrapper<User>()
+                        .eq(User::getId, apply.getUserId())
+                        .isNull(User::getMerchantId)
+                        .set(User::getRole, "merchant")
+                        .set(User::getMerchantId, m.getId()));
+            } catch (DuplicateKeyException e) {
+                // 残留兜底：同一 user 被并发绑到同一 merchant_id 时仍撞 uk_user_merchant
+                throw new BizException(R.CODE_BAD_REQUEST, "该用户已绑定商家，请刷新后重试");
+            }
+            if (rows != 1) {
+                throw new BizException(R.CODE_BAD_REQUEST, "该用户已绑定商家，请刷新后重试");
+            }
+
+            // ⑤ 置申请态（条件 UPDATE status='pending'）+ 审计
+            int applyRows = merchantApplyMapper.update(null, new LambdaUpdateWrapper<MerchantApply>()
+                    .eq(MerchantApply::getId, applyId)
+                    .eq(MerchantApply::getStatus, APPLY_PENDING)
+                    .set(MerchantApply::getStatus, APPLY_APPROVED)
+                    .set(trimmedRemark != null, MerchantApply::getAuditRemark, trimmedRemark)
+                    .set(MerchantApply::getAuditedAt, LocalDateTime.now()));
+            if (applyRows != 1) {
+                throw new BizException(R.CODE_BAD_REQUEST, "该申请已审核完成，请刷新后重试");
+            }
+            writeAudit(auditActor(actor), "merchant_apply.audit", "merchant_apply", String.valueOf(applyId),
+                    "status=" + apply.getStatus(),
+                    "status=" + APPLY_APPROVED + ",merchantId=" + m.getId() + ",remark=" + trimmedRemark);
+            log.info("管理端商家入驻申请过审: applyId={}, applicantUserId={}, merchantId={}",
+                    applyId, apply.getUserId(), m.getId());
+            return;
+        }
+
+        // reject：只置态 + 审计，不删除申请行（留档；pending_guard 变 NULL 后该用户可再次申请）
+        int applyRows = merchantApplyMapper.update(null, new LambdaUpdateWrapper<MerchantApply>()
+                .eq(MerchantApply::getId, applyId)
+                .eq(MerchantApply::getStatus, APPLY_PENDING)
+                .set(MerchantApply::getStatus, APPLY_REJECTED)
+                .set(MerchantApply::getAuditRemark, trimmedRemark)
+                .set(MerchantApply::getAuditedAt, LocalDateTime.now()));
+        if (applyRows != 1) {
+            throw new BizException(R.CODE_BAD_REQUEST, "该申请已审核完成，请刷新后重试");
+        }
+        writeAudit(auditActor(actor), "merchant_apply.audit", "merchant_apply", String.valueOf(applyId),
+                "status=" + apply.getStatus(),
+                "status=" + APPLY_REJECTED + ",remark=" + trimmedRemark);
+        log.info("管理端商家入驻申请驳回: applyId={}, applicantUserId={}", applyId, apply.getUserId());
     }
 
     /**

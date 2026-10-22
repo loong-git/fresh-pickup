@@ -162,6 +162,31 @@ public class AdminController {
     }
 
     /**
+     * 商家自助入驻申请审核（F-106 片 A）：{@code PUT /api/admin/merchant-applies/{id}/audit}，
+     * body {@code {action:'approve'|'reject', remark?}}。
+     * <p>approve = 同事务五步（查申请/幂等 → INSERT merchant（contact_phone 取申请人 user.phone）→
+     * INSERT merchant_profile(approved) → 条件 UPDATE user（影响行数≠1 回滚）→ 置申请态 + 审计）；
+     * reject = remark 必填、只置态 + 审计，不删行。已审核（approved/rejected）再审为幂等成功。
+     * <p>闸门与限流姿势逐字照上方 {@link #auditStoreApply}（Admin 面无 JWT userId，限流按 IP 维度）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // R6 随建随挂：Admin 新端点必带限流
+    @PutMapping("/merchant-applies/{id}/audit")
+    public R<Void> auditMerchantApply(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                      @RequestHeader(value = "Authorization", required = false) String authz,
+                                      @PathVariable("id") Long id,
+                                      @RequestBody Map<String, String> body) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.auditMerchantApply(id,
+                body == null ? null : body.get("action"),
+                body == null ? null : body.get("remark"),
+                grant.actor());
+        return R.ok(null, "申请已审核");
+    }
+
+    /**
      * 发车只读预览（F-63）：{@code GET /api/admin/arrivals/preview?storeId=&date=yyyy-MM-dd} →
      * {@code {storeId, storeName, date, existing, plan, orderCount, dishKinds, departable}}
      * （形状与服务语义见 {@code AdminService#arrivalPreview}；只读动作不写审计，RF 只约束写动作）。

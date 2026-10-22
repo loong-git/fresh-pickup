@@ -73,6 +73,27 @@ public interface AdminService {
     void auditStoreApply(Long applyId, String action, String remark, String actor);
 
     /**
+     * 商家自助入驻申请审核（F-106 片 A）：action 白名单 approve/reject（复用
+     * {@code AdminServiceImpl} 的 ALLOWED_AUDIT_ACTIONS，不复制第二份集合）。
+     *
+     * <p><b>approve 同事务五步，顺序不可调换</b>：① 查申请/幂等 → ② INSERT merchant
+     * （{@code contact_phone} 取申请人 {@code user.phone}，<b>不取申请表单</b>）→ ③ INSERT
+     * merchant_profile(audit_status='approved') → ④ 条件 UPDATE user
+     * （{@code SET role='merchant', merchant_id=? WHERE id=? AND merchant_id IS NULL}，
+     * 影响行数≠1 抛异常回滚）→ ⑤ 置申请态 + admin_audit_log。
+     *
+     * <p><b>reject</b>：remark 必填（空则 400），只置 {@code status='rejected'} + 审计，
+     * <b>不删除</b>申请行（留档；pending_guard 变 NULL 后该用户可再次申请）。
+     *
+     * <p><b>幂等</b>：已 approved/rejected 再审直接成功，不重复 INSERT merchant、不写第二行审计。
+     * 申请不存在 → 404；action 不在白名单 → 400。
+     *
+     * @param remark 审核意见（approve 可空；reject 必填；落 audit_remark VARCHAR(255)，超长 400）
+     * @param actor  本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void auditMerchantApply(Long applyId, String action, String remark, String actor);
+
+    /**
      * 微信支付回调拒收留痕（F-44）：把「哪一单、因为哪一条原因、回了微信什么码」落进
      * {@code admin_audit_log}，让运营在 front-admin 审计页查得到（此前只有服务器日志）。
      *

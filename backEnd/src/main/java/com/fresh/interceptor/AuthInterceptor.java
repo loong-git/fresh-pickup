@@ -270,6 +270,13 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (path.equals("/api/store-applies") || path.startsWith("/api/store-applies/")) {
             return true;
         }
+        // F-106 商家自助入驻申请：/api/merchant-applies 前缀整体登录，但**不要求角色/归属**——
+        // 申请时申请人名下还没有商家，挂 /api/merchant/ 的 role=merchant 闸门会把入口自己锁死。
+        // 条件同样带裸集合路径的等值判断（POST /api/merchant-applies 就是提交端点，只写 startsWith 会放过它）。
+        // 注意前缀是 /api/merchant-applies，不是 /api/merchant/，不会命中上方商家角色块。
+        if (path.equals("/api/merchant-applies") || path.startsWith("/api/merchant-applies/")) {
+            return true;
+        }
         // 仅评价提交需登录；GET /api/dishes/{dishId}/reviews 列表保持匿名可读
         return "POST".equalsIgnoreCase(method) && path.matches("^/api/dishes/\\d+/reviews$");
     }
