@@ -1,7 +1,8 @@
-// 路由（F-20.11 Step 4 的三页 + F-20.22 Step 5b-2 的四页 = /login 与六个业务页；F-63 又加 arrivals 一页，现共 1 + 7）+ 一条全局前置守卫。
+// 路由（F-20.11 Step 4 的三页 + F-20.22 Step 5b-2 的四页 = /login 与六个业务页；F-63 又加 arrivals 一页，
+// F-106 片 C 再加 merchant-applies 一页，现共 1 + 8）+ 一条全局前置守卫。
 // 依赖方向是单向的：router → api，api 绝不 import router（否则成 api → router → views → api 的静态循环，
 // 与本仓三端 main.js ↔ api 的做法同构）——api 层 401 要跳 /login，靠的是本模块末尾注册的回调。
-// 三页一律动态 import（懒加载），首屏包只装壳——F-97 实测：现在 8 个路由组件**全部**是动态 import，不止那三页。
+// 三页一律动态 import（懒加载），首屏包只装壳——F-97 实测：现在 9 个路由组件**全部**是动态 import，不止那三页。
 // history 模式用 createWebHistory：dev 由 Vite 的 SPA fallback 兜住根路径刷新。
 import { createRouter, createWebHistory } from 'vue-router'
 import { getStoredToken, setUnauthorizedHandler } from '../api'
@@ -52,6 +53,14 @@ const routes = [
     path: '/store-applies',
     name: 'store-applies',
     component: () => import('../views/StoreApplies.vue'),
+    meta: { requiresAuth: true }
+  },
+  // F-106 片 C 商家入驻审核：商家自助入驻申请（merchant_apply）的审核队列，挨着门店申请审核同一类页面。
+  // 与上面几页同一套 requiresAuth 守卫，动态 import 不进首屏包。
+  {
+    path: '/merchant-applies',
+    name: 'merchant-applies',
+    component: () => import('../views/MerchantApplies.vue'),
     meta: { requiresAuth: true }
   },
   // F-63 到货发车：运营端批次创建方（preview 只读 + depart 写）。同一套 requiresAuth 守卫，动态 import 不进首屏包。

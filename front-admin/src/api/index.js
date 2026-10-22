@@ -606,3 +606,64 @@ export function departArrival(storeId, batchDate, remark) {
     data: body
   })
 }
+
+// ==================== F-106 商家自助入驻（运营端：申请列表 + 审核） ====================
+// 契约真源：docs/上线任务文档.md 的 F-106（片 A 的审核端点 + 片 B2 补的运营端列表端点）。
+// 鉴权与其余 AdminController 端点同一面（checkKeyOrOperator 双轨：X-Admin-Key 或运营 JWT）：
+// 浏览器端只走 JWT 这一轨——request() 在 admin_token 存在时自动挂 Authorization，
+// 静态密钥是给命令行/脚本用的另一轨，本工程没有存放它的地方，也不凭空造头。
+// 列表行键由后端逐键重拼成十三键白名单，本层不改名、不补键，也不对已脱敏字段做任何二次加工。
+
+/**
+ * 运营端商家入驻申请列表（商家入驻审核页数据源）：GET /api/admin/merchant-applies?status=&pageNum=&pageSize=
+ * 出参外层 {list, total, pageNum, pageSize, filters}（与 v2 列表族逐字同形）。
+ * 行内恰十三键：id, userId, merchantName, contactName, businessLicense, legalPerson, address,
+ * settlementAccount, status, auditRemark, createdAt, auditedAt, applicantPhone。
+ * applicantPhone 是 user.phone 经 PhoneMask 的脱敏值（形如 138****1234），本层与页面一律原样展示、
+ * **不拼回明文、不再截断**；createdAt / auditedAt 由服务端 DATE_FORMAT 定形成 "YYYY-MM-DD HH:mm:ss"，
+ * 不二次格式化。排序 pending 优先，其次 created_at DESC, id DESC。
+ * status 空 = 全部，非空仅 pending|approved|rejected（服务端归一小写后过白名单，白名单外 400）；
+ * pageNum ≥1、1≤pageSize≤100、缺省 1/20，越界与脏值一律 400 不夹取。
+ * 限流：Admin 只读面 IP 30 次/分。
+ * @param {number} pageNum 从 1 起
+ * @param {number} pageSize ∈ {10,20,50,100}
+ * @param {{status?:string}} [filters] 空串由 withQuery 挡下不下发（服务端把缺省当「不筛」）
+ */
+export function listMerchantApplies(pageNum, pageSize, filters) {
+  const f = filters || {}
+  return request({
+    url: withQuery('/api/admin/merchant-applies', {
+      status: f.status,
+      pageNum,
+      pageSize
+    }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 商家入驻申请审核：PUT /api/admin/merchant-applies/{id}/audit，body {action, remark?}
+ * 服务端读的是 @RequestBody Map<String,String> 的 action / remark 两个键（**无 DTO**，姿势照
+ * auditAdminStoreApply），所以本层只发字符串值；remark 为空时**整个键不下发**
+ * （不传 = 服务端不 SET audit_remark，避免把空串写进留痕列）。
+ * @param {number|string} id 申请 id（自增小整数，行里原样透传；encodeURIComponent(String(id)) 只做路径转义，不做数值变换）
+ * @param {string} action 'approve'（同一事务：新建 merchant（contact_phone 取申请人 user.phone，不取表单）
+ *        + 新建 merchant_profile(approved) + 条件 UPDATE user 绑定新商家 + 置申请 approved + 审计）|
+ *        'reject'（只置 rejected + 留 audit_remark，**不删申请行**）
+ * @param {string} [remark] 审核意见；reject 时**必填**（空 → 400「驳回时必须填写审核意见」），
+ *        >255 字 → 400「审核意见不能超过 255 字」
+ * 已审核（approved/rejected）再审是**幂等成功**（message 仍是「申请已审核」，不会重复建商家）；
+ * 其余失败：400「action 仅允许 approve（过审并开通商家）或 reject（驳回）」、
+ * 400「该用户已绑定商家，请刷新后重试」、400「该申请已审核完成，请刷新后重试」、404「申请不存在」。
+ * 限流：Admin 写面 IP 10 次/60。
+ * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「申请已审核」
+ */
+export function auditMerchantApply(id, action, remark) {
+  const body = { action }
+  if (remark !== '' && remark !== null && remark !== undefined) body.remark = String(remark)
+  return request({
+    url: '/api/admin/merchant-applies/' + encodeURIComponent(String(id)) + '/audit',
+    method: 'PUT',
+    data: body
+  })
+}
