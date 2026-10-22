@@ -237,8 +237,8 @@ export default {
     entryRoute(entry) {
       return (entry && ENTRY_ROUTES[entry.key]) || ''
     },
-    // 四入口按 key 分支：已交付的页 navigateTo 过去，未在册的仍 toast「建设中」不跳转
-    // （G-02 只放开商品管理；备货单/数据看板归 G-03）
+    // 四入口按 key 分支：在册的 navigateTo 过去，未在册的 toast「建设中」不跳转；2026-10-22 实测四个 key 已全部在册
+    // → 这一支与模板里那枚角标当前不可达，保留它是兜底不是死代码：忘配路由的格子显示「建设中」而不是骗人的箭头。
     onEntryTap(entry) {
       const url = this.entryRoute(entry)
       if (!url) {

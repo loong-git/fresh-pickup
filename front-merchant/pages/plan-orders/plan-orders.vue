@@ -109,7 +109,7 @@
         </view>
       </view>
 
-      <!-- 加载更多：触底自动 + 按钮兜底（范式照 front/pages/order/order.vue:106-112）；
+      <!-- 加载更多：触底自动 + 按钮兜底（范式照 front/pages/order/order.vue 的 .load-more 那一块——能按选择器具名的指针就不挂行号）；
            hasMore 用后端回显值，为 false 时整块换成「共 N 条」（N 取 shownTotal，见 computed 注释） -->
       <view class="load-more">
         <button v-if="hasMore" class="btn-more" :class="{ 'btn-more-cooling': retryLock > 0 }"
