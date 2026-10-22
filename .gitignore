@@ -17,6 +17,11 @@ backEnd/.git.bak-nested/
 
 # 本地私有凭据启动脚本（勿提交）
 start-local.bat
+# F-103 高德凭据从 front/api/config.js 移入 vite 环境变量文件：
+# .env.local 只在本机存在，仓库内只提交 .env.example 占位（negation 依赖父目录未被忽略，成立）。
+.env
+.env.*
+!.env.example
 *.log
 tmp-*.txt
 start.bat

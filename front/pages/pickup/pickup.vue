@@ -724,7 +724,7 @@ export default {
 			})
 		},
 		// ==================== F-06 高德地图（AMap JS API 2.0，F-06.7 R4） ====================
-		// 动态注入高德 JS API 2.0（webapi.amap.com，key 见 api/config.js）：任一环境只注入一次，幂等
+		// 动态注入高德 JS API 2.0（webapi.amap.com，key 见 api/config.js，其值取自未跟踪的 front/.env.local）：任一环境只注入一次，幂等
 		loadAMap() {
 			return new Promise((resolve) => {
 				if (typeof window === 'undefined') { resolve(false); return }
