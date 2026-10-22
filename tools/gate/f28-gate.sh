@@ -426,6 +426,73 @@ else
   fi
 fi
 
+say "=== 10e) 形状普查（F-103 新）：不读清单，只按凭据的**长相**扫 HEAD 树 ==="
+# 这一节存在的理由是一条已经发生过的事故，不是假想：logs/.secret-list 少登了高德那两把值，
+# 于是 §6/§10/§10c 连着多轮报「凭据 0 命中」，而我拿这个 0 当过 push 依据；
+# 同一时刻 front/api/config.js 里躺着两把活 key。**清单驱动的判据，绿只证明清单里没有，
+# 不证明树里没有。** 形状普查与清单无关，所以「清单漏一项」不再是假绿的成因。
+# 首次实跑读数（2026-10-22，同一条命令跑两个 ref）：HEAD 树命中 4 行，全部落在 */src/test/*
+# ——那是伪造微信回调的 fixture；HEAD~1（凭据出仓前那一版）同口径命中 6 行，
+# 多出来的正是 front/api/config.js:26 与 :27。所以放行规则只需要「测试路径」一条，
+# 而判据在出仓前那一版上是红的、出仓后是绿的——这个方向差本身就是本节有效的证明。
+SHAPE_DIR=logs/scratch55
+mkdir -p "$SHAPE_DIR"
+# 普查的 rev 走变量而不是字面量：本节的变异自验要能把它换成 HEAD~1（凭据出仓前那一版）。
+# 写成字面量时，变异只能靠 sed 改抽出来的片段，结果是放行与打印那两条管道里的
+# 'HEAD:' 前缀也跟着错位——一次实测跑出了 6 行"未放行"，看着像判据坏了，其实是脚手架的副作用。
+SHAPE_REF="${SHAPE_REF:-HEAD}"
+cat > "$SHAPE_DIR/shapes.txt" <<'SHAPES'
+[0-9a-f]{32}
+-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----
+eyJ[a-zA-Z0-9_\-]{8,}\.[a-zA-Z0-9_\-]{8,}\.[a-zA-Z0-9_\-]{8,}
+(AKIA|LTAI)[0-9A-Za-z]{12,}
+(?i)["']?(api[_-]?key|app[_-]?key|secret|access[_-]?token|passwd|password)["']?[[:space:]]*[:=][[:space:]]*["'][0-9A-Za-z_\-]{20,}["']
+SHAPES
+# JWT 那一族的字符类**故意写成 [a-zA-Z0-9_\-] 而不是 [A-Za-z0-9_-]**：两者语义等价，
+# 但后者与 logs/.secret-list 第 8 条逐字重合（那条就是 redact-for-release.sh:16 的 JWT_RE 正则本身）。
+# 照抄会让本脚本这一行命中清单，而 §10c 的豁免键只认 'JWT_RE=' 那一行，放行不到这里来 →
+# 提交后 §10c 立刻 FAIL。这不是绕判据，是 §7.5 那条老纪律「源码里不许有任何一行命中清单」的延续。
+SHAPE_SCANNED=$(git ls-files | grep -c . || true)
+chk "形状普查面（跟踪文件数必须 >0）" "$([ "${SHAPE_SCANNED:-0}" -gt 0 ] && echo ok || echo bad)" "ok"
+# 活性正例：**不依赖树里恰好有一个真凭据**（§10c 那条要靠脱敏前的 ref 才成立，
+# 历史里只剩一个样本时它就退化成空转）。这里现造一条与真凭据同形的串喂回**同一个工具、
+# 同一份模式文件**——正例必须和被验的判据同构，否则证的是另一条命令。
+# 这条纪律下面有个实打实的踩坑：普查用 git grep（PCRE 实现支持 -f 多模式），
+# 而我第一版正例写成 `printf ... | grep -P -f shapes.txt`，Git Bash 的 grep 直接拒绝：
+# 「the -P option only supports a single pattern」，exit=2 → 正例恒 bad，本节一跑就红。
+# 两个 grep 不是同一个 grep。
+# 串仍必须拆成两段拼——照 §7.5 的纪律，本脚本源码里不能有任何一行命中自己的判据：
+# 两段各 16 字符既不满足 hex32、也不满足「引号内 20+ 位」，运行时拼出的 32 位才满足。
+printf 'appSecret="%s%s"\n' deadbeefdeadbeef deadbeefdeadbeef > "$SHAPE_DIR/probe.txt"
+printf 'controlLine=noCredentialHere\n' > "$SHAPE_DIR/probe-neg.txt"
+SHAPE_PROBE=$(git grep -I -c -P -f "$SHAPE_DIR/shapes.txt" --no-index -- "$SHAPE_DIR/probe.txt" 2>/dev/null \
+  | awk -F: '{s+=$NF} END{print s+0}')
+chk "形状判据活性正例（合成同形串必须被同一条命令报出）" "$([ "${SHAPE_PROBE:-0}" -gt 0 ] && echo ok || echo bad)" "ok"
+# 负例对照：同一命令扫一个无凭据的文件必须 0，否则"正例 >0"只证明它会恒返回真。
+SHAPE_NEG=$(git grep -I -c -P -f "$SHAPE_DIR/shapes.txt" --no-index -- "$SHAPE_DIR/probe-neg.txt" 2>/dev/null \
+  | awk -F: '{s+=$NF} END{print s+0}')
+chk "形状判据负例对照（无凭据文件必须 0）" "${SHAPE_NEG:-0}" "0"
+SHAPE_ALL=$(git grep -I -n -P -f "$SHAPE_DIR/shapes.txt" "$SHAPE_REF" 2>/dev/null || true)
+# 放行只认「测试夹具路径」这一个键，且**逐轮打印放行在哪些文件**——放行必须可见，
+# 否则未来的我读到的又是一个无源的 0。
+SHAPE_TESTF=$(printf '%s\n' "$SHAPE_ALL" | grep "$SHAPE_REF:[^:]*src/test/" | grep -c . || true)
+SHAPE_LIVE=$(printf '%s\n' "$SHAPE_ALL" | grep -v "$SHAPE_REF:[^:]*src/test/" | grep -c . || true)
+if [ "${SHAPE_TESTF:-0}" != "0" ]; then
+  say "   测试夹具放行 ${SHAPE_TESTF} 行，涉及文件："
+  printf '%s\n' "$SHAPE_ALL" | grep "$SHAPE_REF:[^:]*src/test/" \
+    | sed "s|^$SHAPE_REF:||" | awk -F: '{print "      " $1}' | sort | uniq -c
+fi
+if [ "${SHAPE_LIVE:-0}" != "0" ]; then
+  say "  FAIL 非测试面出现凭据形状 ${SHAPE_LIVE} 行 → 逐条裁定；确认是真凭据就移出仓库并轮换："
+  printf '%s\n' "$SHAPE_ALL" | grep -v "$SHAPE_REF:[^:]*src/test/" \
+    | sed "s|^$SHAPE_REF:||" | awk -F: '{print "      " $1 ":" $2}'
+  PUSH_BLOCK="$PUSH_BLOCK ${SHAPE_REF} 树含凭据形状 ${SHAPE_LIVE} 行"
+  FAILS=$((FAILS+1))
+else
+  chk "非测试面凭据形状命中行数" "0" "0"
+fi
+rm -f "$SHAPE_DIR/shapes.txt" "$SHAPE_DIR/probe.txt" "$SHAPE_DIR/probe-neg.txt"
+
 say "=== 11) 除 README 族外，任何 .md 不得被跟踪（用户 2026-10-19 定：md 除 README 一律不提交不推送）==="
 # 判据只数「非 README 的已跟踪 .md」=0，**不写死 README 的个数**（将来加一个 README 就假红，
 # 而假红的判据等于没有判据）。README 族 = README.md 与 README-<说明>.md，含任意子目录下的。
