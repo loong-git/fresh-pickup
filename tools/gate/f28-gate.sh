@@ -212,22 +212,35 @@ SELF="${BASH_SOURCE[0]}"
 BADTICK=$(grep -c 'say "[^"]*`' "$SELF" 2>/dev/null || true)
 chk "say 的双引号串里不得含反引号（会被命令替换执行）" "${BADTICK:-0}" "0"
 
-say "=== 9b) 行尾一致性：本批改到的文件，CR 字节数必须与 HEAD 版本相等（F-82 新增）==="
-# 为什么必须有这条：本机 core.autocrlf=true 且仓库**没有 .gitattributes**，编辑工具能把一份纯 LF 的 .vue
-# 整份转成 CRLF；此时 git diff --numstat 仍显示 1/1、f27 §2/§3/§5 与两个审计器**全绿**——入库 blob 确实还是 LF，
-# 但工作区已悄悄换了一套行尾，后续任何「按字节比对 git show HEAD:f 与工作区」的探针都会得到假差异。
-# 实测来源：F-82 执行者把 index.vue 改成 2110 个 CR 字节，靠自查 CR 计数才发现（当时门禁无一变红）。
-CRLFDRIFT=0
-for f in $(git diff --name-only 2>/dev/null); do
-  case "$f" in
-    *.java|*.vue|*.js|*.ts|*.cjs|*.mjs|*.sh|*.sql|*.md|*.yml|*.json) ;;
-    *) continue ;;
-  esac
-  WT=$(tr -dc '\r' < "$f" 2>/dev/null | wc -c | tr -d ' ')
-  HB=$(git show "HEAD:$f" 2>/dev/null | tr -dc '\r' | wc -c | tr -d ' ')
-  if [ "${WT:-NA}" != "${HB:-NA}" ]; then say "      行尾漂移: $f 工作区CR=${WT:-NA} HEADCR=${HB:-NA}"; CRLFDRIFT=$((CRLFDRIFT+1)); fi
-done
-chk "行尾漂移文件数" "$CRLFDRIFT" "0"
+say "=== 9b) 入库面行尾纯净：全仓被跟踪文件在 HEAD 里的 blob 一律不得含 CR（F-82 新增；F-98c 重定口径）==="
+# 原判据（F-82）是「本批改到的文件，工作区 CR 字节数必须与 HEAD 版本相等」。2026-10-22 逐条实测后判定它防错了对象：
+#   ① 本机 core.autocrlf=true 且无 .gitattributes，把一份纯 LF 的 .js 整份转成 CRLF（工作区 CR=599、blob CR=0）后，
+#      git status 与 git diff --name-only **都不再报这个文件** → 按 git 取待判集必然漏判（原实现就是这么写的，
+#      因此它从未真正有效过）；反过来文件只要 mtime 变过而内容相同，status 又会把它列进来 → 同口径既漏也噪声。
+#   ② 全仓普查：4 个被跟踪文件（README.md、application.yml、application-dev.yml、deploy/backup.sh）工作区带 CRLF，
+#      但它们在 HEAD 里的 blob **全是 LF** —— 那是 git 检出时自己加的，属正常行为，按工作区判会常年假红。
+#      （顺带否证一个我当场误判的结论：deploy/backup.sh 工作区 shebang 确实是 `#!/bin/bash\r\n`，
+#       但 prod 上跑的是 checkout 后的 LF 版，不会 bad interpreter。）
+#   ③ 更关键：`git hash-object -w` 默认应用 clean 过滤器，实测同一份 x\r\ny\r\n 经它入库后 CR=0，
+#      加 --no-filters 才保留 2 → **本机把 CRLF 文件 commit 进去这条路 git 已经自己堵上了**，F-82 担心的形态在
+#      这台机器上不可达。还可达的路径是别的检出配置（autocrlf=false/input、CI、Linux 侧直推），
+#      所以判据重定为**只看入库 blob**：它防的是"从别的机器推进来的 CRLF"，而不是本机编辑器。
+# 基线（2026-10-22 实测）：290 个被跟踪源码/配置文件的 blob 含 CR 数 = 0。
+BLOB_CR=$(git grep -l -P '\r' HEAD -- '*.java' '*.vue' '*.js' '*.ts' '*.cjs' '*.mjs' '*.sh' '*.sql' '*.md' '*.yml' '*.json' 2>/dev/null)
+SCANNED_9B=$(git ls-files | grep -cE '\.(java|vue|js|ts|cjs|mjs|sh|sql|md|yml|json)$')
+# 自证（本仓纪律：0 命中必须配同轮正例，否则是自检无效不是通过）：造一枚**不经过滤器**的含 CR 对象喂同一条判据
+PROBE_9B=$(printf 'q\r\nw\r\n' | git hash-object -w --no-filters --stdin 2>/dev/null)
+if [ -z "$PROBE_9B" ] || ! git grep -q -P '\r' "$PROBE_9B" 2>/dev/null; then
+  say "   🔴 判据自证失败：连含 CR 的临时对象都报不出来 → 本节的 0 命中不可信"
+  chk "行尾判据自证（必须能报出含 CR 的探针对象）" "fail" "ok"
+else
+  say "   判据自证 OK：探针 blob ${PROBE_9B:0:8} 含 CR 能被本节报出"
+  [ "$SCANNED_9B" = "0" ] && say "      普查文件数=0 → 本节没看任何文件，判据失效"
+  chk "普查文件数（必须 >0）" "$([ "$SCANNED_9B" -gt 0 ] && echo ok || echo fail)" "ok"
+  if [ -n "$BLOB_CR" ]; then echo "$BLOB_CR" | sed 's/^/      blob 含 CR: /'; fi
+  chk "blob 含 CR 的被跟踪文件数" "$([ -z "$BLOB_CR" ] && echo 0 || echo "$BLOB_CR" | grep -c .)" "0"
+fi
+# 探针对象不被任何引用指向，交由 git gc 的默认 prune 周期回收（约 20 字节，不每次门禁 gc）
 
 say "=== 10) push 前凭据普查：本地领先 origin 的**全部**新增行（不只本批 staged）==="
 AHEAD=$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)
@@ -300,9 +313,23 @@ else
     git grep -l -F -f logs/.pii-list "$SCAN_REV" 2>/dev/null | sed 's/^/      /'
   fi
   # 正例对照：F-90 之前那个提交**必须**非空。它为 0 说明这条普查本身坏了（清单失联/参数顺序错/-F 忘了）。
+  # 实测读数单独用 say 打印，不与 chk 的判定值挤同一行——2026-10-22 就误读过一次：
+  # 旧写法输出形如「正例对照：脱敏前那次提交实测 29 行命中…: 0」，末尾那个 0 是判定编码不是命中数，
+  # 看上去完全像"命中 0 却判 OK"的假绿，把判据写对的人也会被它骗一次。
   PRE=$(tree_hits 'cf57c33~1')
-  chk "正例对照：脱敏前那次提交实测 ${PRE:-0} 行命中（必须 >0，为 0 = 本判据坏了）" \
-      "$([ "${PRE:-0}" -gt 0 ] && echo 0 || echo 1)" "0"
+  case "${PRE:-}" in
+    ''|*[!0-9]*)
+      say "   🔴 正例读数不是整数（=${PRE:-空}）→ 本条普查不可信"
+      chk "正例读数可解析性" "bad" "ok" ;;
+    *)
+      say "   正例对照实测读数：$PRE 行（期望 >0）"
+      if [ "$PRE" -gt 0 ]; then
+        chk "正例对照（>0 才算本节判据活着）" "ok" "ok"
+      else
+        say "      ↓ 为 0 只可能是判据坏了（清单失联 / 参数顺序错 / 忘了 -F），不是隐私真的没了"
+        chk "正例对照（>0 才算本节判据活着）" "bad" "ok"
+      fi ;;
+  esac
   if git rev-parse --verify --quiet origin/master >/dev/null; then
     OTREE=$(tree_hits origin/master)
     if [ "${OTREE:-0}" != "0" ]; then
