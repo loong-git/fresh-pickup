@@ -87,42 +87,42 @@ public class WxPayNotifyRejectException extends RuntimeException {
     public enum RejectCode {
         /** {@code WxPayNotifyService:108}：{@code mchid} 或 {@code api-v3-key} 未配置（400） */
         WX_PAY_NOT_CONFIGURED,
-        /** {@code :112}：原始报文或四个验签头任一缺失/纯空白（400） */
+        /** {@code WxPayNotifyService.java:112}：原始报文或四个验签头任一缺失/纯空白（400） */
         NOTIFY_HEADERS_MISSING,
-        /** {@code :122}：回调报文不是合法 JSON（400） */
+        /** {@code WxPayNotifyService.java:122}：回调报文不是合法 JSON（400） */
         NOTIFY_BODY_NOT_JSON,
-        /** {@code :132}：按 {@code Wechatpay-Serial} 取不到平台证书（503，可重试） */
+        /** {@code WxPayNotifyService.java:132}：按 {@code Wechatpay-Serial} 取不到平台证书（503，可重试） */
         PLATFORM_CERT_UNAVAILABLE,
-        /** {@code :138}：验签不通过（非平台私钥所签 / 报文被改 / 签名头不是合法 Base64）（401） */
+        /** {@code WxPayNotifyService.java:138}：验签不通过（非平台私钥所签 / 报文被改 / 签名头不是合法 Base64）（401） */
         SIGNATURE_VERIFY_FAILED,
-        /** {@code :151}：{@code Wechatpay-Timestamp} 不是秒级 epoch 字符串，无从判定新鲜度（400）。
+        /** {@code WxPayNotifyService.java:151}：{@code Wechatpay-Timestamp} 不是秒级 epoch 字符串，无从判定新鲜度（400）。
          *  与 {@link #TIMESTAMP_OUT_OF_WINDOW} <b>同一句中文文案、同一枚 400</b>，但原因不同，故两枚码 */
         TIMESTAMP_NOT_EPOCH,
-        /** {@code :157}：时间戳与服务器时刻偏差超过官方防重放窗口 300 秒（400） */
+        /** {@code WxPayNotifyService.java:157}：时间戳与服务器时刻偏差超过官方防重放窗口 300 秒（400） */
         TIMESTAMP_OUT_OF_WINDOW,
-        /** {@code :165}：{@code resource.algorithm} 不是 AEAD_AES_256_GCM 或缺 {@code ciphertext}（400） */
+        /** {@code WxPayNotifyService.java:165}：{@code resource.algorithm} 不是 AEAD_AES_256_GCM 或缺 {@code ciphertext}（400） */
         RESOURCE_ENVELOPE_INVALID,
-        /** {@code :175}：AEAD 解密抛错（APIv3 密钥不符 / 密文或 AAD 被篡改 / nonce 长度不合规）（400）。
+        /** {@code WxPayNotifyService.java:175}：AEAD 解密抛错（APIv3 密钥不符 / 密文或 AAD 被篡改 / nonce 长度不合规）（400）。
          *  与 {@link #DECRYPTED_PAYLOAD_NOT_JSON} <b>同一句中文文案、同一枚 400</b>，但原因不同，故两枚码 */
         AEAD_DECRYPT_FAILED,
-        /** {@code :182}：解密出来的明文不是合法 JSON，取不出交易字段（400） */
+        /** {@code WxPayNotifyService.java:182}：解密出来的明文不是合法 JSON，取不出交易字段（400） */
         DECRYPTED_PAYLOAD_NOT_JSON,
-        /** {@code :190}：{@code out_trade_no} 与路径 {@code orderId} 不一致（400） */
+        /** {@code WxPayNotifyService.java:190}：{@code out_trade_no} 与路径 {@code orderId} 不一致（400） */
         OUT_TRADE_NO_MISMATCH,
-        /** {@code :195}：{@code trade_state != SUCCESS}（400） */
+        /** {@code WxPayNotifyService.java:195}：{@code trade_state != SUCCESS}（400） */
         TRADE_STATE_NOT_SUCCESS,
-        /** {@code :199}：解密报文里没有数值型 {@code amount.total}（400） */
+        /** {@code WxPayNotifyService.java:199}：解密报文里没有数值型 {@code amount.total}（400） */
         AMOUNT_TOTAL_MISSING,
-        /** {@code :209}：查单（{@code selectById}）抛错，DB 抖动一类（500，可重试）。
+        /** {@code WxPayNotifyService.java:209}：查单（{@code selectById}）抛错，DB 抖动一类（500，可重试）。
          *  与 {@link #SETTLEMENT_FAILED} <b>同一句中文文案、同一枚 500</b>，但一个在结算前、一个在结算内，故两枚码 */
         ORDER_LOOKUP_FAILED,
-        /** {@code :215}：验签与解密都过了却查无此单（404） */
+        /** {@code WxPayNotifyService.java:215}：验签与解密都过了却查无此单（404） */
         ORDER_NOT_FOUND,
-        /** {@code :221}：本地单已取消，不自动结算复活（400，需人工退款） */
+        /** {@code WxPayNotifyService.java:221}：本地单已取消，不自动结算复活（400，需人工退款） */
         ORDER_CANCELLED,
-        /** {@code :230}：库内 {@code total_price} 标度异常（三位小数一类），金额比对无法进行（500，服务端问题） */
+        /** {@code WxPayNotifyService.java:230}：库内 {@code total_price} 标度异常（三位小数一类），金额比对无法进行（500，服务端问题） */
         ORDER_AMOUNT_UNCOMPARABLE,
-        /** {@code :234}：通知金额与订单应付不等额（400） */
+        /** {@code WxPayNotifyService.java:234}：通知金额与订单应付不等额（400） */
         AMOUNT_MISMATCH,
         /** {@code WxPayNotifyService#settleInTransaction}：结算接缝内部异常（500，微信重投后走幂等收敛） */
         SETTLEMENT_FAILED
