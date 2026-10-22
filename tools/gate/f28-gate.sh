@@ -172,12 +172,22 @@ say "=== 7.5) 敏感串判据自证（防止"检查存在但从不生效"）==="
 SENTINEL_DIR=logs/scratch55
 mkdir -p "$SENTINEL_DIR"
 # 两枚哨兵串都拆成参数拼（F-48 拆 JWT、F-56 拆脱敏占位串）：**脚本源码里不再有任何一行命中清单**，
-# 而 printf 出来的哨兵与真凭据逐字节同形，判据杀伤力一点没减（下面仍要求命中 2 行）。
+# 而 printf 出来的哨兵与真凭据逐字节同形，判据杀伤力一点没减。
 # 为什么值得为"源码自身干净"再拆一次：本仓要公开，仓库里每一行都是别人会拿扫描器扫的东西；
 # 一条"看起来像凭据"的行会让人去查它、也会让自动化扫描误报。真值只在运行时组装，不落源码。
+# **F-104：脱敏占位串已移出凭据清单，改放 logs/.secret-sentinel。** 起因是一次实测事故：
+# 我在一条提交说明里写了「替换成 [REDACTED_…]」，§10b 的 message 扫描立刻命中、准备阻断推送。
+# 那个串是脱敏动作的产物而不是凭据；把它当凭据登记，等于给每一次"描述脱敏"的文本埋雷。
+# 现在凭据清单只管凭据，占位符有自己的清单，两枚哨兵分别验证两套。
 printf 'token=%s.%s.%s\nx=%s\n' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxIn0 abcdefghijklmnopqrstuvwx 'REDACT'"ED_" > "$SENTINEL_DIR/sentinel.txt"
 HIT=$(grep -cE -f logs/.secret-list "$SENTINEL_DIR/sentinel.txt" </dev/null 2>/dev/null || true)
-chk "哨兵文件必须命中 2 行（清单串 + JWT 各一）" "$HIT" "2"
+chk "哨兵文件必须命中 1 行（凭据清单里的 JWT 规则）" "$HIT" "1"
+if [ -f logs/.secret-sentinel ]; then
+  HIT_S=$(grep -cF -f logs/.secret-sentinel "$SENTINEL_DIR/sentinel.txt" </dev/null 2>/dev/null || true)
+  chk "哨兵文件必须命中 1 行（占位符清单）" "$HIT_S" "1"
+else
+  SKIPPED="$SKIPPED §7.5(无 logs/.secret-sentinel)"
+fi
 rm -f "$SENTINEL_DIR/sentinel.txt"
 
 say "=== 7.6) 冷却时长的生成处与页内外溢（F-38 新增；判据自身要先过 --selftest）==="
@@ -355,22 +365,34 @@ else
     say "  ↓ 处置：脱敏片本身没做完就被提交了——先补内容再提交，别推。命中面："
     git grep -l -F -f logs/.pii-list "$SCAN_REV" 2>/dev/null | sed 's/^/      /'
   fi
-  # 正例对照：F-90 之前那个提交**必须**非空。它为 0 说明这条普查本身坏了（清单失联/参数顺序错/-F 忘了）。
-  # 实测读数单独用 say 打印，不与 chk 的判定值挤同一行——2026-10-22 就误读过一次：
-  # 旧写法输出形如「正例对照：脱敏前那次提交实测 29 行命中…: 0」，末尾那个 0 是判定编码不是命中数，
-  # 看上去完全像"命中 0 却判 OK"的假绿，把判据写对的人也会被它骗一次。
-  PRE=$(tree_hits 'cf57c33~1')
+  # 正例对照。**2026-10-22 F-104 重写后不再引用写死的历史 SHA。**
+  # 旧写法是 tree_hits 'cf57c33~1'——那个提交之所以可用，只是因为"脱敏前那一版"还躺在历史里；
+  # 而 F-104 为清高德凭据把全历史重写了一遍（173 个 SHA 全换），这个 ref 当场不存在，
+  # 本节立刻报「正例对照 bad」。判据本身没坏，坏的是**它挂在一个会腐烂的锚上**：
+  # 只要有人重写历史、或那个提交被 GC，正例就无声变成 0。
+  # 改成与 §10e 同构——现造内容、用**同一个工具、同一份模式文件**扫，不依赖任何提交：
+  # 拿清单本身当被扫内容，每条锚都该命中自己，所以期望值是清单行数，而不是随便一个 >0。
+  # （"清单漏登一项"那一类缺口不归本节管，归 §10e 的形状普查。）
+  # 路径自带 mkdir：F-95 脚手架会把本节**逐字抽出来单独跑**，那时 §7.5 定义的
+  # SENTINEL_DIR 并不存在（set -u 直接炸）。判据不能只在完整脚本里才活得了。
+  PII_PROBE=logs/scratch55/pii-probe.txt
+  mkdir -p "$(dirname "$PII_PROBE")"
+  cat logs/.pii-list > "$PII_PROBE"
+  PRE=$(git grep -F -c -f logs/.pii-list --no-index -- "$PII_PROBE" 2>/dev/null \
+    | awk -F: '{s+=$NF} END{print s+0}')
+  PII_N=$(grep -c . logs/.pii-list || true)
+  rm -f "$PII_PROBE"
   case "${PRE:-}" in
     ''|*[!0-9]*)
       say "   🔴 正例读数不是整数（=${PRE:-空}）→ 本条普查不可信"
       chk "正例读数可解析性" "bad" "ok" ;;
     *)
-      say "   正例对照实测读数：$PRE 行（期望 >0）"
-      if [ "$PRE" -gt 0 ]; then
-        chk "正例对照（>0 才算本节判据活着）" "ok" "ok"
+      say "   正例对照实测读数：$PRE 行（期望 = 清单行数 $PII_N，每条锚命中自己）"
+      if [ "$PRE" -eq "${PII_N:-0}" ] && [ "$PRE" -gt 0 ]; then
+        chk "正例对照（必须等于清单行数，才算判据和模式文件都活着）" "ok" "ok"
       else
-        say "      ↓ 为 0 只可能是判据坏了（清单失联 / 参数顺序错 / 忘了 -F），不是隐私真的没了"
-        chk "正例对照（>0 才算本节判据活着）" "bad" "ok"
+        say "      ↓ 不等于清单行数只可能是判据/模式文件坏了（清单失联、参数顺序错、漏了 -F），不是隐私真的没了"
+        chk "正例对照（必须等于清单行数，才算判据和模式文件都活着）" "bad" "ok"
       fi ;;
   esac
   if git rev-parse --verify --quiet origin/master >/dev/null; then
@@ -454,8 +476,8 @@ SHAPES
 # 提交后 §10c 立刻 FAIL。这不是绕判据，是 §7.5 那条老纪律「源码里不许有任何一行命中清单」的延续。
 SHAPE_SCANNED=$(git ls-files | grep -c . || true)
 chk "形状普查面（跟踪文件数必须 >0）" "$([ "${SHAPE_SCANNED:-0}" -gt 0 ] && echo ok || echo bad)" "ok"
-# 活性正例：**不依赖树里恰好有一个真凭据**（§10c 那条要靠脱敏前的 ref 才成立，
-# 历史里只剩一个样本时它就退化成空转）。这里现造一条与真凭据同形的串喂回**同一个工具、
+# 活性正例：**不依赖树里恰好有一个真凭据**。§10c 原先挂在一个历史 SHA 上（"脱敏前那次提交"），
+# F-104 重写全历史后它当场失效，那边也已改成"清单自身当探针"。这里现造一条与真凭据同形的串喂回**同一个工具、
 # 同一份模式文件**——正例必须和被验的判据同构，否则证的是另一条命令。
 # 这条纪律下面有个实打实的踩坑：普查用 git grep（PCRE 实现支持 -f 多模式），
 # 而我第一版正例写成 `printf ... | grep -P -f shapes.txt`，Git Bash 的 grep 直接拒绝：
