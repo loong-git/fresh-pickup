@@ -14,6 +14,9 @@
 FAILS=0
 SKIPPED=""
 PUSH_BLOCK=""
+# EXPOSED = 「已经消不掉的公开存量」，与 PUSH_BLOCK 分开记：PUSH_BLOCK 是"本批不具备 push 条件"（推前可修），
+# EXPOSED 是"推不推它都已在公开面上"（只能 GitHub 侧处置）。混在一起会让未来的我误以为清掉红字就干净了。
+EXPOSED=""
 say() { echo "$@"; }
 chk() { if [ "$2" = "$3" ]; then say "  OK   $1: $2"; else say "  FAIL $1: 实际=[$2] 期望=[$3]"; FAILS=$((FAILS+1)); fi; }
 # 「形似手机号但不是手机号」的已裁定集合——§10（扫 diff 新增行）与 §10c（扫树）**必须共用这一份**。
@@ -272,13 +275,53 @@ if [ ! -f logs/.pii-list ]; then
   say "  SKIP logs/.pii-list 不存在（与 .secret-list 同处理：清单只在本地，绝不入库）"
 else
   git log origin/master..HEAD --format='%h %s%n%b' > logs/out/push_precheck.msgs.txt 2>/dev/null
-  MHIT=$(grep -f logs/.pii-list logs/out/push_precheck.msgs.txt 2>/dev/null | grep -c . || true)
+  # 口径统一成 -F（2026-10-22 实测）：这里原先是 `grep -f`（BRE）。对隐私清单恰好无害——13 条锚
+  # 经逐条测试**一个正则元字符都没有**，两口径命中数完全相同。但同一测法在凭据清单上打出
+  # 第 8 条 -F=1 / BRE=0：含正则形态的锚在 BRE 下**静默失配**，那正是 §10c 那次假阴性的根因。
+  # 所以这里固定 -F，并让它同时扫凭据清单——否则将来谁往隐私清单里加一条带括号/点号的锚，
+  # 这条判据就会无声地变成 0 命中，而且没人会知道。
+  MHIT=$(grep -F -f logs/.pii-list logs/out/push_precheck.msgs.txt 2>/dev/null | grep -c . || true)
   if [ "${MHIT:-0}" = "0" ]; then
-    say "  OK   提交说明里的隐私锚命中: 0"
+    say "  OK   未推送提交说明里的隐私锚命中: 0"
   else
     say "  WARN 提交说明里的隐私锚命中 ${MHIT} 行 → **push 前必须由用户裁定处置，未推历史不许自行 amend**："
-    grep -n -f logs/.pii-list logs/out/push_precheck.msgs.txt 2>/dev/null | cut -c1-100 | sed 's/^/      /'
+    grep -n -F -f logs/.pii-list logs/out/push_precheck.msgs.txt 2>/dev/null | cut -c1-100 | sed 's/^/      /'
     PUSH_BLOCK="$PUSH_BLOCK 提交说明含隐私锚 ${MHIT} 行"
+  fi
+  SHIT=0
+  if [ -f logs/.secret-list ]; then
+    SHIT=$(grep -F -f logs/.secret-list logs/out/push_precheck.msgs.txt 2>/dev/null | grep -c . || true)
+  fi
+  chk "未推送提交说明里的凭据命中" "${SHIT:-0}" "0"
+
+  # —— 第二面：已公开全链（§10b 上方只扫 origin/master..HEAD，结构上永远看不见已经在公开历史里的那几条）——
+  # 活性自测用「清单自匹配」而不是某个历史点：不依赖对象不被 gc、也不随历史清理而失效。
+  SELF=$([ -f logs/.pii-list ] && grep -F -f logs/.pii-list logs/.pii-list 2>/dev/null | grep -c . || echo 0)
+  if [ "${SELF:-0}" = "0" ]; then
+    say "  🔴 隐私清单自匹配为 0 → 清单坏了或为空，下面这个数不可信"
+    chk "清单自匹配活性（必须 >0）" "0" "1"
+  elif git rev-parse --verify --quiet refs/remotes/origin/master >/dev/null; then
+    PUB=0; PUBT=0
+    for h in $(git rev-list refs/remotes/origin/master 2>/dev/null); do
+      PUBT=$((PUBT+1))
+      n=$(git log -1 --format='%h %s%n%b' "$h" | grep -F -f logs/.pii-list 2>/dev/null | grep -c . || true)
+      [ "${n:-0}" != "0" ] && PUB=$((PUB+1))
+    done
+    say "   已公开提交说明普查：$PUBT 条里 $PUB 条含隐私锚（判据活性自测=$SELF，须 >0）"
+    if [ "$PUB" != "0" ]; then
+      # 不判 FAIL：已发布历史的改写（filter-branch/force-push）在本仓是红线，处置权在用户。
+      # 但它必须摆成存量登记，而不是让人误以为「§10b 绿 = 提交说明全干净」。
+      say "  WARN 公开历史里仍有 ${PUB} 条提交说明含隐私锚 → 只能 GitHub 侧处置（转 private / 删库 / 另起无锚新仓）；"
+      say "       这一面不在 PUSH_BLOCK 里，因为无论推不推它都已经公开了，卡住本地提交只会把待裁定变成永久红"
+      EXPOSED="$EXPOSED 公开提交说明含锚 ${PUB} 条"
+    fi
+    # 显式记录本节扫的是哪一面（本仓纪律）：**只扫 origin 的提交说明，不扫 origin 各历史点的树**。
+    # 后者 2026-10-22 实测是 159 个提交点里 138 个含锚（每点恒 29 行），但要现扫得对 170 个 rev 各跑一次
+    # git grep -F 全树，成本明显；而那一面**读数再多也不改变动作**（同样只能 GitHub 侧处置），
+    # 所以它登记在 docs/上线与二期要求清单.md §6 与 logs/scratch/pii-history-scan.txt，不在这里重复。
+  else
+    SKIPPED="$SKIPPED §10b(公开全链：无 origin/master ref)"
+    say "  SKIP 本地没有 refs/remotes/origin/master，公开全链这一面没扫"
   fi
 fi
 
@@ -415,6 +458,11 @@ fi
 if [ -n "$PUSH_BLOCK" ]; then
   say "  BLOCK push 前置阻断项：${PUSH_BLOCK# } —— 本批**可以本地提交**，但**不具备 push 条件**，"
   say "       未推送历史的 amend/rebase 需用户裁定（本仓红线：不改写历史、不 force-push）"
+fi
+if [ -n "$EXPOSED" ]; then
+  say "  存量 已公开、本地不可消的面：${EXPOSED# }"
+  say "       这些不是 FAIL 也不是 push 阻断——它们只能靠 GitHub 侧处置（转 private / 删库 / 另起无锚新仓）；"
+  say "       记在这里是为了别把「§10b/§10c 全绿」读成「公开面干净」：绿的是**本批没新增泄露**，不是**历史没有泄露**。"
 fi
 say "FAIL 计数=$FAILS"
 [ "$FAILS" -gt 0 ] && say "有 $FAILS 条 FAIL——先复核门禁自身再判实现"
