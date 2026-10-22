@@ -197,7 +197,7 @@ export default {
       // F-19.8 S-7/U-14 的四路分流（形状照本仓既有分支，只换判据与措辞）：
       // F-28.5 路 B：429 一支改走 api 层 coolingLeadText（归因＋不带数），数只留给下方那枚胶囊（X-5）
       if (this.errorCode === 429) return coolingLeadText('营销参与态')
-      // 404（AuthInterceptor:102-112 注入 merchant_id，Service 侧查无主体行 → MerchantServiceImpl:192「商家不存在」）是确定性失败，
+      // 404（AuthInterceptor 的 /api/merchant/ 分支注入 merchant_id，Service 侧查无主体行 → MerchantServiceImpl:192「商家不存在」）是确定性失败，
       // 重试永远拿回同一枚错误码，故主文案直出后端 message，不再说「请稍后重试」
       if (this.errorCode === 404) return this.errorText
       // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」

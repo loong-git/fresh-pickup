@@ -59,9 +59,9 @@ public class AuthInterceptor implements HandlerInterceptor {
         // 不再用 request.getRequestURI()。旧值给的是未解码 URI，而 Spring MVC 按解码后路径找 handler，
         // 于是 `/api/%6derchant/uploads`（%6d='m'）不命中 /api/merchant/ 分支却照样进 upload ——
         // 主会话实测无 token 真落盘；`/api/%75ser/avatar` 同法绕过 → 证明 /api/** 全系前缀判定都可被编码绕过。
-        // 判定输入只留一个值（混合态等于洞还在）：requiresLogin( 的唯一调用点(:87)、/api/merchant/ 分支(:101)、
-        // requiresLogin 方法体(:198-270)内的每一个 startsWith/equals/matches 都吃同一个 path。
-        // （F-20.29 BE-G6-6 注释修正：上面三处行号指针原写 :56/:70/:122-165，系 BE-1 改造前旧坐标，已按现号改对。）
+        // 判定输入只留一个值（混合态等于洞还在）：requiresLogin( 的唯一调用点、本方法里的 /api/merchant/ 分支、
+        // requiresLogin 方法体内的每一个 startsWith/equals/matches 都吃同一个 path。
+        // （F-20.29 曾把上面三处指针按当时现号改正；F-98f 进一步去掉行号改成语义指称——本文件只要删一行，全仓引用它的行号一起漂）
         String path = mappedPath(request);
 
         // BE-20-1（F-20 Step 2 门禁实测）：运营面不走用户会话鉴权，在此整体提前放行——它的鉴权在 Controller 层：
@@ -98,7 +98,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
         request.setAttribute(ATTR_USER_ID, userId);
 
-        // F-12/G-01 查库定角色：/api/merchant/** 前缀需 role=merchant 双校验（复刻 :121-123 /api/user/** 范式）
+        // F-12/G-01 查库定角色：/api/merchant/** 前缀需 role=merchant 双校验（需否登录由 requiresLogin 的同前缀分支定，两处配套）
         if (path.startsWith("/api/merchant/")) {
             com.fresh.entity.User u = userMapper.selectById(userId);
             // merchant_id 为空必须在此收口 403：setAttribute(name, null) 按 Servlet 语义等于移除属性，Controller 的
@@ -115,7 +115,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         // 主理人不占 user.role（D-1/A3.1 已定案：商家端与主理人端两套身份不能塞进同一个闸门），
         // 所以这里查的不是角色而是**归属集合**：只按已解析的 token userId 查 store，不收任何归属入参。
         // 集合为空即 403（不是 401——token 有效；不是 500——Controller 的 @RequestAttribute 拿到 null
-        // 会先抛 ServletRequestBindingException 被兜底转 500，故与上方 merchant 块 :83-84 同姿势在此收口，
+        // 会先抛 ServletRequestBindingException 被兜底转 500，故与上方 merchant 块用同一姿势在此收口，
         // 绝不 setAttribute(name, null)）。typ=admin 反隔离、匿名、无 token 三段判定一字未动。
         if (path.startsWith("/api/partner/")) {
             List<Long> storeIds = storeMapper.selectList(new LambdaQueryWrapper<Store>()
@@ -141,7 +141,7 @@ public class AuthInterceptor implements HandlerInterceptor {
      * （含 ^/api/dishes/\d+/reviews$、^/api/pay/[^/]+/wx-notify$ 这类依赖真实路径形态的正则）语义一字不变。
      * <p>【为什么不用 HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE】派发简报首选它，但它给的是
      * **映射模板**而不是路径：ReviewController.java 的 addReview 上的模板是 /api/dishes/{dishId}/reviews，
-     * 喂给 :171 的 ^/api/dishes/\\d+/reviews$ 不再命中（{dishId} 不是数字）→
+     * 喂给本类 requiresLogin 末尾那条 ^/api/dishes/\\d+/reviews$ 正则，不再命中（{dishId} 不是数字）→
      * POST 发评价从「需登录」退化成匿名可写，比本条要修的洞更严重，故弃用；已按简报第 6 项列「契约疑点」回报。
      * <p>servletPath 为空只出现在非 Boot 的标准 servlet 映射形态（DispatcherServlet 挂 /*.ext 时路径落在
      * pathInfo）；两者都取不到才退回 getRequestURI()，即与改动前一致的旧行为，不留 null。
@@ -201,11 +201,11 @@ public class AuthInterceptor implements HandlerInterceptor {
         // 判据只用 path.equals，<b>绝不写 path.startsWith("/api/admin")</b>——那等于把
         // AdminController 的 5 个写端点与后续 /api/admin/v2/** 全变成免登录面（它们的安全前提就是
         // 自己在方法里调 checkKeyOrOperator；本类一旦整体放行，那层闸门一旦有人漏调就直接裸奔，纵深防御归零）。
-        // 现状默认侧（本类 :20「需登录白名单之外一律匿名可读」）已经让 /api/admin/** 匿名，
+        // 现状默认侧（本类头部 javadoc 的「需登录白名单之外一律匿名可读」）已经让 /api/admin/** 匿名，
         // 本行的作用是把「登录入口=匿名」这条裁定<b>写死在判定里</b>：将来若给 Admin 面加整体登录闸门，
         // 登录入口不会被自己锁死（换不到 token 就无法登录、无法登录就换不到 token）。
-        // typ=admin 反隔离段（:66-72）与本方法后面的 merchant/partner 归属段一字未动，本行只做加法。
-        // 【诚实声明】（F-20.27 A-5 → F-20.29 BE-G6-6）：本行今天对 admin 面**不可达**——preHandle :73-75 已对
+        // typ=admin 反隔离段与本方法后面的 merchant/partner 归属段一字未动，本行只做加法。
+        // 【诚实声明】（F-20.27 A-5 → F-20.29 BE-G6-6）：本行今天对 admin 面**不可达**——preHandle 开头已对
         // /api/admin/ 前缀整片提前 return true，admin 请求（含登录入口自身）根本走不到 requiresLogin() 的这里。
         // 保留它只为将来把整体登录闸门收紧到 admin 面时，登录入口不被自己锁死（无 token 无法登录、
         // 无法登录就无法拿 token，见上一条注释）。纯注释补充，判定逻辑一字未动。

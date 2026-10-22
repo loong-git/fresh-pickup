@@ -157,7 +157,7 @@ function rejectUnauthorized(reject) {
  *   绝不 resolve(null)，否则页面会拿到一个「成功但没有门店」的假象）
  * - code 401（无/伪造/过期 token）→ rejectUnauthorized：清 token 并回登录页，message 固定「请先登录」
  * - code 403 → 只结构化 reject，并把后端 message 原样透出给页面渲染引导态；
- *   主理人端的 403 来源是 AuthInterceptor:108-118「token 有效但 store.owner_user_id 名下门店集合为空」，
+ *   主理人端的 403 来源是 AuthInterceptor 的 /api/partner/ 归属分支「token 有效但 store.owner_user_id 名下门店集合为空」，
  *   即「登录成功、还没绑定自提点」，这是登录成功后的业务事实，绝不当登录失效处理——
  *   按 401 踢回登录页会让用户陷在登录死循环里（本轮登录页的 403 分支就靠这一条分流）
  * - 其余（400/404/429/500/网络异常）→ reject({code,message,data})，调用方须 toast，全站无静默分支
@@ -393,7 +393,7 @@ export function loginPassword(phone, password) {
 }
 
 // ==================== 主理人接口（F-18.8 第 4 条 + F-18.12 第 1/2/4/5/6 条） ====================
-// 归属纪律（RF 红线）：/api/partner/** 的归属一律由服务端从 token 解析（AuthInterceptor:114-131 注入
+// 归属纪律（RF 红线）：/api/partner/** 的归属一律由服务端从 token 解析（AuthInterceptor 的 /api/partner/ 分支注入
 // ATTR_PARTNER_STORE_IDS），本层不拼任何归属入参；`storeId` 只是 D-22 的「名下多店选一家」选择器，
 // 服务端校验它 ∈ 集合、不在即 404，它既不是归属也不是可改列。
 // 每个函数只拼参数、不写业务分支；判定与文案分流全在页面层按 reject 的 code 走。

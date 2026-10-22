@@ -231,7 +231,7 @@ export default {
       // 「操作过于频繁，请 Ns 后再试」，与同屏下方那枚「Ns后可重试」胶囊构成同一把锁两处报数（X-5 违例），
       // 且「操作过于频繁」无归因，商家读不出锁的是经营读数还是别的端点
       if (this.errorCode === 429) return coolingLeadText('经营读数')
-      // 404（AuthInterceptor:102-112 注入 merchant_id，Service 侧查无主体行 → MerchantServiceImpl:192「商家不存在」）是确定性失败，
+      // 404（AuthInterceptor 的 /api/merchant/ 分支注入 merchant_id，Service 侧查无主体行 → MerchantServiceImpl:192「商家不存在」）是确定性失败，
       // 重试永远拿回同一枚错误码，故主文案直出后端 message，不再说「请稍后重试」
       if (this.errorCode === 404) return this.errorText
       // 500：服务端处理出错，与「网络不通」是方向相反的两种因果，不能再共用一句「请检查网络」

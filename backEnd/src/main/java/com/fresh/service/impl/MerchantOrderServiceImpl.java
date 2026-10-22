@@ -416,7 +416,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
     }
 
     /**
-     * 归属自守卫（纵深防御，非可达分支）：AuthInterceptor:104-111 已在 merchant_id 为空时收口 403，
+     * 归属自守卫（纵深防御，非可达分支）：AuthInterceptor 的 /api/merchant/ 分支已在 merchant_id 为空时收口 403，
      * 控制器拿到的 merchantId 恒非 null；这里留一行是为了万一出现不经 /api/merchant/ 前缀的内部调用时，
      * 也不会退化成「条件为空 = 不加条件」的全表读。403 与拦截器同文案（R.MSG_FORBIDDEN），不新增文案。
      */

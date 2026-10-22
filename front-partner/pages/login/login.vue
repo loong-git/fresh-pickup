@@ -118,7 +118,7 @@
 // ① 母版调 getMerchantMe()（两处调用），本页调 getPartnerStores()，且两处收敛进同一个
 //    resolveIdentity()（§4 明令「判定函数与文案分流写在同一个 resolveIdentity() 里，别散到 onLoad/onLogin 两处」）；
 // ② 403 的含义不同：商家端 403 = 角色不是 merchant（只能等平台代开通）；
-//    主理人端 403 = token 有效但 store.owner_user_id 名下门店集合为空（AuthInterceptor:108-118），
+//    主理人端 403 = token 有效但 store.owner_user_id 名下门店集合为空（AuthInterceptor 的 /api/partner/ 归属分支），
 //    这是一条用户自己能走通的路——所以引导态给「去申请入驻」主按钮，而不是只有一句「等平台开通」；
 // ③ 429 多了 retryLock 冷却（「重新检查」是反复打 /api/partner/stores 的入口，USER 30 次/分）。
 // C 端专属逻辑一律不引进来：邀请码横幅与 inviteCode 透传、头像入 store、设置密码卡区、syncPickupFromServer

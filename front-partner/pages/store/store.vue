@@ -488,7 +488,7 @@ export default {
           return
         }
         if (code === 403 || code === 404) {
-          // 403=归属集合为空（AuthInterceptor:108-118）、404=门店不存在：都是确定性失败，
+          // 403=归属集合为空（AuthInterceptor 的 /api/partner/ 归属分支）、404=门店不存在：都是确定性失败，
           // 重试永远失败，给申请入驻的去向而不是重试（workspace.vue 把 403 归 empty 同口径）
           this.showEmpty((e && e.message) || '')
           return

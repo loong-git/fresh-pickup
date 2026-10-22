@@ -36,8 +36,8 @@ import java.util.Map;
  * <p><b>限流维度用 IP，不用 USER</b>（契约允许二选一，这里给实测理由）：
  * {@code RateLimitInterceptor#bucketKey}（{@code interceptor/RateLimitInterceptor.java} 里那个私有方法）在 USER 分支读的是
  * {@code request.getAttribute(AuthInterceptor.ATTR_USER_ID)}，取不到就退化成 {@code "user:ip:" + clientIp + ":" + api}。
- * 而 BE-20-1 起 {@code AuthInterceptor:73-75} 对 {@code /api/admin/} 前缀<b>提前 return true</b>，
- * 那两处 setAttribute（:89/:98）在 admin 面根本走不到——也就是说 v2 上 USER 维度<b>永远</b>是「按 IP 记账、
+ * 而 BE-20-1 起 {@code AuthInterceptor} 在 {@code /api/admin/} 前缀上<b>开头就提前 return true</b>，
+ * 那两处 setAttribute(ATTR_USER_ID) 在 admin 面根本走不到——也就是说 v2 上 USER 维度<b>永远</b>是「按 IP 记账、
  * 却挂着 user: 前缀」的假象（不会 NPE，但既不是按运营账号也不是按用户，还比 IP 更容易被误读成按人限流）。
  * 想按 operator 限流就得往 admin 面注入 ATTR_USER_ID，那正是 BE-20-1 明令禁止的越权面。
  * 故六条都显式写 {@code keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60}（RF 随建随挂，

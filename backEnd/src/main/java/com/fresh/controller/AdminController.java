@@ -66,7 +66,7 @@ public class AdminController {
 
     /**
      * 双轨第二轨用：按 subject 查 admin_user，定「账号还在不在、是否仍 active」。
-     * <p>Controller 直接注 mapper 是本仓既有分层口径（鉴权基础设施类先例：{@code AuthInterceptor:44-47}
+     * <p>Controller 直接注 mapper 是本仓既有分层口径（鉴权基础设施类先例：{@code AuthInterceptor}
      * 注 UserMapper/StoreMapper 做查库定角色与归属集合）——这一步属于<b>闸门本身</b>，
      * 塞进 AdminService 反而把闸门挪离闸门。
      * <p>拿到的实体<b>只读 status 一个字段</b>：它随 {@code BaseMapper.selectById} 的列清单带着

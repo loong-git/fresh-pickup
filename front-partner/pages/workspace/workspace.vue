@@ -307,7 +307,7 @@ export default {
           return
         }
         if (code === 403) {
-          // 归属集合为空（AuthInterceptor:115-118）：不是登录失效、也不是「加载失败」，落 empty 给去向
+          // 归属集合为空（AuthInterceptor 的 /api/partner/ 归属分支）：不是登录失效、也不是「加载失败」，落 empty 给去向
           this.showEmpty((e && e.message) || '')
           return
         }
