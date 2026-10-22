@@ -453,15 +453,17 @@ say "=== 10e) 形状普查（F-103 新）：不读清单，只按凭据的**长�
 # 于是 §6/§10/§10c 连着多轮报「凭据 0 命中」，而我拿这个 0 当过 push 依据；
 # 同一时刻 front/api/config.js 里躺着两把活 key。**清单驱动的判据，绿只证明清单里没有，
 # 不证明树里没有。** 形状普查与清单无关，所以「清单漏一项」不再是假绿的成因。
-# 首次实跑读数（2026-10-22，同一条命令跑两个 ref）：HEAD 树命中 4 行，全部落在 */src/test/*
-# ——那是伪造微信回调的 fixture；HEAD~1（凭据出仓前那一版）同口径命中 6 行，
-# 多出来的正是 front/api/config.js:26 与 :27。所以放行规则只需要「测试路径」一条，
-# 而判据在出仓前那一版上是红的、出仓后是绿的——这个方向差本身就是本节有效的证明。
+# 当轮读数（2026-10-22，F-103 落地时的**原历史**，随后被 F-104 重写）：HEAD 树 4 行，
+# 全部落在 */src/test/*——那是伪造微信回调的 fixture；当时的 HEAD~1（凭据出仓前那一版）
+# 同口径 6 行 = 那 4 行 + front/api/config.js:26 与 :27。
+# **这两个数字是历史快照，别拿去当预期值**：重写之后任何提交都不再含真凭据，
+# 拿 HEAD~1 当变异样本只会得到 0（样本没了，不是判据弱）。判据活性改由自造样本承担，见下。
 SHAPE_DIR=logs/scratch55
 mkdir -p "$SHAPE_DIR"
-# 普查的 rev 走变量而不是字面量：本节的变异自验要能把它换成 HEAD~1（凭据出仓前那一版）。
+# 普查的 rev 走变量而不是字面量，脚手架（logs/scratch/f95-verify.sh 的第二个参数）能换进来。
 # 写成字面量时，变异只能靠 sed 改抽出来的片段，结果是放行与打印那两条管道里的
 # 'HEAD:' 前缀也跟着错位——一次实测跑出了 6 行"未放行"，看着像判据坏了，其实是脚手架的副作用。
+# 注意：换 ref 只解决"扫别的树"；**判据活性不要靠换 ref**——历史一旦被重写，样本就消失了。
 SHAPE_REF="${SHAPE_REF:-HEAD}"
 cat > "$SHAPE_DIR/shapes.txt" <<'SHAPES'
 [0-9a-f]{32}
@@ -469,7 +471,17 @@ cat > "$SHAPE_DIR/shapes.txt" <<'SHAPES'
 eyJ[a-zA-Z0-9_\-]{8,}\.[a-zA-Z0-9_\-]{8,}\.[a-zA-Z0-9_\-]{8,}
 (AKIA|LTAI)[0-9A-Za-z]{12,}
 (?i)["']?(api[_-]?key|app[_-]?key|secret|access[_-]?token|passwd|password)["']?[[:space:]]*[:=][[:space:]]*["'][0-9A-Za-z_\-]{20,}["']
+(?i)(api[_-]?key|app[_-]?key|jwt[_-]?secret|access[_-]?token|passwd|password)["']?[[:space:]]*[:=][[:space:]]*["']?[A-Za-z0-9+/_\-]{19,}(?-i:[0-9A-Z])[A-Za-z0-9+/_\-]*["']?
 SHAPES
+# 第 6 条是 F-105 补的射程盲区：前 5 条只认**引号包裹**的赋值，于是 YAML
+# （application-dev.yml 的 `  secret: xxx`）与 systemd unit（`Environment=K=V`）
+# 这种**无引号**写法完全不进视野。2026-10-22 我手写补充正则才扫到 unit 里那三行。
+# 但补射程不能把「可读约定值」也算成凭据——用户当天裁定 dev 的 jwt.secret「无所谓」，
+# 而 unit 里的 DB_PASSWORD/JWT_SECRET/ADMIN_KEY 是 replace-with-* 占位符（守卫类会在 prod 拦）。
+# 它们的共同形态是**纯小写+连字符**，而随机密钥几乎必然含大写或数字。所以第 6 条要求
+# 值里至少出现一个 [0-9A-Z]，且用 (?-i:…) 局部关掉大小写不敏感，
+# 否则 (?i) 会让 [0-9A-Z] 连小写也匹配、等于没加这个约束。
+# 这两个方向都要有对照，见下面的正例与"占位符负例"。
 # JWT 那一族的字符类**故意写成 [a-zA-Z0-9_\-] 而不是 [A-Za-z0-9_-]**：两者语义等价，
 # 但后者与 logs/.secret-list 第 8 条逐字重合（那条就是 redact-for-release.sh:16 的 JWT_RE 正则本身）。
 # 照抄会让本脚本这一行命中清单，而 §10c 的豁免键只认 'JWT_RE=' 那一行，放行不到这里来 →
@@ -494,6 +506,26 @@ chk "形状判据活性正例（合成同形串必须被同一条命令报出）
 SHAPE_NEG=$(git grep -I -c -P -f "$SHAPE_DIR/shapes.txt" --no-index -- "$SHAPE_DIR/probe-neg.txt" 2>/dev/null \
   | awk -F: '{s+=$NF} END{print s+0}')
 chk "形状判据负例对照（无凭据文件必须 0）" "${SHAPE_NEG:-0}" "0"
+# 第 6 条（无引号赋值）单独一对对照：同一文件里放两行，一行该红、一行不该红，期望恰 1。
+# 该红的是"键名 + 32 位混大小写数字"（随机密钥的常态）；不该红的是 unit 里那种
+# replace-with-* 占位符（纯小写连字符），以及 dev 的约定密钥（同形态）。
+# 两个串仍拆拼，避免脚本源码命中自己的判据。
+printf 'db%s=%s%s\n' 'Password' 'AbCdEfGhIjKlMnOp' 'QrStUvWxYz012345' > "$SHAPE_DIR/probe2.txt"
+printf 'secret: replace-with-real-db-password\n' >> "$SHAPE_DIR/probe2.txt"
+SHAPE_PROBE2=$(git grep -I -c -P -f "$SHAPE_DIR/shapes.txt" --no-index -- "$SHAPE_DIR/probe2.txt" 2>/dev/null \
+  | awk -F: '{s+=$NF} END{print s+0}')
+chk "无引号赋值：合成密钥命中且占位符不命中（期望恰 1 行）" "${SHAPE_PROBE2:-0}" "1"
+# 变异自验：造一个**只存在于对象库、不挂任何 ref** 的临时提交，树里放一行同形凭据，
+# 再走 `git grep <rev>`（和普查完全同一条代码路径）。上面的 probe 走的是 --no-index，
+# 证不到"扫树"这条路；而拿 HEAD~1 当样本的做法在 F-104 重写历史后已经失效——
+# 现在任何历史提交都不含真凭据，`SHAPE_REF=HEAD~1` 跑出 0 不是判据弱，是**样本没了**。
+# 这正是 §10c 踩过的坑（正例挂在会腐烂的历史 SHA 上），不要在同一处再挂第二次。
+MUT_BLOB=$(printf 'db%s=%s%s\n' 'Password' 'AbCdEfGhIjKlMnOp' 'QrStUvWxYz012345' | git hash-object -w --stdin)
+MUT_TREE=$(printf '100644 blob %s\tzz-mutation-probe.txt\n' "$MUT_BLOB" | git mktree)
+MUT_COMMIT=$(git commit-tree "$MUT_TREE" -m "mutation probe (dangling on purpose)")
+MUT_HITS=$(git grep -I -c -P -f "$SHAPE_DIR/shapes.txt" "$MUT_COMMIT" 2>/dev/null \
+  | awk -F: '{s+=$NF} END{print s+0}')
+chk "变异自验：自造提交（树里含同形串）必须被扫出来" "${MUT_HITS:-0}" "1"
 SHAPE_ALL=$(git grep -I -n -P -f "$SHAPE_DIR/shapes.txt" "$SHAPE_REF" 2>/dev/null || true)
 # 放行只认「测试夹具路径」这一个键，且**逐轮打印放行在哪些文件**——放行必须可见，
 # 否则未来的我读到的又是一个无源的 0。
@@ -513,7 +545,7 @@ if [ "${SHAPE_LIVE:-0}" != "0" ]; then
 else
   chk "非测试面凭据形状命中行数" "0" "0"
 fi
-rm -f "$SHAPE_DIR/shapes.txt" "$SHAPE_DIR/probe.txt" "$SHAPE_DIR/probe-neg.txt"
+rm -f "$SHAPE_DIR/shapes.txt" "$SHAPE_DIR/probe.txt" "$SHAPE_DIR/probe-neg.txt" "$SHAPE_DIR/probe2.txt"
 
 say "=== 11) 除 README 族外，任何 .md 不得被跟踪（用户 2026-10-19 定：md 除 README 一律不提交不推送）==="
 # 判据只数「非 README 的已跟踪 .md」=0，**不写死 README 的个数**（将来加一个 README 就假红，
