@@ -70,6 +70,16 @@
       </view>
     </view>
 
+    <!-- ==================== 6.1 申请成为商家行（F-106 片 D：C 端自助入驻入口） ==================== -->
+    <view class="card cell-card" @click="goMerchantApply">
+      <view class="cell">
+        <text class="cell-icon">🏪</text>
+        <text class="cell-title">申请成为商家</text>
+        <text class="cell-sub">提交入驻资料，审核通过即开通</text>
+        <text class="cell-arrow">›</text>
+      </view>
+    </view>
+
     <!-- ==================== 7. 退出登录（仅登录态显示；二次确认后清登录态回首页） ==================== -->
     <button v-if="hasToken" class="btn-logout" @click="onLogout">退出登录</button>
     <view class="page-bottom-space"></view>
@@ -78,7 +88,7 @@
 
 <script>
 // 「我的」个人中心页（多多买菜工具风，白底+主红 #E02020）：
-// 身份卡 / 优惠券概要入口 / 订单入口 / 评价概要入口 / 账号安全 / 退出登录。
+// 身份卡 / 优惠券概要入口 / 订单入口 / 评价概要入口 / 账号安全 / 申请成为商家 / 退出登录。
 // 登录态判定与渲染一律响应 store.user.token（mapState user）：
 // token 失效接口 401 时 request 层统一清登录态，本页随 store 自动降级游客视图，不残留已登录 UI。
 import { mapState } from 'vuex'
@@ -345,6 +355,8 @@ export default {
     goLogin() { uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/mine/mine') }) },
     // 账号安全行：跳独立账号安全页（F-67：设密码与换绑手机号统一承载在那一页）
     goSecurity() { uni.navigateTo({ url: '/pages/security/security' }) },
+    // 申请成为商家行（F-106 片 D）：跳入驻申请页（未登录由申请页守卫带 redirect 去登录）
+    goMerchantApply() { uni.navigateTo({ url: '/pages/merchant-apply/merchant-apply' }) },
     // 我的订单行：整行跳订单页（四状态 tab 在订单页内部）
     goOrder() { uni.navigateTo({ url: '/pages/order/order' }) },
     // 邀请赚现金行（F-05）：整行跳邀请赚现金页（邀请码大卡/复制链接/统计/记录都在现金页内）
@@ -435,7 +447,7 @@ export default {
   margin: 20rpx 24rpx 0;
   padding: 24rpx;
 }
-/* ==================== 2/3/4/5/6. cell 行（券概要 / 订单 / 邀请赚现金 / 评价概要 / 账号安全） ==================== */
+/* ==================== 2/3/4/5/6. cell 行（券概要 / 订单 / 邀请赚现金 / 评价概要 / 账号安全 / 申请成为商家） ==================== */
 .cell-card { padding: 0; overflow: hidden; }
 .cell { display: flex; align-items: center; gap: 16rpx; padding: 28rpx 24rpx; }
 .cell-icon { font-size: 36rpx; flex-shrink: 0; }

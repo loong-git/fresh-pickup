@@ -58,6 +58,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -1066,6 +1067,95 @@ public class AdminServiceImpl implements AdminService {
         detail.put("items", itemCount);
         detail.put("idempotent", idempotent);
         return detail.toString();
+    }
+
+    // ==================================================================
+    // F-106 片 B2：运营端商家入驻申请列表（GET /api/admin/merchant-applies）。
+    // 追加式落码（常量 + 方法都在文件末尾），理由同 F-63 段注释：本类被仓内行号指针引用。
+    // ==================================================================
+
+    /** 列表状态白名单（契约 §0.6 逐字三态；与 AdminV2ServiceImpl 的 store-applies 同集合、同语义） */
+    private static final Set<String> MERCHANT_APPLY_LIST_STATUSES = Set.of("pending", "approved", "rejected");
+
+    /** 分页缺省与值域（照 AdminV2ServiceImpl 的列表族：缺省 1/20，pageNum≥1，1≤pageSize≤100） */
+    private static final int LIST_DEFAULT_PAGE_NUM = 1;
+    private static final int LIST_DEFAULT_PAGE_SIZE = 20;
+    private static final int LIST_MIN_PAGE_SIZE = 1;
+    private static final int LIST_MAX_PAGE_SIZE = 100;
+
+    /**
+     * 运营端商家入驻申请列表（F-106 片 B2）：参数闸门、排序与出参口径见接口注释。
+     *
+     * <p><b>分页</b>：本工程无 MP 分页插件，页 + 独立 COUNT 两条手写 SQL（RB 红线同 {@code AdminV2ServiceImpl}）；
+     * {@code pageNum}/{@code pageSize} 越界与脏值一律 400、<b>不夹取</b>，offset 用 {@code long} 防 int 溢出。
+     * <p><b>status</b>：null 或纯空白 = 全部（契约「空=全部」，前端 {@code ?status=} 直接可用）；
+     * 非空先 {@code Locale.ROOT} 归一小写再过三态白名单（照 v2 列表族 BE-G6-2），
+     * {@code filters.status} 回显归一后真正生效的那一枚。
+     * <p><b>脱敏</b>：{@code applicantPhone} 是 {@code user.phone} 的原文（LEFT JOIN 取数），
+     * 出参前<b>必须</b>过 {@link PhoneMask#mask}；本方法不产生第二份掩码实现。申请人行不存在时该键为 null。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> listMerchantApplies(Integer pageNum, Integer pageSize, String status) {
+        int pageNo = pageNum == null ? LIST_DEFAULT_PAGE_NUM : pageNum;
+        if (pageNo < LIST_DEFAULT_PAGE_NUM) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        int size = pageSize == null ? LIST_DEFAULT_PAGE_SIZE : pageSize;
+        if (size < LIST_MIN_PAGE_SIZE || size > LIST_MAX_PAGE_SIZE) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+
+        // 空串/纯空白 = 未筛选（契约「status 可空，空=全部」）；大小写归一后才进白名单，
+        // 与 AdminV2ServiceImpl#storeApplies 的 BE-G6-2 口径一致。
+        String fStatus = status == null ? null : status.trim();
+        if (fStatus != null && fStatus.isEmpty()) {
+            fStatus = null;
+        }
+        if (fStatus != null) {
+            fStatus = fStatus.toLowerCase(Locale.ROOT);
+            if (!MERCHANT_APPLY_LIST_STATUSES.contains(fStatus)) {
+                throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+            }
+        }
+
+        long total = merchantApplyMapper.countMerchantApplies(fStatus);
+        long offset = (long) (pageNo - 1) * size;
+        List<Map<String, Object>> rows = offset >= total
+                ? List.of()
+                : merchantApplyMapper.selectMerchantAppliesPage(fStatus, offset, size);
+
+        List<Map<String, Object>> list = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            // 十三键恒定存在（契约定序）；applicantPhone 是唯一需要再加工的一列
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.get("id"));
+            line.put("userId", row.get("userId"));
+            line.put("merchantName", row.get("merchantName"));
+            line.put("contactName", row.get("contactName"));
+            line.put("businessLicense", row.get("businessLicense"));
+            line.put("legalPerson", row.get("legalPerson"));
+            line.put("address", row.get("address"));
+            line.put("settlementAccount", row.get("settlementAccount"));
+            line.put("status", row.get("status"));
+            line.put("auditRemark", row.get("auditRemark"));
+            line.put("createdAt", row.get("createdAt"));
+            line.put("auditedAt", row.get("auditedAt"));
+            line.put("applicantPhone", PhoneMask.mask((String) row.get("applicantPhone")));
+            list.add(line);
+        }
+
+        Map<String, Object> filters = new LinkedHashMap<>();
+        filters.put("status", fStatus);
+
+        // 键名与键序逐字照 AdminV2ServiceImpl#pageResult（不新造形状）
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("list", list);
+        data.put("total", total);
+        data.put("pageNum", pageNo);
+        data.put("pageSize", size);
+        data.put("filters", filters);
+        return data;
     }
 
     /** Map 结果集 BIGINT 列归一（照 PartnerStoreServiceImpl 的既有写法）：非 Number 即缺列，回 null 交调用方定性 */

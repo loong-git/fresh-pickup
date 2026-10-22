@@ -123,8 +123,9 @@ public class MerchantApplyController {
     }
 
     /**
-     * 我的最新一条申请（{@code GET /api/merchant-applies/mine}）：六键白名单，
-     * 从未申请过时各键为 null（「还没申请过」是正常状态，不返 404）。
+     * 我的最新一条申请（{@code GET /api/merchant-applies/mine}）：六键白名单；
+     * **从未申请过时 {@code data} 为 {@code null}**（「还没申请过」是正常状态，不返 404，
+     * 也不返一个全 null 的空壳对象——空壳会让调用方分不清"没有申请"和"申请字段恰好都空"）。
      */
     @RateLimit(limit = 30, windowSeconds = 60)   // 读 30/分（USER 维度）
     @GetMapping("/mine")
@@ -134,13 +135,16 @@ public class MerchantApplyController {
         }
         // 取数即白名单：mapper 的 SELECT 列表只有六列，「不出」是查库层定的
         Map<String, Object> row = merchantApplyMapper.selectLatestByUser(userId);
+        if (row == null) {
+            return R.ok(null);
+        }
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("id", row == null ? null : row.get("id"));
-        data.put("merchantName", row == null ? null : row.get("merchantName"));
-        data.put("status", row == null ? null : row.get("status"));
-        data.put("auditRemark", row == null ? null : row.get("auditRemark"));
-        data.put("createdAt", row == null ? null : row.get("createdAt"));
-        data.put("auditedAt", row == null ? null : row.get("auditedAt"));
+        data.put("id", row.get("id"));
+        data.put("merchantName", row.get("merchantName"));
+        data.put("status", row.get("status"));
+        data.put("auditRemark", row.get("auditRemark"));
+        data.put("createdAt", row.get("createdAt"));
+        data.put("auditedAt", row.get("auditedAt"));
         return R.ok(data);
     }
 

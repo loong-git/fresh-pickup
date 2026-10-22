@@ -178,15 +178,12 @@ class MerchantApplyControllerCreateMineTest {
     }
 
     @Test
-    void 从未申请时mine六键显式null不返四百零四() {
+    void 从未申请时mine返回null而不是全空壳对象() {
         when(applyMapper.selectLatestByUser(USER_ID)).thenReturn(null);
 
         Map<String, Object> out = controller.mine(USER_ID).getData();
 
-        assertEquals(6, out.size());
-        assertTrue(out.containsKey("id"));
-        assertNull(out.get("id"));
-        assertNull(out.get("status"));
-        assertNull(out.get("auditRemark"));
+        // 契约：data 为 null（不是六键全空的对象——空壳分不清"没申请"与"字段恰好都空"）
+        assertNull(out, "从未申请过时 data 必须是 null");
     }
 }

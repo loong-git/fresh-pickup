@@ -187,6 +187,36 @@ public class AdminController {
     }
 
     /**
+     * 运营端商家入驻申请列表（F-106 片 B2，补 §0.6 的契约漏项）：
+     * {@code GET /api/admin/merchant-applies?status=&pageNum=&pageSize=} →
+     * {@code {list:[{id,userId,merchantName,contactName,businessLicense,legalPerson,address,
+     * settlementAccount,status,auditRemark,createdAt,auditedAt,applicantPhone}], total, pageNum, pageSize,
+     * filters:{status}}}（出参形状与 {@code AdminV2ServiceImpl#storeApplies} 逐字同源）。
+     * <p><b>为什么在本类而不是 AdminV2Controller</b>：v2 面是 JWT-only（{@code requireAdminJwtOnly}），
+     * 本端点是运营审核台的数据源、按契约走<b>双轨</b>闸门——{@code X-Admin-Key} 与运营 JWT 都放行，
+     * 与同组的 {@code PUT /merchant-applies/{id}/audit} 保持同一鉴权面。
+     * <p>{@code status} 可空（空=全部），非空仅 pending/approved/rejected；分页缺省 1/20、值域 [1,100]；
+     * 排序 pending 优先、其次 created_at DESC, id DESC；{@code applicantPhone} 是 user.phone 的
+     * {@code PhoneMask.mask} 掩码值（绝不原样下发）。判定细节全在 {@code AdminService#listMerchantApplies}。
+     * <p>限流取只读档 30/60s（照 v2 列表族，同 {@link #arrivalPreview}）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档：照 AdminV2Controller 列表端点
+    @GetMapping("/merchant-applies")
+    public R<Map<String, Object>> merchantApplies(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                  @RequestHeader(value = "Authorization", required = false) String authz,
+                                                  @RequestParam(value = "status", required = false) String status,
+                                                  @RequestParam(value = "pageNum", required = false) Integer pageNum,
+                                                  @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封逐字节内容不变、只重铺泛型参数（同 arrivalPreview 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.listMerchantApplies(pageNum, pageSize, status));
+    }
+
+    /**
      * 发车只读预览（F-63）：{@code GET /api/admin/arrivals/preview?storeId=&date=yyyy-MM-dd} →
      * {@code {storeId, storeName, date, existing, plan, orderCount, dishKinds, departable}}
      * （形状与服务语义见 {@code AdminService#arrivalPreview}；只读动作不写审计，RF 只约束写动作）。

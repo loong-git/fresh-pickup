@@ -530,6 +530,84 @@ export function freeMyClaims(pageNum = 1, pageSize = 10) {
   })
 }
 
+// ==================== 商家入驻申请接口（F-106 片 D，C 端自助入驻） ====================
+
+/**
+ * 我的最新一条入驻申请（登录）：GET /api/merchant-applies/mine
+ * → R{code,data:{id,merchantName,status,auditRemark,createdAt,auditedAt}}
+ * - status：pending 待审核 | rejected 已驳回 | approved 已通过
+ * - 从未申请过时 data 为「无申请」形态（契约口径 data===null；后端现实现为六键全 null 的对象，调用方两种都按无申请处理）
+ * 401 由 request 层统一清登录态并 reject
+ */
+export function getMyMerchantApply() {
+  return request({
+    url: '/api/merchant-applies/mine',
+    method: 'GET'
+  })
+}
+
+/**
+ * 提交入驻申请（登录，POST 提交类 20s 超时）：POST /api/merchant-applies
+ * body {merchantName(必填), contactName?, legalPerson?, address?, settlementAccount?, businessLicense?}
+ * → R{code,data:{id,status:'pending'},message:'申请已提交，请等待审核结果'}
+ * 已是商家 / 已有 pending 申请 → 400，message 为后端定稿文案，调用方原样 toast；
+ * 401 由 request 层统一清登录态并 reject
+ * @param {object} payload - 入驻申请表单（键名与 DTO 逐字一致）
+ */
+export function submitMerchantApply(payload) {
+  return request({
+    url: '/api/merchant-applies',
+    method: 'POST',
+    data: payload
+  })
+}
+
+/**
+ * 上传营业执照图（登录，multipart 字段名 file）：POST /api/merchant-applies/uploads
+ * → R{code,data:{path,url}}，path 形如 /static/images/uploads/xxx.jpg（入库用 path）
+ * uni.request 不支持 multipart 选文件，此处直接用 uni.uploadFile，token 注入与 401 处理同 request 层口径
+ * @param {string} filePath - uni.chooseImage 返回的临时文件路径
+ */
+export function uploadMerchantLicense(filePath) {
+  const stored = getStoredUser()
+  const token = (stored && typeof stored.token === 'string' && stored.token) ? stored.token : ''
+  const header = {}
+  if (token) header.Authorization = 'Bearer ' + token
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: BASE_URL + '/api/merchant-applies/uploads',
+      filePath,
+      name: 'file',
+      timeout: TIMEOUT_SUBMIT,
+      header,
+      success: (res) => {
+        let body = null
+        try {
+          body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+        } catch (e) {
+          body = null
+        }
+        // 401 与 request 层同口径：清登录态并结构化 reject
+        if (res.statusCode === 401 || (body && body.code === 401)) {
+          rejectUnauthorized(reject)
+          return
+        }
+        if (res.statusCode === 200 && body && body.code === 200) {
+          resolve(body)
+          return
+        }
+        reject({
+          code: body && body.code != null ? body.code : res.statusCode,
+          message: (body && body.message) || '服务开小差了，请稍后重试'
+        })
+      },
+      fail: () => {
+        reject({ code: -1, message: '网络异常' })
+      }
+    })
+  })
+}
+
 // ==================== 评价接口 ====================
 
 /**
@@ -597,6 +675,9 @@ export default {
   freeCurrent,
   freeClaim,
   freeMyClaims,
+  getMyMerchantApply,
+  submitMerchantApply,
+  uploadMerchantLicense,
   getReviews,
   submitReview,
   getMyReviews

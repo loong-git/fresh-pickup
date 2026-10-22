@@ -94,6 +94,28 @@ public interface AdminService {
     void auditMerchantApply(Long applyId, String action, String remark, String actor);
 
     /**
+     * 运营端商家入驻申请列表（F-106 片 B2，{@code GET /api/admin/merchant-applies}）：
+     * {@code ?status=&pageNum=&pageSize=} → {@code {list:[...], total, pageNum, pageSize, filters:{status}}}，
+     * 分页出参键名与 {@code AdminV2ServiceImpl#storeApplies} 逐字一致（不新造形状）。
+     *
+     * <p><b>参数闸门</b>：{@code status} 可空（null 或空白 = 全部），非空仅允许
+     * {@code pending|approved|rejected}（大小写不敏感，照 v2 列表族先归一小写再过白名单；
+     * 白名单外 400，复用 {@code AdminV2ServiceImpl} 同一句 400 文案）；
+     * {@code pageNum} 缺省 1、下限 1；{@code pageSize} 缺省 20、值域 [1,100]；越界与脏值一律 400、<b>不夹取</b>。
+     *
+     * <p><b>排序</b>：{@code pending} 优先（运营先看要处理的），其次 {@code created_at DESC, id DESC}。
+     *
+     * <p><b>脱敏</b>：{@code applicantPhone} 取自申请人 {@code user.phone}（申请行没有电话列），
+     * 出参前必须过 {@link com.fresh.common.PhoneMask#mask}；明文不出本方法。
+     * 申请人行被清（LEFT JOIN 不到）时该键为 null，但行仍返回。
+     *
+     * @param pageNum 页码，缺省 1
+     * @param pageSize 每页条数，缺省 20
+     * @param status  三态筛选，空 = 全部
+     */
+    Map<String, Object> listMerchantApplies(Integer pageNum, Integer pageSize, String status);
+
+    /**
      * 微信支付回调拒收留痕（F-44）：把「哪一单、因为哪一条原因、回了微信什么码」落进
      * {@code admin_audit_log}，让运营在 front-admin 审计页查得到（此前只有服务器日志）。
      *
