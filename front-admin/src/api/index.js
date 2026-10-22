@@ -145,17 +145,17 @@ function handleEnvelope(res, resolve, reject, loginRequest) {
  *   load() 把「后端原文 + 本函数返回值」直连成一行，无分隔时就拼成
  *   「操作过于频繁，请稍后再试服务端约 2 秒后可再试。」——两词粘连的病句。
  *   分隔符为什么是空格而不是「。，；」这类标点：本函数只拿得到 data、看不见前一句，
- *   而另 5 页（Dishes/Orders/Reviews/StoreApplies/AuditLogs）的 CODE_HINTS[429] 与 WRITE_CODE_HINTS[429]
- *   共 9 处拼接点**句子自带结尾句号**，补任何标点都会在那 9 处拼出「。。」「。；」双标点；
+ *   而另 6 页（Dishes/Orders/Reviews/StoreApplies/AuditLogs/Arrivals）的 CODE_HINTS[429] 与 WRITE_CODE_HINTS[429]
+ *   共 11 处提示**句子自带结尾句号**，补任何标点都会在那 11 处拼出「。。」「。；」双标点；
  *   空格对「有句号的前句」和「没句号的前句」同时成立，且不与后端文案的标点形状发生关系。
  *   反向禁例（同一条理由）：也不许在页面里判「前一句末字符是不是标点」再决定补不补——
- *   那会把前端呈现拴在后端文案上，R.java 改一次标点、六页就变一次形。
+ *   那会把前端呈现拴在后端文案上；且 2026-10-22 穷尽列举后只有 Overview.vue 一处直连后端 429 原文，余 6 页拼本页句号句。
  * 与下面 waitDurationText 的分工（别混）：本函数转述的是**后端整句文案里的秒数**，不换算单位、不取整；
  * waitDurationText 只管登录页锁定倒计时的显示写法。两者互不复用。
  * @param {unknown} data reject 载荷里的 e.data（可为 null / undefined / 非对象）
  * @returns {string} 有如实读数时是「 服务端约 N 秒后可再试。」（含前导分隔空格），否则是 ''
  */
-// X-6 的前导分隔：单枚空格、非标点，理由见上；要改成别的分隔符必须连同那 9 处自带句号的拼接点一起看。
+// X-6 的前导分隔：单枚空格、非标点，理由见上；要改成别的分隔符必须连同那 11 条自带句号的提示一起看。
 const RETRY_AFTER_TEXT_LEAD = ' '
 
 export function retryAfterText(data) {
