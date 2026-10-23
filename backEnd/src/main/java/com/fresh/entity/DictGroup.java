@@ -15,7 +15,8 @@ import java.time.LocalDateTime;
  * {@code GET /api/dict} 按空返回且不回退上游（契约 §0.2/§0.3）。
  *
  * <p>{@code upstreamCategoryId} 只在「本地无词条且组启用」的回退分支里消费（上游已降级为同步源）；
- * 本片没有管理页，写入面为零，实体仅供读路径与 evict 存在性校验使用。
+ * 片 1 只有读路径与 evict 存在性校验，片 2（F-108 §0.7）追加运营端 {@code enabled}/{@code name}
+ * 部分更新与分组列表（写路径见 {@code AdminServiceImpl#updateDictGroup}）。
  */
 @Data
 @TableName("dict_group")

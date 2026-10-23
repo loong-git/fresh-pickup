@@ -212,4 +212,14 @@ public interface DishMapper extends BaseMapper<Dish> {
     long countDishes(@Param("merchantId") Long merchantId,
                      @Param("onSale") Integer onSale,
                      @Param("category") String category);
+
+    /**
+     * 某分类下的商品数（F-108 §0.7 引用保护）：删除 {@code dish_category} 词条前，
+     * 用词条 definition 里 {@code code:} 之后的部分做等值 COUNT。
+     * <p>SQL 是契约逐字那一句 {@code SELECT COUNT(*) FROM dish WHERE category=?}；
+     * 只按 category 过滤、不掺 onSale/merchantId（下架件同样会因分类被删而变成无主分类）。
+     * 值只经 {@code #{}} 绑定。
+     */
+    @Select("SELECT COUNT(*) FROM dish WHERE category = #{category}")
+    long countByCategory(@Param("category") String category);
 }

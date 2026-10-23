@@ -694,3 +694,125 @@ export function createAdminMerchant(payload) {
   if (payload.contactName) body.contactName = String(payload.contactName)
   return request({ url: '/api/admin/merchants', method: 'POST', data: body })
 }
+
+// ==================== F-108 片 2 字典管理（分组 + 词条 CRUD + 缓存清除） ====================
+// 契约真源：docs/上线任务文档.md §0.7 片 2（六个端点全部在 AdminController，双轨鉴权；
+// 浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Authorization）。
+// 写操作成功后由服务端内部自动 evict 该词条所属分组（AdminServiceImpl），本节只保留 §0.4 的手工
+// evict 端点；页面也一律以写后重拉分组/词条为准，不做本地改行（与其余写侧页同一纪律）。
+// 路径里的 group / code 是 dict_group.code 的 ASCII 串，id 是 dict_item 自增整数；
+// 一律经 encodeURIComponent(String(...)) 只做路径转义，不做任何数值变换。
+
+/**
+ * 字典分组列表：GET /api/admin/dict/groups
+ * 出参 data 是**数组**：[{code,name,enabled,itemCount,sort}]，按 sort ASC, code ASC。
+ * enabled ∈ {0,1}（1 启用 / 0 停用；停用后 C 端 GET /api/dict 按空返回且不回退上游）；
+ * itemCount 是服务端 GROUP BY 的真实计数，无词条的组为 0。只读档限流 IP 30/60s。
+ */
+export function getAdminDictGroups() {
+  return request({ url: '/api/admin/dict/groups', method: 'GET' })
+}
+
+/**
+ * 某分组全部词条（不分页）：GET /api/admin/dict/{group}/items
+ * 出参 data 是数组：[{id,word,definition,sortOrder}]，顺序 sort_order DESC, id ASC（与 C 端读路径同口径）；
+ * definition 可为 null。分组不存在 → 400「字典分组不存在」。只读档限流 IP 30/60s。
+ * @param {string} group dict_group.code（如 dish_category）
+ */
+export function getAdminDictItems(group) {
+  return request({
+    url: '/api/admin/dict/' + encodeURIComponent(String(group)) + '/items',
+    method: 'GET'
+  })
+}
+
+/**
+ * 新增词条：POST /api/admin/dict/{group}/items，body {word, definition?, sortOrder?}
+ * word 必填（服务端 trim 后校验非空、最长 100 字符）；definition 可空（最长 500）、
+ * sortOrder 可空（服务端缺省落 0）。分组不存在 400；uk_group_word 冲突 400（文案由服务端给）。
+ * 成功 message「词条已新增」，且服务端自动 evict 该组缓存。写档限流 IP 10/60s。
+ * @param {string} group dict_group.code
+ * @param {{word:string, definition?:string, sortOrder?:number|null}} payload
+ *        definition 传空串表示「落空串」，传 null/undefined 则整个键不下发（新增缺省即空）；
+ *        sortOrder 为 null/undefined 时不发，让服务端按 0 落库。
+ * @returns {Promise<{code:number,message:string,data:null}>}
+ */
+export function createAdminDictItem(group, payload) {
+  const body = { word: payload.word }
+  if (payload.definition !== undefined && payload.definition !== null) body.definition = payload.definition
+  if (payload.sortOrder !== undefined && payload.sortOrder !== null) body.sortOrder = payload.sortOrder
+  return request({
+    url: '/api/admin/dict/' + encodeURIComponent(String(group)) + '/items',
+    method: 'POST',
+    data: body
+  })
+}
+
+/**
+ * 部分更新词条：PUT /api/admin/dict/items/{id}，body {word?, definition?, sortOrder?}
+ * null/缺键 = 本次不改该列（MyBatis-Plus NOT_NULL 策略）；三列全空 → 400「无更新字段…」；
+ * word 传空白串仍 400「词条名称不能为空」；改后撞 uk_group_word → 400。id 不存在 404。
+ * 成功 message「词条已更新」，且服务端自动 evict 该词条所属组缓存。写档限流 IP 10/60s。
+ * @param {number|string} id dict_item.id（自增整数）
+ * @param {{word?:string, definition?:string, sortOrder?:number|null}} patch
+ *        definition 传空串 = 显式清空（服务端允许）；传 null/undefined 则不下发 = 不改。
+ */
+export function updateAdminDictItem(id, patch) {
+  const body = {}
+  if (patch.word !== undefined) body.word = patch.word
+  if (patch.definition !== undefined && patch.definition !== null) body.definition = patch.definition
+  if (patch.sortOrder !== undefined && patch.sortOrder !== null) body.sortOrder = patch.sortOrder
+  return request({
+    url: '/api/admin/dict/items/' + encodeURIComponent(String(id)),
+    method: 'PUT',
+    data: body
+  })
+}
+
+/**
+ * 删除词条：DELETE /api/admin/dict/items/{id}
+ * id 不存在 404；dish_category 组有引用保护——词条 definition 形如 code:meat，取 code: 之后的部分
+ * 查 dish.category 引用数，>0 时 400「该分类下还有 N 个商品，删除后它们会变成无主分类」
+ * （页面必须原样透出这句）；其余组直接删。
+ * 成功 message「词条已删除」，且服务端自动 evict 该组缓存。写档限流 IP 10/60s。
+ * @param {number|string} id dict_item.id
+ */
+export function deleteAdminDictItem(id) {
+  return request({
+    url: '/api/admin/dict/items/' + encodeURIComponent(String(id)),
+    method: 'DELETE'
+  })
+}
+
+/**
+ * 部分更新分组：PUT /api/admin/dict/groups/{code}，body {name?, enabled?}
+ * null/缺键 = 不改；name 空白串 400；enabled 仅 0（停用）| 1（启用），其余 400。
+ * code 不存在 404（与读/建端点的 400「字典分组不存在」不同，契约钉死）。
+ * 成功 message「分组已更新」，且服务端自动 evict(code) 缓存；停用后 C 端 GET /api/dict 按空返回。
+ * 写档限流 IP 10/60s。
+ * @param {string} code dict_group.code
+ * @param {{name?:string, enabled?:number}} patch
+ */
+export function updateAdminDictGroup(code, patch) {
+  const body = {}
+  if (patch.name !== undefined && patch.name !== null) body.name = patch.name
+  if (patch.enabled !== undefined && patch.enabled !== null) body.enabled = patch.enabled
+  return request({
+    url: '/api/admin/dict/groups/' + encodeURIComponent(String(code)),
+    method: 'PUT',
+    data: body
+  })
+}
+
+/**
+ * 手工清除某分组缓存：POST /api/admin/dict/{group}/evict（§0.4 既有端点）。
+ * 只清 Caffeine、不强制重拉上游；下一次 GET /api/dict?group= 会重新读本地 dict_item。
+ * 组不存在 → 400「字典分组不存在」。成功 message「字典缓存已清除」。写档限流 IP 10/60s。
+ * @param {string} group dict_group.code
+ */
+export function evictAdminDict(group) {
+  return request({
+    url: '/api/admin/dict/' + encodeURIComponent(String(group)) + '/evict',
+    method: 'POST'
+  })
+}

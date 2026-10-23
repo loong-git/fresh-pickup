@@ -10,11 +10,16 @@ import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
 import com.fresh.dto.AdminArrivalDepartDTO;
+import com.fresh.dto.AdminDictGroupUpdateDTO;
+import com.fresh.dto.AdminDictItemCreateDTO;
+import com.fresh.dto.AdminDictItemUpdateDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.ArrivalBatch;
 import com.fresh.entity.ArrivalItem;
+import com.fresh.entity.DictGroup;
+import com.fresh.entity.DictItem;
 import com.fresh.entity.Dish;
 import com.fresh.entity.Merchant;
 import com.fresh.entity.MerchantApply;
@@ -28,6 +33,8 @@ import com.fresh.entity.User;
 import com.fresh.mapper.AdminAuditLogMapper;
 import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.ArrivalItemMapper;
+import com.fresh.mapper.DictGroupMapper;
+import com.fresh.mapper.DictItemMapper;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.MerchantApplyMapper;
 import com.fresh.mapper.MerchantMapper;
@@ -40,6 +47,7 @@ import com.fresh.mapper.StoreMapper;
 import com.fresh.mapper.UserMapper;
 import com.fresh.service.AdminService;
 import com.fresh.service.CouponService;
+import com.fresh.service.DictService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -1215,5 +1223,336 @@ public class AdminServiceImpl implements AdminService {
             log.warn("商家入驻申请 licenses 无法解析，merchant_profile.business_license 回退申请行原值");
         }
         return fallback;
+    }
+
+    // ==================================================================
+    // F-108 §0.7 片 2：字典管理端 CRUD + 引用保护（六个端点）。
+    // 追加式落码在文件末尾（常量 + 依赖 + 方法），理由同 F-63/F-106 片 B2 段注释。
+    // 本组方法刻意<b>不加 @Transactional</b>：每个写操作只有一条业务 DML，先提交再 evict，
+    // cache-aside 的顺序天然正确（事务内 evict 会让并发读在提交前把旧值重新写回 Caffeine）；
+    // 审计走本类唯一那份 writeAudit（旁路，写失败不打断主流程）。
+    // ==================================================================
+
+    /** 唯一做引用保护的组（契约「只做 dish_category，其余组允许删并在页面显式提示」） */
+    private static final String DICT_GROUP_DISH_CATEGORY = "dish_category";
+
+    /** dish_category 词条 definition 的取值前缀（definition 形如 code:meat） */
+    private static final String DICT_CATEGORY_CODE_PREFIX = "code:";
+
+    /** uk_group_word 冲突的 400 文案（一句中文；不把 DB 错误串透给前端） */
+    private static final String DICT_WORD_DUPLICATE_MSG = "该分组下已存在同名词条";
+
+    /** 分组不存在：读/建端点 400、改分组端点 404（契约 §0.7 两处定性不同，文案同一句） */
+    private static final String DICT_GROUP_NOT_FOUND_MSG = "字典分组不存在";
+
+    /** 词条不存在（PUT/DELETE 的 404） */
+    private static final String DICT_ITEM_NOT_FOUND_MSG = "词条不存在";
+
+    /** 审计动作（契约 §0.7 逐字四枚；写侧唯一真源） */
+    private static final String AUDIT_DICT_ITEM_CREATE = "dict.item.create";
+    private static final String AUDIT_DICT_ITEM_UPDATE = "dict.item.update";
+    private static final String AUDIT_DICT_ITEM_DELETE = "dict.item.delete";
+    private static final String AUDIT_DICT_GROUP_UPDATE = "dict.group.update";
+
+    /** 审计目标类型（admin_audit_log.target_type VARCHAR(30)） */
+    private static final String AUDIT_TARGET_DICT_ITEM = "dict_item";
+    private static final String AUDIT_TARGET_DICT_GROUP = "dict_group";
+
+    /** F-108 片 2 的三个新依赖（只被本段方法使用；追加式字段声明同 F-18.12/F-63 那批） */
+    @Autowired
+    private DictGroupMapper dictGroupMapper;
+    @Autowired
+    private DictItemMapper dictItemMapper;
+    /** 写后自动 evict：只清该组 Caffeine，不做上游强制重拉（同 §0.4 语义） */
+    @Autowired
+    private DictService dictService;
+
+    /**
+     * 字典分组列表（F-108 §0.7）：一次分组查询 + 一次 GROUP BY 计数，不按组循环查。
+     * 出参键序固定 {@code code,name,enabled,itemCount,sort}（LinkedHashMap 保序）；
+     * 无词条的组 {@code itemCount=0}，NULL 列归一成 0。
+     */
+    @Override
+    public List<Map<String, Object>> dictGroups() {
+        List<DictGroup> groups = dictGroupMapper.selectAllOrdered();
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (Map<String, Object> row : dictItemMapper.countByGroup()) {
+            Object code = row.get("groupCode");
+            if (code != null) {
+                counts.put(String.valueOf(code), toInteger(row.get("itemCount")));
+            }
+        }
+        List<Map<String, Object>> out = new ArrayList<>(groups.size());
+        for (DictGroup group : groups) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("code", group.getCode());
+            line.put("name", group.getName());
+            line.put("enabled", group.getEnabled() == null ? 0 : group.getEnabled());
+            line.put("itemCount", counts.getOrDefault(group.getCode(), 0));
+            line.put("sort", group.getSort() == null ? 0 : group.getSort());
+            out.add(line);
+        }
+        return out;
+    }
+
+    /**
+     * 某分组全部词条（不分页）：出参 {@code [{id,word,definition,sortOrder}]}，顺序取 mapper 的
+     * {@code sort_order DESC, id ASC}（与 C 端读路径同口径）。definition 原样出参（可为 null）。
+     * 分组不存在 → 400（与 evict 端点同一句文案）。
+     */
+    @Override
+    public List<Map<String, Object>> dictItems(String group) {
+        requireDictGroup(group);
+        List<DictItem> items = dictItemMapper.selectByGroup(group);
+        List<Map<String, Object>> out = new ArrayList<>(items.size());
+        for (DictItem item : items) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", item.getId());
+            line.put("word", item.getWord());
+            line.put("definition", item.getDefinition());
+            line.put("sortOrder", item.getSortOrder() == null ? 0 : item.getSortOrder());
+            out.add(line);
+        }
+        return out;
+    }
+
+    /**
+     * 新增词条：分组不存在 400；word trim 后必空校验；definition 可空（trim 后入库）；
+     * sortOrder 缺省 0。撞 {@code uk_group_word} → 400 一句中文。
+     * 成功后 evict(group) 并写 {@code dict.item.create}。
+     */
+    @Override
+    public void createDictItem(String group, AdminDictItemCreateDTO dto, String actor) {
+        requireDictGroup(group);
+        if (dto == null) {
+            throw new BizException("词条名称不能为空");
+        }
+        DictItem item = new DictItem();
+        item.setGroupCode(group);
+        item.setWord(requiredDictWord(dto.getWord()));
+        item.setDefinition(normalizeDictDefinition(dto.getDefinition()));
+        item.setSortOrder(dto.getSortOrder() == null ? 0 : dto.getSortOrder());
+        try {
+            dictItemMapper.insert(item);
+        } catch (DuplicateKeyException e) {
+            // uk_group_word(group_code, word) 的并发兜底：先查后插挡不住两人同时提交同名词条
+            throw new BizException(DICT_WORD_DUPLICATE_MSG);
+        }
+        dictService.evict(group);
+        writeAudit(auditActor(actor), AUDIT_DICT_ITEM_CREATE, AUDIT_TARGET_DICT_ITEM,
+                String.valueOf(item.getId()), null, dictItemDetail(item));
+    }
+
+    /**
+     * 部分更新词条：id 不存在 404；null 字段表示本次不改（MyBatis-Plus updateById 的 NOT_NULL 策略）；
+     * 三列全空 400；word 传空白串仍按 400「词条名称不能为空」。
+     * 改后撞 {@code uk_group_word} → 400。成功后 evict(该词条所属组) 并写 {@code dict.item.update}。
+     */
+    @Override
+    public void updateDictItem(Long id, AdminDictItemUpdateDTO dto, String actor) {
+        DictItem existing = id == null ? null : dictItemMapper.selectById(id);
+        if (existing == null) {
+            throw new BizException(R.CODE_NOT_FOUND, DICT_ITEM_NOT_FOUND_MSG);
+        }
+        if (dto == null) {
+            throw new BizException("无更新字段（可传 word / definition / sortOrder）");
+        }
+        String word = optionalDictWord(dto.getWord());
+        String definition = normalizeDictDefinition(dto.getDefinition());
+        if (word == null && definition == null && dto.getSortOrder() == null) {
+            throw new BizException("无更新字段（可传 word / definition / sortOrder）");
+        }
+        DictItem patch = new DictItem();
+        patch.setId(id);
+        if (word != null) {
+            patch.setWord(word);
+        }
+        if (definition != null) {
+            patch.setDefinition(definition);
+        }
+        if (dto.getSortOrder() != null) {
+            patch.setSortOrder(dto.getSortOrder());
+        }
+        try {
+            dictItemMapper.updateById(patch);
+        } catch (DuplicateKeyException e) {
+            throw new BizException(DICT_WORD_DUPLICATE_MSG);
+        }
+        dictService.evict(existing.getGroupCode());
+        writeAudit(auditActor(actor), AUDIT_DICT_ITEM_UPDATE, AUDIT_TARGET_DICT_ITEM, String.valueOf(id),
+                dictItemDetail(existing),
+                dictItemDetail(word != null ? word : existing.getWord(),
+                        definition != null ? definition : existing.getDefinition(),
+                        dto.getSortOrder() != null ? dto.getSortOrder() : existing.getSortOrder()));
+    }
+
+    /**
+     * 删除词条：id 不存在 404；{@code dish_category} 组先做引用保护（见
+     * {@link #protectDishCategoryReference}），其余组直接删。
+     * 成功后 evict(该词条所属组) 并写 {@code dict.item.delete}。
+     */
+    @Override
+    public void deleteDictItem(Long id, String actor) {
+        DictItem item = id == null ? null : dictItemMapper.selectById(id);
+        if (item == null) {
+            throw new BizException(R.CODE_NOT_FOUND, DICT_ITEM_NOT_FOUND_MSG);
+        }
+        protectDishCategoryReference(item);
+        int removed = dictItemMapper.deleteById(id);
+        if (removed == 0) {
+            // 查无之后、删除之前被并发删掉：与「id 不存在」同一出口，且不写审计（没删掉任何行）
+            throw new BizException(R.CODE_NOT_FOUND, DICT_ITEM_NOT_FOUND_MSG);
+        }
+        dictService.evict(item.getGroupCode());
+        writeAudit(auditActor(actor), AUDIT_DICT_ITEM_DELETE, AUDIT_TARGET_DICT_ITEM, String.valueOf(id),
+                dictItemDetail(item), "deleted");
+    }
+
+    /**
+     * 部分更新分组：code 不存在 404（与读/建端点的 400 不同，契约钉死）；{@code name}/{@code enabled}
+     * 全空 400；name 空白串 400；enabled 仅 0/1。成功后 evict(code) 并写 {@code dict.group.update}。
+     * 停用后 {@code GET /api/dict} 直接返空（读路径的 enabled 闸门在缓存之前，无需额外失效动作）。
+     */
+    @Override
+    public void updateDictGroup(String code, AdminDictGroupUpdateDTO dto, String actor) {
+        DictGroup existing = code == null ? null : dictGroupMapper.selectById(code);
+        if (existing == null) {
+            throw new BizException(R.CODE_NOT_FOUND, DICT_GROUP_NOT_FOUND_MSG);
+        }
+        if (dto == null) {
+            throw new BizException("无更新字段（可传 name / enabled）");
+        }
+        String name = optionalDictGroupName(dto.getName());
+        Integer enabled = dto.getEnabled();
+        if (enabled != null && enabled != 0 && enabled != 1) {
+            throw new BizException("enabled 仅允许 0（停用）或 1（启用）");
+        }
+        if (name == null && enabled == null) {
+            throw new BizException("无更新字段（可传 name / enabled）");
+        }
+        DictGroup patch = new DictGroup();
+        patch.setCode(code);
+        if (name != null) {
+            patch.setName(name);
+        }
+        if (enabled != null) {
+            patch.setEnabled(enabled);
+        }
+        dictGroupMapper.updateById(patch);
+        dictService.evict(code);
+        writeAudit(auditActor(actor), AUDIT_DICT_GROUP_UPDATE, AUDIT_TARGET_DICT_GROUP, code,
+                dictGroupDetail(existing),
+                dictGroupDetail(name != null ? name : existing.getName(),
+                        enabled != null ? enabled : existing.getEnabled()));
+    }
+
+    /** 分组存在性闸门（400）：列表/新增词条共用；改分组端点的 404 在 updateDictGroup 内单独判。 */
+    private DictGroup requireDictGroup(String group) {
+        DictGroup row = group == null ? null : dictGroupMapper.selectById(group);
+        if (row == null) {
+            throw new BizException(DICT_GROUP_NOT_FOUND_MSG);
+        }
+        return row;
+    }
+
+    /** 新增时的 word：null/空白 → 400；trim 后超列宽（VARCHAR(100)）→ 400（不让 1406 变 500） */
+    private static String requiredDictWord(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            throw new BizException("词条名称不能为空");
+        }
+        return checkDictWordLength(raw.trim());
+    }
+
+    /** 更新时的 word：null = 不改；传了就必须是非空且不超列宽（空白串 400，不是「不传」） */
+    private static String optionalDictWord(String raw) {
+        return raw == null ? null : requiredDictWord(raw);
+    }
+
+    /** 词条列宽校验（word VARCHAR(100)） */
+    private static String checkDictWordLength(String word) {
+        if (word.length() > 100) {
+            throw new BizException("词条名称最长 100 个字符");
+        }
+        return word;
+    }
+
+    /** definition：null = 不改/不填；trim 后入库；空串允许（等价清空）；超列宽 500 → 400 */
+    private static String normalizeDictDefinition(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String definition = raw.trim();
+        if (definition.length() > 500) {
+            throw new BizException("词条定义最长 500 个字符");
+        }
+        return definition;
+    }
+
+    /** 分组名：null = 不改；传了就必须是非空白且不超列宽（VARCHAR(50)） */
+    private static String optionalDictGroupName(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String name = raw.trim();
+        if (name.isEmpty()) {
+            throw new BizException("分组名称不能为空");
+        }
+        if (name.length() > 50) {
+            throw new BizException("分组名称最长 50 个字符");
+        }
+        return name;
+    }
+
+    /**
+     * dish_category 引用保护（契约 §0.7 唯一做保护的一组）：definition 里 {@code code:} 之后的部分
+     * 就是 {@code dish.category} 的取值，查 {@code SELECT COUNT(*) FROM dish WHERE category=?}。
+     * <p>definition 为 null / 不含 {@code code:} / 前缀后为空 → 视为不指向任何分类（0 引用），允许删。
+     * 只有 count&gt;0 才 400；其余组（coupon_template / kingkong_entry / service_tags）直接放行，
+     * 由运营页显式提示「该组无引用保护，删除后前端会回退 FALLBACK」。
+     */
+    private void protectDishCategoryReference(DictItem item) {
+        if (!DICT_GROUP_DISH_CATEGORY.equals(item.getGroupCode())) {
+            return;
+        }
+        String category = dishCategoryCode(item.getDefinition());
+        if (category == null) {
+            return;
+        }
+        long count = dishMapper.countByCategory(category);
+        if (count > 0) {
+            // 逐字照契约：「该分类下还有 N 个商品，删除后它们会变成无主分类」
+            throw new BizException("该分类下还有 " + count + " 个商品，删除后它们会变成无主分类");
+        }
+    }
+
+    /** 取 definition 里 {@code code:} 之后的部分并 trim；无法解析回 null（= 不指向分类，放行删除） */
+    private static String dishCategoryCode(String definition) {
+        if (definition == null) {
+            return null;
+        }
+        int index = definition.indexOf(DICT_CATEGORY_CODE_PREFIX);
+        if (index < 0) {
+            return null;
+        }
+        String code = definition.substring(index + DICT_CATEGORY_CODE_PREFIX.length()).trim();
+        return code.isEmpty() ? null : code;
+    }
+
+    /** 审计 detail（词条）：word/definition/sortOrder 三段短串；超 500 由 writeAudit 的既有预算截断兜底 */
+    private static String dictItemDetail(DictItem item) {
+        return dictItemDetail(item.getWord(), item.getDefinition(), item.getSortOrder());
+    }
+
+    private static String dictItemDetail(String word, String definition, Integer sortOrder) {
+        return "word=" + word + ",definition=" + definition + ",sortOrder=" + sortOrder;
+    }
+
+    /** 审计 detail（分组）：name/enabled 两段短串 */
+    private static String dictGroupDetail(DictGroup group) {
+        return dictGroupDetail(group.getName(), group.getEnabled());
+    }
+
+    private static String dictGroupDetail(String name, Integer enabled) {
+        return "name=" + name + ",enabled=" + enabled;
     }
 }

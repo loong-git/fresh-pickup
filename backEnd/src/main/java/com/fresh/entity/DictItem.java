@@ -12,7 +12,8 @@ import lombok.Data;
  * 读路径按 {@code sort_order DESC, id ASC} 出参（契约 §0.3），出参形状在 Service 侧映射为
  * {@code {word, definition, sortOrder}} 三键，与上游分支逐字同形。
  *
- * <p>本片无写入端点（管理页与引用保护属片 2），实体只承担读路径载体的角色。
+ * <p>片 1 只承担读路径载体；片 2（F-108 §0.7）起运营端可增删改，写路径见
+ * {@code AdminServiceImpl} 的 dictItem 四方法（dish_category 组删除前做引用保护）。
  */
 @Data
 @TableName("dict_item")

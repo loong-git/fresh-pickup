@@ -1,9 +1,13 @@
 package com.fresh.service;
 
 import com.fresh.dto.AdminArrivalDepartDTO;
+import com.fresh.dto.AdminDictGroupUpdateDTO;
+import com.fresh.dto.AdminDictItemCreateDTO;
+import com.fresh.dto.AdminDictItemUpdateDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -177,4 +181,53 @@ public interface AdminService {
      * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
      */
     Map<String, Object> departArrival(AdminArrivalDepartDTO dto, String actor);
+
+    // ==================================================================
+    // F-108 §0.7 片 2：字典管理端 CRUD + 引用保护（六个端点，全部双轨闸门在 Controller）
+    // 写操作成功后统一 evict 该组 Caffeine 缓存，并写 admin_audit_log：
+    //   dict.item.create / dict.item.update / dict.item.delete / dict.group.update
+    // actor 口径与本接口既有方法一致（Controller 传 grant.actor()；null = 静态密钥轨，
+    // Service 侧归一成 admin:<key 摘要 8>）。本组方法均<b>不加 @Transactional</b>：
+    // 每个写操作是单条 DML，先提交再 evict，cache-aside 顺序正确；审计是旁路，写失败不打断主流程。
+    // ==================================================================
+
+    /**
+     * 字典分组列表：{@code [{code,name,enabled,itemCount,sort}]}，按 {@code sort ASC, code ASC}。
+     * 无词条的组 {@code itemCount=0}。
+     */
+    List<Map<String, Object>> dictGroups();
+
+    /**
+     * 某分组全部词条（不分页，最多几十条）：{@code [{id,word,definition,sortOrder}]}，
+     * 顺序与 C 端读路径同口径（{@code sort_order DESC, id ASC}）。
+     *
+     * @throws com.fresh.common.BizException 分组不存在（400「字典分组不存在」）
+     */
+    List<Map<String, Object>> dictItems(String group);
+
+    /**
+     * 新增词条：group 必须存在（400）；word 必填（trim 后非空）；撞 {@code uk_group_word} → 400。
+     * 成功后 evict(group) + 审计 {@code dict.item.create}。
+     */
+    void createDictItem(String group, AdminDictItemCreateDTO dto, String actor);
+
+    /**
+     * 部分更新词条：id 不存在 404；三列全空 400；word 改后撞 {@code uk_group_word} → 400。
+     * 成功后 evict(该词条所属组) + 审计 {@code dict.item.update}。
+     */
+    void updateDictItem(Long id, AdminDictItemUpdateDTO dto, String actor);
+
+    /**
+     * 删除词条：id 不存在 404；{@code dish_category} 组先做引用保护——
+     * 取 definition 里 {@code code:} 之后的部分查 {@code SELECT COUNT(*) FROM dish WHERE category=?}，
+     * 大于 0 一律 400「该分类下还有 N 个商品，删除后它们会变成无主分类」；其余组直接删。
+     * 成功后 evict(该词条所属组) + 审计 {@code dict.item.delete}。
+     */
+    void deleteDictItem(Long id, String actor);
+
+    /**
+     * 部分更新分组：code 不存在 404；{@code name}/{@code enabled} 全空 400；enabled 仅 0/1。
+     * 成功后 evict(code) + 审计 {@code dict.group.update}。停用后 {@code GET /api/dict} 按空返回。
+     */
+    void updateDictGroup(String code, AdminDictGroupUpdateDTO dto, String actor);
 }

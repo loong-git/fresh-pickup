@@ -4,6 +4,9 @@ import com.fresh.annotation.RateLimit;
 import com.fresh.common.JwtUtil;
 import com.fresh.common.R;
 import com.fresh.dto.AdminArrivalDepartDTO;
+import com.fresh.dto.AdminDictGroupUpdateDTO;
+import com.fresh.dto.AdminDictItemCreateDTO;
+import com.fresh.dto.AdminDictItemUpdateDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminOrderStatusDTO;
@@ -16,6 +19,7 @@ import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -286,6 +291,125 @@ public class AdminController {
         }
         dictService.evict(group);
         return R.ok(null, "字典缓存已清除");
+    }
+
+    // ==================================================================
+    // F-108 §0.7 片 2：字典管理端 CRUD（六个端点）
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator（静态密钥或运营 JWT）；
+    // 写端点 10/60s、读端点 30/60s，均按 IP 维度（Admin 面无 JWT userId，§2.10a）。
+    // 写操作成功后的 evict 在 AdminServiceImpl 内完成（与服务侧「写后自动失效」同一处，
+    // 不靠调用方记得；本类只保留 §0.4 手工 evict 端点）。
+    // ==================================================================
+
+    /**
+     * 字典分组列表（F-108 §0.7）：{@code GET /api/admin/dict/groups} →
+     * {@code [{code,name,enabled,itemCount,sort}]}，按 {@code sort ASC, code ASC}。
+     * 只读端点不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（§0.7）
+    @GetMapping("/dict/groups")
+    public R<List<Map<String, Object>>> dictGroups(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                   @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 merchantApplies/arrivalPreview 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.dictGroups());
+    }
+
+    /**
+     * 某分组全部词条（F-108 §0.7）：{@code GET /api/admin/dict/{group}/items} →
+     * {@code [{id,word,definition,sortOrder}]}，不分页（最多几十条），顺序同 C 端读路径。
+     * 分组不存在 → Service 抛 BizException，对外 400「字典分组不存在」。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（§0.7）
+    @GetMapping("/dict/{group}/items")
+    public R<List<Map<String, Object>>> dictItems(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                  @RequestHeader(value = "Authorization", required = false) String authz,
+                                                  @PathVariable("group") String group) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.dictItems(group));
+    }
+
+    /**
+     * 新增词条（F-108 §0.7）：{@code POST /api/admin/dict/{group}/items}，body {@code {word, definition?, sortOrder?}}。
+     * word 必填（DTO {@code @NotBlank} + Service 双保险）；分组不存在 400；{@code uk_group_word} 冲突 400。
+     * 成功后 Service 内自动 evict 该组并写审计 {@code dict.item.create}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（§0.7）
+    @PostMapping("/dict/{group}/items")
+    public R<Void> createDictItem(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                  @RequestHeader(value = "Authorization", required = false) String authz,
+                                  @PathVariable("group") String group,
+                                  @Valid @RequestBody AdminDictItemCreateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.createDictItem(group, dto, grant.actor());
+        return R.ok(null, "词条已新增");
+    }
+
+    /**
+     * 部分更新词条（F-108 §0.7）：{@code PUT /api/admin/dict/items/{id}}，
+     * body {@code {word?, definition?, sortOrder?}}（null = 本次不改）。id 不存在 404。
+     * 成功后 Service 内自动 evict 该词条所属组并写审计 {@code dict.item.update}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（§0.7）
+    @PutMapping("/dict/items/{id}")
+    public R<Void> updateDictItem(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                  @RequestHeader(value = "Authorization", required = false) String authz,
+                                  @PathVariable("id") Long id,
+                                  @Valid @RequestBody AdminDictItemUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateDictItem(id, dto, grant.actor());
+        return R.ok(null, "词条已更新");
+    }
+
+    /**
+     * 删除词条（F-108 §0.7）：{@code DELETE /api/admin/dict/items/{id}}。id 不存在 404。
+     * {@code dish_category} 组做引用保护：该分类下仍有商品时 400（文案带真实商品数），
+     * 其余组直接删。成功后 Service 内自动 evict 该组并写审计 {@code dict.item.delete}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（§0.7）
+    @DeleteMapping("/dict/items/{id}")
+    public R<Void> deleteDictItem(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                  @RequestHeader(value = "Authorization", required = false) String authz,
+                                  @PathVariable("id") Long id) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.deleteDictItem(id, grant.actor());
+        return R.ok(null, "词条已删除");
+    }
+
+    /**
+     * 部分更新分组（F-108 §0.7）：{@code PUT /api/admin/dict/groups/{code}}，
+     * body {@code {name?, enabled?}}。code 不存在 404；enabled=0 停用后 {@code GET /api/dict} 按空返回。
+     * 成功后 Service 内自动 evict(code) 并写审计 {@code dict.group.update}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（§0.7）
+    @PutMapping("/dict/groups/{code}")
+    public R<Void> updateDictGroup(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                   @RequestHeader(value = "Authorization", required = false) String authz,
+                                   @PathVariable("code") String code,
+                                   @Valid @RequestBody AdminDictGroupUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateDictGroup(code, dto, grant.actor());
+        return R.ok(null, "分组已更新");
     }
 
     /**
