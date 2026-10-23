@@ -11,6 +11,7 @@ import com.fresh.dto.AdminReviewAuditDTO;
 import com.fresh.entity.AdminUser;
 import com.fresh.mapper.AdminUserMapper;
 import com.fresh.service.AdminService;
+import com.fresh.service.DictService;
 import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +60,10 @@ public class AdminController {
 
     @Autowired
     private AdminService adminService;
+
+    /** 字典缓存清除（F-108 §0.4 运营 evict 端点）：只清该组 Caffeine，不做上游强制重拉 */
+    @Autowired
+    private DictService dictService;
 
     /** 双轨第二轨用：解析 Bearer → claims（G-01 起的 parseClaims 通道，本类首次使用；只读 typ 与 subject） */
     @Autowired
@@ -260,6 +265,27 @@ public class AdminController {
         return R.ok(data, Boolean.TRUE.equals(data.get("idempotent"))
                 ? "该店该日批次已在途，已按最新订单重算明细"
                 : "已发车，批次进入到货中");
+    }
+
+    /**
+     * 字典分组缓存清除（F-108 §0.4）：{@code POST /api/admin/dict/{group}/evict}。
+     * <p>只清该组 Caffeine 缓存并返回 {@code {code:200}}，<b>不做</b>「从上游强制重拉」——
+     * 上游当前不可用，加了只会造 400；清完后下一次 {@code GET /api/dict?group=} 会重新读本地 dict_item。
+     * <p>组不存在（dict_group 无此行）→ Service 抛 BizException，对外 code=400。
+     * <p>闸门与限流逐字照本面其余端点：双轨 {@link #checkKeyOrOperator}（静态密钥或运营 JWT），
+     * Admin 面无 JWT userId → 限流按 IP 维度 10/60s。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // R6 随建随挂：Admin 新端点必带限流
+    @PostMapping("/dict/{group}/evict")
+    public R<Void> evictDict(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                             @RequestHeader(value = "Authorization", required = false) String authz,
+                             @PathVariable("group") String group) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        dictService.evict(group);
+        return R.ok(null, "字典缓存已清除");
     }
 
     /**

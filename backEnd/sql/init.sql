@@ -34,6 +34,8 @@
 --       照 store_apply 的并发范式，封死同用户并发双 pending；结构与 m21-migration.sql 逐字一致
 --   m22 merchant_apply.licenses + merchant_profile.licenses（F-107 多证照扩展）：两列均 TEXT NULL，
 --       申请侧存证照列表 JSON 文本、过审时原样复制；单图 business_license 保留不动（兼容老客户端/老读路径）
+--   m23 dict_group + dict_item（F-108 字典本地化）：结构逐字照契约 §0.2，本文件只同步两处建表体；
+--       4 组 / 23 条词条回填只存在于 m23-migration.sql 一处真源（INSERT IGNORE 幂等），重建后随 m3~m23 重放落库
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -589,6 +591,38 @@ CREATE TABLE cash_flow (
     KEY idx_user (user_id, created_at),
     KEY idx_invitee (invitee_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='邀请现金流水（F-04）';
+
+-- ----------------------------
+-- 字典分组表（F-108 字典本地化，m23-migration.sql ① 同步，DDL 逐字照契约 §0.2）：
+-- 上游字典服务降级为「同步源」——本地 dict_item 有词条时 DictServiceImpl#getGroup 不再调上游；
+-- enabled=1 启用 / 0 停用（停用=该组按空返回，不回退上游）；upstream_category_id 仅同步用（值照 GROUP_ID）。
+-- 词条种子只在 m23-migration.sql 里（4 组 / 23 条 INSERT IGNORE），本文件不并入，避免两份真源。
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS dict_group (
+  code VARCHAR(32) NOT NULL COMMENT '分组代码（与 DictServiceImpl.GROUP_ID 的键一致）',
+  name VARCHAR(50) NOT NULL COMMENT '中文名',
+  upstream_category_id INT NULL COMMENT '上游 categoryId（仅同步用；本地有数据时不走上游）',
+  sort INT NOT NULL DEFAULT 0,
+  enabled TINYINT NOT NULL DEFAULT 1 COMMENT '1 启用 / 0 停用（停用=该组按空返回，不回退上游）',
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='字典分组';
+
+-- ----------------------------
+-- 字典词条表（F-108 字典本地化，m23-migration.sql ② 同步，DDL 逐字照契约 §0.2）：
+-- uk_group_word 是回填 INSERT IGNORE 的幂等依据；idx_group_sort 支撑读路径的 sort_order DESC 排序。
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS dict_item (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  group_code VARCHAR(32) NOT NULL,
+  word VARCHAR(100) NOT NULL COMMENT '显示名',
+  definition VARCHAR(500) NULL COMMENT '取值/定义（券组是 JSON 字符串）',
+  sort_order INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_group_word (group_code, word),
+  KEY idx_group_sort (group_code, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='字典词条';
 
 -- ================================================
 -- Mock 数据 - 肉蛋水产/速冻/生鲜/水果（11条，T-M3-12 分类对齐字典 code）
