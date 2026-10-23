@@ -1,5 +1,7 @@
 package com.fresh.service;
 
+import com.fresh.dto.AdminAliasCreateDTO;
+import com.fresh.dto.AdminAliasUpdateDTO;
 import com.fresh.dto.AdminArrivalDepartDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
@@ -272,4 +274,44 @@ public interface AdminService {
      * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
      */
     void updateFreePool(AdminFreePoolUpdateDTO dto, String actor);
+
+    // ==================================================================
+    // F-110 搜索别名维护（四个端点，只影响搜索命中，不碰价格/库存/订单）
+    // 读端点不写审计；写端点成功后写 admin_audit_log：
+    //   alias.create / alias.update / alias.delete（actor 口径同本接口既有方法）。
+    // C 端搜索读路径无缓存（DishMapper 逐次精确等值查 dish_alias），故写后无需 evict。
+    // ==================================================================
+
+    /**
+     * 搜索别名全量列表（{@code GET /api/admin/aliases}）→
+     * {@code [{id,alias,dishId,dishName,onSale}]}，按 {@code alias ASC}。
+     * 下架商品同样列出（onSale=0）——下架件持有别名是合法状态。
+     */
+    List<Map<String, Object>> aliases();
+
+    /**
+     * 新增搜索别名（{@code POST /api/admin/aliases}）：alias trim 后非空且 ≤50；
+     * dishId 必须存在（<b>不要求在售</b>）；{@code uk_alias} 冲突 → 400「该别名已存在」。
+     * 成功后写审计 {@code alias.create}。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void createAlias(AdminAliasCreateDTO dto, String actor);
+
+    /**
+     * 部分更新搜索别名（{@code PUT /api/admin/aliases/{id}}）：null 字段表示本次不改；
+     * 两列全空 400；alias 传空白串 400；id 不存在 404；改后撞 {@code uk_alias} → 400。
+     * dishId 必须存在（不要求在售）。成功后写审计 {@code alias.update}。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void updateAlias(Long id, AdminAliasUpdateDTO dto, String actor);
+
+    /**
+     * 删除搜索别名（{@code DELETE /api/admin/aliases/{id}}）：id 不存在 404。
+     * 成功后写审计 {@code alias.delete}。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void deleteAlias(Long id, String actor);
 }

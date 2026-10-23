@@ -892,3 +892,70 @@ export function updateAdminFreePool(dishIds) {
     data: { dishIds: Array.isArray(dishIds) ? dishIds : [] }
   })
 }
+
+// ==================== F-110 搜索别名维护（dish_alias 四个端点） ====================
+// 契约真源：docs/上线任务文档.md「F-110」§0.2/§0.3。四个端点全在 AdminController 的 Admin 面
+// （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
+// 读端点限流 IP 30/60s、写端点 IP 10/60s。
+// 语义边界：别名只影响 C 端搜索命中（dish_alias.alias 精确等值 → dish_id），不碰价格/库存/订单；
+// 搜索 SQL（DishMapper）本片零改动。dishId 只要求商品存在，**不要求在售**（下架件持有别名是合法状态）。
+// 商品下拉走既有的 getAdminDishes（GET /api/admin/v2/dishes，JWT-only 面），本节不另造商品端点。
+
+/**
+ * 搜索别名全量列表：GET /api/admin/aliases
+ * 出参 data 是数组：[{id,alias,dishId,dishName,onSale}]，按 alias 升序。
+ * onSale ∈ {0,1}，下架商品同样列出（onSale=0）——管理端要看见失效项，不许静默滤掉。
+ * 只读档限流 IP 30/60s。
+ */
+export function getAdminAliases() {
+  return request({
+    url: '/api/admin/aliases',
+    method: 'GET'
+  })
+}
+
+/**
+ * 新增搜索别名：POST /api/admin/aliases，body {alias, dishId}
+ * alias 服务端 trim 后非空且 ≤50；dishId 必须存在（不要求在售）；
+ * uk_alias 冲突 → 400「该别名已存在」。成功 message「别名已新增」。写档限流 IP 10/60s。
+ * @param {{alias:string, dishId:number}} payload
+ */
+export function createAdminAlias(payload) {
+  return request({
+    url: '/api/admin/aliases',
+    method: 'POST',
+    data: { alias: payload.alias, dishId: payload.dishId }
+  })
+}
+
+/**
+ * 部分更新搜索别名：PUT /api/admin/aliases/{id}，body {alias?, dishId?}
+ * null/缺键 = 本次不改该列；两列全空 400；alias 传空白串 400；id 不存在 404；
+ * 改后撞 uk_alias → 400「该别名已存在」。成功 message「别名已更新」。写档限流 IP 10/60s。
+ * @param {number|string} id dish_alias.id（自增整数）
+ * @param {{alias?:string, dishId?:number}} patch 未传/null 的键不下发
+ */
+export function updateAdminAlias(id, patch) {
+  const p = patch || {}
+  const body = {}
+  if (p.alias !== undefined && p.alias !== null) body.alias = p.alias
+  if (p.dishId !== undefined && p.dishId !== null) body.dishId = p.dishId
+  return request({
+    url: '/api/admin/aliases/' + encodeURIComponent(String(id)),
+    method: 'PUT',
+    data: body
+  })
+}
+
+/**
+ * 删除搜索别名：DELETE /api/admin/aliases/{id}
+ * id 不存在 404。成功 message「别名已删除」；删除后 C 端用该别名搜索不再命中。
+ * 写档限流 IP 10/60s。
+ * @param {number|string} id dish_alias.id
+ */
+export function deleteAdminAlias(id) {
+  return request({
+    url: '/api/admin/aliases/' + encodeURIComponent(String(id)),
+    method: 'DELETE'
+  })
+}

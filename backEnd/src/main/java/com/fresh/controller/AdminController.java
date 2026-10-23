@@ -3,6 +3,8 @@ package com.fresh.controller;
 import com.fresh.annotation.RateLimit;
 import com.fresh.common.JwtUtil;
 import com.fresh.common.R;
+import com.fresh.dto.AdminAliasCreateDTO;
+import com.fresh.dto.AdminAliasUpdateDTO;
 import com.fresh.dto.AdminArrivalDepartDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
@@ -491,6 +493,88 @@ public class AdminController {
         }
         adminService.updateFreePool(dto, grant.actor());
         return R.ok(null, "候选池已更新");
+    }
+
+    // ==================================================================
+    // F-110：搜索别名维护（四个端点，只影响搜索命中，不碰价格/库存/订单）
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator（静态密钥或运营 JWT）；
+    // 读端点 30/60s、写端点 10/60s，均按 IP 维度（Admin 面无 JWT userId，§2.10a）。
+    // 审计（alias.create / alias.update / alias.delete）在 AdminServiceImpl 内与业务同源写。
+    // C 端搜索语义不变：DishMapper#selectDishIdsByAlias 的精确等值 SQL 本片零改动。
+    // ==================================================================
+
+    /**
+     * 搜索别名全量列表（F-110 §0.2）：{@code GET /api/admin/aliases} →
+     * {@code [{id,alias,dishId,dishName,onSale}]}，按 alias 升序。
+     * 下架商品同样列出（onSale=0）——下架件持有别名是合法状态。
+     * 只读端点不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-110 §0.2）
+    @GetMapping("/aliases")
+    public R<List<Map<String, Object>>> aliases(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 merchantApplies/arrivalPreview 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.aliases());
+    }
+
+    /**
+     * 新增搜索别名（F-110 §0.2）：{@code POST /api/admin/aliases}，body {@code {alias, dishId}}。
+     * alias trim 后非空且 ≤50；dishId 必须存在（不要求在售）；{@code uk_alias} 冲突 400「该别名已存在」。
+     * 成功后 Service 内写审计 {@code alias.create}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-110 §0.2）
+    @PostMapping("/aliases")
+    public R<Void> createAlias(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                               @RequestHeader(value = "Authorization", required = false) String authz,
+                               @Valid @RequestBody AdminAliasCreateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.createAlias(dto, grant.actor());
+        return R.ok(null, "别名已新增");
+    }
+
+    /**
+     * 部分更新搜索别名（F-110 §0.2）：{@code PUT /api/admin/aliases/{id}}，
+     * body {@code {alias?, dishId?}}（null/缺键 = 本次不改）。id 不存在 404；
+     * 两列全空 400；alias 空白 400；改后撞 {@code uk_alias} 400。
+     * 成功后 Service 内写审计 {@code alias.update}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-110 §0.2）
+    @PutMapping("/aliases/{id}")
+    public R<Void> updateAlias(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                               @RequestHeader(value = "Authorization", required = false) String authz,
+                               @PathVariable("id") Long id,
+                               @Valid @RequestBody AdminAliasUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateAlias(id, dto, grant.actor());
+        return R.ok(null, "别名已更新");
+    }
+
+    /**
+     * 删除搜索别名（F-110 §0.2）：{@code DELETE /api/admin/aliases/{id}}。id 不存在 404。
+     * 成功后 Service 内写审计 {@code alias.delete}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-110 §0.2）
+    @DeleteMapping("/aliases/{id}")
+    public R<Void> deleteAlias(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                               @RequestHeader(value = "Authorization", required = false) String authz,
+                               @PathVariable("id") Long id) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.deleteAlias(id, grant.actor());
+        return R.ok(null, "别名已删除");
     }
 
     /**

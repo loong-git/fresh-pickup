@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
+import com.fresh.dto.AdminAliasCreateDTO;
+import com.fresh.dto.AdminAliasUpdateDTO;
 import com.fresh.dto.AdminArrivalDepartDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
@@ -23,6 +25,7 @@ import com.fresh.entity.ArrivalItem;
 import com.fresh.entity.DictGroup;
 import com.fresh.entity.DictItem;
 import com.fresh.entity.Dish;
+import com.fresh.entity.DishAlias;
 import com.fresh.entity.FreeActivity;
 import com.fresh.entity.FreeGoodsPool;
 import com.fresh.entity.Merchant;
@@ -39,6 +42,7 @@ import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.ArrivalItemMapper;
 import com.fresh.mapper.DictGroupMapper;
 import com.fresh.mapper.DictItemMapper;
+import com.fresh.mapper.DishAliasMapper;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.FreeActivityMapper;
 import com.fresh.mapper.FreeGoodsPoolMapper;
@@ -1802,5 +1806,194 @@ public class AdminServiceImpl implements AdminService {
             sb.append(dishIds.get(i));
         }
         return sb.toString();
+    }
+
+    // ==================================================================
+    // F-110 搜索别名维护（四个操作，只影响搜索命中，不碰价格/库存/订单）
+    // 读端点不写审计；写端点成功后统一走本类唯一那份 writeAudit（旁路）：
+    //   alias.create / alias.update / alias.delete。
+    // 别名语义不变：C 端搜索仍是 DishMapper#selectDishIdsByAlias 的精确等值，本段不改那条 SQL。
+    // 写操作均为单条 DML，不加 @Transactional：C 端别名读路径无缓存，没有 cache-aside 顺序问题；
+    // 审计是旁路，写失败不打断主流程。
+    // ==================================================================
+
+    /** 审计动作（契约 §0.2 逐字三枚；写侧唯一真源） */
+    private static final String AUDIT_ALIAS_CREATE = "alias.create";
+    private static final String AUDIT_ALIAS_UPDATE = "alias.update";
+    private static final String AUDIT_ALIAS_DELETE = "alias.delete";
+
+    /** 审计目标类型（admin_audit_log.target_type VARCHAR(30)） */
+    private static final String AUDIT_TARGET_DISH_ALIAS = "dish_alias";
+
+    /** 别名列宽（dish_alias.alias VARCHAR(50)）：trim 后再判，按字符数 */
+    private static final int ALIAS_MAX_LENGTH = 50;
+
+    private static final String ALIAS_EMPTY_MSG = "别名不能为空";
+    private static final String ALIAS_TOO_LONG_MSG = "别名最长 50 个字符";
+    /** uk_alias 冲突的 400 文案（契约逐字，不把 DB 错误串透给前端） */
+    private static final String ALIAS_DUPLICATE_MSG = "该别名已存在";
+    private static final String ALIAS_NOT_FOUND_MSG = "别名不存在";
+    private static final String ALIAS_DISH_NOT_FOUND_MSG = "商品不存在";
+    private static final String ALIAS_NO_FIELDS_MSG = "无更新字段（可传 alias / dishId）";
+
+    /** F-110 的新依赖（只被本段方法使用；追加式字段声明同 F-63/F-108/F-109 那批） */
+    @Autowired
+    private DishAliasMapper dishAliasMapper;
+
+    /**
+     * 别名全量列表：键序固定 {@code id,alias,dishId,dishName,onSale}，顺序即 mapper 的 {@code alias ASC}。
+     * 一次别名查询 + 一次商品批量查询，不按行循环查；商品行被清（LEFT JOIN 不到）时 dishName=null、
+     * onSale=0，但别名行仍返回（运营看得见脏项）。
+     */
+    @Override
+    public List<Map<String, Object>> aliases() {
+        List<DishAlias> rows = dishAliasMapper.selectAllOrdered();
+        Map<Long, Dish> dishes = new HashMap<>();
+        if (!rows.isEmpty()) {
+            List<Long> ids = new ArrayList<>(rows.size());
+            for (DishAlias row : rows) {
+                if (row.getDishId() != null) {
+                    ids.add(row.getDishId());
+                }
+            }
+            if (!ids.isEmpty()) {
+                for (Dish dish : dishMapper.selectBatchIds(ids)) {
+                    dishes.put(dish.getId(), dish);
+                }
+            }
+        }
+        List<Map<String, Object>> out = new ArrayList<>(rows.size());
+        for (DishAlias row : rows) {
+            Dish dish = row.getDishId() == null ? null : dishes.get(row.getDishId());
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.getId());
+            line.put("alias", row.getAlias());
+            line.put("dishId", row.getDishId());
+            line.put("dishName", dish == null ? null : dish.getName());
+            line.put("onSale", dish != null && dish.getOnSale() != null && dish.getOnSale() == 1 ? 1 : 0);
+            out.add(line);
+        }
+        return out;
+    }
+
+    /**
+     * 新增别名：alias trim 后非空且 ≤50；dishId 必须存在（<b>不要求在售</b>）；
+     * 预查 uk_alias 冲突 → 400，并发下由 DB 唯一键兜底成同一句 400。
+     * 成功后写审计 {@code alias.create}（target_id = 新行 id）。
+     */
+    @Override
+    public void createAlias(AdminAliasCreateDTO dto, String actor) {
+        String alias = requiredAlias(dto == null ? null : dto.getAlias());
+        Long dishId = dto == null ? null : dto.getDishId();
+        if (dishId == null) {
+            throw new BizException("商品不能为空");
+        }
+        requireDishExists(dishId);
+        if (dishAliasMapper.selectByAlias(alias) != null) {
+            throw new BizException(ALIAS_DUPLICATE_MSG);
+        }
+        DishAlias row = new DishAlias();
+        row.setAlias(alias);
+        row.setDishId(dishId);
+        try {
+            dishAliasMapper.insert(row);
+        } catch (DuplicateKeyException e) {
+            // uk_alias 的并发兜底：先查后插挡不住两人同时提交同一个别名
+            throw new BizException(ALIAS_DUPLICATE_MSG);
+        }
+        writeAudit(auditActor(actor), AUDIT_ALIAS_CREATE, AUDIT_TARGET_DISH_ALIAS,
+                String.valueOf(row.getId()), null, aliasDetail(alias, dishId));
+    }
+
+    /**
+     * 部分更新别名：id 不存在 404；两列全空 400；alias 传空白串 400、超长 400；
+     * dishId 传值须存在（不要求在售）；改后撞 uk_alias → 400（排除自身）。
+     * 成功后写审计 {@code alias.update}，detail 的旧/新值均为「合并后的完整两列」。
+     */
+    @Override
+    public void updateAlias(Long id, AdminAliasUpdateDTO dto, String actor) {
+        DishAlias existing = id == null ? null : dishAliasMapper.selectById(id);
+        if (existing == null) {
+            throw new BizException(R.CODE_NOT_FOUND, ALIAS_NOT_FOUND_MSG);
+        }
+        if (dto == null) {
+            throw new BizException(ALIAS_NO_FIELDS_MSG);
+        }
+        String alias = dto.getAlias() == null ? null : requiredAlias(dto.getAlias());
+        Long dishId = dto.getDishId();
+        if (alias == null && dishId == null) {
+            throw new BizException(ALIAS_NO_FIELDS_MSG);
+        }
+        if (dishId != null) {
+            requireDishExists(dishId);
+        }
+        if (alias != null) {
+            DishAlias same = dishAliasMapper.selectByAlias(alias);
+            if (same != null && !id.equals(same.getId())) {
+                throw new BizException(ALIAS_DUPLICATE_MSG);
+            }
+        }
+        DishAlias patch = new DishAlias();
+        patch.setId(id);
+        patch.setAlias(alias);
+        patch.setDishId(dishId);
+        try {
+            dishAliasMapper.updateById(patch);
+        } catch (DuplicateKeyException e) {
+            throw new BizException(ALIAS_DUPLICATE_MSG);
+        }
+        writeAudit(auditActor(actor), AUDIT_ALIAS_UPDATE, AUDIT_TARGET_DISH_ALIAS, String.valueOf(id),
+                aliasDetail(existing),
+                aliasDetail(alias != null ? alias : existing.getAlias(),
+                        dishId != null ? dishId : existing.getDishId()));
+    }
+
+    /**
+     * 删除别名：id 不存在 404；查无之后、删除之前被并发删掉也按 404 出口（没删掉任何行，不写审计）。
+     * 成功后写审计 {@code alias.delete}，新值固定 {@code deleted}。
+     */
+    @Override
+    public void deleteAlias(Long id, String actor) {
+        DishAlias existing = id == null ? null : dishAliasMapper.selectById(id);
+        if (existing == null) {
+            throw new BizException(R.CODE_NOT_FOUND, ALIAS_NOT_FOUND_MSG);
+        }
+        int removed = dishAliasMapper.deleteById(id);
+        if (removed == 0) {
+            throw new BizException(R.CODE_NOT_FOUND, ALIAS_NOT_FOUND_MSG);
+        }
+        writeAudit(auditActor(actor), AUDIT_ALIAS_DELETE, AUDIT_TARGET_DISH_ALIAS, String.valueOf(id),
+                aliasDetail(existing), "deleted");
+    }
+
+    /** 别名归一：null/空白 → 400；trim 后按字符数 ≤50（不让 MySQL 严格模式的 1406 变 500） */
+    private static String requiredAlias(String raw) {
+        if (raw == null) {
+            throw new BizException(ALIAS_EMPTY_MSG);
+        }
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) {
+            throw new BizException(ALIAS_EMPTY_MSG);
+        }
+        if (trimmed.length() > ALIAS_MAX_LENGTH) {
+            throw new BizException(ALIAS_TOO_LONG_MSG);
+        }
+        return trimmed;
+    }
+
+    /** 商品存在性闸门：存在即可，<b>不要求在售</b>（下架商品持有别名是合法状态） */
+    private void requireDishExists(Long dishId) {
+        if (dishMapper.selectById(dishId) == null) {
+            throw new BizException(ALIAS_DISH_NOT_FOUND_MSG);
+        }
+    }
+
+    /** 审计 detail（别名）：两列定长短串；超 500 由 writeAudit 的既有预算截断兜底 */
+    private static String aliasDetail(DishAlias row) {
+        return aliasDetail(row.getAlias(), row.getDishId());
+    }
+
+    private static String aliasDetail(String alias, Long dishId) {
+        return "alias=" + alias + ",dishId=" + dishId;
     }
 }
