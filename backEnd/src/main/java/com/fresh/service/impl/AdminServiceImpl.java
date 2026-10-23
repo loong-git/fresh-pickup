@@ -3,6 +3,7 @@ package com.fresh.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fresh.common.BizException;
@@ -520,7 +521,10 @@ public class AdminServiceImpl implements AdminService {
             // ③ INSERT merchant_profile(approved)
             MerchantProfile mp = new MerchantProfile();
             mp.setMerchantId(m.getId());
-            mp.setBusinessLicense(apply.getBusinessLicense());
+            // F-107：证照列表原样复制；单图 business_license 取第一条营业执照 url（解析不出回退申请行原值），
+            // 既有「单图」读路径继续可用，出参形状零改动。
+            mp.setBusinessLicense(firstBusinessLicenseUrl(apply.getLicenses(), apply.getBusinessLicense()));
+            mp.setLicenses(apply.getLicenses());
             mp.setLegalPerson(apply.getLegalPerson());
             mp.setAddress(apply.getAddress());
             mp.setSettlementAccount(apply.getSettlementAccount());
@@ -1127,13 +1131,15 @@ public class AdminServiceImpl implements AdminService {
 
         List<Map<String, Object>> list = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
-            // 十三键恒定存在（契约定序）；applicantPhone 是唯一需要再加工的一列
+            // 十四键恒定存在（契约定序 + F-107 licenses）；applicantPhone 是唯一需要再加工的一列
             Map<String, Object> line = new LinkedHashMap<>();
             line.put("id", row.get("id"));
             line.put("userId", row.get("userId"));
             line.put("merchantName", row.get("merchantName"));
             line.put("contactName", row.get("contactName"));
             line.put("businessLicense", row.get("businessLicense"));
+            // F-107：证照列表字符串原样出参（不 parse、不脱敏），前端自己解析
+            line.put("licenses", row.get("licenses"));
             line.put("legalPerson", row.get("legalPerson"));
             line.put("address", row.get("address"));
             line.put("settlementAccount", row.get("settlementAccount"));
@@ -1166,5 +1172,48 @@ public class AdminServiceImpl implements AdminService {
     /** 聚合列转 Integer：SUM 在 MySQL 下回 BigDecimal、COUNT 回 Long，绝不假设 Integer（同 MerchantOrderServiceImpl#toInteger 的理由） */
     private static int toInteger(Object value) {
         return value instanceof Number number ? number.intValue() : 0;
+    }
+
+    // ==================================================================
+    // F-107 多证照：approve 复制路径的解析兜底（追加式落码在文件末尾，理由同 F-106 片 B2 段注释）
+    // ==================================================================
+
+    /**
+     * 从申请行 {@code licenses} JSON 里取「第一条 type=business_license 的 url」（F-107 §0.3⑤）。
+     *
+     * <p>licenses 为空、非法 JSON、非数组、数组里没有营业执照、url 非文本/空白——任一情况都回退
+     * 申请行原有的单图 {@code business_license}。<b>绝不因证照 JSON 脏而阻断过审</b>：提交侧已按
+     * §0.3 拦过，这里只是复制路径的兜底（老数据/手工写库都可能出现脏串）。
+     *
+     * <p>类型比对与提交侧同口径（trim + equalsIgnoreCase），不建第二套枚举。
+     */
+    private static String firstBusinessLicenseUrl(String licensesJson, String fallback) {
+        if (licensesJson == null || licensesJson.isBlank()) {
+            return fallback;
+        }
+        try {
+            JsonNode root = AUDIT_MAPPER.readTree(licensesJson);
+            if (root != null && root.isArray()) {
+                for (JsonNode item : root) {
+                    if (item == null || !item.isObject()) {
+                        continue;
+                    }
+                    JsonNode type = item.get("type");
+                    JsonNode url = item.get("url");
+                    if (type != null && type.isTextual()
+                            && "business_license".equalsIgnoreCase(type.asText().trim())
+                            && url != null && url.isTextual()) {
+                        String candidate = url.asText().trim();
+                        if (!candidate.isEmpty()) {
+                            return candidate;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // 不打印 licenses 原文（无必要扩大日志面），只留回退事实；不影响过审
+            log.warn("商家入驻申请 licenses 无法解析，merchant_profile.business_license 回退申请行原值");
+        }
+        return fallback;
     }
 }

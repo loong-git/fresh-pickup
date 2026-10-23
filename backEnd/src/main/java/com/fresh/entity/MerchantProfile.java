@@ -39,4 +39,10 @@ public class MerchantProfile {
 
     /** 审核时间 */
     private LocalDateTime auditedAt;
+
+    /**
+     * 证照列表 JSON 文本（F-107/m22，TEXT NULL）：审核通过时从 {@code merchant_apply.licenses} 原样复制；
+     * NULL=老申请/未提供。单图 {@link #businessLicense} 继续保留（approve 时写第一条营业执照 url）。
+     */
+    private String licenses;
 }

@@ -37,10 +37,11 @@ public interface MerchantApplyMapper extends BaseMapper<MerchantApply> {
     /**
      * 该用户最新一条申请（{@code GET /api/merchant-applies/mine}）：id 自增单调，
      * {@code ORDER BY id DESC LIMIT 1} 即「最新一条」，同秒并列时 id 才可靠。
-     * 只取六个白名单列，不取 user_id / contact_name / business_license / legal_person / address / settlement_account。
+     * 只取七个白名单列（F-107 起含 {@code licenses} 原文），不取 user_id / contact_name / business_license / legal_person / address / settlement_account。
      */
     @Select("SELECT id AS id, merchant_name AS merchantName, status AS status, "
-            + "audit_remark AS auditRemark, created_at AS createdAt, audited_at AS auditedAt "
+            + "audit_remark AS auditRemark, created_at AS createdAt, audited_at AS auditedAt, "
+            + "licenses AS licenses "
             + "FROM merchant_apply WHERE user_id = #{userId} ORDER BY id DESC LIMIT 1")
     Map<String, Object> selectLatestByUser(@Param("userId") Long userId);
 
@@ -50,8 +51,9 @@ public interface MerchantApplyMapper extends BaseMapper<MerchantApply> {
 
     /**
      * 运营端列表的一页（片 B2，{@code GET /api/admin/merchant-applies}）：
-     * 十三键白名单（契约 §0.6 逐字点名），{@code applicantPhone} 取 {@code u.phone} 原文——
-     * 脱敏在 Service 侧过 {@code PhoneMask.mask}，本 SQL 不负责掩码。
+     * 十四键白名单（契约 §0.6 逐字点名 + F-107 的 {@code licenses} 原文），{@code applicantPhone} 取 {@code u.phone} 原文——
+     * 脱敏在 Service 侧过 {@code PhoneMask.mask}，本 SQL 不负责掩码；
+     * {@code licenses} 字符串原样带出（不 parse、不脱敏），由运营端自己解析展示。
      * <p><b>排序</b>：{@code pending} 优先（运营先看要处理的），其次 {@code created_at DESC, id DESC}。
      * 自增主键是唯一末列，分页全序稳定。
      * <p>生成列 {@code pending_guard} 绝不 SELECT（同 {@code mine} 的纪律）。
@@ -59,6 +61,7 @@ public interface MerchantApplyMapper extends BaseMapper<MerchantApply> {
      */
     @Select("SELECT ma.id AS id, ma.user_id AS userId, ma.merchant_name AS merchantName, "
             + "ma.contact_name AS contactName, ma.business_license AS businessLicense, "
+            + "ma.licenses AS licenses, "
             + "ma.legal_person AS legalPerson, ma.address AS address, "
             + "ma.settlement_account AS settlementAccount, ma.status AS status, "
             + "ma.audit_remark AS auditRemark, "

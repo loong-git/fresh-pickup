@@ -1,5 +1,9 @@
 package com.fresh.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.annotation.RateLimit;
 import com.fresh.common.BizException;
 import com.fresh.common.R;
@@ -59,6 +63,27 @@ public class MerchantApplyController {
     /** 魔数比对所需文件头长度（WEBP 需到第 12 字节） */
     private static final int HEADER_LEN = 12;
 
+    /** 证照图片只收站内上传件（F-107 契约 §0.6：不接受 http(s) 外链，防 SSRF/盗链） */
+    private static final String LICENSE_URL_PREFIX = "/static/images/uploads/";
+
+    /** 证照列表上限（F-107 §0.3：1~6 条；type ≤32、url ≤255 对齐列宽语义） */
+    private static final int LICENSES_MAX_COUNT = 6;
+    private static final int LICENSE_TYPE_MAX_LEN = 32;
+    private static final int LICENSE_URL_MAX_LEN = 255;
+
+    /** 证照 JSON 文本总长上限（DTO 同值 @Size(max = 4000)，此处为直调路径的纵深防御） */
+    private static final int LICENSES_MAX_LENGTH = 4000;
+
+    /** 准入门槛：证照列表非空时必须含至少一条营业执照 */
+    private static final String BUSINESS_LICENSE_TYPE = "business_license";
+
+    /**
+     * 证照 JSON 解析器（F-107）：线程安全、静态复用。开启 FAIL_ON_TRAILING_TOKENS，
+     * 封死「合法数组后面再挂一段垃圾」这种 {@code readTree} 默认会放过的形态。
+     */
+    private static final ObjectMapper LICENSES_MAPPER = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+
     /**
      * 复用既有 yml 键 {@code fresh.upload-dir}（不新增配置键）：dev 相对 backEnd/ 解析到
      * front/static/images/uploads/，prod 由 FRESH_UPLOAD_DIR 覆盖，与 MerchantController#upload 同一落盘目录。
@@ -85,7 +110,10 @@ public class MerchantApplyController {
             throw new BizException(R.CODE_UNAUTHORIZED, R.MSG_UNAUTHORIZED);
         }
 
-        // ① 申请人必须存在，且名下没有商家（契约：user.merchant_id != null → 400）
+        // ① 证照列表先校验（F-107 §0.3 五条）：不合法就不碰库；空/未传=老客户端，放行
+        String licenses = validateLicenses(dto.getLicenses());
+
+        // ② 申请人必须存在，且名下没有商家（契约：user.merchant_id != null → 400）
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BizException(R.CODE_UNAUTHORIZED, R.MSG_UNAUTHORIZED);
@@ -94,7 +122,7 @@ public class MerchantApplyController {
             throw new BizException(R.CODE_BAD_REQUEST, "您已是商家，无需重复申请");
         }
 
-        // ② 应用层闸门：已有 pending 申请 → 400 友好话术；并发窗口由 uk_user_pending 兜底
+        // ③ 应用层闸门：已有 pending 申请 → 400 友好话术；并发窗口由 uk_user_pending 兜底
         if (merchantApplyMapper.countPendingByUser(userId) > 0) {
             throw new BizException(R.CODE_BAD_REQUEST, "已有待审核的入驻申请，请等待审核结果");
         }
@@ -107,6 +135,8 @@ public class MerchantApplyController {
         apply.setLegalPerson(trimToNull(dto.getLegalPerson()));
         apply.setAddress(trimToNull(dto.getAddress()));
         apply.setSettlementAccount(trimToNull(dto.getSettlementAccount()));
+        // 证照 JSON 原样落库（校验通过后不重组、不 parse 回写）；null=老客户端未传
+        apply.setLicenses(licenses);
         apply.setStatus(STATUS_PENDING);   // 显式写，不靠 DEFAULT：出参 status 与落库值同源
         // pending_guard 是生成列，实体不声明、INSERT 不含它，由 DB 按 status 自动落值
         try {
@@ -123,7 +153,8 @@ public class MerchantApplyController {
     }
 
     /**
-     * 我的最新一条申请（{@code GET /api/merchant-applies/mine}）：六键白名单；
+     * 我的最新一条申请（{@code GET /api/merchant-applies/mine}）：七键白名单（F-107 起加 {@code licenses}，
+     * 申请人要能看到自己提交了哪些证照，字符串原样返回）；
      * **从未申请过时 {@code data} 为 {@code null}**（「还没申请过」是正常状态，不返 404，
      * 也不返一个全 null 的空壳对象——空壳会让调用方分不清"没有申请"和"申请字段恰好都空"）。
      */
@@ -133,7 +164,7 @@ public class MerchantApplyController {
         if (userId == null) {
             throw new BizException(R.CODE_UNAUTHORIZED, R.MSG_UNAUTHORIZED);
         }
-        // 取数即白名单：mapper 的 SELECT 列表只有六列，「不出」是查库层定的
+        // 取数即白名单：mapper 的 SELECT 列表只有七列，「不出」是查库层定的
         Map<String, Object> row = merchantApplyMapper.selectLatestByUser(userId);
         if (row == null) {
             return R.ok(null);
@@ -145,6 +176,7 @@ public class MerchantApplyController {
         data.put("auditRemark", row.get("auditRemark"));
         data.put("createdAt", row.get("createdAt"));
         data.put("auditedAt", row.get("auditedAt"));
+        data.put("licenses", row.get("licenses"));
         return R.ok(data);
     }
 
@@ -193,6 +225,65 @@ public class MerchantApplyController {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * 证照列表校验（F-107 契约 §0.3，五条缺一即 400；失败文案一律一句中文且走 CODE_BAD_REQUEST）：
+     * ① 可空（老客户端）；非空必须是合法 JSON 数组，长度 1~6；
+     * ② 每项必须是对象，{@code type} 非空且 ≤32，{@code url} 非空且 ≤255；
+     * ③ {@code url} 必须以 {@code /static/images/uploads/} 开头（拒绝 http(s) 外链）；
+     * ④ 非空时必须含至少一条 {@code type=business_license}（营业执照仍是准入门槛）；
+     * ⑤ 通过后返回 trim 过的原文——服务端只校验、不重组、不 parse 回写（前端原样序列化什么就存什么）。
+     *
+     * <p>类型只比 case-insensitively 的 {@code business_license}（契约 §0.2：后端不校验大小写以外的东西），
+     * 不建四值白名单——枚举由前端常量维护，运营加类型不需要后端发版。
+     */
+    private String validateLicenses(String raw) {
+        String text = trimToNull(raw);
+        if (text == null) {
+            // 兼容老客户端：licenses 不传/空串/纯空白 → 落 NULL，单图 businessLicense 字段照旧
+            return null;
+        }
+        if (text.length() > LICENSES_MAX_LENGTH) {
+            throw new BizException(R.CODE_BAD_REQUEST, "证照列表内容过长");
+        }
+        JsonNode root;
+        try {
+            root = LICENSES_MAPPER.readTree(text);
+        } catch (JsonProcessingException e) {
+            throw new BizException(R.CODE_BAD_REQUEST, "证照列表格式不正确");
+        }
+        if (root == null || !root.isArray()) {
+            throw new BizException(R.CODE_BAD_REQUEST, "证照列表必须是数组");
+        }
+        if (root.size() < 1 || root.size() > LICENSES_MAX_COUNT) {
+            throw new BizException(R.CODE_BAD_REQUEST, "证照数量需为 1~6 张");
+        }
+
+        boolean hasBusinessLicense = false;
+        for (JsonNode item : root) {
+            if (item == null || !item.isObject()) {
+                throw new BizException(R.CODE_BAD_REQUEST, "证照条目格式不正确");
+            }
+            JsonNode typeNode = item.get("type");
+            String type = typeNode != null && typeNode.isTextual() ? typeNode.asText().trim() : "";
+            if (type.isEmpty() || type.length() > LICENSE_TYPE_MAX_LEN) {
+                throw new BizException(R.CODE_BAD_REQUEST, "证照类型不合法");
+            }
+            JsonNode urlNode = item.get("url");
+            String url = urlNode != null && urlNode.isTextual() ? urlNode.asText().trim() : "";
+            if (url.isEmpty() || url.length() > LICENSE_URL_MAX_LEN
+                    || !url.startsWith(LICENSE_URL_PREFIX)) {
+                throw new BizException(R.CODE_BAD_REQUEST, "证照图片地址不合法，仅支持站内上传的图片");
+            }
+            if (BUSINESS_LICENSE_TYPE.equalsIgnoreCase(type)) {
+                hasBusinessLicense = true;
+            }
+        }
+        if (!hasBusinessLicense) {
+            throw new BizException(R.CODE_BAD_REQUEST, "请至少上传一张营业执照");
+        }
+        return text;
     }
 
     /**

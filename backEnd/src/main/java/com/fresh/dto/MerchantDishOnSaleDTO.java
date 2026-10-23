@@ -7,7 +7,7 @@ import lombok.Data;
 
 /**
  * 商家端上下架入参（F-13/G-02 Step 1，契约 F-13.2 表行 6）。
- * 用 Integer 不用 boolean：dish.on_sale 实际是 TINYINT、实体是 Integer onSale（init.sql:70），
+ * 用 Integer 不用 boolean：dish.on_sale 实际是 TINYINT、实体是 Integer onSale（列见 init.sql 的 dish 表），
  * 与 AdminDishUpdateDTO.onSale 同一套类型与文案，避免布尔↔tinyint 转换口径分叉。
  */
 @Data

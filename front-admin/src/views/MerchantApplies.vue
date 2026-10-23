@@ -58,6 +58,15 @@
         <el-table-column label="经营地址" min-width="240" show-overflow-tooltip>
           <template #default="{ row }"><span :class="{ muted: !row.address }">{{ row.address }}</span></template>
         </el-table-column>
+        <!-- F-107 多证照：licenses 是后端原样下发的 JSON 字符串，解析容错在 script 的 parseLicenses；
+             有数据时点张数开明细弹窗，无数据/坏数据一律「—」，绝不让表格整行渲染失败。 -->
+        <el-table-column label="证照" width="96" align="center">
+          <template #default="{ row }">
+            <el-button v-if="licenseItemsOf(row).length" link type="primary" size="small"
+                       @click="openLicenses(row)">{{ licenseItemsOf(row).length }} 张</el-button>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" min-width="110">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)" size="small" effect="light">{{ statusText(row.status) }}</el-tag>
@@ -97,6 +106,20 @@
       <div class="dialog-target">
         申请 #{{ rejectRow.id }}「{{ rejectRow.merchantName }}」，申请人手机号：{{ rejectRow.applicantPhone }}（服务端脱敏值）
       </div>
+      <!-- 盲审防护：驳回前先看证照（只读；坏数据由 parseLicenses 降级为空，统一显示「—」）。 -->
+      <div class="license-review">
+        <div class="license-review-title">证照（{{ rejectLicenses.length }} 张）</div>
+        <div v-if="rejectLicenses.length" class="license-grid">
+          <div v-for="(item, index) in rejectLicenses" :key="index" class="license-item">
+            <el-image class="license-thumb" :src="item.fullUrl" :preview-src-list="rejectLicenseUrls"
+                      :initial-index="index" fit="cover" preview-teleported>
+              <template #error><div class="license-img-fallback">加载失败</div></template>
+            </el-image>
+            <span class="license-type">{{ item.typeLabel }}</span>
+          </div>
+        </div>
+        <div v-else class="license-empty muted">—</div>
+      </div>
       <el-form class="dialog-form" label-width="90px" @submit.prevent="onConfirmReject">
         <el-form-item label="审核意见">
           <el-input v-model="rejectRemark" type="textarea" :rows="3" clearable
@@ -110,6 +133,25 @@
       <template #footer>
         <el-button size="small" :disabled="submitting" @click="rejectVisible = false">取消（不发出任何请求）</el-button>
         <el-button size="small" type="danger" :loading="submitting" @click="onConfirmReject">确认驳回</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 证照明细（只读）：点表格「N 张」打开；图片经请求层 resolveFileUrl 补 BASE_URL，点击可放大。 -->
+    <el-dialog v-model="licensesVisible" title="证照明细" width="560px">
+      <div class="dialog-target">
+        申请 #{{ licenseRow.id }}「{{ licenseRow.merchantName }}」，共 {{ licenseDetailItems.length }} 张
+      </div>
+      <div class="license-grid">
+        <div v-for="(item, index) in licenseDetailItems" :key="index" class="license-item">
+          <el-image class="license-thumb" :src="item.fullUrl" :preview-src-list="licenseDetailUrls"
+                    :initial-index="index" fit="cover" preview-teleported>
+            <template #error><div class="license-img-fallback">加载失败</div></template>
+          </el-image>
+          <span class="license-type">{{ item.typeLabel }}</span>
+        </div>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="licensesVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -148,9 +190,9 @@
 //   reject 的 remark 是**必填**（空 → 400「驳回时必须填写审核意见」），所以驳回走弹窗填意见；
 //   已审核（approved/rejected）再审是**幂等成功**（不像 store_apply 那样回「不可再次审核」）。
 // 错误一律只呈现请求层透出的后端 message（ElMessage），本页不预置猜原因的提示表。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listMerchantApplies, auditMerchantApply, createAdminMerchant } from '../api'
+import { listMerchantApplies, auditMerchantApply, createAdminMerchant, resolveFileUrl } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -164,6 +206,45 @@ const STATUS_OPTIONS = [
 const STATUS_TEXT = { pending: '待审核', approved: '已通过', rejected: '已驳回' }
 const statusText = (v) => STATUS_TEXT[v] || (v == null ? '' : String(v))
 const statusTagType = (v) => (v === 'pending' ? 'warning' : v === 'approved' ? 'success' : 'info')
+
+// F-107 多证照（只读展示）：中文名只在本常量维护一份，后端只存英文 key；未知 type 一律落「其他」。
+const LICENSE_TYPES = {
+  business_license: '营业执照',
+  food_business_license: '食品经营许可证',
+  food_production_license: '食品生产许可证',
+  other: '其他'
+}
+// 与后端校验上限同值：只用于挡脏数据把明细撑爆，不新增业务规则。
+const MAX_LICENSES = 6
+
+function licenseTypeLabelOf(type) {
+  // 只认自有键：防 type 撞上 Object 原型属性（如 constructor）时渲染出函数。
+  return Object.prototype.hasOwnProperty.call(LICENSE_TYPES, type) ? LICENSE_TYPES[type] : LICENSE_TYPES.other
+}
+
+// licenses 是 JSON 数组的字符串（老数据 null / 空串）。try/catch + Array.isArray 双重容错：
+// 坏 JSON / 非数组 / 非对象条目一律跳过，最坏也只让本列显示「—」，不影响表格其余列。
+function parseLicenses(raw) {
+  if (!raw) return []
+  let list = null
+  try {
+    list = typeof raw === 'string' ? JSON.parse(raw) : raw
+  } catch (e) {
+    return []
+  }
+  if (!Array.isArray(list)) return []
+  const items = []
+  for (let i = 0; i < list.length && items.length < MAX_LICENSES; i++) {
+    const item = list[i]
+    if (!item || typeof item !== 'object' || typeof item.url !== 'string' || !item.url) continue
+    items.push({ typeLabel: licenseTypeLabelOf(item.type), fullUrl: resolveFileUrl(item.url) })
+  }
+  return items
+}
+
+function licenseItemsOf(row) {
+  return row ? parseLicenses(row.licenses) : []
+}
 
 const loading = ref(false)
 const loadError = ref('')
@@ -179,6 +260,14 @@ const statusFilter = ref('pending')
 const rejectVisible = ref(false)
 const rejectRow = ref({})
 const rejectRemark = ref('')
+const rejectLicenses = computed(() => parseLicenses(rejectRow.value.licenses))
+const rejectLicenseUrls = computed(() => rejectLicenses.value.map((item) => item.fullUrl))
+
+// 证照明细（只读弹窗）：与驳回弹窗共用 parseLicenses，打开时才绑定行。
+const licensesVisible = ref(false)
+const licenseRow = ref({})
+const licenseDetailItems = computed(() => parseLicenses(licenseRow.value.licenses))
+const licenseDetailUrls = computed(() => licenseDetailItems.value.map((item) => item.fullUrl))
 
 // 代开通（平台按手机号直接开）：与审核互斥地用自己的提交态，避免一个弹窗在转时把另一个的按钮也禁掉。
 const createVisible = ref(false)
@@ -282,6 +371,12 @@ function openReject(row) {
   rejectVisible.value = true
 }
 
+// 只读明细，不受提交态约束（打开期间列表不会变；关掉即走）。
+function openLicenses(row) {
+  licenseRow.value = row
+  licensesVisible.value = true
+}
+
 async function onConfirmReject() {
   if (submitting.value) return
   const remark = String(rejectRemark.value == null ? '' : rejectRemark.value).trim()
@@ -363,5 +458,54 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.7;
   color: #909399;
+}
+/* F-107 多证照：明细弹窗与驳回弹窗共用同一套缩略图网格 */
+.license-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.license-item {
+  width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.license-thumb {
+  width: 148px;
+  height: 104px;
+  border-radius: 6px;
+  background: #f5f6f8;
+  cursor: zoom-in;
+}
+.license-img-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #909399;
+  background: #f5f6f8;
+}
+.license-type {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #606266;
+  text-align: center;
+}
+.license-review {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f5f6f8;
+  border-radius: 6px;
+}
+.license-review-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #606266;
+}
+.license-empty {
+  font-size: 12px;
 }
 </style>

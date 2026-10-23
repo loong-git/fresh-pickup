@@ -534,9 +534,10 @@ export function freeMyClaims(pageNum = 1, pageSize = 10) {
 
 /**
  * 我的最新一条入驻申请（登录）：GET /api/merchant-applies/mine
- * → R{code,data:{id,merchantName,status,auditRemark,createdAt,auditedAt}}
+ * → R{code,data:{id,merchantName,status,auditRemark,createdAt,auditedAt,licenses}}
  * - status：pending 待审核 | rejected 已驳回 | approved 已通过
- * - 从未申请过时 data 为「无申请」形态（契约口径 data===null；后端现实现为六键全 null 的对象，调用方两种都按无申请处理）
+ * - licenses：证照列表 JSON 字符串原样返回（F-107；调用方自行 parse 并容错）
+ * - 从未申请过时 data 为「无申请」形态（契约口径 data===null；后端现实现为七键全 null 的对象，调用方两种都按无申请处理）
  * 401 由 request 层统一清登录态并 reject
  */
 export function getMyMerchantApply() {
@@ -548,7 +549,8 @@ export function getMyMerchantApply() {
 
 /**
  * 提交入驻申请（登录，POST 提交类 20s 超时）：POST /api/merchant-applies
- * body {merchantName(必填), contactName?, legalPerson?, address?, settlementAccount?, businessLicense?}
+ * body {merchantName(必填), contactName?, legalPerson?, address?, settlementAccount?, businessLicense?, licenses?}
+ * - licenses：证照列表 JSON 数组字符串（F-107，1~6 条且必含 business_license；不传=老客户端单图行为）
  * → R{code,data:{id,status:'pending'},message:'申请已提交，请等待审核结果'}
  * 已是商家 / 已有 pending 申请 → 400，message 为后端定稿文案，调用方原样 toast；
  * 401 由 request 层统一清登录态并 reject
@@ -563,7 +565,7 @@ export function submitMerchantApply(payload) {
 }
 
 /**
- * 上传营业执照图（登录，multipart 字段名 file）：POST /api/merchant-applies/uploads
+ * 上传证照图（登录，multipart 字段名 file）：POST /api/merchant-applies/uploads
  * → R{code,data:{path,url}}，path 形如 /static/images/uploads/xxx.jpg（入库用 path）
  * uni.request 不支持 multipart 选文件，此处直接用 uni.uploadFile，token 注入与 401 处理同 request 层口径
  * @param {string} filePath - uni.chooseImage 返回的临时文件路径

@@ -71,7 +71,7 @@ public interface StoreApplyMapper extends BaseMapper<StoreApply> {
      * 不选 {@code pending_guard}（见上方段落的理由）。
      * <p>{@code contact_phone} 在这里<b>必须</b>取原文，因为脱敏走既有 {@code common/PhoneMask.mask}
      * （D-15 点名用它，不在 SQL 里 CONCAT 出第二口径）；掩码在 Service 侧完成，明文不出 Service。
-     * 该列是 VARCHAR(20) 且<b>可空</b>（init.sql:412），PhoneMask 对 null 回 null、对非 11 位的脏值回全掩码。
+     * 该列是 VARCHAR(20) 且<b>可空</b>（列见 init.sql 的 store_apply 表），PhoneMask 对 null 回 null、对非 11 位的脏值回全掩码。
      * <p>{@code lng}/{@code lat} 可下发：高德 GCJ-02 坐标，与已发布的 {@code store.lng/lat} 同口径，
      * 是「这个申请点位在哪」的展示必需位，不是个人信息。
      * <p>{@code ORDER BY sa.id DESC}：BIGINT 自增主键 = 全序稳定，最新申请在前（同 AdminAuditLogMapper 判据）。

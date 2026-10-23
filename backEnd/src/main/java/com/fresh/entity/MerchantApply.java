@@ -57,4 +57,10 @@ public class MerchantApply {
 
     /** 申请时间：DB DEFAULT CURRENT_TIMESTAMP 落值，实体不填 */
     private LocalDateTime createdAt;
+
+    /**
+     * 证照列表 JSON 文本（F-107/m22，TEXT NULL）：前端序列化后原样提交，服务端只校验不重组；
+     * NULL=老客户端未传。单图 {@link #businessLicense} 继续保留（兼容读路径）。
+     */
+    private String licenses;
 }

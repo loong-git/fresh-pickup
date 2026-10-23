@@ -7,16 +7,19 @@ import com.fresh.entity.MerchantApply;
 import com.fresh.entity.User;
 import com.fresh.mapper.MerchantApplyMapper;
 import com.fresh.mapper.UserMapper;
+import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -154,7 +157,7 @@ class MerchantApplyControllerCreateMineTest {
     }
 
     @Test
-    void mine只出六键白名单() {
+    void mine只出七键白名单且licenses原样带出() {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", 11L);
         row.put("merchantName", "演示商家");
@@ -162,19 +165,31 @@ class MerchantApplyControllerCreateMineTest {
         row.put("auditRemark", "资料不全");
         row.put("createdAt", "2026-10-22 10:00:00");
         row.put("auditedAt", "2026-10-22 11:00:00");
+        row.put("licenses", "[{\"type\":\"business_license\",\"url\":\"/static/images/uploads/license.png\"}]");
         when(applyMapper.selectLatestByUser(USER_ID)).thenReturn(row);
 
         R<Map<String, Object>> result = controller.mine(USER_ID);
 
         assertEquals(200, result.getCode());
         Map<String, Object> out = result.getData();
-        assertEquals(6, out.size(), "mine 只出契约点名的六键");
+        assertEquals(7, out.size(), "mine 出契约点名的七键（F-107 起加 licenses）");
         assertEquals(11L, out.get("id"));
         assertEquals("演示商家", out.get("merchantName"));
         assertEquals("rejected", out.get("status"));
         assertEquals("资料不全", out.get("auditRemark"));
         assertEquals("2026-10-22 10:00:00", out.get("createdAt"));
         assertEquals("2026-10-22 11:00:00", out.get("auditedAt"));
+        assertEquals("[{\"type\":\"business_license\",\"url\":\"/static/images/uploads/license.png\"}]",
+                out.get("licenses"), "licenses 字符串原样出参，不 parse");
+    }
+
+    @Test
+    void mine的SQL带出licenses原文且仍不出单图字段() throws Exception {
+        Method latest = MerchantApplyMapper.class.getMethod("selectLatestByUser", Long.class);
+        String sql = String.join(" ", latest.getAnnotation(Select.class).value());
+
+        assertTrue(sql.contains("licenses AS licenses"), "F-107：mine 必须从库里带出 licenses 原文");
+        assertFalse(sql.contains("business_license"), "mine 的出参白名单不含单图字段，维持既有形状");
     }
 
     @Test

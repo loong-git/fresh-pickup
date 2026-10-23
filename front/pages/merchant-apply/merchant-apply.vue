@@ -43,6 +43,16 @@
           <text class="summary-label">审核时间</text>
           <text class="summary-value">{{ apply.auditedAt }}</text>
         </view>
+        <!-- 已提交态证照列表（pending/approved/rejected 通用）：数据来自 /mine 的 licenses 字符串 -->
+        <view v-if="applyLicenses.length" class="license-preview">
+          <text class="summary-label">证照</text>
+          <view class="license-preview-list">
+            <view v-for="(item, index) in applyLicenses" :key="index" class="license-preview-item">
+              <image class="license-preview-img" :src="item.fullUrl" mode="aspectFill" />
+              <text class="license-preview-name">{{ item.typeLabel }}</text>
+            </view>
+          </view>
+        </view>
       </view>
 
       <!-- ==================== 2. 入驻申请表单（pending/approved 不展示；rejected 可重新提交） ==================== -->
@@ -116,18 +126,40 @@
         </view>
 
         <view class="field">
-          <text class="field-label">营业执照图</text>
-          <view class="license-upload" @click="chooseLicense">
-            <image v-if="licenseUrl" class="license-img" :src="licenseUrl" mode="aspectFill" />
-            <view v-else class="license-placeholder">
-              <text class="license-plus">＋</text>
-              <text class="license-tip">点击上传营业执照</text>
+          <text class="field-label">证照<text class="required">*</text></text>
+          <text class="license-tip-line">至少 1 张营业执照，最多 {{ maxLicenses }} 张；支持 jpg/png/webp，单张不超过 5MB</text>
+          <view v-for="(item, index) in licenseItems" :key="index" class="license-row">
+            <view class="license-thumb" @click="chooseLicenseImage(index)">
+              <image v-if="item.url" class="license-thumb-img" :src="resolveImageUrl(item.url)" mode="aspectFill" />
+              <view v-else class="license-thumb-placeholder">
+                <text class="license-plus">＋</text>
+                <text class="license-thumb-tip">上传</text>
+              </view>
+              <view v-if="uploading && uploadingIndex === index" class="license-mask">
+                <text class="license-mask-text">上传中…</text>
+              </view>
             </view>
-            <view v-if="uploading" class="license-mask"><text class="license-mask-text">上传中…</text></view>
+            <view class="license-row-info">
+              <picker
+                class="license-type-picker"
+                mode="selector"
+                :range="licenseTypeLabels"
+                :value="licenseTypeIndex(item.type)"
+                @change="onLicenseTypeChange(index, $event)"
+              >
+                <view class="license-type">
+                  <text class="license-type-text">{{ licenseTypeLabel(item.type) }}</text>
+                  <text class="license-type-arrow">▾</text>
+                </view>
+              </picker>
+              <view class="license-row-actions">
+                <text class="license-action" @click.stop="chooseLicenseImage(index)">{{ item.url ? '重新上传' : '上传图片' }}</text>
+                <text class="license-action license-action-del" @click.stop="removeLicense(index)">删除</text>
+              </view>
+            </view>
           </view>
-          <view class="license-foot">
-            <text class="license-hint">{{ uploading ? '上传中，请稍候' : (licenseUrl ? '点击图片可重新上传' : '支持 jpg/png/webp，不超过 5MB') }}</text>
-            <text v-if="licenseUrl && !uploading" class="license-remove" @click.stop="removeLicense">移除</text>
+          <view v-if="canAddLicense" class="license-add" @click="addLicense">
+            <text>＋ 添加证照</text>
           </view>
         </view>
 
@@ -148,9 +180,25 @@
 // - approved → 展示「已开通」并提示可去商家端；
 // - 无申请 → 直接展示表单。
 // 未登录/登录态过期：统一提示后带 redirect 跳登录页，登录成功回跳本页。
+// F-107：营业执照单图升级为多证照（1~6 张，必含一张营业执照）；旧字段 businessLicense 仍随提交。
 import { mapState } from 'vuex'
 import { getMyMerchantApply, submitMerchantApply, uploadMerchantLicense } from '@/api/index.js'
 import { BASE_URL } from '@/api/config.js'
+
+// 证照类型：中文名只在本常量维护，提交时只发英文 key（后端只认这 4 个值）
+const LICENSE_TYPES = {
+  business_license: '营业执照',
+  food_business_license: '食品经营许可证',
+  food_production_license: '食品生产许可证',
+  other: '其他'
+}
+const LICENSE_TYPE_KEYS = Object.keys(LICENSE_TYPES)
+const LICENSE_TYPE_LABELS = LICENSE_TYPE_KEYS.map(key => LICENSE_TYPES[key])
+const MAX_LICENSES = 6
+// 只认自有 key：后端旧数据可能出现任意 type 字符串，避免命中 Object 原型属性后渲染出函数
+function licenseTypeLabelOf(type) {
+  return Object.prototype.hasOwnProperty.call(LICENSE_TYPES, type) ? LICENSE_TYPES[type] : LICENSE_TYPES.other
+}
 
 // 状态文案映射：pending 描述直接采用后端既有文案「已有待审核的入驻申请，请等待审核结果」，
 // 不另造同义句；rejected/approved 为展示态文案
@@ -180,15 +228,19 @@ export default {
       loginRedirected: false, // 已跳登录页（防重复 navigateTo、防表单闪现）
       apply: null, // /mine 返回的申请摘要；无申请为 null
       submitting: false, // 提交中防重
-      uploading: false, // 营业执照上传中防重
+      uploading: false, // 证照上传中防重
+      uploadingIndex: -1, // 正在上传的证照行下标（-1=无），仅用于该行遮罩
+      maxLicenses: MAX_LICENSES, // 证照张数上限（模板提示与添加按钮共用）
+      licenseTypeLabels: LICENSE_TYPE_LABELS, // 类型下拉的展示文案（顺序与 LICENSE_TYPE_KEYS 一致）
+      // 证照行：type 存英文 key，url 存上传返回的站内 path；默认先给一行营业执照
+      licenseItems: [{ type: 'business_license', url: '' }],
       form: {
         // 键名与 MerchantApplyCreateDTO 逐字一致
         merchantName: '',
         contactName: '',
         legalPerson: '',
         address: '',
-        settlementAccount: '',
-        businessLicense: ''
+        settlementAccount: ''
       }
     }
   },
@@ -205,11 +257,31 @@ export default {
         badgeClass: 'status-pending'
       }
     },
-    // 展示缩略图：入库值是后端 /static/images/uploads/ 相对路径，展示时补 BASE_URL
-    licenseUrl() {
-      const p = this.form.businessLicense
-      if (!p) return ''
-      return /^https?:\/\//.test(p) ? p : BASE_URL + p
+    // 已提交态证照展示：/mine 的 licenses 是 JSON 字符串；坏数据（非 JSON/非数组）一律当空数组，页面不崩
+    applyLicenses() {
+      const raw = this.apply ? this.apply.licenses : null
+      if (!raw) return []
+      let list = null
+      try {
+        list = typeof raw === 'string' ? JSON.parse(raw) : raw
+      } catch (e) {
+        return []
+      }
+      if (!Array.isArray(list)) return []
+      const items = []
+      for (let i = 0; i < list.length && items.length < MAX_LICENSES; i++) {
+        const it = list[i]
+        if (!it || typeof it !== 'object' || typeof it.url !== 'string' || !it.url) continue
+        items.push({
+          typeLabel: licenseTypeLabelOf(it.type),
+          fullUrl: this.resolveImageUrl(it.url)
+        })
+      }
+      return items
+    },
+    // 证照上限：满 6 张后隐藏「添加证照」入口
+    canAddLicense() {
+      return this.licenseItems.length < MAX_LICENSES
     }
   },
   onLoad() {
@@ -261,7 +333,7 @@ export default {
       try {
         const res = await getMyMerchantApply()
         const data = res ? res.data : null
-        // 契约口径：从未申请过时 data===null；后端现实现返回六键全 null 的对象，两种形态都按「无申请」处理
+        // 契约口径：从未申请过时 data===null；后端现实现返回七键全 null 的对象，两种形态都按「无申请」处理
         if (data === null || data === undefined || (data.id == null && data.status == null)) {
           this.apply = null
           return
@@ -282,21 +354,53 @@ export default {
         if (!silent) this.loading = false
       }
     },
-    // 选择营业执照图：成功后上传拿 path 存入 businessLicense（入库用 path，展示时补 BASE_URL）
-    chooseLicense() {
+    // 站内相对路径补 BASE_URL 后展示缩略图（历史数据若已是完整 http(s) 地址则原样用）
+    resolveImageUrl(p) {
+      if (!p) return ''
+      return /^https?:\/\//.test(p) ? p : BASE_URL + p
+    },
+    // ==================== 证照多图（F-107） ====================
+    licenseTypeLabel(type) {
+      return licenseTypeLabelOf(type)
+    },
+    licenseTypeIndex(type) {
+      const idx = LICENSE_TYPE_KEYS.indexOf(type)
+      return idx < 0 ? LICENSE_TYPE_KEYS.length - 1 : idx
+    },
+    // 类型下拉切换：只在前端把中文名换成英文 key，不改动已上传的 url
+    onLicenseTypeChange(index, e) {
+      const item = this.licenseItems[index]
+      const key = LICENSE_TYPE_KEYS[Number(e && e.detail ? e.detail.value : -1)]
+      if (!item || !key) return
+      item.type = key
+    },
+    addLicense() {
       if (this.uploading) return
+      if (this.licenseItems.length >= this.maxLicenses) {
+        this.showToast('最多添加 ' + this.maxLicenses + ' 张证照', 1500)
+        return
+      }
+      this.licenseItems.push({ type: 'other', url: '' })
+    },
+    // 选择某一行证照图：成功后上传拿 path 存入该行（入库用 path，展示时补 BASE_URL）
+    chooseLicenseImage(index) {
+      if (this.uploading || this.submitting) return
+      if (!this.licenseItems[index]) return
       uni.chooseImage({
         count: 1,
         sizeType: ['compressed'],
         sourceType: ['album', 'camera'],
         success: (res) => {
           const filePath = (res && res.tempFilePaths && res.tempFilePaths[0]) || ''
-          if (filePath) this.doUploadLicense(filePath)
+          if (filePath) this.doUploadLicense(filePath, index)
         }
       })
     },
-    async doUploadLicense(filePath) {
+    async doUploadLicense(filePath, index) {
+      const item = this.licenseItems[index]
+      if (!item || this.uploading) return
       this.uploading = true
+      this.uploadingIndex = index
       try {
         const res = await uploadMerchantLicense(filePath)
         const path = res && res.data && res.data.path
@@ -304,8 +408,8 @@ export default {
           this.showToast('上传失败，请重试')
           return
         }
-        this.form.businessLicense = path
-        this.showToast('营业执照已上传', 1500)
+        item.url = path
+        this.showToast('证照已上传', 1500)
       } catch (e) {
         if (e && e.code === 401) {
           this.redirectLogin()
@@ -314,10 +418,12 @@ export default {
         this.showToast((e && e.message) || '网络异常')
       } finally {
         this.uploading = false
+        this.uploadingIndex = -1
       }
     },
-    removeLicense() {
-      this.form.businessLicense = ''
+    removeLicense(index) {
+      if (this.uploading) return
+      this.licenseItems.splice(index, 1)
     },
     // 提交申请：POST /api/merchant-applies；成功 toast 后端 message 后重新拉 /mine 切到「审核中」；
     // 400（已是商家 / 已有待审核申请 / 参数校验）原样展示后端 message，不改写
@@ -328,6 +434,19 @@ export default {
         this.showToast('请填写商家名称', 1500)
         return
       }
+      // 证照：未上传图片的空行不提交；至少一张营业执照（前端先行拦截，文案不复用后端）
+      const licenses = this.licenseItems
+        .filter(item => item && item.url)
+        .map(item => ({ type: item.type, url: item.url }))
+      if (!licenses.length) {
+        this.showToast('请先上传证照图片', 1500)
+        return
+      }
+      const businessLicense = licenses.find(item => item.type === 'business_license')
+      if (!businessLicense) {
+        this.showToast('证照中需包含营业执照，请补充后再提交', 1800)
+        return
+      }
       this.submitting = true
       try {
         const res = await submitMerchantApply({
@@ -336,7 +455,10 @@ export default {
           legalPerson: (this.form.legalPerson || '').trim(),
           address: (this.form.address || '').trim(),
           settlementAccount: (this.form.settlementAccount || '').trim(),
-          businessLicense: this.form.businessLicense || ''
+          // 旧字段照旧提交：第一条营业执照的 path（兼容后端旧校验与旧读路径）
+          businessLicense: businessLicense.url,
+          // 新字段：JSON 数组字符串，后端按文本原样落库
+          licenses: JSON.stringify(licenses)
         })
         this.showToast((res && res.message) || '申请已提交，请等待审核结果')
         await this.loadMine(true)
@@ -352,12 +474,12 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 手动驱动 body 滚动（照我的页/账号安全页同款方案）；uni 弹层打开时命中弹层节点直接放行
+    // 手动驱动 body 滚动（照我的页/账号安全页同款方案）；uni 弹层（含证照类型 picker）打开时命中弹层节点直接放行
     onPageWheel(e) {
       const t = e.target
       const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
       if (el && typeof el.closest === 'function'
-        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast')) {
+        && el.closest('.uni-actionsheet, .uni-picker, .uni-picker-container, .uni-picker-content, .uni-modal, .uni-toast, .uni-sample-toast')) {
         return
       }
       e.preventDefault()
@@ -412,6 +534,20 @@ export default {
 .summary-value { flex: 1; min-width: 0; color: #333333; word-break: break-all; }
 .summary-remark { color: #E02020; }
 
+/* ==================== 1.1 已提交态证照预览 ==================== */
+.license-preview { display: flex; align-items: flex-start; padding: 10rpx 0; font-size: 26rpx; line-height: 1.5; }
+.license-preview-list { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 16rpx; }
+.license-preview-item { width: 132rpx; }
+.license-preview-img {
+  width: 132rpx; height: 132rpx; display: block;
+  border-radius: 12rpx; background-color: #F5F5F5;
+}
+.license-preview-name {
+  display: block; margin-top: 8rpx;
+  font-size: 20rpx; color: #666666; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ==================== 2. 表单字段 ==================== */
 .field { margin-bottom: 24rpx; }
 .field-label { display: block; margin-bottom: 12rpx; font-size: 26rpx; font-weight: 600; color: #333333; }
@@ -428,30 +564,56 @@ export default {
   font-size: 28rpx; color: #333333;
 }
 
-/* ==================== 2.1 营业执照上传 ==================== */
-.license-upload {
-  position: relative;
-  width: 220rpx; height: 220rpx;
-  border-radius: 16rpx; overflow: hidden;
-  background-color: #F5F5F5;
+/* ==================== 2.1 证照（多图 + 类型下拉） ==================== */
+.license-tip-line { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: #999999; line-height: 1.5; }
+.license-row {
+  display: flex; align-items: center; gap: 20rpx;
+  margin-bottom: 16rpx; padding: 16rpx;
+  background-color: #F9F9F9; border-radius: 16rpx;
+  box-sizing: border-box;
 }
-.license-img { width: 220rpx; height: 220rpx; display: block; }
-.license-placeholder {
-  width: 220rpx; height: 220rpx;
+.license-thumb {
+  position: relative; flex-shrink: 0;
+  width: 120rpx; height: 120rpx;
+  border-radius: 12rpx; overflow: hidden;
+  background-color: #F0F0F0;
+}
+.license-thumb-img { width: 120rpx; height: 120rpx; display: block; }
+.license-thumb-placeholder {
+  width: 120rpx; height: 120rpx;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8rpx;
+  gap: 4rpx;
 }
-.license-plus { font-size: 48rpx; color: #BBBBBB; line-height: 1; }
-.license-tip { font-size: 22rpx; color: #999999; }
+.license-plus { font-size: 36rpx; color: #BBBBBB; line-height: 1; }
+.license-thumb-tip { font-size: 20rpx; color: #999999; }
 .license-mask {
   position: absolute; left: 0; top: 0; right: 0; bottom: 0;
   display: flex; align-items: center; justify-content: center;
   background-color: rgba(0, 0, 0, 0.45);
 }
-.license-mask-text { font-size: 24rpx; color: #FFFFFF; }
-.license-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12rpx; }
-.license-hint { flex: 1; min-width: 0; font-size: 22rpx; color: #999999; line-height: 1.5; }
-.license-remove { flex-shrink: 0; margin-left: 16rpx; font-size: 22rpx; color: #E02020; }
+.license-mask-text { font-size: 22rpx; color: #FFFFFF; }
+.license-row-info { flex: 1; min-width: 0; }
+.license-type-picker { display: block; }
+.license-type {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 64rpx; padding: 0 20rpx;
+  background-color: #FFFFFF; border-radius: 12rpx;
+  box-sizing: border-box;
+}
+.license-type-text {
+  flex: 1; min-width: 0;
+  font-size: 26rpx; color: #333333;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.license-type-arrow { flex-shrink: 0; margin-left: 12rpx; font-size: 20rpx; color: #999999; }
+.license-row-actions { display: flex; align-items: center; gap: 28rpx; margin-top: 14rpx; }
+.license-action { font-size: 24rpx; color: #E02020; }
+.license-action-del { color: #999999; }
+.license-add {
+  height: 80rpx; line-height: 80rpx;
+  border: 2rpx dashed #DDDDDD; border-radius: 16rpx;
+  text-align: center; font-size: 24rpx; color: #999999;
+}
 
 /* ==================== 提交按钮（显式覆盖 uni-button 默认圆角/行高/边框） ==================== */
 .btn-main {

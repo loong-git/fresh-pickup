@@ -32,6 +32,8 @@
 --       「常用筛选」预设 + 独立 COUNT 的索引，选型与实测数字见该表上方注释与 m20-migration.sql）
 --   m21 merchant_apply（F-106 商家自助入驻 · 片 A）：生成列 pending_guard + 唯一键 uk_user_pending(user_id, pending_guard)
 --       照 store_apply 的并发范式，封死同用户并发双 pending；结构与 m21-migration.sql 逐字一致
+--   m22 merchant_apply.licenses + merchant_profile.licenses（F-107 多证照扩展）：两列均 TEXT NULL，
+--       申请侧存证照列表 JSON 文本、过审时原样复制；单图 business_license 保留不动（兼容老客户端/老读路径）
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -348,6 +350,7 @@ CREATE TABLE IF NOT EXISTS merchant_profile (
   audit_status      VARCHAR(20)  NOT NULL DEFAULT 'pending' COMMENT 'pending/approved/rejected（复用评价审核三态范式；一期平台代开通=直接 approved）',
   audit_remark      VARCHAR(255) NULL     COMMENT '驳回理由',
   audited_at        DATETIME     NULL     COMMENT '审核时间',
+  licenses          TEXT         NULL     COMMENT '同 merchant_apply.licenses；审核通过时复制',
   PRIMARY KEY (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家资质/入驻信息';
 
@@ -477,6 +480,7 @@ CREATE TABLE IF NOT EXISTS merchant_apply (
   audit_remark       VARCHAR(255) NULL COMMENT '审核意见（驳回原因供申请人展示）',
   audited_at         DATETIME     NULL COMMENT '审核时间；NULL=未审',
   created_at         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+  licenses           TEXT         NULL COMMENT '证照列表 JSON：[{"type":"business_license","url":"/static/images/uploads/x.jpg"}]，最多 6 条',
   PRIMARY KEY (id),
   UNIQUE KEY uk_user_pending (user_id, pending_guard),
   KEY idx_status (status)

@@ -129,7 +129,11 @@ class AdminMerchantApplyAuditTest {
     }
 
     private void stubApproveHappyPath() {
-        when(applyMapper.selectById(APPLY_ID)).thenReturn(apply("pending"));
+        stubApproveHappyPath(apply("pending"));
+    }
+
+    private void stubApproveHappyPath(MerchantApply apply) {
+        when(applyMapper.selectById(APPLY_ID)).thenReturn(apply);
         when(userMapper.selectById(APPLICANT_ID)).thenReturn(applicant());
         when(merchantMapper.insert(any(Merchant.class))).thenAnswer(inv -> {
             inv.getArgument(0, Merchant.class).setId(30L);   // 模拟 MP 自增 id 回填
@@ -207,6 +211,67 @@ class AdminMerchantApplyAuditTest {
         assertTrue(detail.get("new").asText().contains("status=approved"));
         assertTrue(detail.get("new").asText().contains("merchantId=30"));
         assertTrue(detail.get("new").asText().contains("remark=资料齐全"));
+    }
+
+    @Test
+    void approve复制licenses且business_license取第一条营业执照url() {
+        MerchantApply apply = apply("pending");
+        String licenses = "[{\"type\":\"food_business_license\",\"url\":\"/static/images/uploads/food.png\"},"
+                + "{\"type\":\"business_license\",\"url\":\"/static/images/uploads/license-new.png\"},"
+                + "{\"type\":\"business_license\",\"url\":\"/static/images/uploads/license-2.png\"}]";
+        apply.setLicenses(licenses);
+        stubApproveHappyPath(apply);
+
+        service.auditMerchantApply(APPLY_ID, "approve", null, "admin_user:2");
+
+        ArgumentCaptor<MerchantProfile> profileCap = ArgumentCaptor.forClass(MerchantProfile.class);
+        verify(profileMapper).insert(profileCap.capture());
+        MerchantProfile profile = profileCap.getValue();
+        assertEquals(licenses, profile.getLicenses(), "F-107：申请 licenses 必须原样复制进 merchant_profile");
+        assertEquals("/static/images/uploads/license-new.png", profile.getBusinessLicense(),
+                "单图列取第一条 type=business_license 的 url（跳过 food_*）");
+    }
+
+    @Test
+    void 老申请licenses为空时profile_licenses为null且单图照旧() {
+        stubApproveHappyPath();   // apply() 默认 licenses=null
+
+        service.auditMerchantApply(APPLY_ID, "approve", null, "admin_user:2");
+
+        ArgumentCaptor<MerchantProfile> profileCap = ArgumentCaptor.forClass(MerchantProfile.class);
+        verify(profileMapper).insert(profileCap.capture());
+        assertNull(profileCap.getValue().getLicenses(), "申请行没有 licenses → profile 也落 NULL");
+        assertEquals("/static/images/uploads/license.png", profileCap.getValue().getBusinessLicense(),
+                "licenses 为空时 business_license 回退申请行原值");
+    }
+
+    @Test
+    void licenses脏串时过审不中断且business_license回退原值() {
+        MerchantApply apply = apply("pending");
+        apply.setLicenses("not-json");
+        stubApproveHappyPath(apply);
+
+        // 不抛异常：复制路径只兜底，不因脏 JSON 阻断过审
+        service.auditMerchantApply(APPLY_ID, "approve", null, "admin_user:2");
+
+        ArgumentCaptor<MerchantProfile> profileCap = ArgumentCaptor.forClass(MerchantProfile.class);
+        verify(profileMapper).insert(profileCap.capture());
+        assertEquals("not-json", profileCap.getValue().getLicenses(), "脏串也原样复制（留档，不静默清洗）");
+        assertEquals("/static/images/uploads/license.png", profileCap.getValue().getBusinessLicense());
+    }
+
+    @Test
+    void licenses里没有营业执照时business_license回退申请行原值() {
+        MerchantApply apply = apply("pending");
+        apply.setLicenses("[{\"type\":\"food_business_license\",\"url\":\"/static/images/uploads/food.png\"}]");
+        stubApproveHappyPath(apply);
+
+        service.auditMerchantApply(APPLY_ID, "approve", null, "admin_user:2");
+
+        ArgumentCaptor<MerchantProfile> profileCap = ArgumentCaptor.forClass(MerchantProfile.class);
+        verify(profileMapper).insert(profileCap.capture());
+        assertEquals("/static/images/uploads/license.png", profileCap.getValue().getBusinessLicense(),
+                "数组里解析不出营业执照 → 回退申请行原有的 business_license");
     }
 
     @Test

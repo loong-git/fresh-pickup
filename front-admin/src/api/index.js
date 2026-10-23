@@ -269,6 +269,18 @@ function withQuery(url, params) {
   return qs ? url + '?' + qs : url
 }
 
+// ==================== 文件路径 -> 可展示 URL（F-107 证照缩略图） ====================
+/**
+ * 站内相对路径 -> 后端可直读 URL：以 '/' 开头的拼 BASE_URL，其余（已是绝对 http(s) 地址等）原样返回；
+ * 空值/非字符串回空串。姿势照 front-partner/api/index.js 的 resolveFileUrl——拼 BASE_URL 的责任
+ * 收敛在请求层，页面零自拼。当前唯一调用方是商家入驻审核页的证照缩略图
+ * （licenses 里的 url 形如 /static/images/uploads/<名>）。
+ */
+export function resolveFileUrl(u) {
+  if (typeof u !== 'string' || !u) return ''
+  return u.charAt(0) === '/' ? BASE_URL + u : u
+}
+
 // ==================== 运营登录（匿名端点；本工程不带 Authorization 的请求共两处，另一处是下面的 getStores） ====================
 
 /**
@@ -612,13 +624,16 @@ export function departArrival(storeId, batchDate, remark) {
 // 鉴权与其余 AdminController 端点同一面（checkKeyOrOperator 双轨：X-Admin-Key 或运营 JWT）：
 // 浏览器端只走 JWT 这一轨——request() 在 admin_token 存在时自动挂 Authorization，
 // 静态密钥是给命令行/脚本用的另一轨，本工程没有存放它的地方，也不凭空造头。
-// 列表行键由后端逐键重拼成十三键白名单，本层不改名、不补键，也不对已脱敏字段做任何二次加工。
+// 列表行键由后端逐键重拼成十四键白名单（F-107 起加 licenses），本层不改名、不补键，
+// 也不对已脱敏字段做任何二次加工。
 
 /**
  * 运营端商家入驻申请列表（商家入驻审核页数据源）：GET /api/admin/merchant-applies?status=&pageNum=&pageSize=
  * 出参外层 {list, total, pageNum, pageSize, filters}（与 v2 列表族逐字同形）。
- * 行内恰十三键：id, userId, merchantName, contactName, businessLicense, legalPerson, address,
+ * 行内恰十四键：id, userId, merchantName, contactName, businessLicense, licenses, legalPerson, address,
  * settlementAccount, status, auditRemark, createdAt, auditedAt, applicantPhone。
+ * licenses 是 JSON 数组的**字符串原样**（形如 [{"type":"business_license","url":"/static/images/uploads/a.jpg"}]），
+ * 老数据为 null / 空串；本层不 parse，页面按 try/catch + Array.isArray 自行容错解析（坏数据当没有）。
  * applicantPhone 是 user.phone 经 PhoneMask 的脱敏值（形如 138****1234），本层与页面一律原样展示、
  * **不拼回明文、不再截断**；createdAt / auditedAt 由服务端 DATE_FORMAT 定形成 "YYYY-MM-DD HH:mm:ss"，
  * 不二次格式化。排序 pending 优先，其次 created_at DESC, id DESC。

@@ -47,6 +47,9 @@ class AdminMerchantApplyListTest {
 
     private static final String PHONE = "13800001234";
     private static final String MASKED = "138****1234";
+    private static final String LICENSES =
+            "[{\"type\":\"business_license\",\"url\":\"/static/images/uploads/license.png\"},"
+                    + "{\"type\":\"food_business_license\",\"url\":\"/static/images/uploads/food.png\"}]";
 
     private final ObjectMapper json = Jackson2ObjectMapperBuilder.json().build();
 
@@ -70,6 +73,7 @@ class AdminMerchantApplyListTest {
         row.put("merchantName", "演示商家");
         row.put("contactName", "张三");
         row.put("businessLicense", "/static/images/uploads/license.png");
+        row.put("licenses", LICENSES);
         row.put("legalPerson", "李四");
         row.put("address", "演示路 1 号");
         row.put("settlementAccount", "acct-001");
@@ -226,18 +230,19 @@ class AdminMerchantApplyListTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void 行出参十三键且键序与契约逐字一致() {
+    void 行出参十四键且键序与契约逐字一致() {
         when(applyMapper.countMerchantApplies(null)).thenReturn(1L);
         when(applyMapper.selectMerchantAppliesPage(null, 0L, 20)).thenReturn(List.of(row(PHONE)));
 
         Map<String, Object> data = service.listMerchantApplies(1, 20, null);
 
         Map<String, Object> line = listOf(data).get(0);
-        assertEquals(List.of("id", "userId", "merchantName", "contactName", "businessLicense",
+        assertEquals(List.of("id", "userId", "merchantName", "contactName", "businessLicense", "licenses",
                 "legalPerson", "address", "settlementAccount", "status", "auditRemark",
                 "createdAt", "auditedAt", "applicantPhone"), new ArrayList<>(line.keySet()));
         assertEquals(7L, line.get("userId"), "userId 是契约点名的出参（与 store-applies 的 D-15 不同）");
         assertEquals("演示商家", line.get("merchantName"));
+        assertEquals(LICENSES, line.get("licenses"), "F-107：licenses 字符串原样出参（不 parse、不脱敏）");
     }
 
     // ---------------------------------------------------------------- 排序（SQL 层）
@@ -252,6 +257,7 @@ class AdminMerchantApplyListTest {
                 "排序必须是 pending 优先，其次 created_at DESC, id DESC；实际: " + sql);
         assertTrue(sql.contains("LEFT JOIN `user` u ON u.id = ma.user_id"), "applicantPhone 必须来自 user.phone 关联");
         assertTrue(sql.contains("u.phone AS applicantPhone"));
+        assertTrue(sql.contains("ma.licenses AS licenses"), "F-107：列表 SQL 必须带出 licenses 原文");
         assertFalse(sql.contains("pending_guard"), "生成列绝不出现在 SELECT 列表");
     }
 

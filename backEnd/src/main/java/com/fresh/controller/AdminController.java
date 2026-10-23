@@ -189,9 +189,9 @@ public class AdminController {
     /**
      * 运营端商家入驻申请列表（F-106 片 B2，补 §0.6 的契约漏项）：
      * {@code GET /api/admin/merchant-applies?status=&pageNum=&pageSize=} →
-     * {@code {list:[{id,userId,merchantName,contactName,businessLicense,legalPerson,address,
+     * {@code {list:[{id,userId,merchantName,contactName,businessLicense,licenses,legalPerson,address,
      * settlementAccount,status,auditRemark,createdAt,auditedAt,applicantPhone}], total, pageNum, pageSize,
-     * filters:{status}}}（出参形状与 {@code AdminV2ServiceImpl#storeApplies} 逐字同源）。
+     * filters:{status}}}（出参形状与 {@code AdminV2ServiceImpl#storeApplies} 逐字同源；F-107 起多 {@code licenses}）。
      * <p><b>为什么在本类而不是 AdminV2Controller</b>：v2 面是 JWT-only（{@code requireAdminJwtOnly}），
      * 本端点是运营审核台的数据源、按契约走<b>双轨</b>闸门——{@code X-Admin-Key} 与运营 JWT 都放行，
      * 与同组的 {@code PUT /merchant-applies/{id}/audit} 保持同一鉴权面。
