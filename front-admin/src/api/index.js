@@ -816,3 +816,79 @@ export function evictAdminDict(group) {
     method: 'POST'
   })
 }
+
+// ==================== F-109 免费领活动管理（活动配置 + 候选池，四个端点） ====================
+// 契约真源：docs/上线任务文档.md「F-109」§0.2/§0.3。四个端点全在 AdminController 的 Admin 面
+// （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
+// 读端点限流 IP 30/60s、写端点 IP 10/60s。
+// ⚠ dailyClaimed / dailyDate 是领取链路的运行时计数器：更新 DTO 里根本没有这两个字段，
+//   本层也刻意不提供任何「传了会生效」的函数签名——活动更新只允许 dishId/dailyQuota/threshold/status。
+// 选品用的商品列表走既有的 getAdminDishes（GET /api/admin/v2/dishes，JWT-only 面），本节不另造商品端点。
+
+/**
+ * 免费领活动 + 候选池（运营页活动卡数据源）：GET /api/admin/free/activity
+ * 出参恰九键：{id,dishId,dishName,dailyQuota,dailyClaimed,dailyDate,threshold,status,
+ * pool:[{id,dishId,dishName,onSale}]}。
+ * dailyClaimed 是当日已领份数（运行时计数，本层与页面都只读展示、绝不回写）；
+ * dailyQuota=0 等效暂停；status ∈ online|offline；
+ * pool 行含已下架商品（onSale=0）——管理端要看见池内失效项，页面不许把它静默滤掉。
+ * 只读档限流 IP 30/60s。
+ */
+export function getAdminFreeActivity() {
+  return request({
+    url: '/api/admin/free/activity',
+    method: 'GET'
+  })
+}
+
+/**
+ * 更新免费领活动（部分更新）：PUT /api/admin/free/activity，body {dishId?, dailyQuota?, threshold?, status?}
+ * **只允许改这四列**；daily_claimed / daily_date 传了也不会生效（本层不接受这两个键，DTO 也没有对应字段）。
+ * dishId 须存在且 on_sale=1，否则 400「免费领商品不存在或已下架」；
+ * dailyQuota ≥ 0（0=暂停）、threshold ≥ 0、status ∈ online|offline，越界/非法值由服务端 400。
+ * 四列全空 → 400「无更新字段（可传 dishId / dailyQuota / threshold / status）」。
+ * 成功 message「免费领活动已更新」。写档限流 IP 10/60s。
+ * @param {{dishId?:number, dailyQuota?:number, threshold?:number, status?:string}} patch
+ *        未传/null 的键不下发（服务端按「本次不改该列」处理）
+ */
+export function updateAdminFreeActivity(patch) {
+  const p = patch || {}
+  const body = {}
+  if (p.dishId !== undefined && p.dishId !== null) body.dishId = p.dishId
+  if (p.dailyQuota !== undefined && p.dailyQuota !== null) body.dailyQuota = p.dailyQuota
+  if (p.threshold !== undefined && p.threshold !== null) body.threshold = p.threshold
+  if (p.status !== undefined && p.status !== null) body.status = p.status
+  return request({
+    url: '/api/admin/free/activity',
+    method: 'PUT',
+    data: body
+  })
+}
+
+/**
+ * 免费领候选池：GET /api/admin/free/pool
+ * 出参 data 是数组：[{id,dishId,dishName,onSale}]，按池行 id 升序（=插入序，第一行即 C 端默认免费商品）。
+ * onSale ∈ {0,1}，池里可能留有已下架商品（onSale=0）——管理端要看见这里，不能静默隐藏。
+ * 只读档限流 IP 30/60s。
+ */
+export function getAdminFreePool() {
+  return request({
+    url: '/api/admin/free/pool',
+    method: 'GET'
+  })
+}
+
+/**
+ * 全量替换免费领候选池：PUT /api/admin/free/pool，body {dishIds:[...]}
+ * 同事务删旧插新（旧池行一条不留）；空数组 → 400「候选池至少保留一件商品」；
+ * 任一商品不存在/已下架 → 400「候选商品不存在或已下架」（整单拒绝，不静默剔除）。
+ * 服务端按入参顺序去重插入（=展示顺序）。成功 message「候选池已更新」。写档限流 IP 10/60s。
+ * @param {Array<number>} dishIds 至少一件、每件须在售；页面只传勾选的 onSale 商品
+ */
+export function updateAdminFreePool(dishIds) {
+  return request({
+    url: '/api/admin/free/pool',
+    method: 'PUT',
+    data: { dishIds: Array.isArray(dishIds) ? dishIds : [] }
+  })
+}

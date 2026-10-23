@@ -15,6 +15,8 @@
         <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }"><span class="nav-dot" title="本页会改数据"></span>商品管理</router-link>
         <!-- F-108 片 2：字典四组（含商品分类 dish_category）的运营维护入口，紧跟商品管理 -->
         <router-link to="/dicts" class="nav-link" :class="{ active: isActive('/dicts') }" title="字典分组与词条的增删改、启停与缓存清除；dish_category 组有商品引用保护。"><span class="nav-dot" title="本页会改数据"></span>字典管理</router-link>
+        <!-- F-109：免费领活动配置（换品/日限量/门槛/上下线）与候选池维护；dailyClaimed 是运行时计数，本页不可改 -->
+        <router-link to="/free-activity" class="nav-link" :class="{ active: isActive('/free-activity') }" title="免费领活动配置与候选池维护；dailyClaimed 是运行时计数，本页不可改，改它会超发。"><span class="nav-dot" title="本页会改数据"></span>免费领活动</router-link>
         <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
         <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }"><span class="nav-dot" title="本页会改数据"></span>入驻审核</router-link>
         <!-- F-106 片 C：商家自助入驻申请的审核队列，紧跟门店申请审核（两条入口都读申请、都发审核写）。
@@ -36,8 +38,9 @@
 </template>
 
 <script setup>
-// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口）：右上角标明当前是「运营端」（本仓第四端，
-// 与 C 端/商家端/主理人端区分），并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
+// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109 又各追加一页，
+// 现为十条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
+// 并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
 // 清态与跳转都走 api 层的 logout()，本组件不各自读 storage（键名真源只有 TOKEN_STORAGE_KEY 一处）。
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
@@ -134,8 +137,8 @@ body {
   align-items: center;
   gap: 10px;
 }
-/* 写侧入口的橙点与图例：入口平铺到第九个（F-106 加「商家入驻」、F-108 加「字典管理」）后，运营不看说明文更读不出「点了就改库」，
-   写侧链接挂橙点 + 一条常驻图例，与各页页眉的「本页会改数据」互相印证。 */
+/* 写侧入口的橙点与图例：入口平铺到第十个（F-106 加「商家入驻」、F-108 加「字典管理」、F-109 加「免费领活动」）后，
+   运营不看说明文更读不出「点了就改库」，写侧链接挂橙点 + 一条常驻图例，与各页页眉的「本页会改数据」互相印证。 */
 .nav-dot {
   display: inline-block;
   width: 6px;

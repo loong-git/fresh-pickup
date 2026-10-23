@@ -14,6 +14,8 @@ import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
+import com.fresh.dto.AdminFreeActivityUpdateDTO;
+import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.ArrivalBatch;
@@ -21,6 +23,8 @@ import com.fresh.entity.ArrivalItem;
 import com.fresh.entity.DictGroup;
 import com.fresh.entity.DictItem;
 import com.fresh.entity.Dish;
+import com.fresh.entity.FreeActivity;
+import com.fresh.entity.FreeGoodsPool;
 import com.fresh.entity.Merchant;
 import com.fresh.entity.MerchantApply;
 import com.fresh.entity.MerchantProfile;
@@ -36,6 +40,8 @@ import com.fresh.mapper.ArrivalItemMapper;
 import com.fresh.mapper.DictGroupMapper;
 import com.fresh.mapper.DictItemMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.FreeActivityMapper;
+import com.fresh.mapper.FreeGoodsPoolMapper;
 import com.fresh.mapper.MerchantApplyMapper;
 import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.MerchantProfileMapper;
@@ -58,6 +64,7 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -65,7 +72,9 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1554,5 +1563,244 @@ public class AdminServiceImpl implements AdminService {
 
     private static String dictGroupDetail(String name, Integer enabled) {
         return "name=" + name + ",enabled=" + enabled;
+    }
+
+    // ==================================================================
+    // F-109：免费领活动管理（四个端点，只动活动配置，不碰订单/价格/库存）。
+    // 追加式落码在文件末尾（常量 + 依赖 + 方法），理由同 F-63/F-108 段注释。
+    // C 端 FreeServiceImpl 读路径无任何缓存（逐次查 free_activity/free_goods_pool/dish），
+    // 故写后无需 evict；本段也不新增缓存。
+    // ==================================================================
+
+    /** 审计动作（契约 §0.2 逐字两枚；写侧唯一真源） */
+    private static final String AUDIT_FREE_ACTIVITY_UPDATE = "free.activity.update";
+    private static final String AUDIT_FREE_POOL_UPDATE = "free.pool.update";
+
+    /** 审计目标类型（admin_audit_log.target_type VARCHAR(30)） */
+    private static final String AUDIT_TARGET_FREE_ACTIVITY = "free_activity";
+    private static final String AUDIT_TARGET_FREE_POOL = "free_pool";
+
+    /** 单活动模型（种子固定 id=1）：无行属数据异常，读/写统一 404 */
+    private static final String FREE_ACTIVITY_NOT_FOUND_MSG = "免费领活动不存在";
+
+    /** 换品 400 文案（契约「dish 存在且 on_sale=1，否则 400」） */
+    private static final String FREE_DISH_INVALID_MSG = "免费领商品不存在或已下架";
+
+    /** 候选池 400 文案（任一商品不存在/已下架即整单拒绝，不静默剔除） */
+    private static final String FREE_POOL_DISH_INVALID_MSG = "候选商品不存在或已下架";
+
+    /** 空池 400 文案（C 端无候选可选会整页置灰） */
+    private static final String FREE_POOL_EMPTY_MSG = "候选池至少保留一件商品";
+
+    /** 全空更新 400 文案 */
+    private static final String FREE_ACTIVITY_NO_FIELDS_MSG =
+            "无更新字段（可传 dishId / dailyQuota / threshold / status）";
+
+    /** F-109 的两个新依赖（只被本段方法使用；追加式字段声明同 F-63/F-108 那批） */
+    @Autowired
+    private FreeActivityMapper freeActivityMapper;
+    @Autowired
+    private FreeGoodsPoolMapper freeGoodsPoolMapper;
+
+    /**
+     * 活动 + 候选池出参：键序固定 {@code id,dishId,dishName,dailyQuota,dailyClaimed,dailyDate,
+     * threshold,status,pool}；pool 行含已下架商品（带 onSale=0），管理端要看见池里有没有失效项。
+     */
+    @Override
+    public Map<String, Object> freeActivity() {
+        FreeActivity activity = requireFreeActivity();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("id", activity.getId());
+        data.put("dishId", activity.getDishId());
+        Dish dish = activity.getDishId() == null ? null : dishMapper.selectById(activity.getDishId());
+        data.put("dishName", dish == null ? null : dish.getName());
+        data.put("dailyQuota", activity.getDailyQuota() == null ? 0 : activity.getDailyQuota());
+        data.put("dailyClaimed", activity.getDailyClaimed() == null ? 0 : activity.getDailyClaimed());
+        data.put("dailyDate", activity.getDailyDate());
+        data.put("threshold", activity.getThreshold() == null ? BigDecimal.ZERO : activity.getThreshold());
+        data.put("status", activity.getStatus());
+        data.put("pool", freePoolRows(activity.getId()));
+        return data;
+    }
+
+    /**
+     * 部分更新活动：<b>只 set 四个可管理列</b>，null 字段由 MP 的 NOT_NULL 策略跳过；
+     * daily_claimed/daily_date 既不在 DTO 里、也不在 patch 里，落库路径上不存在写它们的分支。
+     * 判据顺序：活动行 → 全空 → dishId/on_sale → quota → threshold → status（全部校验先于写）。
+     */
+    @Override
+    public void updateFreeActivity(AdminFreeActivityUpdateDTO dto, String actor) {
+        FreeActivity activity = requireFreeActivity();
+        if (dto == null) {
+            throw new BizException(FREE_ACTIVITY_NO_FIELDS_MSG);
+        }
+        Long dishId = dto.getDishId();
+        Integer dailyQuota = dto.getDailyQuota();
+        BigDecimal threshold = dto.getThreshold();
+        String status = dto.getStatus();
+        if (dishId == null && dailyQuota == null && threshold == null && status == null) {
+            throw new BizException(FREE_ACTIVITY_NO_FIELDS_MSG);
+        }
+        if (dishId != null) {
+            Dish dish = dishMapper.selectById(dishId);
+            if (dish == null || dish.getOnSale() == null || dish.getOnSale() != 1) {
+                throw new BizException(FREE_DISH_INVALID_MSG);
+            }
+        }
+        if (dailyQuota != null && dailyQuota < 0) {
+            throw new BizException("每日限量不能为负数");
+        }
+        if (threshold != null && threshold.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BizException("满额门槛不能为负数");
+        }
+        if (status != null
+                && !FreeActivity.STATUS_ONLINE.equals(status)
+                && !FreeActivity.STATUS_OFFLINE.equals(status)) {
+            throw new BizException("活动状态仅允许 online 或 offline");
+        }
+        FreeActivity patch = new FreeActivity();
+        patch.setId(activity.getId());
+        patch.setDishId(dishId);
+        patch.setDailyQuota(dailyQuota);
+        patch.setThreshold(threshold);
+        patch.setStatus(status);
+        freeActivityMapper.updateById(patch);
+        writeAudit(auditActor(actor), AUDIT_FREE_ACTIVITY_UPDATE, AUDIT_TARGET_FREE_ACTIVITY,
+                String.valueOf(activity.getId()),
+                freeActivityDetail(activity),
+                freeActivityDetail(dishId != null ? dishId : activity.getDishId(),
+                        dailyQuota != null ? dailyQuota : activity.getDailyQuota(),
+                        threshold != null ? threshold : activity.getThreshold(),
+                        status != null ? status : activity.getStatus()));
+    }
+
+    /** 候选池只读：池行 id 升序（=插入序，第一行即 C 端默认免费商品） */
+    @Override
+    public List<Map<String, Object>> freePool() {
+        return freePoolRows(requireFreeActivity().getId());
+    }
+
+    /**
+     * 全量替换候选池：同事务删旧插新。校验（活动行/非空/去重/null 项/逐个存在且在售）
+     * 全部先于删除；unique 已去重，插入不会撞 {@code uk_activity_dish}。
+     * 旧池行<b>一条不留</b>（delete 只按 activity_id 过滤，不带任何保留/排除名单）。
+     */
+    @Override
+    @Transactional
+    public void updateFreePool(AdminFreePoolUpdateDTO dto, String actor) {
+        FreeActivity activity = requireFreeActivity();
+        List<Long> dishIds = dto == null ? null : dto.getDishIds();
+        if (dishIds == null || dishIds.isEmpty()) {
+            throw new BizException(FREE_POOL_EMPTY_MSG);
+        }
+        Set<Long> unique = new LinkedHashSet<>();
+        for (Long dishId : dishIds) {
+            if (dishId == null) {
+                throw new BizException(FREE_POOL_DISH_INVALID_MSG);
+            }
+            unique.add(dishId);
+        }
+        if (unique.isEmpty()) {
+            throw new BizException(FREE_POOL_EMPTY_MSG);
+        }
+        List<Long> ordered = new ArrayList<>(unique);
+        Map<Long, Dish> dishes = new HashMap<>();
+        for (Dish dish : dishMapper.selectBatchIds(ordered)) {
+            dishes.put(dish.getId(), dish);
+        }
+        for (Long dishId : ordered) {
+            Dish dish = dishes.get(dishId);
+            if (dish == null || dish.getOnSale() == null || dish.getOnSale() != 1) {
+                throw new BizException(FREE_POOL_DISH_INVALID_MSG);
+            }
+        }
+        List<FreeGoodsPool> before = freeGoodsPoolMapper.selectList(new LambdaQueryWrapper<FreeGoodsPool>()
+                .eq(FreeGoodsPool::getActivityId, activity.getId())
+                .orderByAsc(FreeGoodsPool::getId));
+        freeGoodsPoolMapper.delete(new LambdaQueryWrapper<FreeGoodsPool>()
+                .eq(FreeGoodsPool::getActivityId, activity.getId()));
+        for (Long dishId : ordered) {
+            FreeGoodsPool row = new FreeGoodsPool();
+            row.setActivityId(activity.getId());
+            row.setDishId(dishId);
+            freeGoodsPoolMapper.insert(row);
+        }
+        writeAudit(auditActor(actor), AUDIT_FREE_POOL_UPDATE, AUDIT_TARGET_FREE_POOL,
+                String.valueOf(activity.getId()),
+                freePoolDetail(beforeIds(before)),
+                freePoolDetail(ordered));
+    }
+
+    /** 单活动模型：取 id 最小的活动行（与 C 端 FreeServiceImpl#currentActivity 同口径） */
+    private FreeActivity requireFreeActivity() {
+        FreeActivity activity = freeActivityMapper.selectOne(new LambdaQueryWrapper<FreeActivity>()
+                .orderByAsc(FreeActivity::getId).last("LIMIT 1"));
+        if (activity == null) {
+            throw new BizException(R.CODE_NOT_FOUND, FREE_ACTIVITY_NOT_FOUND_MSG);
+        }
+        return activity;
+    }
+
+    /** 池行 + 商品名/在售态；商品被删时 dishName=null、onSale=0（池行仍列出，运营看得见脏项） */
+    private List<Map<String, Object>> freePoolRows(Long activityId) {
+        List<FreeGoodsPool> pool = freeGoodsPoolMapper.selectList(new LambdaQueryWrapper<FreeGoodsPool>()
+                .eq(FreeGoodsPool::getActivityId, activityId)
+                .orderByAsc(FreeGoodsPool::getId));
+        Map<Long, Dish> dishes = new HashMap<>();
+        if (!pool.isEmpty()) {
+            List<Long> ids = new ArrayList<>(pool.size());
+            for (FreeGoodsPool row : pool) {
+                if (row.getDishId() != null) {
+                    ids.add(row.getDishId());
+                }
+            }
+            if (!ids.isEmpty()) {
+                for (Dish dish : dishMapper.selectBatchIds(ids)) {
+                    dishes.put(dish.getId(), dish);
+                }
+            }
+        }
+        List<Map<String, Object>> out = new ArrayList<>(pool.size());
+        for (FreeGoodsPool row : pool) {
+            Dish dish = row.getDishId() == null ? null : dishes.get(row.getDishId());
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.getId());
+            line.put("dishId", row.getDishId());
+            line.put("dishName", dish == null ? null : dish.getName());
+            line.put("onSale", dish != null && dish.getOnSale() != null && dish.getOnSale() == 1 ? 1 : 0);
+            out.add(line);
+        }
+        return out;
+    }
+
+    /** 审计 detail（活动）：只含四个可管理列——daily_claimed/daily_date 不是管理面，不进审计新旧值 */
+    private static String freeActivityDetail(FreeActivity activity) {
+        return freeActivityDetail(activity.getDishId(), activity.getDailyQuota(),
+                activity.getThreshold(), activity.getStatus());
+    }
+
+    private static String freeActivityDetail(Long dishId, Integer dailyQuota, BigDecimal threshold, String status) {
+        return "dishId=" + dishId + ",dailyQuota=" + dailyQuota
+                + ",threshold=" + threshold + ",status=" + status;
+    }
+
+    private static List<Long> beforeIds(List<FreeGoodsPool> rows) {
+        List<Long> ids = new ArrayList<>(rows.size());
+        for (FreeGoodsPool row : rows) {
+            ids.add(row.getDishId());
+        }
+        return ids;
+    }
+
+    /** 审计 detail（候选池）：按池顺序拼 dishIds；超 500 由 writeAudit 的既有预算截断兜底 */
+    private static String freePoolDetail(List<Long> dishIds) {
+        StringBuilder sb = new StringBuilder("dishIds=");
+        for (int i = 0; i < dishIds.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(dishIds.get(i));
+        }
+        return sb.toString();
     }
 }

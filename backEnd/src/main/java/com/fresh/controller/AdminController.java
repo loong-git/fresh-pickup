@@ -8,6 +8,8 @@ import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
+import com.fresh.dto.AdminFreeActivityUpdateDTO;
+import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminOrderStatusDTO;
 import com.fresh.dto.AdminReviewAuditDTO;
@@ -410,6 +412,85 @@ public class AdminController {
         }
         adminService.updateDictGroup(code, dto, grant.actor());
         return R.ok(null, "分组已更新");
+    }
+
+    // ==================================================================
+    // F-109：免费领活动管理（四个端点，只动活动配置，不碰订单/价格/库存）
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator（静态密钥或运营 JWT）；
+    // 读端点 30/60s、写端点 10/60s，均按 IP 维度（Admin 面无 JWT userId，§2.10a）。
+    // 审计（free.activity.update / free.pool.update）在 AdminServiceImpl 内与业务同源写。
+    // ==================================================================
+
+    /**
+     * 免费领活动 + 候选池（F-109 §0.2）：{@code GET /api/admin/free/activity} →
+     * {@code {id,dishId,dishName,dailyQuota,dailyClaimed,dailyDate,threshold,status,
+     * pool:[{id,dishId,dishName,onSale}]}}。只读端点不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-109 §0.2）
+    @GetMapping("/free/activity")
+    public R<Map<String, Object>> freeActivity(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                               @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 merchantApplies/arrivalPreview 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.freeActivity());
+    }
+
+    /**
+     * 更新免费领活动（F-109 §0.2）：{@code PUT /api/admin/free/activity}，
+     * body {@code {dishId?, dailyQuota?, threshold?, status?}}。
+     * <p><b>只允许改这四列</b>；{@code daily_claimed}/{@code daily_date} 是领取链路的运行时计数器，
+     * DTO 没有对应字段、Service 也不写这两列——body 里塞了不会生效（超发/白送的口子封死在这里）。
+     * 校验与 400 文案全部钉在 {@code AdminService#updateFreeActivity}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-109 §0.2）
+    @PutMapping("/free/activity")
+    public R<Void> updateFreeActivity(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                      @RequestHeader(value = "Authorization", required = false) String authz,
+                                      @Valid @RequestBody AdminFreeActivityUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateFreeActivity(dto, grant.actor());
+        return R.ok(null, "免费领活动已更新");
+    }
+
+    /**
+     * 免费领候选池（F-109 §0.2）：{@code GET /api/admin/free/pool} →
+     * {@code [{id,dishId,dishName,onSale}]}，池行 id 升序（=插入序）。只读端点不写审计。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-109 §0.2）
+    @GetMapping("/free/pool")
+    public R<List<Map<String, Object>>> freePool(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                 @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.freePool());
+    }
+
+    /**
+     * 全量替换免费领候选池（F-109 §0.2）：{@code PUT /api/admin/free/pool}，body {@code {dishIds:[...]}}。
+     * 非空、去重、每个 dish 存在且 {@code on_sale=1}，否则 400；同事务删旧插新（旧池行一条不留）。
+     * 判据与文案全部钉在 {@code AdminService#updateFreePool}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-109 §0.2）
+    @PutMapping("/free/pool")
+    public R<Void> updateFreePool(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                  @RequestHeader(value = "Authorization", required = false) String authz,
+                                  @Valid @RequestBody AdminFreePoolUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateFreePool(dto, grant.actor());
+        return R.ok(null, "候选池已更新");
     }
 
     /**

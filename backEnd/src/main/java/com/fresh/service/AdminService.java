@@ -5,6 +5,8 @@ import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
+import com.fresh.dto.AdminFreeActivityUpdateDTO;
+import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 
 import java.util.List;
@@ -230,4 +232,44 @@ public interface AdminService {
      * 成功后 evict(code) + 审计 {@code dict.group.update}。停用后 {@code GET /api/dict} 按空返回。
      */
     void updateDictGroup(String code, AdminDictGroupUpdateDTO dto, String actor);
+
+    // ==================================================================
+    // F-109：免费领活动管理（四个端点，只动活动配置，不碰订单/价格/库存）
+    // 读端点不写审计；写端点成功后写 admin_audit_log：
+    //   free.activity.update / free.pool.update（actor 口径同本接口既有方法）。
+    // C 端 FreeServiceImpl 读路径无任何缓存（逐次查 free_activity/free_goods_pool/dish），
+    // 故此处写后无需 evict，也不凭空新增缓存。
+    // ==================================================================
+
+    /**
+     * 免费领活动 + 候选池（{@code GET /api/admin/free/activity}）→
+     * {@code {id,dishId,dishName,dailyQuota,dailyClaimed,dailyDate,threshold,status,
+     * pool:[{id,dishId,dishName,onSale}]}}。单活动模型取 id 最小行；无活动行 404。
+     */
+    Map<String, Object> freeActivity();
+
+    /**
+     * 更新免费领活动（{@code PUT /api/admin/free/activity}）：<b>只允许改 dishId/dailyQuota/threshold/status</b>，
+     * 四列全空 400；{@code daily_claimed}/{@code daily_date} 不接受（DTO 无字段，运行时计数器归领取链路）。
+     * dishId 须存在且 on_sale=1；dailyQuota ≥ 0（0=暂停）；threshold ≥ 0；status 仅 online/offline。
+     * 成功后写审计 {@code free.activity.update}。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void updateFreeActivity(AdminFreeActivityUpdateDTO dto, String actor);
+
+    /**
+     * 免费领候选池（{@code GET /api/admin/free/pool}）→
+     * {@code [{id,dishId,dishName,onSale}]}，池行 id 升序（=插入序）。无活动行 404。
+     */
+    List<Map<String, Object>> freePool();
+
+    /**
+     * 全量替换候选池（{@code PUT /api/admin/free/pool}）：同事务删旧插新；
+     * dishIds 非空、去重、每个 dish 存在且 on_sale=1，否则 400（空池不允许）。
+     * 成功后写审计 {@code free.pool.update}。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void updateFreePool(AdminFreePoolUpdateDTO dto, String actor);
 }
