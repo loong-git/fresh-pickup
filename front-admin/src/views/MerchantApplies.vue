@@ -22,6 +22,9 @@
         </el-radio-button>
       </el-radio-group>
       <el-button size="small" :disabled="loading || submitting" @click="load">刷新</el-button>
+      <!-- 代开通与自助申请并存：一期只有这条路（运营拿到手机号直接开），二期起两条都在。
+           它不产生 merchant_apply 行，所以提交后列表不会多一行，这是预期。 -->
+      <el-button size="small" type="primary" plain :disabled="submitting" @click="openCreate">代开通商家</el-button>
     </div>
 
     <div v-if="loading" class="state-box">
@@ -109,6 +112,30 @@
         <el-button size="small" type="danger" :loading="submitting" @click="onConfirmReject">确认驳回</el-button>
       </template>
     </el-dialog>
+
+    <!-- 平台代开通（一期唯一路径，二期保留）：不经过 merchant_apply，直接按手机号开通并绑定已注册用户。 -->
+    <el-dialog v-model="createVisible" title="平台代开通商家" width="520px" :close-on-click-modal="false">
+      <p class="dialog-note">
+        按手机号开通：该号必须<b>已注册</b>（让商家先用验证码登录一次），且名下<b>没有</b>商家。
+        开通会在同一事务里建商家主体、写入已通过的资质记录并绑定该账号，所以提交后
+        <b>不会</b>在本页列表里多出一条申请——本页只显示自助申请队列。
+      </p>
+      <el-form class="dialog-form" label-width="90px" @submit.prevent="onSubmitCreate">
+        <el-form-item label="商家名称">
+          <el-input v-model="createForm.name" maxlength="100" show-word-limit clearable placeholder="必填" />
+        </el-form-item>
+        <el-form-item label="手机号">
+          <el-input v-model="createForm.phone" maxlength="20" clearable placeholder="必填，须为已注册账号" />
+        </el-form-item>
+        <el-form-item label="联系人">
+          <el-input v-model="createForm.contactName" maxlength="50" clearable placeholder="选填" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" :disabled="createSubmitting" @click="createVisible = false">取消（不发出任何请求）</el-button>
+        <el-button size="small" type="primary" :loading="createSubmitting" @click="onSubmitCreate">确认开通</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -123,7 +150,7 @@
 // 错误一律只呈现请求层透出的后端 message（ElMessage），本页不预置猜原因的提示表。
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listMerchantApplies, auditMerchantApply } from '../api'
+import { listMerchantApplies, auditMerchantApply, createAdminMerchant } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -152,6 +179,38 @@ const statusFilter = ref('pending')
 const rejectVisible = ref(false)
 const rejectRow = ref({})
 const rejectRemark = ref('')
+
+// 代开通（平台按手机号直接开）：与审核互斥地用自己的提交态，避免一个弹窗在转时把另一个的按钮也禁掉。
+const createVisible = ref(false)
+const createSubmitting = ref(false)
+const createForm = ref({ name: '', phone: '', contactName: '' })
+
+function openCreate() {
+  createForm.value = { name: '', phone: '', contactName: '' }
+  createVisible.value = true
+}
+
+async function onSubmitCreate() {
+  if (createSubmitting.value) return
+  const name = String(createForm.value.name || '').trim()
+  const phone = String(createForm.value.phone || '').trim()
+  const contactName = String(createForm.value.contactName || '').trim()
+  // 前端只挡"明显填错"，业务判定（未注册/已绑定）一律交给后端，文案也用它给的。
+  if (!name) { ElMessage.warning('请填写商家名称'); return }
+  if (!/^1[3-9]\d{9}$/.test(phone)) { ElMessage.warning('请填写正确的手机号'); return }
+  createSubmitting.value = true
+  try {
+    const envelope = await createAdminMerchant({ name, phone, contactName })
+    ElMessage.success(envelope.message || '商家已开通')
+    createVisible.value = false
+    await load()
+  } catch (err) {
+    const e = err || {}
+    if (e.message) ElMessage.error(e.message)
+  } finally {
+    createSubmitting.value = false
+  }
+}
 
 async function load() {
   if (loading.value) return

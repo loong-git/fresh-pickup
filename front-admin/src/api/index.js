@@ -667,3 +667,15 @@ export function auditMerchantApply(id, action, remark) {
     data: body
   })
 }
+
+/**
+ * 平台代开通商家（一期能力，二期补运营台入口）：POST /api/admin/merchants。
+ * body {name, phone, contactName?}。后端按 phone 找**已注册**的 user，同事务建 merchant +
+ * merchant_profile(approved) 并绑定 user.merchant_id；手机号未注册 / 已绑定商家均回 400，
+ * 文案由后端给出，本函数原样透出，不改写。
+ */
+export function createAdminMerchant(payload) {
+  const body = { name: payload.name, phone: payload.phone }
+  if (payload.contactName) body.contactName = String(payload.contactName)
+  return request({ url: '/api/admin/merchants', method: 'POST', data: body })
+}
