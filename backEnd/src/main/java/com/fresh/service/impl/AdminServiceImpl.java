@@ -1266,6 +1266,8 @@ public class AdminServiceImpl implements AdminService {
     private static final String AUDIT_DICT_ITEM_UPDATE = "dict.item.update";
     private static final String AUDIT_DICT_ITEM_DELETE = "dict.item.delete";
     private static final String AUDIT_DICT_GROUP_UPDATE = "dict.group.update";
+    /** §0.8 上游同步（B 语义只增不删；组不存在/停用/上游失败均不写审计） */
+    private static final String AUDIT_DICT_SYNC = "dict.sync";
 
     /** 审计目标类型（admin_audit_log.target_type VARCHAR(30)） */
     private static final String AUDIT_TARGET_DICT_ITEM = "dict_item";
@@ -1457,6 +1459,26 @@ public class AdminServiceImpl implements AdminService {
                 dictGroupDetail(existing),
                 dictGroupDetail(name != null ? name : existing.getName(),
                         enabled != null ? enabled : existing.getEnabled()));
+    }
+
+    /**
+     * 从上游同步（F-108 §0.8）：组校验/拉取/INSERT IGNORE/evict 全在 {@link DictService#syncFromUpstream}，
+     * 本方法只做「成功后写审计」这一件事——上游失败时它抛 BizException（400）原样上抛，此处不写审计、
+     * 不吞异常，运营点同步必须知道拉没拉到。审计 detail 只放三个计数，不放词条内容。
+     */
+    @Override
+    public Map<String, Object> syncDictGroup(String group, String actor) {
+        Map<String, Object> result = dictService.syncFromUpstream(group);
+        writeAudit(auditActor(actor), AUDIT_DICT_SYNC, AUDIT_TARGET_DICT_GROUP, group,
+                null, dictSyncDetail(result));
+        return result;
+    }
+
+    /** 审计 detail（同步）：上游条数/新增/跳过三段；上游失败不会走到这里（无成功计数可写） */
+    private static String dictSyncDetail(Map<String, Object> result) {
+        return "upstreamTotal=" + result.get("upstreamTotal")
+                + ",inserted=" + result.get("inserted")
+                + ",skipped=" + result.get("skipped");
     }
 
     /** 分组存在性闸门（400）：列表/新增词条共用；改分组端点的 404 在 updateDictGroup 内单独判。 */

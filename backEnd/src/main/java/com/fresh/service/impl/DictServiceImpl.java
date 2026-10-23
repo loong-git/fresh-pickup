@@ -160,6 +160,48 @@ public class DictServiceImpl implements DictService {
         cache.invalidate(group);
     }
 
+    /**
+     * 上游同步（F-108 §0.8，B 语义「只增不删」）：组存在且 enabled=1 才拉上游；拉取失败由
+     * {@link #fetchFromUpstream} 原样抛 BizException（不吞、不当成功）。成功时逐条 {@code INSERT IGNORE}，
+     * 由 {@code uk_group_word} 判重：返回 1 计 inserted，返回 0 计 skipped；全程<b>没有 UPDATE / DELETE</b>，
+     * 本地已有的行（含运营改过的 definition/sortOrder）一行都不动。有插入才 {@link #evict(String)}。
+     */
+    @Override
+    public Map<String, Object> syncFromUpstream(String group) {
+        DictGroup groupRow = group == null ? null : dictGroupMapper.selectById(group);
+        if (groupRow == null) {
+            throw new BizException("字典分组不存在");
+        }
+        if (groupRow.getEnabled() != null && groupRow.getEnabled() == 0) {
+            throw new BizException("分组已停用，不同步");
+        }
+        Integer categoryId = GROUP_ID.get(group);
+        if (categoryId == null) {
+            // 有 dict_group 行但没有上游映射（将来新增的本地组）：没有可拉取的来源，明确 400 而不是拼出 categoryId=null
+            throw new BizException("该分组没有上游来源，无法同步");
+        }
+        // 上游失败在这里抛出（BizException 400），此前未写过任何一行
+        List<Map<String, Object>> upstream = fetchFromUpstream(categoryId);
+        int inserted = 0;
+        for (Map<String, Object> item : upstream) {
+            DictItem row = new DictItem();
+            row.setGroupCode(group);
+            row.setWord((String) item.get("word"));
+            row.setDefinition((String) item.get("definition"));
+            Object sortOrder = item.get("sortOrder");
+            row.setSortOrder(sortOrder instanceof Number n ? n.intValue() : 0);
+            inserted += dictItemMapper.insertIgnore(row);
+        }
+        if (inserted > 0) {
+            evict(group);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("upstreamTotal", upstream.size());
+        result.put("inserted", inserted);
+        result.put("skipped", upstream.size() - inserted);
+        return result;
+    }
+
     /** 调上游拉取词条并归一化；任何失败转为业务异常（BizException(String) 单参默认 R.CODE_BAD_REQUEST，经全局异常处理器对外输出 code=400，前端降级 FALLBACK） */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private List<Map<String, Object>> fetchFromUpstream(Integer categoryId) {

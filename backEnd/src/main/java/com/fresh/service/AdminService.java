@@ -235,6 +235,16 @@ public interface AdminService {
      */
     void updateDictGroup(String code, AdminDictGroupUpdateDTO dto, String actor);
 
+    /**
+     * 从上游同步某分组词条（F-108 §0.8，B 语义「只增不删」）：组不存在 400；组 {@code enabled=0}
+     * 400「分组已停用，不同步」；上游拉取失败<b>原样抛 BizException</b>（400「字典服务暂时不可用，请稍后重试」）。
+     * 成功时逐条 {@code INSERT IGNORE}（{@code uk_group_word} 判重），本地没有的插入、已有的（含运营改过的）
+     * 一行不动；有插入才 evict 该组。成功后写审计 {@code dict.sync}。
+     *
+     * @return {@code {upstreamTotal, inserted, skipped}}
+     */
+    Map<String, Object> syncDictGroup(String group, String actor);
+
     // ==================================================================
     // F-109：免费领活动管理（四个端点，只动活动配置，不碰订单/价格/库存）
     // 读端点不写审计；写端点成功后写 admin_audit_log：

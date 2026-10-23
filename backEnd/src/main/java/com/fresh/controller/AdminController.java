@@ -297,6 +297,28 @@ public class AdminController {
         return R.ok(null, "字典缓存已清除");
     }
 
+    /**
+     * 从上游同步某分组词条（F-108 §0.8，B 语义「只增不删」）：{@code POST /api/admin/dict/{group}/sync}。
+     * <p>组不存在 → 400「字典分组不存在」；组 {@code enabled=0} → 400「分组已停用，不同步」。
+     * 上游拉取失败<b>原样抛它的 BizException</b>（400「字典服务暂时不可用，请稍后重试」），绝不静默当成功。
+     * 成功时逐条 {@code INSERT IGNORE}（{@code uk_group_word} 判重）：本地没有的插入、已有的（含运营改过的）
+     * 一行不动，不删除、不更新任何既有行；有插入才 evict 该组。返回 {@code {upstreamTotal, inserted, skipped}}，
+     * 并由 Service 写审计 {@code dict.sync}。
+     * <p>闸门与限流逐字照本面其余写端点：双轨 {@link #checkKeyOrOperator}，IP 维度 10/60s。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（§0.8）
+    @PostMapping("/dict/{group}/sync")
+    public R<Map<String, Object>> syncDict(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                           @RequestHeader(value = "Authorization", required = false) String authz,
+                                           @PathVariable("group") String group) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.syncDictGroup(group, grant.actor()), "字典同步完成");
+    }
+
     // ==================================================================
     // F-108 §0.7 片 2：字典管理端 CRUD（六个端点）
     // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator（静态密钥或运营 JWT）；

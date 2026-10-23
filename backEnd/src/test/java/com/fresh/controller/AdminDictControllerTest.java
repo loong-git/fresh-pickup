@@ -1,6 +1,7 @@
 package com.fresh.controller;
 
 import com.fresh.annotation.RateLimit;
+import com.fresh.common.BizException;
 import com.fresh.common.JwtUtil;
 import com.fresh.common.R;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
@@ -28,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -169,6 +171,65 @@ class AdminDictControllerTest {
         verify(adminService).updateDictGroup("dish_category", dto, null);
     }
 
+    // ---------------------------------------------------------------- ①.5 §0.8 上游同步端点
+
+    @Test
+    void 同步端点放行且静态密钥轨actor为null并透传三个计数() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("upstreamTotal", 5);
+        data.put("inserted", 2);
+        data.put("skipped", 3);
+        when(adminService.syncDictGroup("dish_category", null)).thenReturn(data);
+
+        R<Map<String, Object>> result = controller.syncDict(KEY, null, "dish_category");
+
+        assertEquals(200, result.getCode());
+        assertEquals("字典同步完成", result.getMessage());
+        assertSame(data, result.getData(), "三个计数原样透传给运营页");
+        verify(adminService).syncDictGroup("dish_category", null);
+    }
+
+    @Test
+    void 同步端点运营JWT轨actor为admin_user加id() {
+        Claims claims = mock(Claims.class);
+        when(claims.get("typ")).thenReturn("admin");
+        when(claims.getSubject()).thenReturn("2");
+        when(jwtUtil.parseClaims("admin-token")).thenReturn(claims);
+        AdminUser account = new AdminUser();
+        account.setId(2L);
+        account.setStatus("active");
+        when(adminUserMapper.selectById(2L)).thenReturn(account);
+        when(adminService.syncDictGroup("dish_category", "admin_user:2"))
+                .thenReturn(new LinkedHashMap<>());
+
+        R<Map<String, Object>> result = controller.syncDict(null, AUTHZ, "dish_category");
+
+        assertEquals(200, result.getCode());
+        verify(adminService).syncDictGroup("dish_category", "admin_user:2");
+    }
+
+    @Test
+    void 同步端点上游失败BizException原样上抛_code为400() {
+        BizException upstream = new BizException("字典服务暂时不可用，请稍后重试");
+        when(adminService.syncDictGroup("dish_category", null)).thenThrow(upstream);
+
+        BizException e = assertThrows(BizException.class,
+                () -> controller.syncDict(KEY, null, "dish_category"));
+
+        assertSame(upstream, e, "端点不吞异常、不换文案，交由 GlobalExceptionHandler 转 code=400");
+        assertEquals(400, e.getCode());
+        assertEquals("字典服务暂时不可用，请稍后重试", e.getMessage());
+    }
+
+    @Test
+    void 同步端点无凭证401且不触达service() {
+        R<Map<String, Object>> result = controller.syncDict(null, null, "dish_category");
+
+        assertEquals(401, result.getCode());
+        assertEquals("管理密钥缺失或错误", result.getMessage());
+        verifyNoInteractions(adminService);
+    }
+
     // ---------------------------------------------------------------- ② 401 统一出口
 
     @Test
@@ -243,6 +304,18 @@ class AdminDictControllerTest {
         }
 
         assertEquals(expected.keySet(), seen, "六个端点必须全部挂上限流（少一个都算漏挂）");
+    }
+
+    @Test
+    void 同步端点限流档位为10每60秒且按IP() throws Exception {
+        Method method = AdminController.class.getMethod("syncDict", String.class, String.class, String.class);
+
+        RateLimit rateLimit = method.getAnnotation(RateLimit.class);
+
+        assertNotNull(rateLimit, "syncDict 必须挂 @RateLimit");
+        assertEquals(10, rateLimit.limit());
+        assertEquals(60, rateLimit.windowSeconds());
+        assertEquals(RateLimit.KeyType.IP, rateLimit.keyType(), "Admin 面无 JWT userId，必须按 IP 维度");
     }
 
     // ---------------------------------------------------------------- ⑤ DTO 校验

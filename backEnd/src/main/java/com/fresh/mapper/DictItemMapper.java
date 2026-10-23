@@ -2,6 +2,7 @@ package com.fresh.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.fresh.entity.DictItem;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -40,4 +41,16 @@ public interface DictItemMapper extends BaseMapper<DictItem> {
     @Select("SELECT group_code AS groupCode, COUNT(*) AS itemCount "
             + "FROM dict_item GROUP BY group_code")
     List<Map<String, Object>> countByGroup();
+
+    /**
+     * 上游同步的唯一写语句（F-108 §0.8）：{@code INSERT IGNORE} 靠 {@code uk_group_word(group_code, word)}
+     * 判重——本地没有的行插入并返回 1；本地已有（含运营改过的 definition/sortOrder）的行被唯一键挡下、
+     * 返回 0 且<b>一行都不动</b>。刻意不写 {@code ON DUPLICATE KEY UPDATE}：B 语义「只增不删」的硬约束
+     * 就是这条语句里没有任何 UPDATE 分支。
+     *
+     * @return 1 = 本次真的插入了；0 = 撞 {@code uk_group_word} 被跳过
+     */
+    @Insert("INSERT IGNORE INTO dict_item (group_code, word, definition, sort_order) "
+            + "VALUES (#{groupCode}, #{word}, #{definition}, #{sortOrder})")
+    int insertIgnore(DictItem item);
 }

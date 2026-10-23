@@ -26,6 +26,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -449,6 +450,48 @@ class AdminDictServiceTest {
         assertEquals("无更新字段（可传 name / enabled）", e.getMessage());
         verify(groupMapper, never()).updateById(any(DictGroup.class));
         verifyNoInteractions(dictService);
+    }
+
+    // ---------------------------------------------------------------- ⑥.5 §0.8 上游同步
+
+    private static Map<String, Object> syncResult(int upstreamTotal, int inserted, int skipped) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("upstreamTotal", upstreamTotal);
+        result.put("inserted", inserted);
+        result.put("skipped", skipped);
+        return result;
+    }
+
+    @Test
+    void 同步正例_委派DictService并按三个计数写dict_sync审计() {
+        Map<String, Object> result = syncResult(5, 2, 3);
+        when(dictService.syncFromUpstream("dish_category")).thenReturn(result);
+
+        Map<String, Object> out = service.syncDictGroup("dish_category", ADMIN_USER_ACTOR);
+
+        assertSame(result, out, "端点出参就是 DictService 返回的那三个数字");
+        verify(dictService).syncFromUpstream("dish_category");
+        AdminAuditLog audit = capturedAudit();
+        assertEquals("dict.sync", audit.getAction());
+        assertEquals("dict_group", audit.getTargetType());
+        assertEquals("dish_category", audit.getTargetId());
+        assertEquals(ADMIN_USER_ACTOR, audit.getActor());
+        assertTrue(audit.getDetail().contains("upstreamTotal=5"), "detail 带上游总条数");
+        assertTrue(audit.getDetail().contains("inserted=2"), "detail 带本次新增数");
+        assertTrue(audit.getDetail().contains("skipped=3"), "detail 带跳过数");
+    }
+
+    @Test
+    void 同步上游失败原样上抛且不写审计() {
+        BizException upstream = new BizException("字典服务暂时不可用，请稍后重试");
+        when(dictService.syncFromUpstream("dish_category")).thenThrow(upstream);
+
+        BizException e = assertThrows(BizException.class,
+                () -> service.syncDictGroup("dish_category", ADMIN_USER_ACTOR));
+
+        assertSame(upstream, e, "必须原样抛 fetchFromUpstream 的 BizException，不许换文案/吞掉");
+        assertEquals(400, e.getCode());
+        verifyNoInteractions(auditMapper, groupMapper, itemMapper);
     }
 
     // ---------------------------------------------------------------- ⑦ actor 双轨归一

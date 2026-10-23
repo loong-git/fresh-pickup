@@ -8,6 +8,7 @@
       字典四组与词条的运营维护页：左侧切换分组并启停，右侧维护当前组词条（word / definition / sortOrder，不分页）。<br />
       读取走 GET /api/admin/dict/groups 与 GET /api/admin/dict/{group}/items；新增 / 编辑 / 删除 / 启停走
       POST、PUT、DELETE、PUT /api/admin/dict/...，写成功后服务端会自动清除该组缓存，本页随后重拉分组与词条核对。<br />
+      「从上游同步」只补本地没有的词条（已有行一律不动）：上游改名会表现为新名插入、旧名保留，需要手工清理旧名。<br />
       删除 dish_category 词条受引用保护：该分类下仍有商品时服务端回 400，本页原样展示后端文案；
       其余组无引用保护，删除后 C 端会回退 FALLBACK。
     </p>
@@ -17,6 +18,10 @@
                  @click="openCreate">新增词条</el-button>
       <el-button size="small" :disabled="!currentGroup || itemsLoading || submitting"
                  @click="onEvict">清除缓存</el-button>
+      <!-- §0.8：停用组不同步（停用语义是「返空且不回退上游」），只有 enabled=1 的当前组可用 -->
+      <el-button size="small" type="warning"
+                 :disabled="!currentGroup || Number(currentGroup.enabled) !== 1 || itemsLoading || submitting"
+                 @click="onSyncFromUpstream">从上游同步</el-button>
     </div>
 
     <div v-if="writeResult" class="result-bar">
@@ -147,7 +152,8 @@ import {
   updateAdminDictItem,
   deleteAdminDictItem,
   updateAdminDictGroup,
-  evictAdminDict
+  evictAdminDict,
+  syncAdminDictGroup
 } from '../api'
 
 // 与后端 DICT_GROUP_DISH_CATEGORY 同一枚 code：本页只用它决定两条提示的显隐，判定本身仍在服务端。
@@ -394,6 +400,46 @@ async function onEvict() {
     const e = err || {}
     if (e.message) ElMessage.error(e.message)
     writeResult.value = { title: '清除缓存未完成', serverText: e.message || '' }
+  } finally {
+    submitting.value = false
+  }
+}
+
+// F-108 §0.8 上游同步（B 语义「只增不删」）：二次确认必须写明代价——只补本地没有的，
+// 上游改名会造出「新名 + 旧名」两条，旧名要运营手工清理。成功 toast 念后端三个数字；
+// 失败原样展示后端 message（上游不可用时就是 400「字典服务暂时不可用，请稍后重试」）。
+async function onSyncFromUpstream() {
+  if (!currentGroup.value || Number(currentGroup.value.enabled) !== 1 || submitting.value || itemsLoading.value) return
+  const group = currentGroup.value
+  const message = '确认从上游同步分组「' + group.name + '」（' + group.code + '）？\n\n'
+    + '只补本地没有的词条，不动已有的；上游改名会表现为新名插入、旧名保留，需要手工清理旧名。\n'
+    + '上游拉取失败时服务端会回 400，本地一行都不会变。'
+  try {
+    await ElMessageBox.confirm(message, '请确认同步', {
+      type: 'warning',
+      confirmButtonText: '确认同步',
+      cancelButtonText: '取消（不发出任何请求）',
+      closeOnClickModal: false,
+      distinguishCancelAndClose: true,
+      customClass: 'admin-write-confirm'
+    })
+  } catch (e) {
+    // 点「取消」/关闭/Esc 一律 reject → 吞掉，不发出任何请求。
+    return
+  }
+  submitting.value = true
+  writeResult.value = null
+  try {
+    const envelope = await syncAdminDictGroup(group.code)
+    const data = (envelope && envelope.data) || {}
+    ElMessage.success('同步完成：上游共 ' + Number(data.upstreamTotal || 0) + ' 条，新增 '
+      + Number(data.inserted || 0) + ' 条，跳过 ' + Number(data.skipped || 0) + ' 条')
+    await loadItems(group.code)
+    await refreshGroups()
+  } catch (err) {
+    const e = err || {}
+    if (e.message) ElMessage.error(e.message)
+    writeResult.value = { title: '从上游同步未完成', serverText: e.message || '' }
   } finally {
     submitting.value = false
   }

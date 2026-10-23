@@ -817,6 +817,24 @@ export function evictAdminDict(group) {
   })
 }
 
+/**
+ * 从上游同步某分组词条：POST /api/admin/dict/{group}/sync（F-108 §0.8，B 语义「只增不删」）。
+ * 组不存在 400「字典分组不存在」；组 enabled=0 → 400「分组已停用，不同步」；
+ * 上游失败原样 400「字典服务暂时不可用，请稍后重试」（不会静默当成功）。
+ * 成功时只把本地没有的词条 INSERT IGNORE 进来，已有行（含运营改过的）一行不动：
+ * 上游改名 = 新名插入 + 旧名保留，需要运营手工清理旧名。
+ * 出参 data：{upstreamTotal, inserted, skipped}（三个数字都是服务端真值）。
+ * 写档限流 IP 10/60s。
+ * @param {string} group dict_group.code
+ * @returns {Promise<{code:number,message:string,data:{upstreamTotal:number,inserted:number,skipped:number}}>}
+ */
+export function syncAdminDictGroup(group) {
+  return request({
+    url: '/api/admin/dict/' + encodeURIComponent(String(group)) + '/sync',
+    method: 'POST'
+  })
+}
+
 // ==================== F-109 免费领活动管理（活动配置 + 候选池，四个端点） ====================
 // 契约真源：docs/上线任务文档.md「F-109」§0.2/§0.3。四个端点全在 AdminController 的 Admin 面
 // （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
