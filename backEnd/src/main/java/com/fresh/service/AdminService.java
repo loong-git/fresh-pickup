@@ -13,6 +13,7 @@ import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminSeckillUpdateDTO;
+import com.fresh.dto.AdminStoreUpdateDTO;
 
 import java.util.List;
 import java.util.Map;
@@ -396,4 +397,36 @@ public interface AdminService {
      * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
      */
     void updateCouponTemplate(Long id, AdminCouponTemplateUpdateDTO dto, String actor);
+
+    // ==================================================================
+    // F-114 自提点存量管理（两个操作：全量列表 / 部分更新白名单八字段；无新建无删除——
+    // 门店的创建只经入驻审核 approve（auditStoreApply 的同事务 INSERT store），删除无运营语义）。
+    // 读端点不写审计；写端点成功后写 admin_audit_log：store.update（actor 口径同本接口既有方法），
+    // before/after 只记实际变化的键。
+    // 红线（契约 §3）：C 端 StoreController/StoreServiceImpl 读路径、主理人端 PartnerStoreServiceImpl
+    // 链路、OrderServiceImpl/F-111 拦截一行不改——本段只写 store 列，拦截读列自然联动。
+    // ==================================================================
+
+    /**
+     * 自提点全量列表（{@code GET /api/admin/stores}）→
+     * {@code [{id,name,address,service,status,openTime,closeTime,dailyCapacity,accepting,
+     * ownerUserId(null=平台直营),createdAt}]}，按 id 升序；closed 同样列出（停业是运营可见状态）。
+     * <b>不含 contact_phone/photos/lng/lat</b>（运营页用不上，少下发；contact_phone 是 PII 只在
+     * 主理人端脱敏下发）。只读端点不写审计（RF 只约束写动作）。
+     */
+    List<Map<String, Object>> listStores();
+
+    /**
+     * 部分更新自提点（{@code PUT /api/admin/stores/{id}}）：白名单八字段（name/address/service/
+     * status/openTime/closeTime/dailyCapacity/accepting）null=本次不改，八列全空 400；
+     * id 不存在 404「门店不存在」。校验（契约 §1.2 逐条）：name trim 后 1~100、address trim 后 1~255、
+     * service ≤50 可空、status ∈ {open,closed}、openTime/closeTime 匹配 {@code ^([01]\d|2[0-3]):[0-5]\d$}
+     * 或 null、dailyCapacity null 或 ≥0（0 与 null 语义均为不限容，对齐 F-111 拦截条件 &gt;0 才拦）、
+     * accepting ∈ {0,1}。{@code owner_user_id/contact_phone/photos/lng/lat} 不可改——body 带了忽略
+     * （Controller 在响应 message 注明），Service 的落库白名单不含这些列。
+     * 成功后写审计 {@code store.update}（before/after 只记实际变化的键）。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void updateStore(Long id, AdminStoreUpdateDTO dto, String actor);
 }

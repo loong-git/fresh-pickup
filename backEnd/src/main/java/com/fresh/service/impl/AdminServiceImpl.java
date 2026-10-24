@@ -22,6 +22,7 @@ import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminSeckillUpdateDTO;
+import com.fresh.dto.AdminStoreUpdateDTO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.ArrivalBatch;
 import com.fresh.entity.ArrivalItem;
@@ -88,6 +89,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -2338,5 +2340,189 @@ public class AdminServiceImpl implements AdminService {
                 + ",threshold=" + row.getThreshold() + ",amount=" + row.getAmount()
                 + ",validDays=" + row.getValidDays() + ",limitPerUser=" + row.getLimitPerUser()
                 + ",totalQuota=" + row.getTotalQuota() + ",status=" + row.getStatus();
+    }
+
+    // ==================================================================
+    // F-114 自提点存量管理（两个操作：全量列表 / 部分更新白名单八字段，复用本类既有的
+    // storeMapper——入驻审核 approve 已在用）。写端点成功后写审计 store.update，
+    // before/after 只记实际变化的键（契约 §1.2，与 F-113 的完整快照口径不同）。
+    // 红线（契约 §3）：C 端读路径、主理人端链路、OrderServiceImpl/F-111 拦截一行不改——
+    // 本段只写 store 列，拦截读列（dailyCapacity >0 才 COUNT）自然联动。
+    // ==================================================================
+
+    private static final String AUDIT_STORE_UPDATE = "store.update";
+    private static final String AUDIT_TARGET_STORE = "store";
+
+    private static final String STORE_NAME_INVALID_MSG = "门店名称须为 1-100 个字符";
+    private static final String STORE_ADDRESS_INVALID_MSG = "门店地址须为 1-255 个字符";
+    private static final String STORE_SERVICE_TOO_LONG_MSG = "服务说明最长 50 个字符";
+    private static final String STORE_STATUS_INVALID_MSG = "status 仅允许 open/closed";
+    private static final String STORE_OPEN_TIME_INVALID_MSG = "营业开始时间格式应为 HH:MM";
+    private static final String STORE_CLOSE_TIME_INVALID_MSG = "营业结束时间格式应为 HH:MM";
+    private static final String STORE_DAILY_CAPACITY_INVALID_MSG = "日接单容量须为大于等于 0 的整数";
+    private static final String STORE_ACCEPTING_INVALID_MSG = "accepting 仅允许 0/1";
+    private static final String STORE_NO_FIELDS_MSG =
+            "无更新字段（可传 name/address/service/status/openTime/closeTime/dailyCapacity/accepting）";
+
+    /** 营业时间形状（契约 §1.2 逐字；比主理人端 PartnerStoreUpdateDTO 的 {@code ^$|...} 严——
+     *  本端点 null=不改，不存在「传空串清空」的语义，空串即形状非法） */
+    private static final Pattern STORE_TIME_PATTERN = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
+
+    /**
+     * 自提点全量列表：键序固定 {@code id,name,address,service,status,openTime,closeTime,
+     * dailyCapacity,accepting,ownerUserId,createdAt}，顺序即 mapper 的 id 升序。
+     * 手工组 Map 而非直出实体：出参白名单由本方法逐键定义（同 couponTemplates/seckillDishes 的处置）——
+     * Store 实体上 C 端六列挂 {@code @JsonIgnore}（Store 类注释 D-23），本段根本不把实体丢出参。
+     */
+    @Override
+    public List<Map<String, Object>> listStores() {
+        List<Store> rows = storeMapper.selectList(
+                new LambdaQueryWrapper<Store>().orderByAsc(Store::getId));
+        List<Map<String, Object>> out = new ArrayList<>(rows.size());
+        for (Store row : rows) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.getId());
+            line.put("name", row.getName());
+            line.put("address", row.getAddress());
+            line.put("service", row.getService());
+            line.put("status", row.getStatus());
+            line.put("openTime", row.getOpenTime());
+            line.put("closeTime", row.getCloseTime());
+            line.put("dailyCapacity", row.getDailyCapacity());
+            line.put("accepting", row.getAccepting());
+            line.put("ownerUserId", row.getOwnerUserId());
+            line.put("createdAt", row.getCreatedAt());
+            out.add(line);
+        }
+        return out;
+    }
+
+    /**
+     * 部分更新自提点：id 不存在 404「门店不存在」（先于一切 body 判定，照 updateCouponTemplate 的顺序）；
+     * 白名单八列全空 400；校验对<b>传入值</b>判（trim/形状/值域），null=不改、不校验存量值
+     * （存量本就合法）。落库白名单只有八列：owner_user_id/contact_phone/photos/lng/lat 的 DTO
+     * 探测字段不进 patch，updateById 的 NOT_NULL 策略下 null = 不落该列 = 原值保留。
+     * 成功后写审计 {@code store.update}，before/after 只记实际变化的键（值相同的键不进 detail）。
+     */
+    @Override
+    public void updateStore(Long id, AdminStoreUpdateDTO dto, String actor) {
+        Store existing = id == null ? null : storeMapper.selectById(id);
+        if (existing == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "门店不存在");
+        }
+        if (dto == null) {
+            throw new BizException(STORE_NO_FIELDS_MSG);
+        }
+        if (dto.getName() == null && dto.getAddress() == null && dto.getService() == null
+                && dto.getStatus() == null && dto.getOpenTime() == null && dto.getCloseTime() == null
+                && dto.getDailyCapacity() == null && dto.getAccepting() == null) {
+            // 探测字段（ownerUserId 等）带了不算更新字段——白名单之外不存在「只改红线」的请求
+            throw new BizException(STORE_NO_FIELDS_MSG);
+        }
+        // 合并新值（null=不改；name/address/service trim 后落库，校验在 trim 后的值上判）
+        String name = dto.getName() == null ? existing.getName() : validateStoreName(dto.getName());
+        String address = dto.getAddress() == null ? existing.getAddress() : validateStoreAddress(dto.getAddress());
+        String service = dto.getService() == null ? existing.getService() : validateStoreService(dto.getService());
+        String status = dto.getStatus() == null ? existing.getStatus() : validateStoreStatus(dto.getStatus());
+        String openTime = dto.getOpenTime() == null ? existing.getOpenTime()
+                : validateStoreTime(dto.getOpenTime(), STORE_OPEN_TIME_INVALID_MSG);
+        String closeTime = dto.getCloseTime() == null ? existing.getCloseTime()
+                : validateStoreTime(dto.getCloseTime(), STORE_CLOSE_TIME_INVALID_MSG);
+        Integer dailyCapacity = dto.getDailyCapacity() == null
+                ? existing.getDailyCapacity() : validateStoreDailyCapacity(dto.getDailyCapacity());
+        Integer accepting = dto.getAccepting() == null
+                ? existing.getAccepting() : validateStoreAccepting(dto.getAccepting());
+
+        // before/after 只记实际变化的键（契约 §1.2）：值相同的键不进审计 detail
+        List<String> changedOld = new ArrayList<>();
+        List<String> changedNew = new ArrayList<>();
+        collectStoreChange(changedOld, changedNew, "name", existing.getName(), name);
+        collectStoreChange(changedOld, changedNew, "address", existing.getAddress(), address);
+        collectStoreChange(changedOld, changedNew, "service", existing.getService(), service);
+        collectStoreChange(changedOld, changedNew, "status", existing.getStatus(), status);
+        collectStoreChange(changedOld, changedNew, "openTime", existing.getOpenTime(), openTime);
+        collectStoreChange(changedOld, changedNew, "closeTime", existing.getCloseTime(), closeTime);
+        collectStoreChange(changedOld, changedNew, "dailyCapacity", existing.getDailyCapacity(), dailyCapacity);
+        collectStoreChange(changedOld, changedNew, "accepting", existing.getAccepting(), accepting);
+
+        Store patch = new Store();
+        patch.setId(id);
+        patch.setName(name);
+        patch.setAddress(address);
+        patch.setService(service);
+        patch.setStatus(status);
+        patch.setOpenTime(openTime);
+        patch.setCloseTime(closeTime);
+        patch.setDailyCapacity(dailyCapacity);
+        patch.setAccepting(accepting);
+        // 刻意不 set ownerUserId/contactPhone/photos/lng/lat：白名单落库，探测字段带了也不生效
+        storeMapper.updateById(patch);
+        writeAudit(auditActor(actor), AUDIT_STORE_UPDATE, AUDIT_TARGET_STORE,
+                String.valueOf(id), String.join(",", changedOld), String.join(",", changedNew));
+    }
+
+    /** name 校验：trim 后 1~100（契约 §1.2），返回 trim 值落库 */
+    private static String validateStoreName(String raw) {
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 100) {
+            throw new BizException(STORE_NAME_INVALID_MSG);
+        }
+        return trimmed;
+    }
+
+    /** address 校验：trim 后 1~255（契约 §1.2），返回 trim 值落库 */
+    private static String validateStoreAddress(String raw) {
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 255) {
+            throw new BizException(STORE_ADDRESS_INVALID_MSG);
+        }
+        return trimmed;
+    }
+
+    /** service 校验：trim 后 ≤50 可空（契约 §1.2），返回 trim 值落库 */
+    private static String validateStoreService(String raw) {
+        String trimmed = raw.trim();
+        if (trimmed.length() > 50) {
+            throw new BizException(STORE_SERVICE_TOO_LONG_MSG);
+        }
+        return trimmed;
+    }
+
+    private static String validateStoreStatus(String status) {
+        if (!"open".equals(status) && !"closed".equals(status)) {
+            throw new BizException(STORE_STATUS_INVALID_MSG);
+        }
+        return status;
+    }
+
+    private static String validateStoreTime(String raw, String message) {
+        if (!STORE_TIME_PATTERN.matcher(raw).matches()) {
+            throw new BizException(message);
+        }
+        return raw;
+    }
+
+    /** dailyCapacity 校验：null 或 ≥0（契约 §1.2）；0 合法——与 null 语义均为不限容（F-111 拦截条件 &gt;0 才拦） */
+    private static Integer validateStoreDailyCapacity(Integer dailyCapacity) {
+        if (dailyCapacity < 0) {
+            throw new BizException(STORE_DAILY_CAPACITY_INVALID_MSG);
+        }
+        return dailyCapacity;
+    }
+
+    private static Integer validateStoreAccepting(Integer accepting) {
+        if (accepting != 0 && accepting != 1) {
+            throw new BizException(STORE_ACCEPTING_INVALID_MSG);
+        }
+        return accepting;
+    }
+
+    /** 变化收集（契约 §1.2「before/after 只记实际变化的键」）：Objects.equals 判等，值相同的键不进审计 detail */
+    private static void collectStoreChange(List<String> oldKeys, List<String> newKeys,
+                                           String key, Object oldVal, Object newVal) {
+        if (!Objects.equals(oldVal, newVal)) {
+            oldKeys.add(key + "=" + oldVal);
+            newKeys.add(key + "=" + newVal);
+        }
     }
 }

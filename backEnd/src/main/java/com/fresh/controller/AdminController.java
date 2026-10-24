@@ -18,6 +18,7 @@ import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminOrderStatusDTO;
 import com.fresh.dto.AdminReviewAuditDTO;
 import com.fresh.dto.AdminSeckillUpdateDTO;
+import com.fresh.dto.AdminStoreUpdateDTO;
 import com.fresh.entity.AdminUser;
 import com.fresh.mapper.AdminUserMapper;
 import com.fresh.service.AdminService;
@@ -717,6 +718,60 @@ public class AdminController {
         return R.ok(null, carriedIgnored
                 ? "券模板已更新（coupon_key/issued_count 不可改，已忽略）"
                 : "券模板已更新");
+    }
+
+    // ==================================================================
+    // F-114 自提点存量管理（两个端点：GET 全量列表 / PUT 部分更新白名单八字段；无新建无删除——
+    // 门店的创建只经入驻审核 approve，删除无运营语义）。
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator；读 30/60s、写 10/60s，均按 IP。
+    // 审计（store.update）在 AdminServiceImpl 内与业务同源写，before/after 只记实际变化的键。
+    // 红线（契约 §3）：C 端 StoreController/StoreServiceImpl、主理人端 PartnerStoreServiceImpl、
+    // OrderServiceImpl/F-111 拦截一行不改；不加表不加列不加迁移不碰 init.sql 不新增 yml 键。
+    // ==================================================================
+
+    /**
+     * 自提点全量列表（F-114 §1.1）：{@code GET /api/admin/stores} →
+     * {@code [{id,name,address,service,status,openTime,closeTime,dailyCapacity,accepting,
+     * ownerUserId(null=平台直营),createdAt}]}，按 id 升序；closed 同样列出（停业是运营可见状态）。
+     * <b>不含 contact_phone/photos/lng/lat</b>（运营页用不上，少下发）。只读端点不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-114 §1.1，照 F-110）
+    @GetMapping("/stores")
+    public R<List<Map<String, Object>>> stores(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                               @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 couponTemplates/seckillDishes 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.listStores());
+    }
+
+    /**
+     * 部分更新自提点（F-114 §1.2）：{@code PUT /api/admin/stores/{id}}，body 白名单八列 null=不改；
+     * 校验与 404 文案全部钉在 {@code AdminService#updateStore}（404「门店不存在」→ 八列全空 400 →
+     * trim/形状/值域逐条）。<b>owner_user_id/contact_phone/photos/lng/lat 不可改</b>：body 带了这些
+     * 探测字段时忽略不落库，并在响应 message 里注明（契约 §1.2「带了忽略并在响应注明」）。
+     * 成功后写审计 {@code store.update}（before/after 只记实际变化的键）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-114 §1.2，照 F-110）
+    @PutMapping("/stores/{id}")
+    public R<Void> updateStore(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                               @RequestHeader(value = "Authorization", required = false) String authz,
+                               @PathVariable("id") Long id,
+                               @Valid @RequestBody AdminStoreUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateStore(id, dto, grant.actor());
+        boolean carriedIgnored = dto != null
+                && (dto.getOwnerUserId() != null || dto.getContactPhone() != null
+                    || dto.getPhotos() != null || dto.getLng() != null || dto.getLat() != null);
+        return R.ok(null, carriedIgnored
+                ? "门店已更新（owner_user_id/contact_phone/photos/lng/lat 不可改，已忽略）"
+                : "门店已更新");
     }
 
     /**

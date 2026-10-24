@@ -1073,3 +1073,43 @@ export function updateAdminCouponTemplate(id, body) {
     data: body
   })
 }
+
+// ==================== F-114 自提点存量管理（两个端点，只写 store 表白名单八列） ====================
+// 契约真源：docs/F-114-自提点存量管理契约.md §1。两个端点全在 AdminController 的 Admin 面
+// （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
+// 读端点限流 IP 30/60s、写端点 IP 10/60s（照 F-110 档位）。
+// 语义边界：无新建无删除（门店的创建只经入驻审核 approve，删除无运营语义）；
+// owner_user_id/contact_phone/photos/lng/lat 不可改（PUT body 带了忽略并在响应 message 注明）。
+// 联动：改 status 后 C 端该店即刻置灰/可选（零缓存）；改 daily_capacity 真实生效到下单拒单（F-111 拦截读列）。
+
+/**
+ * 自提点全量列表：GET /api/admin/stores
+ * 出参 data 是数组：[{id,name,address,service,status,openTime,closeTime,dailyCapacity,accepting,
+ * ownerUserId,createdAt}]，按 id 升序；closed 同样列出。
+ * 不含 contact_phone/photos/lng/lat（运营页用不上，少下发）。只读档限流 IP 30/60s。
+ */
+export function getAdminStores() {
+  return request({
+    url: '/api/admin/stores',
+    method: 'GET'
+  })
+}
+
+/**
+ * 部分更新自提点：PUT /api/admin/stores/{id}，body 白名单八列 null/缺键=本次不改。
+ * 校验（服务端为准）：name trim 后 1~100；address trim 后 1~255；service ≤50；
+ * status ∈ {open,closed}；openTime/closeTime 匹配 HH:MM 或不传；dailyCapacity ≥0（0=不限容）；
+ * accepting ∈ {0,1}；id 不存在 404「门店不存在」。
+ * ownerUserId/contactPhone/photos/lng/lat 传了也不落库，服务端在响应 message 注明已忽略。
+ * 成功 message「门店已更新」。写档限流 IP 10/60s。
+ * @param {number|string} id store.id
+ * @param {{name?:string, address?:string, service?:string|null, status?:string,
+ *   openTime?:string, closeTime?:string, dailyCapacity?:number, accepting?:0|1}} body 只带要改的列
+ */
+export function updateAdminStore(id, body) {
+  return request({
+    url: '/api/admin/stores/' + encodeURIComponent(String(id)),
+    method: 'PUT',
+    data: body
+  })
+}

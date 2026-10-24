@@ -22,6 +22,10 @@
         <!-- F-113：券模板（coupon_template）管理，只写一张表：上新/改面额门槛天数限领总量/启停；
              无删除（停用即运营语义）；key 与 issued_count 不可改；已发券核销走券上快照不受改动影响 -->
         <router-link to="/coupon-templates" class="nav-link" :class="{ active: isActive('/coupon-templates') }" title="券模板的上新/改配置/启停：只写 coupon_template 表，无删除；改面额只影响之后的新领取，已发券按快照核销。"><span class="nav-dot" title="本页会改数据"></span>券模板</router-link>
+        <!-- F-114：自提点存量（store）管理，白名单八列部分更新：名称/地址/服务/状态/营业时间/日容量/接单；
+             无新建无删除（创建只经入驻审核）；contact_phone/photos/经纬度/主理人归属不可改；
+             改 status 后 C 端该店即刻置灰/可选，改日容量真实生效到下单拒单 -->
+        <router-link to="/stores" class="nav-link" :class="{ active: isActive('/stores') }" title="自提点存量维护：改名称/地址/服务/状态/营业时间/日容量/接单，白名单八列；无新建无删除；改状态 C 端即刻置灰/可选，改日容量生效到下单拒单。"><span class="nav-dot" title="本页会改数据"></span>自提点管理</router-link>
         <!-- F-109：免费领活动配置（换品/日限量/门槛/上下线）与候选池维护；dailyClaimed 是运行时计数，本页不可改 -->
         <router-link to="/free-activity" class="nav-link" :class="{ active: isActive('/free-activity') }" title="免费领活动配置与候选池维护；dailyClaimed 是运行时计数，本页不可改，改它会超发。"><span class="nav-dot" title="本页会改数据"></span>免费领活动</router-link>
         <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
@@ -45,8 +49,8 @@
 </template>
 
 <script setup>
-// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112/F-113 又各追加一页，
-// 现为十三条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
+// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112/F-113/F-114 又各追加一页，
+// 现为十四条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
 // 并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
 // 清态与跳转都走 api 层的 logout()，本组件不各自读 storage（键名真源只有 TOKEN_STORAGE_KEY 一处）。
 import { computed } from 'vue'
