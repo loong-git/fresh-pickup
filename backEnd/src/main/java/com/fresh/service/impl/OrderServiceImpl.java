@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -75,8 +76,14 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private CouponService couponService;
 
+    // F-111 隔离级别显式降为 READ_COMMITTED（同 PartnerStoreServiceImpl#confirmArrival /
+    // PartnerOrderServiceImpl#verify 先例）：RR 下方法开头幂等快查建立的读视图贯穿整个事务，
+    // 容量 COUNT 是一致性读、复用旧快照——T2 拿到 store 行锁后仍看不见 T1 已提交的竞争单，
+    // COUNT=N-1 照样放行 → 同店并发超发（锁行串行化救不了旧快照）；RC 下普通读逐条取最新已提交，
+    // 锁行后的 COUNT 必见已提交竞争单，契约 §1.4「读已提交语义下能看到已提交的竞争单」的前提由此建立。
+    // 方法内其余读（幂等快查/商品现价/券可用性）在 RC 下语义无碍；库存/券/状态机的条件 UPDATE 本就是当前读。
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Order createOrder(OrderCreateDTO dto, Long userId) {
         // T-M2-03 归属：userId 由服务端从 token 解析（拦截器保证非空，此处兜底），DTO 不收 userId
         if (userId == null) {
@@ -104,18 +111,40 @@ public class OrderServiceImpl implements OrderService {
         order.setAddress(dto.getAddress() == null ? "" : dto.getAddress().trim());
         // T-M4-01 自提点快照：传 storeId 才查 store 落 name/address（不校验营业状态——契约服务端仅快照，
         // 停业置灰由 pickup 页负责）；未传兼容旧链路不落。storeId 无效直接 400，避免落脏快照。
+        // F-111 读取改锁读（selectById → selectByIdForUpdate）：FOR UPDATE 锁 store 行，与下方容量 COUNT、
+        // 订单 INSERT 构成同店互斥区间（锁序：锁行→COUNT→INSERT），防两个并发事务都数到 N-1 后各插一单超发。
+        Integer dailyCapacity = null;
         if (dto.getStoreId() != null) {
-            Store store = storeMapper.selectById(dto.getStoreId());
+            Store store = storeMapper.selectByIdForUpdate(dto.getStoreId());
             if (store == null) {
                 throw new BizException("自提点不存在，请重新选择");
             }
             order.setStoreId(store.getId());
             order.setStoreName(store.getName());
             order.setStoreAddress(store.getAddress());
+            dailyCapacity = store.getDailyCapacity();
         }
         // T-M3-04 截单裁决：服务端按服务器当前时间裁决自提日期（不信任前端传参）——
         // 23:00 前下单 → 明天自提；23:00 及之后 → 后天自提。落库 pickup_date 并随下单响应返回。
         order.setPickupDate(resolvePickupDate(LocalDateTime.now()));
+
+        // F-111 日容量拦截：同店同 pickup_date 的未取消单数 ≥ daily_capacity 即拒单。
+        // 计数口径：pending_pickup 与 completed 都占容（completed 按 pickup_date 过滤，历史单不影响未来日期）；
+        // cancelled 不占——cancelOrder/closeTimeoutOrders 都把单置 cancelled，容量自动释放，两条取消链路零改动。
+        // dailyCapacity NULL/≤0 视为不限容（不 COUNT）；storeId 为空时本段短路，链路与改动前一致。
+        // 位置在扣库存循环前：超容拒单连一次注定回滚的库存 UPDATE 都不做（参照下架校验前置于扣库存的既有原则）；
+        // store 行已在本事务锁定（上方锁读），COUNT 能读到已提交的竞争单，同店并发下单在此互斥、不超发。
+        if (dailyCapacity != null && dailyCapacity > 0) {
+            Long taken = orderMapper.selectCount(new LambdaQueryWrapper<Order>()
+                    .eq(Order::getStoreId, order.getStoreId())
+                    .eq(Order::getPickupDate, order.getPickupDate())
+                    .ne(Order::getStatus, STATUS_CANCELLED));
+            if (taken >= dailyCapacity) {
+                LocalDate day = order.getPickupDate();
+                throw new BizException("该自提点 " + day.getMonthValue() + "月" + day.getDayOfMonth()
+                        + "日 已约满，请更换自提点或改日自提");
+            }
+        }
 
         for (OrderCreateDTO.OrderItemDTO itemDTO : dto.getItems()) {
             Dish dish = dishMapper.selectById(itemDTO.getDishId());
