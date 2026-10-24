@@ -19,6 +19,7 @@ import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
+import com.fresh.dto.AdminSeckillUpdateDTO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.ArrivalBatch;
 import com.fresh.entity.ArrivalItem;
@@ -69,6 +70,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -2017,5 +2019,102 @@ public class AdminServiceImpl implements AdminService {
 
     private static String aliasDetail(String alias, Long dishId) {
         return "alias=" + alias + ",dishId=" + dishId;
+    }
+
+    // ==================================================================
+    // F-112 秒杀商品集管理（两个操作，只写 dish.seckill / dish.seckill_price 两列）
+    // 读端点不写审计；写端点成功后统一走本类唯一那份 writeAudit（旁路）：seckill.update。
+    // 红线（契约 §1.3）：SeckillController 与 DishServiceImpl#listSeckill（三条件过滤
+    // on_sale=1/stock>0/seckill_price 非 NULL）一行不改；OrderServiceImpl 计价判据不动；
+    // 商家端 DTO 白名单继续排除 seckill。本段不碰价格/库存/在售列，也不新增任何读路径。
+    // 写操作为单条 DML，不加 @Transactional（同 F-110 段口径）：审计是旁路，写失败不打断主流程。
+    // ==================================================================
+
+    /** 审计动作（契约 §1.2 逐字一枚；写侧唯一真源；admin_audit_log.action VARCHAR(50)） */
+    private static final String AUDIT_SECKILL_UPDATE = "seckill.update";
+
+    /** 审计目标类型（admin_audit_log.target_type VARCHAR(30)；与既有 dish.update 审计同一目标串） */
+    private static final String AUDIT_TARGET_DISH = "dish";
+
+    private static final String SECKILL_DISH_NOT_FOUND_MSG = "商品不存在";
+    private static final String SECKILL_FLAG_INVALID_MSG = "seckill 仅允许 0（移出秒杀）或 1（进秒杀）";
+    private static final String SECKILL_PRICE_INVALID_MSG = "秒杀价必须为正数（最多两位小数）";
+
+    /**
+     * 秒杀视角全量列表：键序固定 {@code id,name,price,onSale,stock,soldCount,seckill,seckillPrice,
+     * limitBuy,merchantId}，顺序即 mapper 的 id 升序。
+     * 手工组 Map 而非直出实体：merchantId 在 Dish 上挂 @JsonIgnore（不参与任何 JSON 面），
+     * 与 aliases() 同一处置——出参白名单由本方法逐键定义，实体装饰注解不牵着出参走。
+     */
+    @Override
+    public List<Map<String, Object>> seckillDishes() {
+        List<Dish> rows = dishMapper.selectList(
+                new LambdaQueryWrapper<Dish>().orderByAsc(Dish::getId));
+        List<Map<String, Object>> out = new ArrayList<>(rows.size());
+        for (Dish dish : rows) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", dish.getId());
+            line.put("name", dish.getName());
+            line.put("price", dish.getPrice());
+            line.put("onSale", dish.getOnSale());
+            line.put("stock", dish.getStock());
+            line.put("soldCount", dish.getSoldCount());
+            line.put("seckill", dish.getSeckill());
+            line.put("seckillPrice", dish.getSeckillPrice());
+            line.put("limitBuy", dish.getLimitBuy());
+            line.put("merchantId", dish.getMerchantId());
+            out.add(line);
+        }
+        return out;
+    }
+
+    /**
+     * 更新秒杀参与态：校验顺序即报错优先级（契约 §1.2 逐条）——
+     * ① dish 不存在 404（先于一切 body 判定：id 是路径参数，先告诉调用方目标都不存在）；
+     * ② seckill 非 0/1 → 400；③ seckill=1 时价必填、&gt;0、最多两位小数 → 400；
+     * ④ seckill=1 时价 ≥ 库内现价 → 400（划线价语义：C 端折扣率 = (price−seckill_price)/price，
+     * 倒挂即负折扣；现价由本方法查库取得，不信任前端传参）。
+     * seckill=0 时不回清 seckill_price：patch 该列留 null，updateById 的 NOT_NULL 策略
+     * 即「不落该列」= 原值保留（两列解耦是既有语义，与 F-110 updateAlias 未传列不落同一机制）。
+     * 成功后写审计 {@code seckill.update}，detail 的旧/新值均为「两列完整快照」
+     * （移出时新值里的 seckillPrice 记保留后的原值，如实反映库内状态）。
+     */
+    @Override
+    public void updateSeckillDish(Long dishId, AdminSeckillUpdateDTO dto, String actor) {
+        Dish dish = dishId == null ? null : dishMapper.selectById(dishId);
+        if (dish == null) {
+            throw new BizException(R.CODE_NOT_FOUND, SECKILL_DISH_NOT_FOUND_MSG);
+        }
+        Integer seckill = dto == null ? null : dto.getSeckill();
+        if (seckill == null || (seckill != 0 && seckill != 1)) {
+            throw new BizException(SECKILL_FLAG_INVALID_MSG);
+        }
+        BigDecimal newPrice = dto.getSeckillPrice();
+        if (seckill == 1) {
+            if (newPrice == null || newPrice.compareTo(BigDecimal.ZERO) <= 0
+                    || newPrice.stripTrailingZeros().scale() > 2) {
+                throw new BizException(SECKILL_PRICE_INVALID_MSG);
+            }
+            if (newPrice.compareTo(dish.getPrice()) >= 0) {
+                throw new BizException("秒杀价必须低于原价 "
+                        + dish.getPrice().setScale(2, RoundingMode.HALF_UP).toPlainString());
+            }
+        }
+        Dish patch = new Dish();
+        patch.setId(dishId);
+        patch.setSeckill(seckill);
+        if (seckill == 1) {
+            patch.setSeckillPrice(newPrice);   // 进秒杀设价与调价同一条落库路径
+        }
+        // seckill=0 时 patch.seckillPrice 保持 null → 不落该列 → 历史价原样保留（§1.2 第 5 条）
+        dishMapper.updateById(patch);
+        writeAudit(auditActor(actor), AUDIT_SECKILL_UPDATE, AUDIT_TARGET_DISH, String.valueOf(dishId),
+                seckillDetail(dish.getSeckill(), dish.getSeckillPrice()),
+                seckillDetail(seckill, seckill == 1 ? newPrice : dish.getSeckillPrice()));
+    }
+
+    /** 审计 detail（秒杀）：两列定长短串；超 500 由 writeAudit 的既有预算截断兜底 */
+    private static String seckillDetail(Integer seckill, BigDecimal seckillPrice) {
+        return "seckill=" + seckill + ",seckillPrice=" + seckillPrice;
     }
 }

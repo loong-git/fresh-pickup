@@ -977,3 +977,45 @@ export function deleteAdminAlias(id) {
     method: 'DELETE'
   })
 }
+
+// ==================== F-112 秒杀商品集管理（两个端点，只写 dish.seckill / seckill_price） ====================
+// 契约真源：docs/F-112-秒杀商品集管理契约.md §1。两个端点全在 AdminController 的 Admin 面
+// （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
+// 读端点限流 IP 30/60s、写端点 IP 10/60s。
+// 语义边界：只动两列——进秒杀（seckill=1+设价）/ 调价（seckill=1+新价）/ 移出（seckill=0，
+// seckill_price 不回清，历史价保留）；不碰价格/库存/在售列。校验顺序与 400/404 文案以服务端为准。
+
+/**
+ * 全量 dish 的秒杀视角列表：GET /api/admin/seckill/dishes
+ * 出参 data 是数组：[{id,name,price,onSale,stock,soldCount,seckill,seckillPrice,limitBuy,merchantId}]，
+ * 按 id 升序。秒杀中/未进的筛选由页面 tab 做（契约钉死端点不做 filter 参数）；
+ * 下架品同样列出（onSale=0，预先配秒杀是合法状态，页面照实显示「已下架」不静默滤掉）。
+ * 只读档限流 IP 30/60s。
+ */
+export function getAdminSeckillDishes() {
+  return request({
+    url: '/api/admin/seckill/dishes',
+    method: 'GET'
+  })
+}
+
+/**
+ * 更新秒杀参与态：PUT /api/admin/seckill/dishes/{id}，body {seckill: 0|1, seckillPrice?: number}
+ * 校验顺序即报错优先级（服务端逐条）：dish 不存在 404「商品不存在」；seckill 非 0/1 400；
+ * seckill=1 时价必填/正数/最多两位小数 → 400「秒杀价必须为正数（最多两位小数）」；
+ * 价 ≥ 库内现价 → 400「秒杀价必须低于原价 X.XX」。seckill=0 时 seckillPrice 不下发也不生效（不回清）。
+ * 成功 message「秒杀商品已更新」。写档限流 IP 10/60s。
+ * @param {number|string} id dish.id（自增小整数）
+ * @param {{seckill:number, seckillPrice?:number}} body seckill=1 时必须带价
+ */
+export function updateAdminSeckillDish(id, body) {
+  const payload = { seckill: body.seckill }
+  if (body.seckill === 1 && body.seckillPrice !== undefined && body.seckillPrice !== null) {
+    payload.seckillPrice = body.seckillPrice
+  }
+  return request({
+    url: '/api/admin/seckill/dishes/' + encodeURIComponent(String(id)),
+    method: 'PUT',
+    data: payload
+  })
+}

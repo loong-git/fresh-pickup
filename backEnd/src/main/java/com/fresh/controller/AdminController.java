@@ -15,6 +15,7 @@ import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminOrderStatusDTO;
 import com.fresh.dto.AdminReviewAuditDTO;
+import com.fresh.dto.AdminSeckillUpdateDTO;
 import com.fresh.entity.AdminUser;
 import com.fresh.mapper.AdminUserMapper;
 import com.fresh.service.AdminService;
@@ -597,6 +598,53 @@ public class AdminController {
         }
         adminService.deleteAlias(id, grant.actor());
         return R.ok(null, "别名已删除");
+    }
+
+    // ==================================================================
+    // F-112 秒杀商品集管理（两个端点，只写 dish.seckill / seckill_price 两列）
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator（静态密钥或运营 JWT）；
+    // 读端点 30/60s、写端点 10/60s，均按 IP 维度（Admin 面无 JWT userId，§2.10a）。
+    // 审计（seckill.update）在 AdminServiceImpl 内与业务同源写。
+    // 红线（契约 §1.3）：SeckillController 与 listSeckill 一行不改；场次配置化属 P2 本片不做。
+    // ==================================================================
+
+    /**
+     * 全量 dish 的秒杀视角列表（F-112 §1.1）：{@code GET /api/admin/seckill/dishes} →
+     * {@code [{id,name,price,onSale,stock,soldCount,seckill,seckillPrice,limitBuy,merchantId}]}，
+     * 按 id 升序。秒杀中/未进的筛选由前端做（dish 全量 28 行，不需要服务端 filter 参数）；
+     * 下架品同样列出（预先配秒杀是合法状态）。只读端点不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-112 §1.1）
+    @GetMapping("/seckill/dishes")
+    public R<List<Map<String, Object>>> seckillDishes(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                      @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 merchantApplies/arrivalPreview 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.seckillDishes());
+    }
+
+    /**
+     * 更新秒杀参与态（F-112 §1.2）：{@code PUT /api/admin/seckill/dishes/{id}}，
+     * body {@code {seckill: 0|1, seckillPrice?: number}}——进秒杀（1+设价）/ 调价（1+新价）/
+     * 移出（0，不回清 seckill_price）。校验顺序与 400/404 文案全部钉在
+     * {@code AdminService#updateSeckillDish}（404 → seckill 值域 → 价形状 → 价低于库内现价）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-112 §1.2）
+    @PutMapping("/seckill/dishes/{id}")
+    public R<Void> updateSeckillDish(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                     @RequestHeader(value = "Authorization", required = false) String authz,
+                                     @PathVariable("id") Long id,
+                                     @Valid @RequestBody AdminSeckillUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateSeckillDish(id, dto, grant.actor());
+        return R.ok(null, "秒杀商品已更新");
     }
 
     /**

@@ -10,6 +10,7 @@ import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
+import com.fresh.dto.AdminSeckillUpdateDTO;
 
 import java.util.List;
 import java.util.Map;
@@ -324,4 +325,35 @@ public interface AdminService {
      * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
      */
     void deleteAlias(Long id, String actor);
+
+    // ==================================================================
+    // F-112 秒杀商品集管理（两个操作，只动 dish.seckill / seckill_price 两列，
+    // 进秒杀=1+设价 / 调价=1+新价 / 移出=0 不回清价）。写端点成功后写 admin_audit_log：
+    //   seckill.update（actor 口径同本接口既有方法）。
+    // 红线（契约 §1.3）：SeckillController 与 DishServiceImpl#listSeckill 一行不改；
+    // C 端读路径（三条件过滤）零改动，本段只写两列、不新增任何读路径。
+    // ==================================================================
+
+    /**
+     * 全量 dish 的秒杀视角列表（{@code GET /api/admin/seckill/dishes}）→
+     * {@code [{id,name,price,onSale,stock,soldCount,seckill,seckillPrice,limitBuy,merchantId}]}，
+     * 按 id 升序。秒杀中/未进的筛选由前端做（dish 全量 28 行，不需要服务端 filter 参数）。
+     * 下架品同样列出——预先配秒杀是合法状态（C 端 listSeckill 已过滤 on_sale=1，配了也不展示）。
+     * 只读端点不写审计（RF 只约束写动作）。
+     */
+    List<Map<String, Object>> seckillDishes();
+
+    /**
+     * 更新某商品的秒杀参与态与秒杀价（{@code PUT /api/admin/seckill/dishes/{id}}）。
+     * 校验顺序即报错优先级（契约 §1.2）：① dish 不存在 404「商品不存在」；
+     * ② seckill 非 0/1 → 400；③ seckill=1 时 seckillPrice 必填、&gt;0、最多两位小数 →
+     * 400「秒杀价必须为正数（最多两位小数）」；④ seckill=1 时 seckillPrice ≥
+     * <b>库内</b>该 dish 现价（服务端读现价，不信任前端传参）→
+     * 400「秒杀价必须低于原价 X.XX」。
+     * seckill=0 时<b>不回清</b> seckill_price（保留历史值）。onSale 不做要求（下架品可预配）。
+     * 成功后写审计 {@code seckill.update}（before/after 记两列旧新值）。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void updateSeckillDish(Long dishId, AdminSeckillUpdateDTO dto, String actor);
 }

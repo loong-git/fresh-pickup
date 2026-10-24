@@ -1,6 +1,6 @@
 // 路由（F-20.11 Step 4 的三页 + F-20.22 Step 5b-2 的四页 = /login 与六个业务页；F-63 又加 arrivals 一页，
 // F-106 片 C 再加 merchant-applies 一页，F-108 片 2 再加 dicts 一页，F-109 再加 free-activity 一页，
-// F-110 再加 aliases 一页，现共 1 + 11）+ 一条全局前置守卫。
+// F-110 再加 aliases 一页，F-112 再加 seckill 一页，现共 1 + 12）+ 一条全局前置守卫。
 // 依赖方向是单向的：router → api，api 绝不 import router（否则成 api → router → views → api 的静态循环，
 // 与本仓三端 main.js ↔ api 的做法同构）——api 层 401 要跳 /login，靠的是本模块末尾注册的回调。
 // 三页一律动态 import（懒加载），首屏包只装壳——F-97 实测：现在 12 个路由组件**全部**是动态 import，不止那三页。
@@ -50,6 +50,14 @@ const routes = [
     path: '/dicts',
     name: 'dicts',
     component: () => import('../views/Dicts.vue'),
+    meta: { requiresAuth: true }
+  },
+  // F-112 秒杀商品集管理：勾选 seckill + 设秒杀价（只写两列），挨着商品/字典这条商品配置线。
+  // 同一套 requiresAuth 守卫，动态 import 不进首屏包。
+  {
+    path: '/seckill',
+    name: 'seckill',
+    component: () => import('../views/Seckill.vue'),
     meta: { requiresAuth: true }
   },
   // F-109 免费领活动管理：活动四列配置 + 候选池全量替换，挨着商品/字典这条运营配置线。
