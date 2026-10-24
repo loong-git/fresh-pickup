@@ -36,6 +36,9 @@
 --       申请侧存证照列表 JSON 文本、过审时原样复制；单图 business_license 保留不动（兼容老客户端/老读路径）
 --   m23 dict_group + dict_item（F-108 字典本地化）：结构逐字照契约 §0.2，本文件只同步两处建表体；
 --       4 组 / 23 条词条回填只存在于 m23-migration.sql 一处真源（INSERT IGNORE 幂等），重建后随 m3~m23 重放落库
+--   m24 coupon_template（F-113 券模板表化）：结构 + 4 行回填与 m24-migration.sql 逐字一致
+--       （回填值照旧 CouponServiceImpl.TEMPLATES 常量；title 留 NULL 走前端「满X减Y」拼装）；
+--       切表后 TEMPLATES/isLifetimeOnce 删除，表为唯一真源；limit_per_user=1 与常量时代 lifetime 语义逐字等价
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -235,6 +238,51 @@ CREATE TABLE user_coupon (
     INDEX idx_user_id (user_id),
     INDEX idx_order_id (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户优惠券表';
+
+-- ----------------------------
+-- 券模板表（F-113 表化，m24-migration.sql 同步，DDL 逐字照契约 §1）：
+-- 模板从 CouponServiceImpl.TEMPLATES 代码常量迁表（表为唯一真源，双源必漂移）；
+-- limit_per_user 泛化 lifetime 语义（1=与常量时代逐字等价，0=不限）；
+-- total_quota/issued_count 条件 UPDATE 原子扣减（照 user.cash_rewarded 封顶闸门范式）；
+-- 发放时 threshold/amount/expire_at(=now+valid_days) 全取表行快照落 user_coupon，核销不回读模板。
+-- 回填 4 行照旧 TEMPLATES 常量逐字：coupon_1(19,4)/coupon_2(30,5)/coupon_3(50,21)/newbie_gift(30,8)；
+-- title 留 NULL（前端按满X减Y拼，出参原样透传）；存量库 issued_count=0 不回填历史计数是刻意口径
+--（total_quota=NULL 下不参与判定），见 m24 头注。
+-- ----------------------------
+DROP TABLE IF EXISTS coupon_template;
+CREATE TABLE coupon_template (
+    id             BIGINT        NOT NULL AUTO_INCREMENT COMMENT '模板ID',
+    coupon_key     VARCHAR(50)   NOT NULL                COMMENT '券模板标识（C 端 claim/center 的 key）',
+    title          VARCHAR(50)   NULL                    COMMENT '展示名；NULL 时前端按满X减Y拼（出参原样透传）',
+    threshold      DECIMAL(10,2) NOT NULL                COMMENT '使用门槛',
+    amount         DECIMAL(10,2) NOT NULL                COMMENT '抵扣金额',
+    valid_days     INT           NOT NULL DEFAULT 7      COMMENT '领取后有效天数',
+    limit_per_user INT           NOT NULL DEFAULT 1      COMMENT '每人全史限领 N 张（含 used/expired）；0=不限',
+    total_quota    INT           NULL                    COMMENT '总量配额；NULL=不限',
+    issued_count   INT           NOT NULL DEFAULT 0      COMMENT '已发计数（配额原子扣减用）',
+    status         VARCHAR(20)   NOT NULL DEFAULT 'active' COMMENT 'active 启用 / disabled 停用（claim/center 均不可见）',
+    create_time    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time    DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_coupon_key (coupon_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='券模板表（F-113 表化，替代代码常量）';
+
+-- 回填（照 m24-migration.sql 逐字；WHERE NOT EXISTS 幂等，重放不翻倍）
+INSERT INTO coupon_template (coupon_key, threshold, amount, valid_days, limit_per_user, total_quota, issued_count, status)
+SELECT 'coupon_1', 19.00, 4.00, 7, 1, NULL, 0, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM coupon_template WHERE coupon_key = 'coupon_1');
+
+INSERT INTO coupon_template (coupon_key, threshold, amount, valid_days, limit_per_user, total_quota, issued_count, status)
+SELECT 'coupon_2', 30.00, 5.00, 7, 1, NULL, 0, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM coupon_template WHERE coupon_key = 'coupon_2');
+
+INSERT INTO coupon_template (coupon_key, threshold, amount, valid_days, limit_per_user, total_quota, issued_count, status)
+SELECT 'coupon_3', 50.00, 21.00, 7, 1, NULL, 0, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM coupon_template WHERE coupon_key = 'coupon_3');
+
+INSERT INTO coupon_template (coupon_key, threshold, amount, valid_days, limit_per_user, total_quota, issued_count, status)
+SELECT 'newbie_gift', 30.00, 8.00, 7, 1, NULL, 0, 'active'
+WHERE NOT EXISTS (SELECT 1 FROM coupon_template WHERE coupon_key = 'newbie_gift');
 
 -- ----------------------------
 -- 评价表（T-M4-05 加 audit_status；Mock 评价数据见 sql/review.sql）

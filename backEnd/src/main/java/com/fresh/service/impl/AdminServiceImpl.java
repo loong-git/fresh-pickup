@@ -12,6 +12,8 @@ import com.fresh.common.R;
 import com.fresh.dto.AdminAliasCreateDTO;
 import com.fresh.dto.AdminAliasUpdateDTO;
 import com.fresh.dto.AdminArrivalDepartDTO;
+import com.fresh.dto.AdminCouponTemplateCreateDTO;
+import com.fresh.dto.AdminCouponTemplateUpdateDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
@@ -23,6 +25,7 @@ import com.fresh.dto.AdminSeckillUpdateDTO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.ArrivalBatch;
 import com.fresh.entity.ArrivalItem;
+import com.fresh.entity.CouponTemplate;
 import com.fresh.entity.DictGroup;
 import com.fresh.entity.DictItem;
 import com.fresh.entity.Dish;
@@ -44,6 +47,7 @@ import com.fresh.mapper.ArrivalItemMapper;
 import com.fresh.mapper.DictGroupMapper;
 import com.fresh.mapper.DictItemMapper;
 import com.fresh.mapper.DishAliasMapper;
+import com.fresh.mapper.CouponTemplateMapper;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.FreeActivityMapper;
 import com.fresh.mapper.FreeGoodsPoolMapper;
@@ -2116,5 +2120,223 @@ public class AdminServiceImpl implements AdminService {
     /** 审计 detail（秒杀）：两列定长短串；超 500 由 writeAudit 的既有预算截断兜底 */
     private static String seckillDetail(Integer seckill, BigDecimal seckillPrice) {
         return "seckill=" + seckill + ",seckillPrice=" + seckillPrice;
+    }
+
+    // ==================================================================
+    // F-113 券模板管理（三个操作，只写 coupon_template 一张表）
+    // 读端点不写审计；写端点成功后统一走本类唯一那份 writeAudit（旁路）：
+    //   coupon_template.create / coupon_template.update。
+    // 红线（契约 §2.4/§4）：不提供 DELETE——已发过的模板删除 = 历史 user_coupon.coupon_key
+    // 悬挂，停用（status=disabled）即运营语义；issued_count 与 coupon_key 不在落库白名单。
+    // 写操作为单条 DML，不加 @Transactional（同 F-110/F-112 段口径）：审计是旁路，
+    // 写失败不打断主流程。C 端 claim/center 直读同表，改动下一次请求即生效（无缓存）。
+    // ==================================================================
+
+    /** 审计动作（契约 §4 逐字两枚；写侧唯一真源；admin_audit_log.action VARCHAR(50)） */
+    private static final String AUDIT_COUPON_TEMPLATE_CREATE = "coupon_template.create";
+    private static final String AUDIT_COUPON_TEMPLATE_UPDATE = "coupon_template.update";
+
+    /** 审计目标类型（admin_audit_log.target_type VARCHAR(30)） */
+    private static final String AUDIT_TARGET_COUPON_TEMPLATE = "coupon_template";
+
+    private static final String CT_KEY_INVALID_MSG = "key 须为 2-50 位小写字母/数字/下划线";
+    /** uk_coupon_key 冲突的 400 文案（契约逐字「key 已存在」） */
+    private static final String CT_KEY_DUPLICATE_MSG = "key 已存在";
+    private static final String CT_TITLE_TOO_LONG_MSG = "名称最长 50 个字符";
+    private static final String CT_MONEY_INVALID_MSG = "门槛与抵扣须为正数（最多两位小数）";
+    /** 抵扣≥门槛=负价单（契约 §4 点名的防资损校验） */
+    private static final String CT_AMOUNT_GE_THRESHOLD_MSG = "抵扣金额必须低于使用门槛";
+    private static final String CT_VALID_DAYS_INVALID_MSG = "有效天数须为 1-365";
+    private static final String CT_LIMIT_INVALID_MSG = "每人限领须为大于等于 0 的整数";
+    private static final String CT_QUOTA_INVALID_MSG = "总量配额须为大于等于 0 的整数（不限则不传）";
+    private static final String CT_STATUS_INVALID_MSG = "status 仅允许 active/disabled";
+    private static final String CT_NOT_FOUND_MSG = "券模板不存在";
+    private static final String CT_NO_FIELDS_MSG = "无更新字段（可传 title/threshold/amount/validDays/limitPerUser/totalQuota/status）";
+
+    /** F-113 的新依赖（只被本段方法使用；追加式字段声明同 F-109/F-110/F-112 那批） */
+    @Autowired
+    private CouponTemplateMapper couponTemplateMapper;
+
+    /**
+     * 模板全量列表：键序固定 {@code id,couponKey,title,threshold,amount,validDays,limitPerUser,
+     * totalQuota,issuedCount,status}，顺序即 mapper 的 id 升序（=迁移回填顺序）。
+     * 手工组 Map 而非直出实体：出参白名单由本方法逐键定义（同 seckillDishes/aliases 的处置）。
+     */
+    @Override
+    public List<Map<String, Object>> couponTemplates() {
+        List<CouponTemplate> rows = couponTemplateMapper.selectList(
+                new LambdaQueryWrapper<CouponTemplate>().orderByAsc(CouponTemplate::getId));
+        List<Map<String, Object>> out = new ArrayList<>(rows.size());
+        for (CouponTemplate row : rows) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.getId());
+            line.put("couponKey", row.getCouponKey());
+            line.put("title", row.getTitle());
+            line.put("threshold", row.getThreshold());
+            line.put("amount", row.getAmount());
+            line.put("validDays", row.getValidDays());
+            line.put("limitPerUser", row.getLimitPerUser());
+            line.put("totalQuota", row.getTotalQuota());
+            line.put("issuedCount", row.getIssuedCount());
+            line.put("status", row.getStatus());
+            out.add(line);
+        }
+        return out;
+    }
+
+    /**
+     * 上新模板：校验顺序即报错优先级（契约 §4 逐条，见接口注释）；key 冲突预查 + DB 唯一键
+     * 并发兜底成同一句 400。成功后写审计 {@code coupon_template.create}（target_id = 新行 id）。
+     */
+    @Override
+    public void createCouponTemplate(AdminCouponTemplateCreateDTO dto, String actor) {
+        if (dto == null) {
+            throw new BizException(CT_KEY_INVALID_MSG);
+        }
+        String key = dto.getCouponKey() == null ? null : dto.getCouponKey().trim();
+        if (key == null || !key.matches("^[a-z0-9_]{2,50}$")) {
+            throw new BizException(CT_KEY_INVALID_MSG);
+        }
+        if (couponTemplateMapper.selectByCouponKey(key) != null) {
+            throw new BizException(CT_KEY_DUPLICATE_MSG);
+        }
+        String title = validateTitle(dto.getTitle());
+        BigDecimal threshold = dto.getThreshold();
+        BigDecimal amount = dto.getAmount();
+        validateMoney(threshold, amount);
+        Integer validDays = validateValidDays(dto.getValidDays());
+        Integer limitPerUser = validateLimitPerUser(dto.getLimitPerUser());
+        Integer totalQuota = validateTotalQuota(dto.getTotalQuota());
+        String status = validateStatus(dto.getStatus());
+
+        CouponTemplate row = new CouponTemplate();
+        row.setCouponKey(key);
+        row.setTitle(title);
+        row.setThreshold(threshold);
+        row.setAmount(amount);
+        row.setValidDays(validDays);
+        row.setLimitPerUser(limitPerUser);
+        row.setTotalQuota(totalQuota);
+        row.setIssuedCount(0);
+        row.setStatus(status);
+        try {
+            couponTemplateMapper.insert(row);
+        } catch (DuplicateKeyException e) {
+            // uk_coupon_key 的并发兜底：先查后插挡不住两人同时提交同一个 key
+            throw new BizException(CT_KEY_DUPLICATE_MSG);
+        }
+        writeAudit(auditActor(actor), AUDIT_COUPON_TEMPLATE_CREATE, AUDIT_TARGET_COUPON_TEMPLATE,
+                String.valueOf(row.getId()), null, templateDetail(row));
+    }
+
+    /**
+     * 部分更新模板：id 不存在 404；七列全空 400；校验对<b>合并后的新值</b>判
+     * （amount&lt;threshold 以合并后门槛为参照——只改其一也不放过倒挂）。
+     * 落库白名单只有七列：coupon_key/issued_count 的 DTO 探测字段不进 patch，
+     * updateById 的 NOT_NULL 策略下 null = 不落该列 = 原值保留。
+     * 成功后写审计 {@code coupon_template.update}，before/after 均为合并后完整快照。
+     */
+    @Override
+    public void updateCouponTemplate(Long id, AdminCouponTemplateUpdateDTO dto, String actor) {
+        CouponTemplate existing = id == null ? null : couponTemplateMapper.selectById(id);
+        if (existing == null) {
+            throw new BizException(R.CODE_NOT_FOUND, CT_NOT_FOUND_MSG);
+        }
+        if (dto == null) {
+            throw new BizException(CT_NO_FIELDS_MSG);
+        }
+        // 合并新值（null=不改；title 允许显式传空串=清空展示名回「满X减Y」拼装）
+        String title = dto.getTitle() == null ? existing.getTitle() : validateTitle(dto.getTitle());
+        BigDecimal threshold = dto.getThreshold() == null ? existing.getThreshold() : dto.getThreshold();
+        BigDecimal amount = dto.getAmount() == null ? existing.getAmount() : dto.getAmount();
+        Integer validDays = dto.getValidDays() == null ? existing.getValidDays() : dto.getValidDays();
+        Integer limitPerUser = dto.getLimitPerUser() == null ? existing.getLimitPerUser() : dto.getLimitPerUser();
+        Integer totalQuota = dto.getTotalQuota() == null ? existing.getTotalQuota() : dto.getTotalQuota();
+        String status = dto.getStatus() == null ? existing.getStatus() : dto.getStatus();
+        if (dto.getTitle() == null && dto.getThreshold() == null && dto.getAmount() == null
+                && dto.getValidDays() == null && dto.getLimitPerUser() == null
+                && dto.getTotalQuota() == null && dto.getStatus() == null) {
+            throw new BizException(CT_NO_FIELDS_MSG);
+        }
+        validateMoney(threshold, amount);   // 合并后判：旧值原本合法，等价于对新值判
+        validateValidDays(validDays);
+        validateLimitPerUser(limitPerUser);
+        validateTotalQuota(totalQuota);
+        validateStatus(status);
+
+        CouponTemplate patch = new CouponTemplate();
+        patch.setId(id);
+        patch.setTitle(title);
+        patch.setThreshold(threshold);
+        patch.setAmount(amount);
+        patch.setValidDays(validDays);
+        patch.setLimitPerUser(limitPerUser);
+        patch.setTotalQuota(totalQuota);
+        patch.setStatus(status);
+        // 刻意不 set couponKey/issuedCount：白名单落库，探测字段带了也不生效
+        couponTemplateMapper.updateById(patch);
+        writeAudit(auditActor(actor), AUDIT_COUPON_TEMPLATE_UPDATE, AUDIT_TARGET_COUPON_TEMPLATE,
+                String.valueOf(id), templateDetail(existing), templateDetail(patch));
+    }
+
+    /** title 归一：null=不设（走「满X减Y」拼装）；trim 后 ≤50 字符（空串合法=显式清空） */
+    private static String validateTitle(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (trimmed.length() > 50) {
+            throw new BizException(CT_TITLE_TOO_LONG_MSG);
+        }
+        return trimmed;
+    }
+
+    /** 金额形状 + 倒挂校验：threshold/amount 均 &gt;0、最多两位小数，且 amount &lt; threshold（负价单拦截）。
+     *  update 侧传入的已是合并后的最终值，create 侧即入参本身。 */
+    private static void validateMoney(BigDecimal threshold, BigDecimal amount) {
+        if (threshold == null || amount == null
+                || threshold.compareTo(BigDecimal.ZERO) <= 0 || amount.compareTo(BigDecimal.ZERO) <= 0
+                || threshold.stripTrailingZeros().scale() > 2 || amount.stripTrailingZeros().scale() > 2) {
+            throw new BizException(CT_MONEY_INVALID_MSG);
+        }
+        if (amount.compareTo(threshold) >= 0) {
+            throw new BizException(CT_AMOUNT_GE_THRESHOLD_MSG);
+        }
+    }
+
+    private static Integer validateValidDays(Integer validDays) {
+        if (validDays == null || validDays < 1 || validDays > 365) {
+            throw new BizException(CT_VALID_DAYS_INVALID_MSG);
+        }
+        return validDays;
+    }
+
+    private static Integer validateLimitPerUser(Integer limitPerUser) {
+        if (limitPerUser == null || limitPerUser < 0) {
+            throw new BizException(CT_LIMIT_INVALID_MSG);
+        }
+        return limitPerUser;
+    }
+
+    private static Integer validateTotalQuota(Integer totalQuota) {
+        if (totalQuota != null && totalQuota < 0) {
+            throw new BizException(CT_QUOTA_INVALID_MSG);
+        }
+        return totalQuota;
+    }
+
+    private static String validateStatus(String status) {
+        if (!CouponTemplate.STATUS_ACTIVE.equals(status) && !CouponTemplate.STATUS_DISABLED.equals(status)) {
+            throw new BizException(CT_STATUS_INVALID_MSG);
+        }
+        return status;
+    }
+
+    /** 审计 detail（券模板）：八键定长短串（title=null 如实透传）；超 500 由 writeAudit 的既有预算截断兜底 */
+    private static String templateDetail(CouponTemplate row) {
+        return "key=" + row.getCouponKey() + ",title=" + row.getTitle()
+                + ",threshold=" + row.getThreshold() + ",amount=" + row.getAmount()
+                + ",validDays=" + row.getValidDays() + ",limitPerUser=" + row.getLimitPerUser()
+                + ",totalQuota=" + row.getTotalQuota() + ",status=" + row.getStatus();
     }
 }

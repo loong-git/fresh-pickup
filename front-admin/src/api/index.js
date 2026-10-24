@@ -1019,3 +1019,57 @@ export function updateAdminSeckillDish(id, body) {
     data: payload
   })
 }
+
+// ==================== F-113 券模板管理（三个端点，只写 coupon_template 一张表） ====================
+// 契约真源：docs/F-113-券模板表化契约.md §4。三个端点全在 AdminController 的 Admin 面
+// （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
+// 读端点限流 IP 30/60s、写端点 IP 10/60s（照 F-110 档位）。
+// 语义边界：无 DELETE（已发过的模板删除=历史 user_coupon.coupon_key 悬挂，停用即运营语义）；
+// coupon_key/issued_count 不可改（PUT body 带了忽略并在响应 message 注明）。
+// C 端零改动：claim/center 读同一张表，运营改配置后 C 端下一次请求即生效（无缓存）。
+
+/**
+ * 券模板全量列表：GET /api/admin/coupon-templates
+ * 出参 data 是数组：[{id,couponKey,title,threshold,amount,validDays,limitPerUser,totalQuota,
+ * issuedCount,status}]，按 id 升序；disabled 同样列出。只读档限流 IP 30/60s。
+ */
+export function getAdminCouponTemplates() {
+  return request({
+    url: '/api/admin/coupon-templates',
+    method: 'GET'
+  })
+}
+
+/**
+ * 上新券模板：POST /api/admin/coupon-templates，body 全量必填字段见 @param。
+ * 校验（服务端为准，报错顺序逐条）：key ^[a-z0-9_]{2,50}$ 且不与现存冲突（400「key 已存在」）；
+ * title ≤50；threshold/amount >0 两位小数且 amount < threshold（负价单拦截）；
+ * validDays 1~365；limitPerUser ≥0；totalQuota 不传=不限（传则 ≥0）；status ∈ {active,disabled}。
+ * 成功 message「券模板已新增」。写档限流 IP 10/60s。
+ * @param {{couponKey:string, title?:string|null, threshold:number, amount:number, validDays:number,
+ *   limitPerUser:number, totalQuota?:number|null, status:string}} body
+ */
+export function createAdminCouponTemplate(body) {
+  return request({
+    url: '/api/admin/coupon-templates',
+    method: 'POST',
+    data: body
+  })
+}
+
+/**
+ * 部分更新券模板：PUT /api/admin/coupon-templates/{id}，body 七列 null/缺键=本次不改。
+ * 校验同 POST 但对合并后的新值判（amount<threshold 以合并后门槛为参照）；id 不存在 404。
+ * couponKey/issuedCount 传了也不落库，服务端在响应 message 注明已忽略。
+ * 成功 message「券模板已更新」。写档限流 IP 10/60s。
+ * @param {number|string} id coupon_template.id
+ * @param {{title?:string|null, threshold?:number, amount?:number, validDays?:number,
+ *   limitPerUser?:number, totalQuota?:number, status?:string}} body 只带要改的列
+ */
+export function updateAdminCouponTemplate(id, body) {
+  return request({
+    url: '/api/admin/coupon-templates/' + encodeURIComponent(String(id)),
+    method: 'PUT',
+    data: body
+  })
+}

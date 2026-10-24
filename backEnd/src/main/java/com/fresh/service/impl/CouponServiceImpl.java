@@ -4,116 +4,127 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fresh.common.BizException;
 import com.fresh.dto.CouponCenterVO;
+import com.fresh.entity.CouponTemplate;
 import com.fresh.entity.UserCoupon;
+import com.fresh.mapper.CouponTemplateMapper;
 import com.fresh.mapper.UserCouponMapper;
 import com.fresh.service.CouponService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 优惠券服务（F-113 表化）：券模板唯一真源 = coupon_template 表（旧 TEMPLATES 常量与
+ * isLifetimeOnce 已删，双源必漂移）；发放时 threshold/amount/expireAt(=now+validDays)
+ * 全取表行快照落 user_coupon，核销走 user_coupon 行上快照（getUsable/markUsed 一行不改）。
+ * 三道防资损防线全在 claim，顺序即语义（换序即资损）：查表 → lifetime → 配额原子 → 快照落券。
+ */
 @Slf4j
 @Service
 public class CouponServiceImpl implements CouponService {
 
-    /** 固定券模板：key → [threshold 满X元, amount 减Y元]。
-     *  coupon_1~3 为券中心固定三档（契约第 2 条）；newbie_gift 为新人见面礼券（F-05：注册不再自动发放，
-     *  改挂领券中心由用户自行领取）；invite_reward 邀请奖励券已随 F-05 券轨下线整体删除（存量已领券不受影响：
-     *  模板只在发放时取面额，核销走券上冗余的 threshold/amount 字段），展示名约定：newbie_gift=新人见面礼
-     *  （前端 mine 页映射一致） */
-    private static final Map<String, BigDecimal[]> TEMPLATES = Map.of(
-            "coupon_1", new BigDecimal[]{BigDecimal.valueOf(19), BigDecimal.valueOf(4)},
-            "coupon_2", new BigDecimal[]{BigDecimal.valueOf(30), BigDecimal.valueOf(5)},
-            "coupon_3", new BigDecimal[]{BigDecimal.valueOf(50), BigDecimal.valueOf(21)},
-            "newbie_gift", new BigDecimal[]{BigDecimal.valueOf(30), BigDecimal.valueOf(8)});
-
     @Autowired
     private UserCouponMapper userCouponMapper;
 
-    /** lifetime 闸门判定（F-05.1 修订第 3 条）：集合内券种每人限领 1 张；当前 TEMPLATES 全量纳入（固定三档+新人见面礼均属一次性领取语义），新增可重领券种时从此处移出即可 */
-    private boolean isLifetimeOnce(String key) {
-        return TEMPLATES.containsKey(key);
-    }
+    @Autowired
+    private CouponTemplateMapper couponTemplateMapper;
 
     @Override
+    @Transactional
     public UserCoupon claim(Long userId, String couponKey) {
         String key = couponKey == null ? "" : couponKey.trim();
-        BigDecimal[] template = TEMPLATES.get(key);
-        if (template == null) {
+        // 防线〇（§2.1 第 1 步）查表：不存在/停用同一出口 400「无效的优惠券」（文案与常量时代逐字一致）
+        CouponTemplate template = couponTemplateMapper.selectByCouponKey(key);
+        if (template == null || !CouponTemplate.STATUS_ACTIVE.equals(template.getStatus())) {
             throw new BizException("无效的优惠券");
         }
-        // F-05.1 lifetime 闸门（评审修订 V1.1）：TEMPLATES 全量为每人限领 1 张的券种——
-        // 存在任意 user_coupon 记录（含 used/expired）即拒绝，堵死「领→核销→再领」与
-        // 「过期即重领」两条资损路径（领券中心直出 TEMPLATES 可领区的配套必选项；
-        // 旧语义「用完后可再领/过期不占名额」仅在前端硬编码 coupon_1~3 时代无害）
-        if (isLifetimeOnce(key)) {
+        // 防线一（§2.1 第 2 步）lifetime：limit_per_user>0 时全量计数该 user 该 key 的 user_coupon
+        // （含 used/expired——selectCount 只按 user+key 过滤，与常量时代同口径）；
+        // limit_per_user=1 时代码路径与旧语义逐字等价，0=不限（跳过本闸门）
+        if (template.getLimitPerUser() != null && template.getLimitPerUser() > 0) {
             Long lifetime = userCouponMapper.selectCount(new LambdaQueryWrapper<UserCoupon>()
                     .eq(UserCoupon::getUserId, userId)
                     .eq(UserCoupon::getCouponKey, key));
-            if (lifetime != null && lifetime > 0) {
+            if (lifetime != null && lifetime >= template.getLimitPerUser()) {
                 throw new BizException("每人限领 1 张");
             }
         }
+        // 防线三（§2.1 第 3 步）配额原子：total_quota 非 NULL 时条件 UPDATE 占额（判定与自增同一条
+        // UPDATE，无 COUNT+UPDATE 竞态）；0 行=已罄 400「该券已领完」。与下方 insert 同事务，
+        // insert 后任何失败回滚时配额自增一并回滚——取消/失败路径无独立扣减点，不存在双扣
+        if (template.getTotalQuota() != null) {
+            if (couponTemplateMapper.tryIssueQuota(key) == 0) {
+                throw new BizException("该券已领完");
+            }
+        }
+        // 防线二（§2.1 第 4 步）快照落券：threshold/amount/expireAt(=now+valid_days) 全取表行，
+        // 不再用 UserCoupon.VALID_DAYS——运营改面额只影响之后的新领取，已发券核销按券上快照
         UserCoupon coupon = new UserCoupon();
         coupon.setUserId(userId);
         coupon.setCouponKey(key);
-        coupon.setThreshold(template[0]);
-        coupon.setAmount(template[1]);
+        coupon.setThreshold(template.getThreshold());
+        coupon.setAmount(template.getAmount());
         coupon.setStatus(UserCoupon.STATUS_AVAILABLE);
-        // 有效期（M6）：领取即写过期时间，下单 getUsable 拦截、前端券中心据此展示
-        coupon.setExpireAt(LocalDateTime.now().plusDays(UserCoupon.VALID_DAYS));
+        coupon.setExpireAt(LocalDateTime.now().plusDays(template.getValidDays()));
         userCouponMapper.insert(coupon);
         log.info("发券成功: userId={}, couponKey={}, threshold={}, amount={}",
-                userId, key, template[0], template[1]);
+                userId, key, template.getThreshold(), template.getAmount());
         return coupon;
     }
 
     @Override
     public UserCoupon grant(Long userId, String couponKey) {
-        BigDecimal[] template = TEMPLATES.get(couponKey);
-        if (template == null) {
+        // 遗留路径（无外部调用方，invite_reward 已随 F-05 下线）：同 claim 第 1/4 步——
+        // 查表 + 快照落券，无 lifetime、无配额（与旧 grant 语义对齐：不去重不占额）
+        CouponTemplate template = couponTemplateMapper.selectByCouponKey(couponKey);
+        if (template == null || !CouponTemplate.STATUS_ACTIVE.equals(template.getStatus())) {
             throw new BizException("无效的优惠券");
         }
-        // 与 claim 的差异：不去重（F-01 邀请奖励随多个被邀人累计多张）、不抛"已领取"；
-        // 有效期同现有券（UserCoupon.VALID_DAYS=7，F-01.0 裁定）
         UserCoupon coupon = new UserCoupon();
         coupon.setUserId(userId);
         coupon.setCouponKey(couponKey);
-        coupon.setThreshold(template[0]);
-        coupon.setAmount(template[1]);
+        coupon.setThreshold(template.getThreshold());
+        coupon.setAmount(template.getAmount());
         coupon.setStatus(UserCoupon.STATUS_AVAILABLE);
-        coupon.setExpireAt(LocalDateTime.now().plusDays(UserCoupon.VALID_DAYS));
+        coupon.setExpireAt(LocalDateTime.now().plusDays(template.getValidDays()));
         userCouponMapper.insert(coupon);
         log.info("奖励发券成功: userId={}, couponKey={}, threshold={}, amount={}",
-                userId, couponKey, template[0], template[1]);
+                userId, couponKey, template.getThreshold(), template.getAmount());
         return coupon;
     }
 
     @Override
     public List<CouponCenterVO> center(Long userId) {
         // 该用户已持有的全部券 key：不筛 status、不筛 expire_at——已领即 claimed（F-05.2），
-        // used/过期记录同样算「已领」，避免「用完/过期即重领」在领券中心展示上与 claim 口径打架；
-        // 一次查询内存判重，替代逐模板 count（TEMPLATES 仅 4 项，两写法等价，取查询次数少的）
+        // used/过期记录同样算「已领」，与 claim 的 lifetime 口径同源；
+        // 一次查询内存判重，替代逐模板 count
         Set<String> ownedKeys = userCouponMapper.selectList(new LambdaQueryWrapper<UserCoupon>()
                         .select(UserCoupon::getCouponKey)
                         .eq(UserCoupon::getUserId, userId)).stream()
                 .map(UserCoupon::getCouponKey)
                 .collect(Collectors.toSet());
-        List<CouponCenterVO> result = new ArrayList<>();
-        // 遍历 TEMPLATES 单一真源直出（F-05.2）：前端不做券模板硬编码
-        for (Map.Entry<String, BigDecimal[]> entry : TEMPLATES.entrySet()) {
+        // 表直出（F-113 §2.2）：active 全量按 id 升序（=迁移回填顺序 coupon_1/2/3/newbie_gift，
+        // C 端展示序稳定）；title NULL 透传，前端不读不影响（C 端零改动）
+        List<CouponTemplate> templates = couponTemplateMapper.selectList(
+                new LambdaQueryWrapper<CouponTemplate>()
+                        .eq(CouponTemplate::getStatus, CouponTemplate.STATUS_ACTIVE)
+                        .orderByAsc(CouponTemplate::getId));
+        List<CouponCenterVO> result = new ArrayList<>(templates.size());
+        for (CouponTemplate template : templates) {
             CouponCenterVO item = new CouponCenterVO();
-            item.setCouponKey(entry.getKey());
-            item.setThreshold(entry.getValue()[0]);
-            item.setAmount(entry.getValue()[1]);
-            item.setClaimed(ownedKeys.contains(entry.getKey()));
+            item.setCouponKey(template.getCouponKey());
+            item.setTitle(template.getTitle());
+            item.setThreshold(template.getThreshold());
+            item.setAmount(template.getAmount());
+            item.setClaimed(ownedKeys.contains(template.getCouponKey()));
             result.add(item);
         }
         return result;

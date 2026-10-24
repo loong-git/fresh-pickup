@@ -6,6 +6,8 @@ import com.fresh.common.R;
 import com.fresh.dto.AdminAliasCreateDTO;
 import com.fresh.dto.AdminAliasUpdateDTO;
 import com.fresh.dto.AdminArrivalDepartDTO;
+import com.fresh.dto.AdminCouponTemplateCreateDTO;
+import com.fresh.dto.AdminCouponTemplateUpdateDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
@@ -645,6 +647,76 @@ public class AdminController {
         }
         adminService.updateSeckillDish(id, dto, grant.actor());
         return R.ok(null, "秒杀商品已更新");
+    }
+
+    // ==================================================================
+    // F-113 券模板管理（三个端点：GET 列表 / POST 上新 / PUT 改配置，无 DELETE——
+    // 已发过的模板删除 = 历史 user_coupon.coupon_key 悬挂，停用即运营语义，引用保护固化为「不提供」）。
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator；读 30/60s、写 10/60s，均按 IP。
+    // 审计（coupon_template.create / coupon_template.update）在 AdminServiceImpl 内与业务同源写。
+    // 红线（契约 §2.4）：CouponController 三端点签名与出参形状不变；C 端零改动（center 增量加 title 键）。
+    // ==================================================================
+
+    /**
+     * 券模板全量列表（F-113 §4）：{@code GET /api/admin/coupon-templates} →
+     * {@code [{id,couponKey,title,threshold,amount,validDays,limitPerUser,totalQuota,issuedCount,status}]}，
+     * 按 id 升序；disabled 同样列出（停用是运营可见状态）。只读端点不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-113 §4，照 F-110）
+    @GetMapping("/coupon-templates")
+    public R<List<Map<String, Object>>> couponTemplates(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                        @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 merchantApplies/seckillDishes 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.couponTemplates());
+    }
+
+    /**
+     * 上新券模板（F-113 §4）：{@code POST /api/admin/coupon-templates}。key 形状/冲突、
+     * title 长度、金额形状与 amount&lt;threshold（负价单拦截）、validDays 1~365、limitPerUser ≥0、
+     * totalQuota NULL 或 ≥0、status 值域——校验顺序与 400 文案全部钉在
+     * {@code AdminService#createCouponTemplate}。成功后写审计 {@code coupon_template.create}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-113 §4，照 F-110）
+    @PostMapping("/coupon-templates")
+    public R<Void> createCouponTemplate(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                        @RequestHeader(value = "Authorization", required = false) String authz,
+                                        @Valid @RequestBody AdminCouponTemplateCreateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.createCouponTemplate(dto, grant.actor());
+        return R.ok(null, "券模板已新增");
+    }
+
+    /**
+     * 部分更新券模板（F-113 §4）：{@code PUT /api/admin/coupon-templates/{id}}，
+     * body 七列 null=不改；校验对合并后的新值判；id 不存在 404。
+     * <b>coupon_key 与 issued_count 不可改</b>：body 带了这两个探测字段时忽略不落库，
+     * 并在响应 message 里注明（契约 §4「带了忽略并在响应注明」）。
+     * 成功后写审计 {@code coupon_template.update}（before/after 完整快照）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-113 §4，照 F-110）
+    @PutMapping("/coupon-templates/{id}")
+    public R<Void> updateCouponTemplate(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                        @RequestHeader(value = "Authorization", required = false) String authz,
+                                        @PathVariable("id") Long id,
+                                        @Valid @RequestBody AdminCouponTemplateUpdateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.updateCouponTemplate(id, dto, grant.actor());
+        boolean carriedIgnored = dto != null
+                && (dto.getCouponKey() != null || dto.getIssuedCount() != null);
+        return R.ok(null, carriedIgnored
+                ? "券模板已更新（coupon_key/issued_count 不可改，已忽略）"
+                : "券模板已更新");
     }
 
     /**

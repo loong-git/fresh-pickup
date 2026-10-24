@@ -3,6 +3,8 @@ package com.fresh.service;
 import com.fresh.dto.AdminAliasCreateDTO;
 import com.fresh.dto.AdminAliasUpdateDTO;
 import com.fresh.dto.AdminArrivalDepartDTO;
+import com.fresh.dto.AdminCouponTemplateCreateDTO;
+import com.fresh.dto.AdminCouponTemplateUpdateDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
@@ -356,4 +358,42 @@ public interface AdminService {
      * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
      */
     void updateSeckillDish(Long dishId, AdminSeckillUpdateDTO dto, String actor);
+
+    // ==================================================================
+    // F-113 券模板管理（三个操作：列表/上新/改配置；无 DELETE——已发过的模板删除 =
+    // 历史 user_coupon.coupon_key 悬挂，停用即运营语义，引用保护固化为「不提供」）。
+    // 读端点不写审计；写端点成功后写 admin_audit_log：
+    //   coupon_template.create / coupon_template.update（actor 口径同本接口既有方法）。
+    // C 端零改动：claim/center 读同一张表，运营改配置后 C 端下一次请求即生效（无缓存）。
+    // ==================================================================
+
+    /**
+     * 券模板全量列表（{@code GET /api/admin/coupon-templates}）→
+     * {@code [{id,couponKey,title,threshold,amount,validDays,limitPerUser,totalQuota,issuedCount,status}]}，
+     * 按 id 升序。disabled 同样列出（停用是运营可见状态，不是隐藏态）。
+     * 只读端点不写审计（RF 只约束写动作）。
+     */
+    List<Map<String, Object>> couponTemplates();
+
+    /**
+     * 上新券模板（{@code POST /api/admin/coupon-templates}）。校验顺序即报错优先级
+     * （契约 §4 逐条）：key 形状 {@code ^[a-z0-9_]{2,50}$} → key 撞 uk_coupon_key 400「key 已存在」→
+     * title ≤50 → threshold/amount &gt;0 两位小数 → amount &lt; threshold（抵扣≥门槛=负价单）→
+     * validDays 1~365 → limitPerUser ≥0 → totalQuota NULL 或 ≥0 → status ∈ {active,disabled}。
+     * 成功后写审计 {@code coupon_template.create}。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void createCouponTemplate(AdminCouponTemplateCreateDTO dto, String actor);
+
+    /**
+     * 部分更新券模板（{@code PUT /api/admin/coupon-templates/{id}}）：null 字段 = 本次不改，
+     * 七列全空 400；id 不存在 404。校验同 create 但对<b>合并后的新值</b>判（amount&lt;threshold
+     * 以合并后门槛为参照）。{@code coupon_key} 与 {@code issued_count} 不可改——body 带了忽略
+     * （Controller 在响应 message 注明），Service 的落库白名单不含这两列。
+     * 成功后写审计 {@code coupon_template.update}（before/after 记合并后完整快照）。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void updateCouponTemplate(Long id, AdminCouponTemplateUpdateDTO dto, String actor);
 }

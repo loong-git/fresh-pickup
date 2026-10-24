@@ -19,6 +19,9 @@
         <router-link to="/seckill" class="nav-link" :class="{ active: isActive('/seckill') }" title="秒杀商品集的进秒杀/调价/移出：只改 seckill 与秒杀价两列，移出不回清价；下架品可预配，上架即生效。"><span class="nav-dot" title="本页会改数据"></span>秒杀商品</router-link>
         <!-- F-110：搜索别名（dish_alias）维护，只影响 C 端搜索命中，不碰价格/库存/订单 -->
         <router-link to="/aliases" class="nav-link" :class="{ active: isActive('/aliases') }" title="搜索别名的增删改：别名精确命中商品，只影响搜索，不碰价格/库存/订单；商品下拉只列在售。"><span class="nav-dot" title="本页会改数据"></span>搜索别名</router-link>
+        <!-- F-113：券模板（coupon_template）管理，只写一张表：上新/改面额门槛天数限领总量/启停；
+             无删除（停用即运营语义）；key 与 issued_count 不可改；已发券核销走券上快照不受改动影响 -->
+        <router-link to="/coupon-templates" class="nav-link" :class="{ active: isActive('/coupon-templates') }" title="券模板的上新/改配置/启停：只写 coupon_template 表，无删除；改面额只影响之后的新领取，已发券按快照核销。"><span class="nav-dot" title="本页会改数据"></span>券模板</router-link>
         <!-- F-109：免费领活动配置（换品/日限量/门槛/上下线）与候选池维护；dailyClaimed 是运行时计数，本页不可改 -->
         <router-link to="/free-activity" class="nav-link" :class="{ active: isActive('/free-activity') }" title="免费领活动配置与候选池维护；dailyClaimed 是运行时计数，本页不可改，改它会超发。"><span class="nav-dot" title="本页会改数据"></span>免费领活动</router-link>
         <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
@@ -42,8 +45,8 @@
 </template>
 
 <script setup>
-// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112 又各追加一页，
-// 现为十二条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
+// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112/F-113 又各追加一页，
+// 现为十三条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
 // 并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
 // 清态与跳转都走 api 层的 logout()，本组件不各自读 storage（键名真源只有 TOKEN_STORAGE_KEY 一处）。
 import { computed } from 'vue'
