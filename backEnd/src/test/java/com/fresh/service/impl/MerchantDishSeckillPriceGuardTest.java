@@ -145,7 +145,7 @@ class MerchantDishSeckillPriceGuardTest {
     }
 
     /**
-     * 反例桩：{@code Dish.seckill} 实测是 {@code Integer}（entity/Dish.java:30）且可空，
+     * 反例桩：{@code Dish.seckill} 实测是 {@code Integer}（{@link com.fresh.entity.Dish#seckill} / dish.seckill 列）且可空，
      * 写成 {@code before.getSeckill() == 1} 会在 null 时拆箱 NPE → 500。
      * 缺这条用例就等于没测过这个陷阱。
      */

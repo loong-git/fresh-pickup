@@ -175,7 +175,7 @@
 //    无记录 → 空白表单。四态单值互斥 loading|error|empty|ready（empty 唯一来源是 approved 这个服务端事实），
 //    ready 内部再按 applyStatus 这个「服务端事实枚举」分可编辑/只读两支——它不是第二个布尔开关，
 //    与 workspace.vue:147-148 / verify.vue:141 的「不叠布尔」纪律不冲突（后者是 ① 那条「四态单值互斥 loading|error|empty|ready」的页面纪律；两处读数按 F-25/P-4 重测）；
-// ② 坐标：库里 store_apply.lng/lat 存的是 GCJ-02 真源（init.sql:401-402），而 uni.getLocation 在 H5 端
+// ② 坐标：库里 store_apply.lng/lat 存的是 GCJ-02 真源（见 init.sql 的 store_apply.lng/lat 列注释），而 uni.getLocation 在 H5 端
 //    对 type:'gcj02' 并不做本地转换，而是把转换委托给地图 SDK（引证见 locatePosition 的注释）。
 //    本工程按 D-24 一期不配高德，那条路必然 reject，所以这里取 type:'wgs84'（原生返回、零 SDK 依赖）
 //    再用 utils/gcj02.js 本地转 GCJ-02；两个手填数字框常驻可用，定位失败只提示、不清已填值；
@@ -204,7 +204,7 @@ const LNG_MAX = 135
 const LAT_MIN = 3
 const LAT_MAX = 54
 
-// 落库列是 DECIMAL(10,6)（init.sql:439-440 store_apply；store 那两列在 :178-179）：手填输入只留 6 位小数，第 7 位起 MySQL 会自己四舍五入，
+// 落库列是 DECIMAL(10,6)（init.sql 的 store_apply.lng/lat 两列；store 那两列是 store.lng/lat）：手填输入只留 6 位小数，第 7 位起 MySQL 会自己四舍五入，
 // 屏上多显一位就是「显示的与入库的不是同一个数」
 const COORD_DECIMALS = 6
 

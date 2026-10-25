@@ -132,10 +132,10 @@ import '@/styles/common.css'
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/marketing/marketing'
 
-// 上架状态说法与后端列注释同源（init.sql:86 dish.on_sale「1上架/0下架」），出参是数字 0/1 不是布尔
+// 上架状态说法与后端列注释同源（init.sql 的 dish.on_sale 列注释「1上架/0下架」），出参是数字 0/1 不是布尔
 const ON_SALE_TEXT = { 1: '在售', 0: '已下架' }
 
-// 免费领活动状态（init.sql:265 free_activity.status「online进行/offline下线」）；
+// 免费领活动状态（init.sql 的 free_activity.status 列注释「online进行/offline下线」）；
 // 值域外/空值一律原样透出（见 methods.statusText），不替后端猜中文名
 const FREE_STATUS_TEXT = { online: '进行中', offline: '已下线' }
 

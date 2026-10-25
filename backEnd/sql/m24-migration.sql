@@ -2,7 +2,7 @@
 -- M24 增量迁移（F-113 券模板表化）
 -- 本期唯一动作 = 新建 coupon_template 表并回填 4 行（照 CouponServiceImpl.TEMPLATES 常量逐字）：
 --   · 券模板从代码常量迁表（05 册 B3④ 设计）：limit_per_user 泛化 lifetime 语义、
---     total_quota/issued_count 条件 UPDATE 原子扣减（照 user.cash_rewarded 封顶闸门范式 init.sql:63）；
+--     total_quota/issued_count 条件 UPDATE 原子扣减（照 user.cash_rewarded 封顶闸门范式，见 init.sql 的 user.cash_rewarded 列）；
 --   · 回填值照 TEMPLATES 逐字：coupon_1(19,4)/coupon_2(30,5)/coupon_3(50,21)/newbie_gift(30,8)；
 --     limit_per_user=1、valid_days=7、total_quota=NULL、issued_count=0、status=active；title 不回填
 --     （NULL 时前端按满X减Y拼，出参原样透传）；

@@ -294,7 +294,7 @@ export default {
     }
   },
   computed: {
-    // 只读区的坐标行：后端给的是 DECIMAL(10,6) 的 GCJ-02 真源（init.sql:178-179 store 表那两列），
+    // 只读区的坐标行：后端给的是 DECIMAL(10,6) 的 GCJ-02 真源（init.sql 的 store.lng/lat 两列），
     // 任一为空就整行如实写「未返回」，不拿单边值拼出「121.4-,」这种半截话
     coordText() {
       const d = this.store || {}

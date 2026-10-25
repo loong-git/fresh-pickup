@@ -1,7 +1,7 @@
 -- ================================================
 -- M15 增量迁移（F-12/G-01 商家化地基：merchant 主体 + merchant_profile 资质 + user 加 role/merchant_id + admin_audit_log 审计）
--- ① merchant：商家主体表，种子显式 id=1「平台自营」（归属列 DEFAULT 1 所指主体必须先存在，对齐 store 种子惯例 init.sql:116-121）；
--- ② merchant_profile：资质/入驻信息 1:1（主键即关系，便于二期多证照扩展）；audit_status 三态复用 review.audit_status 范式 init.sql:161；
+-- ① merchant：商家主体表，种子显式 id=1「平台自营」（归属列 DEFAULT 1 所指主体必须先存在，对齐 store 种子惯例，见 init.sql 的 store 种子段）；
+-- ② merchant_profile：资质/入驻信息 1:1（主键即关系，便于二期多证照扩展）；audit_status 三态复用 review.audit_status 范式（见 init.sql 的 review.audit_status 列）；
 -- ③ user 加两列：role VARCHAR(20) NOT NULL DEFAULT 'user'（存量 63 行 ALTER 后自动 role='user'，零 UPDATE 零回填）
 --    + merchant_id BIGINT NULL + UNIQUE uk_user_merchant（NULL=非商家；逻辑外键 merchant.id；一人一主体）；
 -- ④ admin_audit_log：管理/商家操作审计（M-04 补课，现状日志不记操作者 AdminServiceImpl.java:93）。
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS merchant (
   contact_phone VARCHAR(20)  NOT NULL                COMMENT '联系手机号（登录号快照；权威绑定在 user.merchant_id，此列仅展示/检索，不设 UNIQUE）',
   contact_name  VARCHAR(50)  NULL                    COMMENT '联系人',
   status        VARCHAR(20)  NOT NULL DEFAULT 'active' COMMENT 'active正常/suspended停业整顿/terminated清退（执行口径见 06 §4.2「商家生命周期出口执行清单」：on_sale 下架+seckill 清除等六步，非仅 on_sale 熔断）',
-  credit_status VARCHAR(20)  NULL                    COMMENT '信用分（三期预留，对齐 review.audit_status 三态范式 init.sql:161；一期 NULL）',
+  credit_status VARCHAR(20)  NULL                    COMMENT '信用分（三期预留，对齐 review.audit_status 三态范式，见 init.sql 的 review.audit_status 列；一期 NULL）',
   remark        VARCHAR(255) NULL                    COMMENT '备注',
   created_at    DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS merchant (
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS merchant_profile (
   merchant_id       BIGINT       NOT NULL COMMENT '商家ID（逻辑外键 merchant.id，1:1 主键即关系）',
-  business_license  VARCHAR(255) NULL     COMMENT '营业执照图 URL（依赖 POST /api/merchant/uploads；VARCHAR(255) 对齐 dish.image 惯例 init.sql:37）',
+  business_license  VARCHAR(255) NULL     COMMENT '营业执照图 URL（依赖 POST /api/merchant/uploads；VARCHAR(255) 对齐 dish.image 惯例，见 init.sql 的 dish.image 列）',
   legal_person      VARCHAR(50)  NULL     COMMENT '法人姓名',
   address           VARCHAR(255) NULL     COMMENT '经营地址',
   settlement_account VARCHAR(64) NULL     COMMENT '结算账户（三期结算启用；列位预留代价为零）',
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   actor       VARCHAR(64)  NOT NULL COMMENT '操作主体：admin:<key摘要> / merchant:<userId>（现状日志不记操作者，AdminServiceImpl.java:93）',
   action      VARCHAR(50)  NOT NULL COMMENT 'dish.update/order.status/review.audit/merchant.create/deposit.deduct…',
   target_type VARCHAR(30)  NOT NULL COMMENT 'dish/order/review/merchant/deposit',
-  target_id   VARCHAR(64)  NOT NULL COMMENT '目标ID（订单号 VARCHAR(50) 口径对齐 init.sql:62）',
+  target_id   VARCHAR(64)  NOT NULL COMMENT '目标ID（订单号 VARCHAR(50) 口径对齐 init.sql 的 orders.id 列）',
   detail      VARCHAR(500) NULL     COMMENT '旧值→新值 JSON',
   ip          VARCHAR(45)  NULL     COMMENT '操作来源 IP（IPv6 容量）',
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',

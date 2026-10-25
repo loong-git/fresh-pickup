@@ -17,7 +17,7 @@ import java.util.List;
  * R5' 硬约束：seckill / seckillPrice / soldCount / goodRate / merchantId / id 六个字段在本 DTO 中不存在——
  * 秒杀列二期才开放（M-08）、sold_count 由支付链路累加、good_rate 由评价聚合回写（DishMapper#refreshGoodRate）、
  * 归属 merchant_id 与主键 id 一律服务端解析（@RequestAttribute），前端传什么都进不来。
- * category 不在此硬编码枚举：取值域由字典 11 类约束（init.sql:67 列注释 meat/vegetable/... 共 11 code），
+ * category 不在此硬编码枚举：取值域由字典 11 类约束（init.sql 的 dish.category 列注释 meat/vegetable/... 共 11 code），
  * 商家端只能从字典里选（F-13.4 前端契约「11 类只选不建」），服务端不复制一份枚举以免两处漂移。
  */
 @Data

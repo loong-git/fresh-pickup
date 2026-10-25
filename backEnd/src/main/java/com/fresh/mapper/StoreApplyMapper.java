@@ -47,7 +47,7 @@ public interface StoreApplyMapper extends BaseMapper<StoreApply> {
     // 上方三条既有语句一字未动。本组纪律与 AdminAuditLogMapper 的 F-20.16 一组同构：
     // 页 + 独立 COUNT（RB，禁 selectPage/Page<T>）、两条 WHERE 逐字相同（D-16 = 下面那个编译期常量串）、
     // 零 LIKE / 零 <script> / 零 @SelectProvider / 值只走 #{} 绑定 / 列名一律常量。
-    // ⚠ pending_guard 是 STORED 生成列（uk_user_pending 的库侧闸门，见 init.sql:415 / m18 ⑦b），
+    // ⚠ pending_guard 是 STORED 生成列（uk_user_pending 的库侧闸门，见 init.sql 的 store_apply.pending_guard 生成列 / m18 ⑦b），
     //   <b>绝不进 SELECT 列表</b>：它只是约束的载体，没有任何展示价值，把它选出来等于给出一份
     //   「同一用户是否已有在审申请」的第二处真源（那一判据的权威解释在应用层 countPendingByUser + D-21）。
     // D-18：created_at / audited_at 一律 DATE_FORMAT(...,'%Y-%m-%d %H:%i:%s') 取串（本表是 created_at，

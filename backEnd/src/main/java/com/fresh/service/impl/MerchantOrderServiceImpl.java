@@ -408,7 +408,7 @@ public class MerchantOrderServiceImpl implements MerchantOrderService {
             item.put("dailyQuota", toInteger(row.get("dailyQuota")));
             item.put("dailyClaimed", toInteger(row.get("dailyClaimed")));
             // N-1 同秒杀侧：门槛也出两位小数字符串。free_activity.threshold 是 NOT NULL DEFAULT 50.00
-            // （init.sql:264），不存在「真 NULL」那一档，故不必像 seckillPrice 那样留 null 分支
+            // （见 init.sql 的 free_activity.threshold 列），不存在「真 NULL」那一档，故不必像 seckillPrice 那样留 null 分支
             item.put("threshold", moneyText(row.get("threshold")));
             items.add(item);
         }

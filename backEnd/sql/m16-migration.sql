@@ -3,7 +3,7 @@
 -- 🔴 动 C 端四链路全量读取核心表（dish/order_item）——必须 dev 全量演练 + C 端四链路冒烟（06 §六.2/§七.1）。
 -- ① dish.merchant_id NOT NULL DEFAULT 1：存量 28 SKU 由 DEFAULT 语义自动覆盖=1，零 UPDATE（修正早期草稿「一行 UPDATE 回填」口径）；
 --    加列方案否定 dish_merchant 关系表（06 §4.3 论证：一品一供 + C 端四链路零改动硬承诺 + m3~m14 列级演进先例）；
--- ② order_item.merchant_id NULL + JOIN dish 回填 + 孤儿置 1（对齐 orders.store_name 下单快照惯例 init.sql:73-74，
+-- ② order_item.merchant_id NULL + JOIN dish 回填 + 孤儿置 1（对齐 orders.store_name/store_address 下单快照惯例，见 init.sql 的 orders 快照三列，
 --    防商家改归属/删品后历史履约/对账漂移）；NULL 可空而非 NOT NULL DEFAULT 1——语义正确性优先，回填后收尾 UPDATE 兜底等效 NOT NULL；
 -- ③ merchant_store 商家↔自提点供货关系（uk_merchant_store 对齐 free_goods_pool uk_activity_dish 惯例 m8:31；一期数据维护=平台，商家端只读）；
 -- ④ store.owner_user_id NULL（NULL=平台直营；存量 4 店零回填；一店一主理人单列够用）。
