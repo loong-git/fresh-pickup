@@ -1210,3 +1210,22 @@ export function getAdminPartnerWallets() {
     method: 'GET'
   })
 }
+
+// ==================== F-121 限流观测（只读一端点；无任何写操作） ====================
+// 契约真源：docs/F-121-限流观测契约.md §2/§3。数据源是拦截器命中旁路写的 rate_limit_hit（F-121 §2），
+// 命中即异常流量信号；本面纯只读，封禁操作属 F-122（后端尚无任何封禁端点）。
+
+/**
+ * 限流命中聚合（只读）：GET /api/admin/rate-limit/hits?days=（F-121 §2，IP 30/60s）
+ * days ∈ {1,7,30} 三档白名单（缺省 7，白名单外 400）。
+ * 出参 data：{ days, total, list: [{route, bucketKey, count, lastHitAt}] }——list 按 count 倒序 top 100，
+ * total 为该时间档内命中总次数（全量计数，不受 top-100 截断影响）。
+ */
+export function getAdminRateLimitHits(days) {
+  // 页面不自拼 URL：days 一律经本层 withQuery 收口（同 getAdminAuditLogs 的筛选值姿势）
+  return request({
+    url: withQuery('/api/admin/rate-limit/hits', { days }),
+    method: 'GET'
+  })
+}
+

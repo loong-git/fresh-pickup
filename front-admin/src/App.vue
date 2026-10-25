@@ -32,6 +32,9 @@
         <!-- F-119：主理人钱包，纯只读（无写操作，与大盘/审计记录同款无橙点）——余额只由结算跑批记账增减，
              人工调额=资损面不设入口；提现通道未接入（轨道 B） -->
         <router-link to="/partner-wallets" class="nav-link" :class="{ active: isActive('/partner-wallets') }" title="主理人钱包（只读）：user（脱敏）/店名/余额/流水数。余额只由结算跑批自动记账，无人工调额入口；提现通道未接入（轨道 B）。">主理人钱包</router-link>
+        <!-- F-121：限流观测，纯只读（无写操作，与大盘/审计记录同款无橙点）——命中即异常流量信号（刷接口/恶意重试），
+             本页只读，封禁操作在 F-122（后端尚无封禁端点） -->
+        <router-link to="/rate-limit" class="nav-link" :class="{ active: isActive('/rate-limit') }" title="限流观测（只读）：时间档（今天/近 7 天/近 30 天）内限流命中的按路由+维度键聚合。命中即异常流量信号（刷接口/恶意重试）；本页只读，封禁操作在 F-122。">限流观测</router-link>
         <!-- F-109：免费领活动配置（换品/日限量/门槛/上下线）与候选池维护；dailyClaimed 是运行时计数，本页不可改 -->
         <router-link to="/free-activity" class="nav-link" :class="{ active: isActive('/free-activity') }" title="免费领活动配置与候选池维护；dailyClaimed 是运行时计数，本页不可改，改它会超发。"><span class="nav-dot" title="本页会改数据"></span>免费领活动</router-link>
         <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
@@ -55,8 +58,8 @@
 </template>
 
 <script setup>
-// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112/F-113/F-114/F-118 又各追加一页，
-// 现为十五条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
+// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112/F-113/F-114/F-118/F-121 又各追加一页，
+// 现为十六条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
 // 并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
 // 清态与跳转都走 api 层的 logout()，本组件不各自读 storage（键名真源只有 TOKEN_STORAGE_KEY 一处）。
 import { computed } from 'vue'

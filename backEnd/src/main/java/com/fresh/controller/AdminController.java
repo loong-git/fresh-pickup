@@ -26,6 +26,7 @@ import com.fresh.mapper.AdminUserMapper;
 import com.fresh.service.AdminService;
 import com.fresh.service.DictService;
 import com.fresh.service.PartnerWalletService;
+import com.fresh.service.RateLimitHitService;
 import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +85,10 @@ public class AdminController {
     /** 主理人佣金钱包只读列表（F-119 §3）：直注 Service 同 dictService 先例；写路径只有跑批，本面零写端点 */
     @Autowired
     private PartnerWalletService partnerWalletService;
+
+    /** 限流观测聚合（F-121 §2）：只读一端点的数据源（GET /api/admin/rate-limit/hits），白名单/聚合/截断在 Service */
+    @Autowired
+    private RateLimitHitService rateLimitHitService;
     /** 双轨第二轨用：解析 Bearer → claims（G-01 起的 parseClaims 通道，本类首次使用；只读 typ 与 subject） */
     @Autowired
     private JwtUtil jwtUtil;
@@ -898,6 +903,32 @@ public class AdminController {
             return R.fail(denied.getCode(), denied.getMessage());
         }
         return R.ok(partnerWalletService.listWallets());
+    }
+
+    // ==================================================================
+    // F-121 限流观测（只读一端点）：GET /api/admin/rate-limit/hits?days= 运营侧命中聚合。
+    // 命中即异常流量信号；本面纯只读（无封禁/无任何写操作端点，封禁属 F-122），审计不适用（契约 §2）；
+    // 白名单/聚合/排序/top-100 截断钉在 RateLimitHitService#hits；只读档限流 IP 30/60s（照 F-110）。
+    // ==================================================================
+
+    /**
+     * 限流命中聚合（F-121 §2）：{@code GET /api/admin/rate-limit/hits?days=7}——days ∈ {1,7,30}
+     * 三档白名单（缺省 7，白名单外 400），出参 {@code {days, total, list:[{route, bucketKey, count, lastHitAt}]}}：
+     * list 按 count 倒序 top 100，total 为该时间档内命中总次数（全量计数，不受截断影响）。
+     * 数据源是拦截器命中旁路写的 rate_limit_hit（F-121 §2），本端点零写、不改任何拦截行为。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-121 §2，照 F-110）
+    @GetMapping("/rate-limit/hits")
+    public R<Map<String, Object>> rateLimitHits(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                @RequestHeader(value = "Authorization", required = false) String authz,
+                                                @RequestParam(value = "days", required = false) Integer days) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 partnerWallets 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(rateLimitHitService.hits(days));
     }
 
     /**

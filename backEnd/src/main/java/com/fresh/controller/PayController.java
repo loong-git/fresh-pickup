@@ -233,7 +233,7 @@ public class PayController {
      * 取不到（离线单测、非请求线程）就回 null：{@code admin_audit_log.ip} 是可空列，
      * <b>绝不为审计去猜一个假 IP</b>。
      *
-     * <p>【债登记】本仓第 4 份同族实现（第 1 份 {@code RateLimitInterceptor:129}、第 2 份
+     * <p>【债登记】本仓第 4 份同族实现（第 1 份 {@code RateLimitInterceptor#clientIp}、第 2 份
      * {@code AdminAuthServiceImpl:384}、第 3 份 {@code AdminServiceImpl#currentIp} 不解析 XFF 也不受
      * trust-proxy 控制），与那两处同样指向「抽公共工具随 G-07」——越界改存量链路反而扩大回归面。
      */

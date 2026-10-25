@@ -377,7 +377,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
      * （RateLimitInterceptor:45-51 写的是同一件事，:127 记的正是「无条件信任 XFF 首跳」可完全绕过）。
      * 审计行的 ip 列也取同一个值：两处口径一致，排障时才对得上。
      *
-     * <p><b>【债登记】本仓第 2 份 clientIp 实现</b>（第 1 份=RateLimitInterceptor:129；
+     * <p><b>【债登记】本仓第 2 份 clientIp 实现</b>（第 1 份=RateLimitInterceptor#clientIp；
      * {@code AdminServiceImpl#currentIp :714-720} 是同族第 3 份，但它不解析 XFF、也不受 trust-proxy 控制），
      * 与 PhoneMask 同类债，抽公共工具随 G-07（本期不动那两处，越界改存量链路反而扩大回归面）。
      */

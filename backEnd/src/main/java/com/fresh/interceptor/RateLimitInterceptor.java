@@ -3,6 +3,8 @@ package com.fresh.interceptor;
 import com.fresh.annotation.RateLimit;
 import com.fresh.common.R;
 import com.fresh.common.ResponseUtil;
+import com.fresh.entity.RateLimitHit;
+import com.fresh.mapper.RateLimitHitMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
@@ -12,6 +14,7 @@ import io.github.bucket4j.Refill;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.stereotype.Component;
@@ -20,6 +23,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
@@ -31,6 +35,8 @@ import java.util.Map;
  *   注意它取自 bucket4j 的 NanosToWaitForRefill（回速维度）而非 Reset（整窗重置维度），
  *   而本仓的桶是 {@code Refill.greedy}（30/60 ⇒ 约每 2 秒回 1 枚），故该值<b>通常远小于 windowSeconds</b>——
  *   页面/运营若按「要等一分钟」理解就是错的，照实转述这个数字即可。
+ * - F-121：命中分支（现有 log.warn 同点）同步旁路 INSERT 一行到 rate_limit_hit（观测轻表，见 recordHitSafely）——
+ *   落库失败只 warn，拦截判定/令牌桶零改动。
  */
 @Slf4j
 @Component
@@ -52,6 +58,10 @@ public class RateLimitInterceptor implements HandlerInterceptor {
      */
     @Value("${rate-limit.trust-proxy:false}")
     private boolean trustProxy;
+
+    /** F-121 落库旁路：命中行写入 rate_limit_hit（观测表，与拦截判定零耦合） */
+    @Autowired
+    private RateLimitHitMapper rateLimitHitMapper;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
@@ -75,6 +85,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
                 long seconds = retryAfterSeconds(probe.getNanosToWaitForRefill());
                 log.warn("[RateLimit] 限流拦截: {} {} key={} retryAfterSeconds={}",
                         request.getMethod(), request.getRequestURI(), key, seconds);
+                // F-121 落库旁路（现有 log.warn 同点）：观测写失败绝不影响拦截语义（见 recordHitSafely）
+                recordHitSafely(request, key, (int) seconds);
                 ResponseUtil.writeJson(response, R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS,
                         Map.of("retryAfterSeconds", seconds));
                 return false;
@@ -94,6 +106,27 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return 1L;
         }
         return (nanosToWaitForRefill + 999_999_999L) / 1_000_000_000L;
+    }
+
+    /**
+     * F-121 落库旁路（契约 §2，在命中分支现有 log.warn 同点同步调用）：往 rate_limit_hit 写一行观测记录——
+     * route = method + 空格 + URI（现成变量 request.getMethod()/getRequestURI()）、bucket_key 现成变量、
+     * retryAfter 即 429 下发的同一秒数、hit_time = 命中时刻。
+     * <b>观测是旁路，绝不因观测挂限流</b>：任何异常（表未建/连接抖动/字段超长截断失败…）只 log.warn，
+     * 异常绝不向上抛——本方法返回时 429 的 writeJson 与 return false 照常执行，拦截语义逐字节不变
+     * （契约 §4 红线：拦截判定/令牌桶/注解体系零改动，本方法不触碰桶与 probe 的任何状态）。
+     */
+    private void recordHitSafely(HttpServletRequest request, String bucketKeyValue, int retryAfterSeconds) {
+        try {
+            RateLimitHit hit = new RateLimitHit();
+            hit.setRoute(request.getMethod() + " " + request.getRequestURI());
+            hit.setBucketKey(bucketKeyValue);
+            hit.setRetryAfter(retryAfterSeconds);
+            hit.setHitTime(LocalDateTime.now());
+            rateLimitHitMapper.insert(hit);
+        } catch (Exception e) {
+            log.warn("[RateLimit] 命中落库失败（观测旁路，不影响拦截）: {}", e.getMessage());
+        }
     }
 
     /**

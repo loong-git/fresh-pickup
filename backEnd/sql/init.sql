@@ -57,6 +57,9 @@
 --       天然幂等（照 m27 ③ 建表守卫），本建表体与 m28-migration.sql 逐字一致；零种子零回填——
 --       写路径只有 F-118 生成账期跑批并入的记账步（F-119 §2），uk_order_biz 是跑批幂等库侧护栏；
 --       独立钱包不与 user.balance 邀请现金钱包互通（05 册 A7.2，契约 §4 红线）
+--   m29 rate_limit_hit（F-121 限流观测）：CREATE TABLE IF NOT EXISTS 天然幂等（照 m28 建表守卫），
+--       本建表体与 m29-migration.sql 逐字一致；零种子零回填——写路径只有拦截器命中分支的旁路 INSERT
+--       （插入失败只 warn 不吞拦截）+ RateLimitHitCleanupTask 每日删 30 天前，读只有运营聚合端点；
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -517,6 +520,26 @@ CREATE TABLE IF NOT EXISTS partner_wallet_flow (
   UNIQUE KEY uk_order_biz (order_id, biz_type),
   KEY idx_user_time (user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主理人佣金流水（F-119/m28；cash_flow 余额快照范式；写路径只有生成账期跑批记账——grant 入账/reversal 冲回同批，uk_order_biz 同单同类型至多一条）';
+
+-- ----------------------------
+-- 限流命中日志（F-121，m29-migration.sql 同步）：纯观测旁路轻表——拦截器命中分支（RateLimitInterceptor
+-- 现有 log.warn 同点）同步 INSERT 一行，插入失败只 warn 绝不影响拦截语义（观测是旁路，绝不因观测挂限流）；
+-- route = method + 空格 + URI（如 POST /api/orders；参数化 URI 按实落库，接口身份维度由 bucket_key 的
+-- 控制器类名与方法名段承载）；bucket_key = 限流维度键原样（ip:1.2.3.4:控制器类名与方法名 / user:11:控制器类名与方法名）；
+-- retry_after = 429 下发的 retryAfterSeconds；hit_time = 命中时刻。
+-- 三条查询路径（清理 DELETE / 运营聚合 WHERE / 无其他）全走 idx_hit_time 单列区间，
+-- GROUP BY 不建第二份索引（命中即写的高频写面，多一枚索引白付一份写入成本，同 m28 选型口径）；
+-- 30 天前由 RateLimitHitCleanupTask 每日清理；审计不适用（纯只读观测，无写操作端点）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS rate_limit_hit (
+  id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '命中记录ID',
+  route       VARCHAR(200) NOT NULL COMMENT 'method + 空格 + URI（如 POST /api/orders；拦截器旁路取 request.getMethod() 拼空格拼 request.getRequestURI()）',
+  bucket_key  VARCHAR(200) NOT NULL COMMENT '限流维度键原样（RateLimitInterceptor#bucketKey 产物：ip:1.2.3.4:OrderController#createOrder / user:11:OrderController#createOrder）',
+  retry_after INT          NULL COMMENT '429 下发的 retryAfterSeconds（桶回速最早可再试整秒数，F-22 口径）',
+  hit_time    DATETIME     NOT NULL COMMENT '命中时刻（拦截器旁路写入；idx_hit_time 支撑清理 DELETE 与运营聚合 WHERE）',
+  PRIMARY KEY (id),
+  KEY idx_hit_time (hit_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='限流命中日志（F-121/m29；纯观测旁路轻表：命中即异常流量信号；拦截判定零涉及，插入失败只 warn 不吞拦截；30 天前由 RateLimitHitCleanupTask 每日清理）';
 
 -- ----------------------------
 -- 管理/商家操作审计表（F-12/G-01 M-04 补课，m15-migration.sql:89-101 同步）：现状日志不记操作者
