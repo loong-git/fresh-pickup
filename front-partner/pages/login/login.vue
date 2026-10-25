@@ -447,7 +447,7 @@ export default {
   // （发码按钮的「Ns后重发」+ 两个 tab 登录按钮的「Ns后可重试」）收了进来。
   // 为什么是 computed 而不是让模板直接调 import 进来的函数：uni-app H5（Vue3）的模板表达式只在组件
   // 实例作用域求值，模块级 import 的名字在 <template> 里读不到——商家端登录页母版就是这套 computed 形状。
-  // 为什么这个块放在 methods 之后（母版把它放在 watch 之后）：workspace.vue:403 按方法名点名了本页
+  // 为什么这个块放在 methods 之后（母版把它放在 watch 之后）：workspace 的 429 冷却段头注按方法名点名了本页
   // methods 里的 startRetryLock（实测它只点名、不带行号，谈不上「漂」，但插到 methods 之前会让那次点名在本页里跨块来回找）；Vue 不关心 options 键的先后顺序。
   // 数值一律不动：smsCountdown 仍是「1 分钟 1 码」的业务节奏，走 resendPillText（动词是重发不是重试）；
   // loginLock 仍是 retrySecondsOf 转述的后端真值。两把锁各写在自己那一枚按钮上，控件本身就是归因。

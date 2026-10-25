@@ -174,7 +174,7 @@
 //    rejected → 状态卡显 auditRemark 并允许改后重提（会产生新申请行）；approved → 「已开通」+ 去工作台；
 //    无记录 → 空白表单。四态单值互斥 loading|error|empty|ready（empty 唯一来源是 approved 这个服务端事实），
 //    ready 内部再按 applyStatus 这个「服务端事实枚举」分可编辑/只读两支——它不是第二个布尔开关，
-//    与 workspace.vue:147-148 / verify.vue:141 的「不叠布尔」纪律不冲突（后者是 ① 那条「四态单值互斥 loading|error|empty|ready」的页面纪律；两处读数按 F-25/P-4 重测）；
+//    与 workspace 的「页面四态互斥」data 注释 / verify.vue:141 的「不叠布尔」纪律不冲突（后者是 ① 那条「四态单值互斥 loading|error|empty|ready」的页面纪律；两处读数按 F-25/P-4 重测）；
 // ② 坐标：库里 store_apply.lng/lat 存的是 GCJ-02 真源（见 init.sql 的 store_apply.lng/lat 列注释），而 uni.getLocation 在 H5 端
 //    对 type:'gcj02' 并不做本地转换，而是把转换委托给地图 SDK（引证见 locatePosition 的注释）。
 //    本工程按 D-24 一期不配高德，那条路必然 reject，所以这里取 type:'wgs84'（原生返回、零 SDK 依赖）

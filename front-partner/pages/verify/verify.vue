@@ -54,7 +54,7 @@
     <view class="card date-card">
       <view class="date-field-row">
         <!-- 叫法与商家端两页逐字一致（同一枚日期在三端不能三种叫法）；本页语义确实是自提日期：
-             请求参数就是 pickupDate（PartnerController.java:76） -->
+             请求参数就是 pickupDate（PartnerController 的 orders 端点） -->
         <text class="date-field-label">自提日期</text>
       </view>
       <view class="date-row">
@@ -151,7 +151,7 @@ import '@/styles/common.css'
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/verify/verify'
 
-// 清单固定「待自提」：后端 status 白名单 all|pending_pickup|completed（非法值 400，PartnerController.java:70-71）。
+// 清单固定「待自提」：后端 status 白名单 all|pending_pickup|completed（非法值 400，PartnerController 的 orders 端点）。
 // 已完成不进这一页——核销台要看的就只有一件事：还有谁没提走。
 const LIST_STATUS = 'pending_pickup'
 
