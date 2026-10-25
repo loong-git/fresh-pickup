@@ -186,6 +186,9 @@ public class OrderServiceImpl implements OrderService {
             item.setPrice(unitPrice); // 明细落成交单价快照（秒杀件为秒杀价），与 totalPrice 同口径
             item.setQuantity(quantity);
             item.setMerchantId(dish.getMerchantId()); // F-12/m16 供货商家快照（下单时自 dish.merchant_id 落库，防商家改归属/删品后历史漂移）
+            // F-117/m27 供货价快照（与成交价快照同模式；dish 侧 NULL → 快照 NULL）：平台-商家核算维度，
+            // 与 C 端成交价正交——不校验供货价、不影响上方 totalPrice 计价（契约 §2 其余下单逻辑一字不动）
+            item.setSupplyPrice(dish.getSupplyPrice());
             order.getItems().add(item);
         }
 

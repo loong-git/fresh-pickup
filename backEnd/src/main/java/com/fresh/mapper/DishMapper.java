@@ -197,6 +197,7 @@ public interface DishMapper extends BaseMapper<Dish> {
             + "d.image AS image, d.good_rate AS goodRate, d.seckill AS seckill, "
             + "d.seckill_price AS seckillPrice, d.limit_buy AS limitBuy, d.merchant_id AS merchantId, "
             + "d.audit_status AS auditStatus, d.audit_reason AS auditReason, "
+            + "d.supply_price AS supplyPrice, "
             + "DATE_FORMAT(d.create_time, '%Y-%m-%d %H:%i:%s') AS createTime, "
             + "DATE_FORMAT(d.update_time, '%Y-%m-%d %H:%i:%s') AS updateTime "
             + "FROM dish d "

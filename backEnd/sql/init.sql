@@ -47,6 +47,12 @@
 --   m26 dish.audit_status + dish.audit_reason（F-116 先发后审）：两列加列走 m26-migration.sql 的
 --       information_schema 判存 + PREPARE 幂等骨架（照 m18 ① 加列先例），本建表体逐字一致、列序照迁移
 --       后物理序（表尾）；存量/种子行由 DEFAULT 'ok' 兜底零 UPDATE（dish 种子 INSERT 列清单不含该列）
+--   m27 dish.supply_price + order_item.settle_id/supply_price + settlement 表（F-117 结算层数据模型）：
+--       三段加列/建表走 m27-migration.sql 的 information_schema 判存 + PREPARE 幂等骨架（照 m26 写法），
+--       本建表体逐字一致、列序照迁移后物理序（表尾）；settlement DDL 照抄 06 册 §4.5 纸面定稿
+--       （status 枚举只登记 accounted——08 册 §2.2-5，见 m27 头注两处注释级差异说明）；
+--       supply_price 两列零回填种子（dish 种子 INSERT 列清单不含该列，NULL=未设），
+--       settle_id 本片只建列零写路径（F-118 跑批才写）、settlement 本片零读写（无生成入口）
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -117,6 +123,10 @@ CREATE TABLE dish (
     -- 存量行由 DEFAULT 语义自动 audit_status='ok' 零 UPDATE，驳回理由 NULL=未驳回
     audit_status VARCHAR(20)    NOT NULL    DEFAULT 'ok'     COMMENT 'F-116 先发后审：ok 正常 / rejected 运营驳回（驳回即 C 端不可见不可买；恢复唯一入口=运营端）',
     audit_reason VARCHAR(200)   NULL                         COMMENT 'F-116 驳回理由（reject 必填 1~200，restore 清空；商家端展示）',
+    -- 供货价（m27-migration.sql 同步，F-117 供货价真源）：NULL=未设（不进结算聚合，F-118 聚合基数语义）；
+    -- 运营端维护（PUT /api/admin/dishes/{id} 可选 supplyPrice），零回填种子（种子 INSERT 列清单不含本列，
+    -- 避免制造「平台已确认供货价」假象）；C 端出参由实体 @JsonIgnore 封死（平台-商家核算维度，不下发 C 端）
+    supply_price DECIMAL(10,2)  NULL                         COMMENT 'F-117 供货价真源：NULL=未设（不进结算聚合，F-118 聚合基数语义）；运营端维护，不回填种子',
     PRIMARY KEY (id),
     INDEX idx_category (category),
     INDEX idx_merchant (merchant_id),
@@ -174,9 +184,15 @@ CREATE TABLE order_item (
     quantity    INT             NOT NULL                    COMMENT '数量',
     merchant_id BIGINT          NULL                        COMMENT '供货商家快照（F-12/m16，下单时自 dish.merchant_id 落库；NULL=历史行回填兜底）',
     fulfill_status VARCHAR(20)  NOT NULL DEFAULT 'normal'   COMMENT '履约旁路状态（M-19/D-10）：normal/shortage，与订单三态正交；一期唯一写入方=商家缺货登记 PUT /api/merchant/order-items/{id}/shortage',
+    -- 结算两列（m27-migration.sql 同步，F-117）：ALTER 无 AFTER 子句、列追加在表尾，本建表体照迁移后物理列序摆放；
+    -- settle_id 本片只建列零写路径（F-118 跑批才写；本片后端实体亦不映射本列——照 fulfill_status「列先建、实体后映射」先例）；
+    -- supply_price 是下单时供货价快照（createOrder 明细构造处与 price 快照同位落库；dish 侧 NULL 则快照 NULL）
+    settle_id   BIGINT          NULL                        COMMENT '归属结算单（逻辑外键 settlement.id）；NULL=未结算（F-117/m27，06 册 §4.5 原文口径；本片只建列零写路径，F-118 跑批才写）',
+    supply_price DECIMAL(10,2)  NULL                        COMMENT '供货价快照（F-117，下单时自 dish.supply_price 落库，与成交价快照同模式；dish 侧 NULL 则快照 NULL）',
     PRIMARY KEY (id),
     INDEX idx_order_id (order_id),
-    INDEX idx_merchant (merchant_id)
+    INDEX idx_merchant (merchant_id),
+    INDEX idx_settle (settle_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单明细表';
 
 -- ----------------------------
@@ -416,6 +432,42 @@ CREATE TABLE IF NOT EXISTS merchant_profile (
   licenses          TEXT         NULL     COMMENT '同 merchant_apply.licenses；审核通过时复制',
   PRIMARY KEY (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家资质/入驻信息';
+
+-- ----------------------------
+-- 商家结算单表（F-117，m27-migration.sql 同步，DDL 逐字照 06 册 §4.5 纸面定稿；账务语义一字不改）：
+-- 列清单/金额口径/三枚索引逐字照册，仅两处注释级差异（出处见 m27 头注）：
+--   · status 枚举本片只登记 accounted（记账态）——08 册 §2.2-5「settlement.status 停在 accounted，
+--     paid 态不实现等轨道 B」；06 册 §4.5 纸面枚举 pending/confirmed/paid/closed 不启用，
+--     DEFAULT 随单态口径落 'accounted'（06 册纸面 DEFAULT 'pending' 指向不启用的枚举值）；
+--   · 注释编号更新为 F-117 并注明出处（册内 markdown 链接转纯文本「04/05 册 §N」）。
+-- 零物理外键（对齐全库惯例）；本片零读写——无端点无服务逻辑，表先立、F-118 跑批才有生成入口；
+-- 防重复结算的明细锚在 order_item.settle_id（见订单明细表段），uk_settle_no/uk_merchant_period
+-- 一期一单两枚唯一键是 06 册 §4.5「生成结算单事务」幂等模型的库侧前提。
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS settlement (
+  id            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '结算单ID',
+  settle_no     VARCHAR(32)   NOT NULL COMMENT '结算单号（对账凭证）',
+  merchant_id   BIGINT        NOT NULL COMMENT '商家ID（逻辑外键 merchant.id）',
+  period_start  DATE          NOT NULL COMMENT '账期起（T+N 模型，N 待支付转正后定）',
+  period_end    DATE          NOT NULL COMMENT '账期止',
+  order_count   INT           NOT NULL DEFAULT 0 COMMENT '含该商家明细的去重订单数（一单多商家不重复计）',
+  gmv_amount    DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '商品口径 GMV=SUM(order_item.price×quantity)，聚合基数排除 fulfill_status=shortage 缺货明细（缺货件不计商家应结）',
+  coupon_deduct DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '券抵扣分摊（与平台「已收款」SUM(total_price) 口径天然对不平，两口径分开命名展示）',
+  commission    DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '平台佣金（费率另定）',
+  retain_amount DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '应结款留存划转（保证金替代物，04 册 §3.2）',
+  deduction     DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '扣罚/理赔抵扣（联动 deposit_flow）',
+  refund_amount DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '退款冲销（逆向资金流唯一落点）：结算后取消/缺货单未打款部分在下一账期负向计入本列（备注关联原 settle_no 可追溯）；已打款（paid）单走留存抵扣，下一账期 retain_amount 同额扣减，不动已打款资金',
+  payable       DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '应结=GMV−券分摊−佣金−留存−扣罚−退款冲销（refund_amount）',
+  status        VARCHAR(20)   NOT NULL DEFAULT 'accounted' COMMENT 'accounted记账态（已记账）——本片只登记此值（08 册 §2.2-5「status 停在 accounted」），paid 打款态不实现留轨道 B；06 册 §4.5 纸面枚举 pending/confirmed/paid/closed 不启用',
+  paid_at       DATETIME      NULL COMMENT '打款时间',
+  payout_voucher VARCHAR(64)  NULL COMMENT '打款凭证号（对账补课；打款走微信商家转账，与 C 端提现同通道 TODO InviteServiceImpl.java:261-294）',
+  created_at    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_settle_no (settle_no),
+  UNIQUE KEY uk_merchant_period (merchant_id, period_start, period_end),
+  KEY idx_merchant_status (merchant_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家结算单（仅承载商家主体；自提点主理人佣金记账不共表，走独立钱包/流水——05 册 §A7.2；F-117/m27 照 06 册 §4.5 纸面定稿建表，本片零读写、F-118 跑批才写）';
 
 -- ----------------------------
 -- 管理/商家操作审计表（F-12/G-01 M-04 补课，m15-migration.sql:89-101 同步）：现状日志不记操作者

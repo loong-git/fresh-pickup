@@ -388,6 +388,9 @@ public class AdminV2ServiceImpl implements AdminV2Service {
             line.put("merchantId", row.get("merchantId"));
             line.put("auditStatus", row.get("auditStatus"));
             line.put("auditReason", row.get("auditReason"));
+            // F-117 供货价（运营商品页「供货价」列数据源）：未设出 null（页面显「—」），设了出两位小数定形串（同 price 口径）
+            line.put("supplyPrice", row.get("supplyPrice") == null
+                    ? null : moneyText(row.get("supplyPrice")));
             line.put("createTime", row.get("createTime"));
             line.put("updateTime", row.get("updateTime"));
             list.add(line);

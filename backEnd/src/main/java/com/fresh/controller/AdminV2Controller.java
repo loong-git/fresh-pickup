@@ -147,7 +147,7 @@ public class AdminV2Controller {
      * 运营端商品列表（F-20.18，{@code GET /api/admin/v2/dishes}，商品管理台的数据源；一期<b>只改不建</b>——
      * 平台侧本就没有「新建商品」端点，见 F-20.17 事实 3 附注）：
      * {@code ?pageNum=&pageSize=&merchantId=&onSale=&category=&auditStatus=} →
-     * {@code {list:[{id,name,price,stock,onSale,soldCount,category,unit,image,goodRate,seckill,seckillPrice,limitBuy,merchantId,auditStatus,auditReason,createTime,updateTime}], total, pageNum, pageSize, filters:{merchantId,onSale,category,auditStatus}}}。
+     * {@code {list:[{id,name,price,stock,onSale,soldCount,category,unit,image,goodRate,seckill,seckillPrice,limitBuy,merchantId,auditStatus,auditReason,supplyPrice,createTime,updateTime}], total, pageNum, pageSize, filters:{merchantId,onSale,category,auditStatus}}}。
      * <p>闸门/限流/分页/取数与 {@code /orders} 同一套（D-14/D-16/RB），两条 SQL 共用
      * {@code DishMapper.DISH_FILTER_WHERE}。
      * <p>四个筛选（D-17）：{@code merchantId} 等值（本面是<b>筛选</b>不是归属闸门——运营要的是全量语义，
@@ -157,7 +157,9 @@ public class AdminV2Controller {
      * <b>没有</b>关键字搜索参数：D-17 把「商品搜索框」明确登记为边界，不许顺手加。
      * <p>{@code onSale}/{@code seckill} 出 0/1 原值由页面映射文案（D-18）；{@code price}/{@code seckillPrice}
      * 是服务端定形两位小数字符串；{@code description/tags/emoji/bg_color} 不选（RD 最小暴露）；
-     * auditStatus/auditReason 出库里原值供审核态列与驳回理由 tooltip（F-116 §2.3）。
+     * auditStatus/auditReason 出库里原值供审核态列与驳回理由 tooltip（F-116 §2.3）；
+     * supplyPrice（F-117）未设出 null（页面显「—」）、设了出定形两位小数串——运营-商家核算维度，
+     * 仅运营面可见（C 端实体出参由 @JsonIgnore 封死）。
      */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     @GetMapping("/dishes")

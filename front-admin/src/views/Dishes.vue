@@ -11,6 +11,8 @@
       筛选为<b>精确等值</b>（商家 ID / 在售标记 / 分类），<b>排序 id ASC</b>（升序，不是「新建在前」）；没有关键字搜索。<br />
       金额（price / seckillPrice）与时间（createTime / updateTime）显示的是<b>服务端定形串</b>，本页不做二次格式化；
       goodRate 也是服务端算好的字符串（如 94.3%，可为空）。<br />
+      供货价（F-117，平台-商家核算维度，C 端不下发）：未设显示「—」（未设供货价的商品不进结算聚合），
+      在编辑弹窗维护（<b>留空=清除</b>，与上面三个字段「留空=不改」的语义不同，弹窗里有说明）。<br />
       布尔映射（服务端出 0/1 原值，文案由本页映射表给）：onSale 1=上架、0=下架；seckill 1=秒杀、0=非秒杀（非秒杀行 seckillPrice 恒为空）。<br />
       审核态（F-116 先发后审）：出库里原值 ok/rejected，行操作含「驳回」（必填理由 1~200，驳回后 C 端即刻不可见不可买，恢复需运营）与「恢复」；
       驳回/恢复不改动上下架状态（两列正交）。<br />
@@ -87,6 +89,15 @@
         <el-table-column label="秒杀价" min-width="90">
           <template #default="{ row }"><span :class="{ muted: !row.seckillPrice }">{{ row.seckillPrice }}</span></template>
         </el-table-column>
+        <!-- F-117 供货价（平台-商家核算维度）：未设显「—」并挂 tooltip 说明结算聚合口径；设了出定形两位小数串 -->
+        <el-table-column label="供货价" min-width="90">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.supplyPrice == null" content="未设供货价的商品不进结算聚合" placement="top">
+              <span class="muted">—</span>
+            </el-tooltip>
+            <span v-else>{{ row.supplyPrice }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="stock" label="库存" min-width="80" />
         <el-table-column label="在售" min-width="90">
           <template #default="{ row }">
@@ -162,9 +173,10 @@
     <el-dialog v-model="dialogVisible" :title="dialogTitle"
                width="620px" :close-on-click-modal="false">
       <p class="dialog-note">
-        三个字段<b>都可以留空</b>：服务端语义是「传了才更新」，留空的那一项不会下发、也不会被改动。
-        什么都不填直接提交，服务端会回 400「无更新字段（可传 price / stock / onSale）」（该 400 在写库之前就抛，不动任何数据），
-        本页把这句原文如实显示，不替你判断。
+        价格 / 库存 / 在售<b>都可以留空</b>：服务端语义是「传了才更新」，留空的那一项不会下发、也不会被改动。<br />
+        供货价（F-117）<b>不同</b>：留空提交 = 清除（回 NULL，未设供货价的商品不进结算聚合）；填了就设置（须大于 0、最多两位小数）。
+        price/stock/onSale 与 supplyPrice 全都没表态（前三个留空且供货价本就未设）时，服务端会回 400
+        「无更新字段（可传 price / stock / onSale / supplyPrice）」（该 400 在写库之前就抛，不动任何数据），本页把原文如实显示。
       </p>
       <el-form class="dialog-form" label-width="110px" @submit.prevent="onSubmit">
         <el-form-item :label="'价格（当前 ' + displayOf(editing.price) + '）'">
@@ -180,6 +192,10 @@
             <el-option label="上架（onSale=1）" :value="1" />
             <el-option label="下架（onSale=0）" :value="0" />
           </el-select>
+        </el-form-item>
+        <el-form-item :label="'供货价（当前 ' + (editing.supplyPrice == null ? '未设' : displayOf(editing.supplyPrice)) + '）'">
+          <el-input v-model="form.supplyPrice" size="small" clearable
+                    placeholder="留空=清除；建议 0.85×原价" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -263,7 +279,7 @@ const rejectDialogTitle = computed(() => (rejectDialogTarget.value.id === undefi
 // 更新表单：editing 存的是服务端上一轮回的整行（只为把「当前值」摆进表单与确认文案，不是本地副本真值）
 const dialogVisible = ref(false)
 const editing = ref({})
-const form = ref({ price: '', stock: '', onSale: '' })
+const form = ref({ price: '', stock: '', onSale: '', supplyPrice: '' })
 // 未选中任何行时标题回落成「更新商品」——不显示 #undefined，也不把旧行的 id 留在上面。
 const dialogTitle = computed(() => (editing.value.id === undefined
   ? '更新商品（只改价格 / 库存 / 在售，三项都可留空）'
@@ -294,10 +310,12 @@ const codeHint = computed(() => (CODE_HINTS[String(errorCode.value)] || '')
 // 写侧 400 的覆盖面：通用两句 + 本端点自己的业务文案 + @Valid 注解文案（三组都可能出现，命中哪一句只看服务端原文）
 const WRITE_CODE_HINTS = {
   400: '这笔写请求被 400 拒绝。400 不说明命中哪一句，本页不猜。三类可能同时存在：'
-    + '通用两句「请求参数有误，请检查后重试」/「参数格式不正确」（body 里的 price 填了非数字就走前者）；'
-    + '业务校验「无更新字段（可传 price / stock / onSale）」、'
+    + '通用两句「请求参数有误，请检查后重试」/「参数格式不正确」（body 里的 price/supplyPrice 填了非数字就走后者）；'
+    + '业务校验「无更新字段（可传 price / stock / onSale / supplyPrice）」、'
     + '审核动作的「驳回理由必填，且不超过 200 个字符」（理由空白或超长）与「action 仅允许 reject/restore」；'
-    + '字段注解「价格必须大于 0」（price < 0.01）、「库存不能为负数」（stock < 0）、「onSale 仅允许 0（下架）或 1（上架）」。'
+    + '字段注解「价格必须大于 0」（price < 0.01）、「库存不能为负数」（stock < 0）、'
+    + '「onSale 仅允许 0（下架）或 1（上架）」、「供货价必须大于 0」（supplyPrice ≤ 0）、'
+    + '「供货价最多两位小数」（supplyPrice 三位以上小数，F-117）。'
     + '具体命中哪一句，以「服务端原文」那一行为准。',
   403: '登录态有效但服务端判定本账号不能改商品（403 ≠ 登录失效，本页不清登录态）。'
     + '请核对运营账号的角色与授权；商品价与库存的归属仍是商家侧的，确需变更请让有权限的账号操作。',
@@ -393,7 +411,7 @@ function openDialog(row) {
   // 当前值只显示在 label 里当作参照——不把 price 的定形串 "9.90" 预填进去，
   // 那会让「原值回写」变成一次隐形改动（金额没变但会新写一条 dish.update 审计）。
   editing.value = row
-  form.value = { price: '', stock: '', onSale: '' }
+  form.value = { price: '', stock: '', onSale: '', supplyPrice: '' }
   dialogVisible.value = true
 }
 
@@ -406,6 +424,8 @@ function openDialog(row) {
 // 走 HttpMessageNotReadable 分支，回「参数格式不正确」），本页不拦、不改 0、不猜。
 // stock 是整数列：Integer 从字符串 "50" 反序列化走 Jackson 的标量 coercion（默认允许），值不变、形态更留痕。
 // onSale 是 select（值为 0/1 <b>数字</b>），服务端 @Min/@Max 对 Integer 生效得很，不为"统一"把它改成字符串。
+// supplyPrice（F-117）是唯一<b>恒下发</b>的键：它的「留空=清除」必须以显式 null 才能表达（键缺失=服务端不动该列），
+// 填了同 price 的标度保真纪律原样字符串下发。全空提交且原值未设时，服务端 400「无更新字段…」兜底。
 function buildPatch() {
   const patch = {}
   const price = String(form.value.price == null ? '' : form.value.price).trim()
@@ -414,6 +434,8 @@ function buildPatch() {
   if (stock !== '') patch.stock = stock
   const onSale = form.value.onSale
   if (onSale === 0 || onSale === 1) patch.onSale = onSale
+  const supplyPrice = String(form.value.supplyPrice == null ? '' : form.value.supplyPrice).trim()
+  patch.supplyPrice = supplyPrice === '' ? null : supplyPrice
   return patch
 }
 
@@ -432,10 +454,19 @@ function patchText(patch) {
       ? '· 上下架：该商品置为「上架」（on_sale=1），C 端可以下单。'
       : '· 上下架：该商品置为「下架」（on_sale=0），C 端不再能下单该商品；已经生成的订单不受影响。')
   }
-  if (lines.length === 0) {
-    lines.push('· 本次三个字段都没填：服务端会回 400「无更新字段（可传 price / stock / onSale）」，不改任何数据。')
+  if (patch.supplyPrice !== undefined) {
+    lines.push(patch.supplyPrice === null
+      ? '· 供货价：清除（回 NULL）——未设供货价的商品不进结算聚合（当前 '
+        + (editing.value.supplyPrice == null ? '本就未设' : displayOf(editing.value.supplyPrice)) + '）。'
+      : '· 供货价：写为 ' + patch.supplyPrice + '（当前 '
+        + (editing.value.supplyPrice == null ? '未设' : displayOf(editing.value.supplyPrice)) + '）。')
   }
-  lines.push('· 未填的字段不会下发，服务端不会改动它们。')
+  if (patch.price === undefined && patch.stock === undefined && patch.onSale === undefined
+    && patch.supplyPrice === null && editing.value.supplyPrice == null) {
+    lines.push('· 注意：四个字段实际都没改变（供货价本就未设，「清除」是空操作），服务端会回 '
+      + '400「无更新字段（可传 price / stock / onSale / supplyPrice）」，不改任何数据。')
+  }
+  lines.push('· 未填的字段不会下发，服务端不会改动它们（供货价除外：它恒下发，留空即清除）。');
   lines.push('· 成功后服务端写一条 admin_audit_log（action=dish.update，detail 记 old/new，未提交的列显式记 null——既有留痕口径）。')
   return lines.join('\n')
 }

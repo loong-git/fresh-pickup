@@ -33,6 +33,10 @@ public class Dish {
     private String auditStatus;
     /** 驳回理由（F-116/m26）：reject 必填 1~200，restore 清空；商家端展示 */
     private String auditReason;
+    /** 供货价真源（F-117/m27）：NULL=未设（不进结算聚合，F-118 聚合基数语义）；运营端维护，下单快照进 order_item。
+     *  @JsonIgnore 照 merchantId 先例封 C 端出参——供货价是平台-商家核算维度（商家端展示在 F-120 走专门端点） */
+    @JsonIgnore
+    private BigDecimal supplyPrice;
     /** 秒杀标记（T-M4-03）：1 秒杀 / 0 普通；种子按旧前端合成规则 id%3==0 迁移 */
     private Integer seckill;
     /** 秒杀价（T-M4-03）：种子 ROUND(price*0.78,2)，非秒杀为 null */

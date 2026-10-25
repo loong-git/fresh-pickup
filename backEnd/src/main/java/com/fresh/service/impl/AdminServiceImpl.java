@@ -286,16 +286,27 @@ public class AdminServiceImpl implements AdminService {
             wrapper.set(Dish::getOnSale, dto.getOnSale());
             setCount++;
         }
+        // F-117 供货价（三态语义见 AdminDishUpdateDTO 类注释）：键出现（present=true）才参与 SET——
+        // 显式 null 清除回 NULL（运营弹窗「留空=清除」）、带值设置（>0 两位小数由 @DecimalMin/@Digits 在绑定时拦）；
+        // 键缺失（present=false，既有调用方/历史脚本）零影响
+        if (dto.isSupplyPricePresent()) {
+            wrapper.set(Dish::getSupplyPrice, dto.getSupplyPrice());
+            setCount++;
+        }
         if (setCount == 0) {
-            throw new BizException("无更新字段（可传 price / stock / onSale）");
+            throw new BizException("无更新字段（可传 price / stock / onSale / supplyPrice）");
         }
         dishMapper.update(null, wrapper);
-        log.info("管理端更新商品: dishId={}, price={}, stock={}, onSale={}",
-                dishId, dto.getPrice(), dto.getStock(), dto.getOnSale());
-        // R6 补课：旧值取方法开头 selectById 快照、新值取本次提交列（未传的列为 null，JSON 里显式留痕）
+        log.info("管理端更新商品: dishId={}, price={}, stock={}, onSale={}, supplyPrice={}",
+                dishId, dto.getPrice(), dto.getStock(), dto.getOnSale(),
+                dto.isSupplyPricePresent() ? dto.getSupplyPrice() : "(未表态)");
+        // R6 补课：旧值取方法开头 selectById 快照、新值取本次提交列（未传的列为 null，JSON 里显式留痕）；
+        // supplyPrice 键缺失时 new 侧如实记 null（未表态=没有列变更，与 price/stock/onSale 未传同款留痕口径）
         writeAudit(auditActor(actor), "dish.update", "dish", String.valueOf(dishId),
-                "price=" + dish.getPrice() + ",stock=" + dish.getStock() + ",onSale=" + dish.getOnSale(),
-                "price=" + dto.getPrice() + ",stock=" + dto.getStock() + ",onSale=" + dto.getOnSale());
+                "price=" + dish.getPrice() + ",stock=" + dish.getStock() + ",onSale=" + dish.getOnSale()
+                        + ",supplyPrice=" + dish.getSupplyPrice(),
+                "price=" + dto.getPrice() + ",stock=" + dto.getStock() + ",onSale=" + dto.getOnSale()
+                        + ",supplyPrice=" + dto.getSupplyPrice());
     }
 
     // ==================================================================
