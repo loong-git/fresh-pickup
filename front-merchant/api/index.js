@@ -509,7 +509,7 @@ export function updateMerchantProfile(fields) {
 
 /**
  * 商家图片上传：POST /api/merchant/uploads（multipart，字段名固定 file，
- * 与 MerchantController.java:88 @RequestParam("file") 对齐；字段名不匹配后端回 400「请选择文件」）
+ * 与 MerchantController#upload 的 @RequestParam("file") 对齐；字段名不匹配后端回 400「请选择文件」）
  * 走 uni.uploadFile 而非 request（multipart 边界由运行时生成，手拼 Content-Type 会坏）；
  * Bearer 头需在此手填——request 层的 header 注入到不了这条通道。
  * 出参 {code:200,data:{path:'/static/images/uploads/<随机名>',url:'/uploads/<随机名>'}}（F-13/G-02 决策①方案 A）：
@@ -819,4 +819,33 @@ export function getMerchantStat(query) {
  */
 export function getMerchantMarketing() {
   return request({ url: '/api/merchant/marketing', method: 'GET' })
+}
+
+// ==================== 结算账单（F-120，只读） ====================
+
+/**
+ * 结算单列表：GET /api/merchant/settlements（F-120 §2，无参数，id 升序）
+ * 出参 data[] 每行十三键商家自见子集：{id,settleNo,periodStart,periodEnd,gmvAmount,refundAmount,
+ * netAmount,orderCount,commission,status,createdAt,reconcileOk,paidChannelAbsent}——
+ * 运营管理字段（merchantId/merchantName/gross/refund/net/retain/itemCount）后端不下发。
+ * reconcileOk 是服务端实时对账标志（✓ 账面金额/订单数与挂锚明细实时对得上；✗ 对不上=数据异常口径，
+ * 页面只转述不推算）；paidChannelAbsent 恒 true（打款通道未接，记账态明示——说明横幅恒显，不依赖它做显隐，
+ * 照运营端 Settlements.vue 同一口径）。归属由服务端 @RequestAttribute 解析，本层不拼任何归属入参；
+ * 商家对账单无任何写通道（settlement 只增不改，F-118 §3 红线照守）。
+ * @returns {Promise<{code,data:Array<object>}>}
+ */
+export function getMerchantSettlements() {
+  return request({ url: '/api/merchant/settlements', method: 'GET' })
+}
+
+/**
+ * 结算单挂锚明细：GET /api/merchant/settlements/{id}/items（F-120 §2，点行展开时懒加载）
+ * 行键照后端：{itemId,dishName,supplyPrice,qty,subtotal,orderId,payStatus,orphan,fulfillStatus}；
+ * orphan=true 的行其 orders 行已被删，payStatus 显 null，页面标「订单已不存在」警示（后端不静默丢行）。
+ * 他人账单与不存在同为 404「账单不存在」（不泄露他人账单存在性）。
+ * @param {number|string} id 结算单 id（列表出参行的 id，非账单号）
+ * @returns {Promise<{code,data:Array<object>}>}
+ */
+export function getMerchantSettlementItems(id) {
+  return request({ url: '/api/merchant/settlements/' + encodeURIComponent(id) + '/items', method: 'GET' })
 }

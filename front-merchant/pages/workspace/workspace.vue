@@ -32,7 +32,7 @@
       </view>
     </view>
 
-    <!-- ==================== 4. 正常态：商家卡 + 登出/换账号出口 + 入口列表（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态，四入口均已交付） ==================== -->
+    <!-- ==================== 4. 正常态：商家卡 + 登出/换账号出口 + 入口列表（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态，五入口均已交付） ==================== -->
     <template v-else>
       <view class="card merchant-card">
         <view class="merchant-head">
@@ -87,7 +87,7 @@
 </template>
 
 <script>
-// 商家工作台页（G-01 §3.3 建页）：四入口已全部交付在册（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态）；可点与否仍只由 ENTRY_ROUTES 裁决。
+// 商家工作台页（G-01 §3.3 建页）：五入口已全部交付在册（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态 / F-120 结算账单）；可点与否仍只由 ENTRY_ROUTES 裁决。
 // 数据加载纪律照用户端 front/pages/mine/mine.vue：onShow 每次重拉 me，回页即反映服务端最新状态。
 // 页面不预判角色：role 判定与 401/403 分流全在 api 层（handleEnvelope），本页只按 code 渲染三态。
 import { getMerchantMe, merchantStatusText } from '@/api/index.js'
@@ -100,13 +100,14 @@ const AUDIT_TEXT = {
   rejected: '资质已驳回'
 }
 
-// 入口 key -> 路由（四入口现已全部在册：G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态）：
-// 不在表里的 key 仍按置灰 + 角标兜底；将来加入口只往这张表加一行，页面模板与点击分支都不用再改
+// 入口 key -> 路由（五入口现已全部在册：G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态 /
+// F-120 结算账单只读页）：不在表里的 key 仍按置灰 + 角标兜底；将来加入口只往这张表加一行，页面模板与点击分支都不用再改
 const ENTRY_ROUTES = {
   goods: '/pages/dishes/dishes',
   stock: '/pages/pickup-plan/pickup-plan',
   dashboard: '/pages/dashboard/dashboard',
-  marketing: '/pages/marketing/marketing'
+  marketing: '/pages/marketing/marketing',
+  settlements: '/pages/settlements/settlements'
 }
 
 export default {
@@ -124,13 +125,14 @@ export default {
       refreshAt: 0,
       // onShow 重拉失败但会话已有商家快照时的降级标记：卡片照常展示，只在卡底追加一行重试提示
       refreshFailed: false,
-      // 四入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
+      // 五入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
       // 可点与否由 ENTRY_ROUTES[entry.key] 决定，本页不再持第二个开关字段（两处真值会打架）
       entries: [
         { key: 'goods', icon: '🛒', title: '商品管理', hint: '上新/改价/库存' },
         { key: 'stock', icon: '📦', title: '备货单', hint: '备货/发货' },
         { key: 'dashboard', icon: '📊', title: '数据看板', hint: '销量/取消' },
-        { key: 'marketing', icon: '📈', title: '营销参与态', hint: '秒杀/免费领' }
+        { key: 'marketing', icon: '📈', title: '营销参与态', hint: '秒杀/免费领' },
+        { key: 'settlements', icon: '🧾', title: '结算账单', hint: '账期/对账' }
       ]
     }
   },
@@ -237,7 +239,7 @@ export default {
     entryRoute(entry) {
       return (entry && ENTRY_ROUTES[entry.key]) || ''
     },
-    // 四入口按 key 分支：在册的 navigateTo 过去，未在册的 toast「建设中」不跳转；2026-10-22 实测四个 key 已全部在册
+    // 五入口按 key 分支：在册的 navigateTo 过去，未在册的 toast「建设中」不跳转；2026-10-22 实测原四 key 已全部在册，F-120 结算账单补第五个
     // → 这一支与模板里那枚角标当前不可达，保留它是兜底不是死代码：忘配路由的格子显示「建设中」而不是骗人的箭头。
     onEntryTap(entry) {
       const url = this.entryRoute(entry)
@@ -331,6 +333,6 @@ export default {
 /* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中红色字） ==================== */
 .cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #E02020; }
 
-/* ==================== 5. 四入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
+/* ==================== 5. 入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
 .cell-card { margin-top: 24rpx; }
 </style>

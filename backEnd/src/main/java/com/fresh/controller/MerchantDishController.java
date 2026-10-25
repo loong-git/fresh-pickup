@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 商家端商品接口（F-13/G-02 Step 2，契约 F-13.2 六端点）。
@@ -39,14 +40,18 @@ public class MerchantDishController {
     @Autowired
     private MerchantDishService merchantDishService;
 
-    /** 商品列表：tab=on_sale/off_sale/all（缺省 all）+ category + keyword（名称 LIKE），一期不分页 */
+    /**
+     * 商品列表：tab=on_sale/off_sale/all（缺省 all）+ category + keyword（名称 LIKE），一期不分页。
+     * F-120 起出参走 listView（实体键 + supplyPrice）：supplyPrice 带 @JsonIgnore 封 C 端，实体直出带不上，
+     * 契约要求商家列表补列（NULL 原样、前端显「—」）；其余键与原实体直出一致，商家端无感。
+     */
     @RateLimit(limit = 30, windowSeconds = 60)
     @GetMapping
-    public R<List<Dish>> list(@RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
-                              @RequestParam(required = false) String tab,
-                              @RequestParam(required = false) String category,
-                              @RequestParam(required = false) String keyword) {
-        return R.ok(merchantDishService.list(merchantId, tab, category, keyword));
+    public R<List<Map<String, Object>>> list(@RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
+                                             @RequestParam(required = false) String tab,
+                                             @RequestParam(required = false) String category,
+                                             @RequestParam(required = false) String keyword) {
+        return R.ok(merchantDishService.listView(merchantId, tab, category, keyword));
     }
 
     /** 商品详情：id + merchant_id 双条件，查无 404 */

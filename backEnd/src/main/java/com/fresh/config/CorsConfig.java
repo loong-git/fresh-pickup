@@ -48,7 +48,7 @@ public class CorsConfig implements WebMvcConfigurer {
      * 拦截器链只挂 /api/**（:38-39 零改动），故本映射**匿名可读**；写入权在 POST /api/merchant/uploads
      * （登录 + role=merchant + 限流 + 停业闸门）。
      * 【F-13.10 #7 更正原注释的事实错误】此前这里写「商品图/执照图本就是展示件」，前提已被证伪：
-     * 营业执照与商品图经同一个 sink 落进同一目录、URL 形态同构（MerchantController:97-103 无 scene 参数），
+     * 营业执照与商品图经同一个 sink 落进同一目录、URL 形态同构（MerchantController#upload 无 scene 参数），
      * 所以执照图当前与商品图共用这条匿名映射、凭不可猜的 UUID 可读——唯一防线是 UUID。
      * 处置方案（分 scene 子目录 / 走带归属的下载端点）待拍板，见 F-13.6 追加条目；本类映射行为一字未改。
      */

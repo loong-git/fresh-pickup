@@ -225,7 +225,7 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
             return toOwnerView(before);
         }
 
-        // 影响行数判定 = 授权判定本身（同 MerchantDishServiceImpl:258 的姿势）
+        // 影响行数判定 = 授权判定本身（同 MerchantDishServiceImpl#update 的姿势）
         if (storeMapper.update(patch, wrapper) == 0) {
             throw new BizException(R.CODE_NOT_FOUND, STORE_NOT_FOUND_MSG);
         }

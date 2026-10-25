@@ -7,6 +7,7 @@ import com.fresh.dto.MerchantDishUpdateDTO;
 import com.fresh.entity.Dish;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 商家端商品服务（F-13/G-02 Step 1 归属读写地基，契约 F-13.0.3 Step 1 + F-13.2）。
@@ -23,6 +24,14 @@ public interface MerchantDishService {
      * 非空才加条件；id 升序、一期不分页（F-13.6①）。
      */
     List<Dish> list(Long merchantId, String tab, String category, String keyword);
+
+    /**
+     * 商品列表出参版（F-120 §1）：实体行铺成 Map 并补 {@code supplyPrice} 键——supplyPrice 带
+     * {@code @JsonIgnore}（F-117 封 C 端出参，商家端照契约补回展示），实体直出带不上，故列表端点走本方法。
+     * wrapper 与 {@link #list} 同一条（merchant_id 恒第一条件），NULL 原样下发（前端显「—」）；
+     * 其余键与实体直出逐键一致（同一全局 ObjectMapper 转换），{@code merchantId} 仍被 @JsonIgnore 封住不出。
+     */
+    List<Map<String, Object>> listView(Long merchantId, String tab, String category, String keyword);
 
     /** 商品详情：id + merchant_id 双条件，查无 → 404「商品不存在」 */
     Dish detail(Long merchantId, Long id);

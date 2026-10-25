@@ -224,7 +224,7 @@ public class MerchantServiceImpl implements MerchantService {
      * 第一趟用完整 detail，任一层原因（超长 1406、孤立代理 1366、列宽…）失败即退成
      * {@link #AUDIT_MINIMAL_DETAIL} 再写一次，两趟都失败才 log.warn。
      * 自带一份不复用 AdminServiceImpl / MerchantDishServiceImpl 的私有方法：那两个都是 private，
-     * 跨类复用就得把它们降为公开，属越界改动（同 MerchantDishServiceImpl:420 的取舍口径）。
+     * 跨类复用就得把它们降为公开，属越界改动（同 MerchantDishServiceImpl#writeAudit 的取舍口径）。
      */
     private void writeAudit(String actor, String action, String targetType, String targetId,
                             String oldVal, String newVal) {

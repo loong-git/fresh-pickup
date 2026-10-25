@@ -47,6 +47,12 @@
       "style": {
         "navigationBarTitleText": "营销参与态"
       }
+    },
+    {
+      "path": "pages/settlements/settlements",
+      "style": {
+        "navigationBarTitleText": "结算账单"
+      }
     }
   ],
   "globalStyle": {

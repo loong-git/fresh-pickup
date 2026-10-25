@@ -6,10 +6,12 @@ import com.fresh.common.R;
 import com.fresh.dto.MerchantProfileUpdateDTO;
 import com.fresh.interceptor.AuthInterceptor;
 import com.fresh.service.MerchantService;
+import com.fresh.service.MerchantSettlementService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
@@ -24,6 +26,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -58,6 +61,10 @@ public class MerchantController {
 
     @Autowired
     private MerchantService merchantService;
+
+    /** 结算单只读服务（F-120）：归属过滤与 404 校验都在 Service，本类不重复（照 dishes 同一分层） */
+    @Autowired
+    private MerchantSettlementService merchantSettlementService;
 
     /**
      * 单图上传（§2.8，M-03）：校验链 后缀白名单 → 大小 ≤5MB → 魔数 → 随机文件名 → 落盘，
@@ -126,6 +133,29 @@ public class MerchantController {
     public R<Map<String, Object>> me(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
                                      @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId) {
         return R.ok(merchantService.getMe(merchantId));
+    }
+
+    // ------------------------------------------------------------------
+    // 结算单只读两端点（F-120 §1）：商家对结算单零写入口（settlement 只增不改，F-118 §3 红线照守），
+    // 归属一律 merchantId 等值过滤/校验、404 同文案不泄露他人账单存在性，口径照运营端（见实现类）。
+    // 限流照商家端既有 GET 读档 30 次/分（USER 维度注解默认，同 /me）。
+    // ------------------------------------------------------------------
+
+    /** 本人账单列表（F-120 §1）：商家自见子集 + reconcileOk/paidChannelAbsent，id 升序 */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/settlements")
+    public R<List<Map<String, Object>>> settlements(
+            @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId) {
+        return R.ok(merchantSettlementService.list(merchantId));
+    }
+
+    /** 本人某账单的挂锚明细（F-120 §1）：不存在/他商家同 404「账单不存在」，orphan 语义照运营端口径 */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/settlements/{id}/items")
+    public R<List<Map<String, Object>>> settlementItems(
+            @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
+            @PathVariable Long id) {
+        return R.ok(merchantSettlementService.items(merchantId, id));
     }
 
     /** 更新可编辑字段（§2.11）：主体名/结算账户一期锁定平台维护，不在白名单 */

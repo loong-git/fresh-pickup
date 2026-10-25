@@ -31,7 +31,7 @@
       <text v-if="forbiddenMessage" class="guide-tip">{{ forbiddenMessage }}</text>
       <button class="btn-main" @click="goStoreApply"><text>去申请入驻</text></button>
       <!-- 重试入口的唯一冷却处：一次「重新检查」就打一次 GET /api/partner/stores（USER 30 次/分），
-           连点只会续限流桶，故 429 后给秒级冷却（照 dishes.vue:69-70 的冷却态模板） -->
+           连点只会续限流桶，故 429 后给秒级冷却（照 dishes.vue 的 retryPillText 冷却态模板） -->
       <text v-if="!retryLock" class="guide-link" @click="restoreSession">我已开通，重新检查</text>
       <text v-else class="guide-link guide-link-cooling">{{ retryLock }}s后可重新检查</text>
       <text class="guide-link guide-link-plain" @click="switchAccount">换个账号</text>
@@ -350,7 +350,7 @@ export default {
     // GET /api/partner/stores 的四条分支（三分支 + 限流）：
     // - 200 且数组非空 → 名下有店 → reLaunch 工作台（多店也进同一个工作台，切换归 Step 6/7）
     // - 200 但数组为空 → 后端集合为空时直接回 403（走不到这里），仍按「无店」渲染引导态、绝不放行：
-    //   这是防契约漂移的兜底闸，与母版 front-merchant/pages/workspace/workspace.vue:207 那道闸（管的是「已有 token 却拿到没有角色的空响应，也不当 ready 放行」）同口径（F-25/P-4 重测）
+    //   这是防契约漂移的兜底闸，与母版 front-merchant/pages/workspace/workspace.vue 的 loadMe 那道闸（管的是「已有 token 却拿到没有角色的空响应，也不当 ready 放行」）同口径（F-25/P-4 重测）
     // - 403（token 有效但名下无店）→ 渲染引导态 + 透出后端原文，停在登录页，不清登录态也不跳工作台
     // - 401（token 失效）→ 请求层 rejectUnauthorized 已清 partner_token 并回登录页，本页清态停留让用户重登
     // - 429（USER 30 次/分撞限流）→ 人话文案 + retryLock 秒级冷却，不当成「无店」误判

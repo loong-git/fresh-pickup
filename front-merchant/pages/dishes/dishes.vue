@@ -49,6 +49,9 @@
       <!-- 类目可选项的来源不对劲时（退化到内置分类 / 读取失败）追加一行说明并可点重试：
            列表本身不受影响，故不切整页错误态，但也不能静默（商家会以为分类就这么几个） -->
       <text v-if="categoriesHint" class="cate-fail" @click="retryCategories">{{ categoriesHint }}</text>
+      <!-- 供货价副文案（F-120 §2）：说明与未设兜底「—」同一处说清，避免商家把「—」当读数故障。
+           供货价是平台运营维护列，本页零编辑通道（列不进 DISH 编辑白名单，页内也没有任何改价入口） -->
+      <text class="supply-note">供货价由平台运营维护，商家只读不可改；未设供货价的商品不进结算聚合</text>
     </view>
 
     <!-- ==================== 2. 加载中（首屏与筛选切换后的重拉都走这一态，避免旧列表闪现成「筛选结果」） ==================== -->
@@ -104,6 +107,9 @@
               <text class="price-symbol">¥</text>
               <text class="price-num">{{ fmtPrice(d.price) }}</text>
               <text class="price-unit">/{{ d.unit }}</text>
+              <!-- 供货价（F-120 §2 供货价列）：只读展示，未设显「—」（不进结算聚合）；
+                   值原样透出后端出参，页内零换算（fmtSupply 只做展示定形，与 fmtPrice 同口径） -->
+              <text class="supply-text">供货价 {{ fmtSupply(d.supplyPrice) }}</text>
             </view>
           </view>
           <text class="cell-arrow">›</text>
@@ -562,6 +568,13 @@ export default {
       const n = Number(v)
       return Number.isFinite(n) ? n.toFixed(2) : '0.00'
     },
+    // 供货价展示（F-120 §2）：未设（null/undefined/空串）显「—」——语义是「平台未定供货价、不进结算聚合」，
+    // 不是 0 元；设值两位小数（展示定形，不参与任何页内算术）
+    fmtSupply(v) {
+      if (v === null || v === undefined || v === '') return '—'
+      const n = Number(v)
+      return Number.isFinite(n) ? '¥' + n.toFixed(2) : '—'
+    },
     // ==================== 跳转 ====================
     goEdit(d) {
       uni.navigateTo({ url: '/pages/dish-edit/dish-edit?id=' + d.id })
@@ -668,6 +681,8 @@ export default {
 }
 /* 字典拉取失败的降级行（本页筛选退化不影响列表，故只提示不给整页错误态，可点重试） */
 .cate-fail { display: block; margin-top: 12rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
+/* 供货价副文案（F-120 §2）：灰字常驻，只在筛选卡出现一次（列表逐行重复会淹掉商品行） */
+.supply-note { display: block; margin-top: 12rpx; font-size: 22rpx; color: #999999; line-height: 1.5; }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { margin-top: 24rpx; display: flex; justify-content: center; }
@@ -713,6 +728,8 @@ export default {
 .price-symbol { font-size: 22rpx; font-weight: 700; color: #E02020; }
 .price-num { font-size: 34rpx; font-weight: 700; color: #E02020; line-height: 1; }
 .price-unit { font-size: 22rpx; color: #999999; margin-left: 4rpx; }
+/* 供货价（F-120 §2）：灰字推到行尾，与挂牌价（红）拉开色阶——它是结算口径读数不是售价 */
+.supply-text { margin-left: auto; font-size: 22rpx; color: #999999; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 /* ==================== 4. 空态卡 ==================== */
 .empty-card { margin-top: 24rpx; display: flex; flex-direction: column; align-items: center; }

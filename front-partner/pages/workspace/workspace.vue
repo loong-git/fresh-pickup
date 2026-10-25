@@ -291,7 +291,7 @@ export default {
         const list = (res && Array.isArray(res.data)) ? res.data : []
         if (!list.length) {
           // 200 但空数组：后端归属集合为空时直接回 403，走不到这里；留这一道闸是为了
-          // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 front-merchant/pages/workspace/workspace.vue:207
+          // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 front-merchant/pages/workspace/workspace.vue 的 loadMe
           // 那道闸管的是「有 token 但 me 没返回角色时也不放水成 ready」，同口径，F-25/P-4 重测）
           this.showEmpty('名下没有可用的自提点')
           return

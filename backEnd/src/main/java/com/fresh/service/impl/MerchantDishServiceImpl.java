@@ -3,6 +3,7 @@ package com.fresh.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.common.BizException;
 import com.fresh.common.R;
@@ -24,7 +25,9 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -101,6 +104,12 @@ public class MerchantDishServiceImpl implements MerchantDishService {
     private MerchantService merchantService;
     @Autowired
     private AdminAuditLogMapper adminAuditLogMapper;
+    /**
+     * F-120 listView 的出参转换器：注入 Spring 全局 ObjectMapper（Boot 自动配置，jsr310 已注册），
+     * convertValue 与实体直出走同一套序列化配置——日期/tags 形态与改前逐键一致，不另起一套。
+     */
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Override
     public List<Dish> list(Long merchantId, String tab, String category, String keyword) {
@@ -120,6 +129,24 @@ public class MerchantDishServiceImpl implements MerchantDishService {
                 // 商家找自己的货不需要，且那条链路是 dishMapper 自写 SQL，会绕开归属条件
                 .like(!kw.isEmpty(), Dish::getName, kw)
                 .orderByAsc(Dish::getId));
+    }
+
+    /**
+     * F-120 §1：列表出参补 supplyPrice。supplyPrice 带 @JsonIgnore（Dish 实体 F-117 封 C 端出参——
+     * 供货价是平台-商家核算维度），实体直出的商家列表带不上它，故列表端点改走本方法：
+     * 复用 {@link #list} 的同一条 wrapper（merchant_id 恒第一条件），实体经全局 ObjectMapper
+     * convertValue 铺成 Map（与直出同一套序列化配置，逐键一致）后 put 回 supplyPrice；
+     * merchantId 的 @JsonIgnore 在转换侧同样生效，不因 put 链路进商家出参。NULL 原样下发（前端显「—」）。
+     */
+    @Override
+    public List<Map<String, Object>> listView(Long merchantId, String tab, String category, String keyword) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Dish dish : list(merchantId, tab, category, keyword)) {
+            Map<String, Object> row = objectMapper.convertValue(dish, new TypeReference<Map<String, Object>>() { });
+            row.put("supplyPrice", dish.getSupplyPrice());
+            out.add(row);
+        }
+        return out;
     }
 
     @Override
