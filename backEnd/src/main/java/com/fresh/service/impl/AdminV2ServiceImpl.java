@@ -131,7 +131,7 @@ public class AdminV2ServiceImpl implements AdminV2Service {
      * 归一只发生在 Java 侧的白名单入口，不改 SQL、不改绑定类型；闸门决定「这一档存不存在」，
      * collation 决定「库里怎么算相等」，两层依旧互不替代。
      * <ul>
-     *   <li>{@code ORDERS}：orders.status 三态（init.sql:117，DEFAULT 'pending_pickup'）；</li>
+     *   <li>{@code ORDERS}：orders.status 三态（init.sql 的 orders 表，DEFAULT 'pending_pickup'）；</li>
      *   <li>{@code DISHES}：dish.on_sale 只有 0/1 两值（TINYINT，1 上架 / 0 下架）；
      *       这一枚是 {@code Integer}，没有大小写可归（{@link #validatedChoice} 对它即原判定，归一为 no-op）；</li>
      *   <li>{@code REVIEWS}：UI 伪值两枚——库里 {@code audit_status} 只有 {@code 'pending'} 与 {@code NULL} 两态，

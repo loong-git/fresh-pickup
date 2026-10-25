@@ -36,9 +36,14 @@
 --       申请侧存证照列表 JSON 文本、过审时原样复制；单图 business_license 保留不动（兼容老客户端/老读路径）
 --   m23 dict_group + dict_item（F-108 字典本地化）：结构逐字照契约 §0.2，本文件只同步两处建表体；
 --       4 组 / 23 条词条回填只存在于 m23-migration.sql 一处真源（INSERT IGNORE 幂等），重建后随 m3~m23 重放落库
+--       （F-115 起新增 seckill_session 组的 3 行回填例外：并库见下方 m25 段）
 --   m24 coupon_template（F-113 券模板表化）：结构 + 4 行回填与 m24-migration.sql 逐字一致
 --       （回填值照旧 CouponServiceImpl.TEMPLATES 常量；title 留 NULL 走前端「满X减Y」拼装）；
 --       切表后 TEMPLATES/isLifetimeOnce 删除，表为唯一真源；limit_per_user=1 与常量时代 lifetime 语义逐字等价
+--   m25 dict_group/dict_item 各回填（F-115 秒杀场次契约化）：seckill_session 组 1 行 + start/end 词条 2 行
+--       （INSERT ... SELECT WHERE NOT EXISTS 幂等），与 m25-migration.sql 逐字一致；definition 与原
+--       SeckillController 常量逐字一致（00:00/23:00），迁移保真 = C 端出参零变化；m23 的 23 条种子
+--       仍只在 m23-migration.sql 一处真源，m25 这 3 行是契约 §1 点名的并库例外
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -671,6 +676,23 @@ CREATE TABLE IF NOT EXISTS dict_item (
   UNIQUE KEY uk_group_word (group_code, word),
   KEY idx_group_sort (group_code, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='字典词条';
+
+-- ----------------------------
+-- 秒杀场次组回填（F-115 契约化，m25-migration.sql 同步逐字一致；NOT EXISTS 幂等，重放不翻倍）：
+-- SeckillController 场次改读此组（契约 §2.1），definition 与常量时代逐字一致保证出参零变化；
+-- upstream_category_id=NULL = 纯本地组，GROUP_ID 无此键，读路径不回退上游、同步端点恒 400。
+-- ----------------------------
+INSERT INTO dict_group (code, name, upstream_category_id, sort, enabled)
+SELECT 'seckill_session', '秒杀场次', NULL, 50, 1
+WHERE NOT EXISTS (SELECT 1 FROM dict_group WHERE code = 'seckill_session');
+
+INSERT INTO dict_item (group_code, word, definition, sort_order)
+SELECT 'seckill_session', 'start', '00:00', 20
+WHERE NOT EXISTS (SELECT 1 FROM dict_item WHERE group_code = 'seckill_session' AND word = 'start');
+
+INSERT INTO dict_item (group_code, word, definition, sort_order)
+SELECT 'seckill_session', 'end', '23:00', 10
+WHERE NOT EXISTS (SELECT 1 FROM dict_item WHERE group_code = 'seckill_session' AND word = 'end');
 
 -- ================================================
 -- Mock 数据 - 肉蛋水产/速冻/生鲜/水果（11条，T-M3-12 分类对齐字典 code）

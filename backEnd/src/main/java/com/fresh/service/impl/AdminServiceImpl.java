@@ -1260,6 +1260,23 @@ public class AdminServiceImpl implements AdminService {
     /** dish_category 词条 definition 的取值前缀（definition 形如 code:meat） */
     private static final String DICT_CATEGORY_CODE_PREFIX = "code:";
 
+    // ---------------------------- F-115 §2.2 秒杀场次组特判（只影响该组，其余组零变化） ----------------------------
+
+    /** 场次配置组（SeckillController 读同一组；m25 回填种子 start=00:00 / end=23:00） */
+    private static final String DICT_GROUP_SECKILL_SESSION = "seckill_session";
+
+    /** 该组仅有的两个合法 word（契约 §2.2 第 1 条逐字） */
+    private static final String SESSION_WORD_START = "start";
+    private static final String SESSION_WORD_END = "end";
+
+    /** 场次时刻合法格式（与 SeckillController 读侧同一正则：HH:MM，00~23 时 / 00~59 分） */
+    private static final Pattern SESSION_TIME_PATTERN = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
+
+    /** F-115 §2.2 三条校验的 400 文案（第 2 条按契约要求含格式说明） */
+    private static final String SESSION_WORD_LIMIT_MSG = "该组仅允许 start/end 词条";
+    private static final String SESSION_TIME_FORMAT_MSG = "场次时刻须为 HH:MM 格式（00:00~23:59，如 06:00）";
+    private static final String SESSION_ORDER_MSG = "场次开始须早于结束";
+
     /** uk_group_word 冲突的 400 文案（一句中文；不把 DB 错误串透给前端） */
     private static final String DICT_WORD_DUPLICATE_MSG = "该分组下已存在同名词条";
 
@@ -1342,6 +1359,8 @@ public class AdminServiceImpl implements AdminService {
     /**
      * 新增词条：分组不存在 400；word trim 后必空校验；definition 可空（trim 后入库）；
      * sortOrder 缺省 0。撞 {@code uk_group_word} → 400 一句中文。
+     * F-115 §2.2：{@code seckill_session} 组在落库前过组特判三条校验（word 白名单 / definition
+     * HH:MM / 写入后 start&lt;end），其余组零变化。
      * 成功后 evict(group) 并写 {@code dict.item.create}。
      */
     @Override
@@ -1355,6 +1374,10 @@ public class AdminServiceImpl implements AdminService {
         item.setWord(requiredDictWord(dto.getWord()));
         item.setDefinition(normalizeDictDefinition(dto.getDefinition()));
         item.setSortOrder(dto.getSortOrder() == null ? 0 : dto.getSortOrder());
+        if (DICT_GROUP_SECKILL_SESSION.equals(group)) {
+            validateSeckillSessionItem(item.getWord(), item.getDefinition());
+            validateSeckillSessionOrder(null, item.getWord(), item.getDefinition());
+        }
         try {
             dictItemMapper.insert(item);
         } catch (DuplicateKeyException e) {
@@ -1370,6 +1393,8 @@ public class AdminServiceImpl implements AdminService {
      * 部分更新词条：id 不存在 404；null 字段表示本次不改（MyBatis-Plus updateById 的 NOT_NULL 策略）；
      * 三列全空 400；word 传空白串仍按 400「词条名称不能为空」。
      * 改后撞 {@code uk_group_word} → 400。成功后 evict(该词条所属组) 并写 {@code dict.item.update}。
+     * F-115 §2.2：{@code seckill_session} 组在落库前过组特判三条校验（按 word/definition 的
+     * 「生效值」= 传入值 ?? 旧值 判），其余组零变化。
      */
     @Override
     public void updateDictItem(Long id, AdminDictItemUpdateDTO dto, String actor) {
@@ -1384,6 +1409,12 @@ public class AdminServiceImpl implements AdminService {
         String definition = normalizeDictDefinition(dto.getDefinition());
         if (word == null && definition == null && dto.getSortOrder() == null) {
             throw new BizException("无更新字段（可传 word / definition / sortOrder）");
+        }
+        if (DICT_GROUP_SECKILL_SESSION.equals(existing.getGroupCode())) {
+            String effectiveWord = word != null ? word : existing.getWord();
+            String effectiveDefinition = definition != null ? definition : existing.getDefinition();
+            validateSeckillSessionItem(effectiveWord, effectiveDefinition);
+            validateSeckillSessionOrder(existing, effectiveWord, effectiveDefinition);
         }
         DictItem patch = new DictItem();
         patch.setId(id);
@@ -1496,6 +1527,52 @@ public class AdminServiceImpl implements AdminService {
             throw new BizException(DICT_GROUP_NOT_FOUND_MSG);
         }
         return row;
+    }
+
+    // ---------------------------- F-115 §2.2 秒杀场次组特判的两条前置校验 ----------------------------
+
+    /**
+     * 词条自身两条校验（契约第 1/2 条）：word 仅 {@code start}/{@code end}、definition 必须匹配
+     * HH:MM 正则（与 {@code SeckillController} 读侧同一正则，写严读宽，读侧对非法值另有回退）。
+     * create 传归一化后的入库值；update 传「生效值」（传入 ?? 旧值），未改列同样要过闸。
+     */
+    private static void validateSeckillSessionItem(String word, String definition) {
+        if (!SESSION_WORD_START.equals(word) && !SESSION_WORD_END.equals(word)) {
+            throw new BizException(SESSION_WORD_LIMIT_MSG);
+        }
+        if (definition == null || !SESSION_TIME_PATTERN.matcher(definition).matches()) {
+            throw new BizException(SESSION_TIME_FORMAT_MSG);
+        }
+    }
+
+    /**
+     * 跨词条时序校验（契约第 3 条）：按「写入后」组内 start/end 两词条的 definition 对比，
+     * start ≥ end → 400（相等也拒）。合并口径：先取组内现有行，剔除被本次写入替换的行
+     * （update 传 existing 按主键剔；create 传 null），再并入本次 (newWord, newDefinition)；
+     * 任一侧缺词条不在此拦（读侧回退默认值兜底，此处只校验双值齐时的时序）。
+     * HH:MM 格式已被 {@link #validateSeckillSessionItem} 约束为定长补零，字典序即时间序。
+     */
+    private void validateSeckillSessionOrder(DictItem replaced, String newWord, String newDefinition) {
+        String start = null;
+        String end = null;
+        for (DictItem row : dictItemMapper.selectByGroup(DICT_GROUP_SECKILL_SESSION)) {
+            if (replaced != null && row.getId() != null && row.getId().equals(replaced.getId())) {
+                continue; // update：旧行将被本次写入覆盖，不参与合并
+            }
+            if (SESSION_WORD_START.equals(row.getWord())) {
+                start = row.getDefinition();
+            } else if (SESSION_WORD_END.equals(row.getWord())) {
+                end = row.getDefinition();
+            }
+        }
+        if (SESSION_WORD_START.equals(newWord)) {
+            start = newDefinition;
+        } else if (SESSION_WORD_END.equals(newWord)) {
+            end = newDefinition;
+        }
+        if (start != null && end != null && start.compareTo(end) >= 0) {
+            throw new BizException(SESSION_ORDER_MSG);
+        }
     }
 
     /** 新增时的 word：null/空白 → 400；trim 后超列宽（VARCHAR(100)）→ 400（不让 1406 变 500） */
