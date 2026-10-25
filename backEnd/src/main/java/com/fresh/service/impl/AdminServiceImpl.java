@@ -68,6 +68,7 @@ import com.fresh.mapper.UserMapper;
 import com.fresh.service.AdminService;
 import com.fresh.service.CouponService;
 import com.fresh.service.DictService;
+import com.fresh.service.PartnerWalletService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -2690,7 +2691,8 @@ public class AdminServiceImpl implements AdminService {
     // ==================================================================
     // F-118 结算跑批 + 结算中心（三个操作，只写 settlement 一张表 + order_item.settle_id 一列；
     // settlement 只增不改——本段无任何 UPDATE/DELETE settlement 路径，冲销走下一期 refund 列承载，
-    // 06 册 §4.5 定稿照抄；主理人佣金（F-119）/打款（轨道 B）/保证金（m1x）零涉及；
+    // 06 册 §4.5 定稿照抄；主理人佣金自 F-119 起在挂锚成功后同事务并入（⑦.5 追加步，单列 commission
+    // 事务内回填，无作废/重开语义）、打款（轨道 B）/保证金（m1x）零涉及；
     // 下单/取消/支付链路零改动，本段只读它们产生的数据）。
     // 读端点不写审计；generate 成功后写审计 settlement.create（旁路走本类唯一那份 writeAudit）。
     // 新依赖与常量一律追加在文件末尾（本类被仓内行号指针引用的追加式纪律，同 F-63/F-113 段头注）。
@@ -2718,6 +2720,10 @@ public class AdminServiceImpl implements AdminService {
     /** F-118 的新依赖（只被本段方法使用；追加式字段声明同 F-63/F-113 那批） */
     @Autowired
     private SettlementMapper settlementMapper;
+
+    /** F-119 追加依赖：佣金记账（generateSettlement 挂锚成功后的同事务追加步 ⑦.5 调用，见该处注释） */
+    @Autowired
+    private PartnerWalletService partnerWalletService;
 
     /**
      * 生成账期（F-118 §1.1，判据顺序见接口注释）。聚合口径<b>逐字照契约</b>（selectSettleCandidates 的
@@ -2813,6 +2819,18 @@ public class AdminServiceImpl implements AdminService {
         if (anchored != candidateIds.size()) {
             throw new BizException(SETTLE_ANCHOR_RACE_MSG);
         }
+
+        // ⑦.5 佣金记账（F-119 §2 追加步，只新增不动上方任何既有行）：挂锚成功后同事务并入——
+        // 去重订单按 orders.total_price×3% 记 grant、本期窗口（prevPeriodEnd）退款单已记佣金的负向冲回
+        // （reversal 同批，05 册 A7.2）；返回净值；钱包/流水任何失败异常上抛 → @Transactional 整体回滚
+        // （挂锚也回滚，账单与佣金原子一体，契约 §2-4）。settlement.commission 回填（§2-3）：净值落本账单
+        // commission 列（m27 建列，F-118 时代恒 0）——单列事务内回填，F-118「只增不改」红线针对的
+        // 作废/重开与 status·refund 改写不涉；净值=Σ(settlement_id 锚到本单的 flow.amount)，与钱包流水可互核。
+        BigDecimal commissionNet = partnerWalletService.recordForSettlement(
+                merchantId, row.getId(), orderIds, prevPeriodEnd);
+        settlementMapper.update(null, new LambdaUpdateWrapper<Settlement>()
+                .eq(Settlement::getId, row.getId())
+                .set(Settlement::getCommission, commissionNet));
 
         // ⑧ 审计 settlement.create（含 merchant/期/三金额/明细数；旁路，写失败不打断主事务）
         writeAudit(auditActor(actor), AUDIT_SETTLEMENT_CREATE, AUDIT_TARGET_SETTLEMENT,
@@ -2918,6 +2936,8 @@ public class AdminServiceImpl implements AdminService {
             line.put("refund", row.getRefundAmount());
             line.put("retain", row.getRetainAmount());
             line.put("net", row.getPayable());
+            // F-119 §3：commission 列显值（F-118 列已建 m27，F-118 时代恒 0；F-119 起为跑批佣金净值）
+            line.put("commission", row.getCommission());
             line.put("itemCount", agg == null ? 0 : ((Number) agg.get("lineCount")).intValue());
             line.put("status", row.getStatus());
             line.put("reconcileOk", reconcileOk);

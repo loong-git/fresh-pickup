@@ -114,12 +114,13 @@ import '@/styles/common.css'
 
 // 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue 的 ENTRY_ROUTES。模块级 const 表，
 // 模板的置灰判定（entryRoute）与点击分支（onEntryTap）两处消费它，页面不持第二个开关字段）。
-// F-18.17 §1.4 放开 verify / arrivals 两行，F-18.19 §1 放开 store / apply 两行：
-// 四条路径与 pages.json 的注册逐字一致（表里写一条没注册的路由，H5 下就是白屏死链）。
+// F-18.17 §1.4 放开 verify / arrivals 两行，F-18.19 §1 放开 store / apply 两行，F-119 放开 commission 行：
+// 五条路径与 pages.json 的注册逐字一致（表里写一条没注册的路由，H5 下就是白屏死链）。
 const ENTRY_ROUTES = {
   verify: '/pages/verify/verify',
   arrivals: '/pages/arrival/arrival',
   store: '/pages/store/store',
+  commission: '/pages/commission/commission',
   apply: '/pages/apply/apply'
 }
 
@@ -167,11 +168,13 @@ export default {
       retryLock: 0,
       retryLockTimer: null,
       // 四入口（静态列表放 data，与母版 entries 同款）：可点与否由 ENTRY_ROUTES[entry.key] 决定，
-      // 四行全部在册（F-18.19 补齐 store / apply），hint 里不再挂「某 Step 交付」的占位话术
+      // F-18.19 补齐 store / apply 后四行全部在册，hint 里不再挂「某 Step 交付」的占位话术；
+      // F-119 追加 commission 一行（我的佣金，只读展示类），入口共五行
       entries: [
         { key: 'verify', icon: '🧾', title: '核销台', hint: '按取货码核销' },
         { key: 'arrivals', icon: '📦', title: '到货批次', hint: '批次清单与确认' },
         { key: 'store', icon: '🏪', title: '门店信息', hint: '营业时间/接单开关' },
+        { key: 'commission', icon: '💰', title: '我的佣金', hint: '佣金余额与流水' },
         { key: 'apply', icon: '📝', title: '我的入驻申请', hint: '审核进度与驳回原因' }
       ]
     }
@@ -364,8 +367,8 @@ export default {
     onEntryTap(entry) {
       let url = this.entryRoute(entry)
       if (!url) {
-        // 防御分支，当前不可达（FE-13 裁定）：entries 与 ENTRY_ROUTES 同文件维护，四行现已全部在册
-        // （verify/arrivals/store/apply），这一支走不到——留着是因为「在册表漏一行」属于编码疏漏而不是用户状态，
+        // 防御分支，当前不可达（FE-13 裁定）：entries 与 ENTRY_ROUTES 同文件维护，五行现已全部在册
+        // （verify/arrivals/store/commission/apply），这一支走不到——留着是因为「在册表漏一行」属于编码疏漏而不是用户状态，
         // 真漏了也要给一句实话，不留「点了没反应」的死行（母版纪律）。不删代码、不再挂占位话术。
         uni.showToast({ title: '该功能暂未开放', icon: 'none', duration: 1500 })
         return

@@ -430,4 +430,29 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
             + "WHERE oi.settle_id = #{settleId} "
             + "ORDER BY oi.id ASC")
     List<Map<String, Object>> selectAnchoredItems(@Param("settleId") Long settleId);
+
+    // ------------------------------------------------------------------
+    // F-119 主理人佣金记账（一条只读 @Select，跑批「冲回同批」的退款订单集，追加式纪律同上方 F-118 组）：
+    // WHERE 逐字照上方 sumRefundAfterAnchor 的冲销窗口口径（merchant_id + settle_id IS NOT NULL +
+    // pay_status=2 + update_time ≥ 上期止次日）——同一窗口拆两条：SUM 条回 refund_amount（F-118 既有，
+    // 一字未动），去重订单集条回佣金冲回对象（F-119 追加），两处口径同源不漂移。
+    // ------------------------------------------------------------------
+
+    /**
+     * 本期冲销窗口内的退款订单集（F-119 §2-2「本期 refund 对应的退款订单」）：
+     * 该商家已挂锚明细（settle_id IS NOT NULL）中，所属订单已退款（pay_status=2）且退款发生在
+     * 上一账期止次日元及之后的去重订单号。谓词与 {@link #sumRefundAfterAnchor} 逐字同窗
+     * （退款时间不单设列、由 update_time 隐含，init.sql orders.pay_status 口径），
+     * SUM 条与订单集条各取所需：前者进 settlement.refund_amount，后者逐单查 grant 流水冲回。
+     * DISTINCT 去重订单（一单多明细只冲回一次，uk_order_biz 库侧再兜一道）；
+     * ORDER BY order_id 给冲回序一个稳定真源（同组 selectSettleCandidates 的挂锚序惯例）。
+     */
+    @Select("SELECT DISTINCT oi.order_id FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.merchant_id = #{merchantId} "
+            + "AND oi.settle_id IS NOT NULL "
+            + "AND o.pay_status = 2 "
+            + "AND o.update_time >= DATE_ADD(#{anchorAfter}, INTERVAL 1 DAY) "
+            + "ORDER BY oi.order_id ASC")
+    List<String> selectRefundedAnchoredOrderIds(@Param("merchantId") Long merchantId,
+                                                @Param("anchorAfter") LocalDate anchorAfter);
 }

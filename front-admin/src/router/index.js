@@ -1,7 +1,8 @@
 // 路由（F-20.11 Step 4 的三页 + F-20.22 Step 5b-2 的四页 = /login 与六个业务页；F-63 又加 arrivals 一页，
 // F-106 片 C 再加 merchant-applies 一页，F-108 片 2 再加 dicts 一页，F-109 再加 free-activity 一页，
 // F-110 再加 aliases 一页，F-112 再加 seckill 一页，F-113 再加 coupon-templates 一页，
-// F-114 再加 stores 一页，F-118 再加 settlements 一页，现共 1 + 15）+ 一条全局前置守卫。
+// F-114 再加 stores 一页，F-118 再加 settlements 一页，F-119 再加 partner-wallets 一页，现共 1 + 16）+
+// 一条全局前置守卫。
 // 依赖方向是单向的：router → api，api 绝不 import router（否则成 api → router → views → api 的静态循环，
 // 与本仓三端 main.js ↔ api 的做法同构）——api 层 401 要跳 /login，靠的是本模块末尾注册的回调。
 // 三页一律动态 import（懒加载），首屏包只装壳——F-97 实测：现在 13 个路由组件**全部**是动态 import，不止那三页。
@@ -99,6 +100,14 @@ const routes = [
     path: '/settlements',
     name: 'settlements',
     component: () => import('../views/Settlements.vue'),
+    meta: { requiresAuth: true }
+  },
+  // F-119 主理人钱包：只读列表（user 脱敏/店名/余额/流水数），无任何写操作——钱包写路径只有
+  // 生成账期跑批记账，人工调额=资损面不设入口（契约 §3 红线）。同一套 requiresAuth 守卫，动态 import 不进首屏包。
+  {
+    path: '/partner-wallets',
+    name: 'partner-wallets',
+    component: () => import('../views/PartnerWallets.vue'),
     meta: { requiresAuth: true }
   },
   {

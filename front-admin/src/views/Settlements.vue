@@ -11,9 +11,11 @@
       账单只增不改（无作废/重开），冲销在下一账期 refund 列负向计入。
     </div>
     <p class="page-note">
-      列表读 GET /api/admin/settlements（十四键行，含实时对账标志 reconcileOk）；生成走 POST /api/admin/settlements/generate；明细弹窗读 GET /api/admin/settlements/{id}/items。<br />
+      列表读 GET /api/admin/settlements（十五键行，F-119 §3 在 net 后补 commission 列，含实时对账标志 reconcileOk）；生成走 POST /api/admin/settlements/generate；明细弹窗读 GET /api/admin/settlements/{id}/items。<br />
       <b>对账 ✗ = 数据事故</b>（理论上不可达：金额或行数与挂锚明细对不上），行整行标红，出现即立即上报，不要自行处理数据。<br />
-      缺货明细不结算（fulfill_status=shortage 排除）；未设供货价（supply_price 为空）与未支付单（pay_status≠1）不进聚合。
+      缺货明细不结算（fulfill_status=shortage 排除）；未设供货价（supply_price 为空）与未支付单（pay_status≠1）不进聚合。<br />
+      <b>佣金</b>=本账单主理人佣金净值（F-119：已支付订单按订单实付 3% 入账、本期窗口退款订单冲回，正负相抵；
+      逐单明细在主理人佣金流水，钱包见「主理人钱包」只读页）。
     </p>
 
     <div class="toolbar">
@@ -59,6 +61,10 @@
           </el-table-column>
           <el-table-column label="net" width="90" align="right">
             <template #default="{ row }"><b>{{ row.net }}</b></template>
+          </el-table-column>
+          <!-- F-119 §3：佣金列显值（F-118 列已建 m27、F-118 时代恒 0；F-119 起为跑批佣金净值） -->
+          <el-table-column label="佣金" width="90" align="right">
+            <template #default="{ row }">{{ row.commission }}</template>
           </el-table-column>
           <el-table-column label="明细数" width="80" align="right">
             <template #default="{ row }">{{ row.itemCount }}</template>
@@ -177,7 +183,7 @@
 
 <script setup>
 // 结算中心（F-118 §2）：结构与错误处理照 Stores.vue / CouponTemplates.vue（同组菜单 F-113/F-114 模式）。
-//   读   = GET /api/admin/settlements（十四键行，id 倒序；reconcileOk 实时对账标志）
+//   读   = GET /api/admin/settlements（F-118 十四键行 + F-119 §3 追加 commission，id 倒序；reconcileOk 实时对账标志）
 //   写   = POST /api/admin/settlements/generate（商家+起止日期；二次确认含聚合口径）
 //   明细 = GET /api/admin/settlements/{id}/items（挂锚明细快照，只读）
 // 纪律（契约 §2/§3）：

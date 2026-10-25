@@ -25,6 +25,7 @@ import com.fresh.entity.AdminUser;
 import com.fresh.mapper.AdminUserMapper;
 import com.fresh.service.AdminService;
 import com.fresh.service.DictService;
+import com.fresh.service.PartnerWalletService;
 import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -80,6 +81,9 @@ public class AdminController {
     @Autowired
     private DictService dictService;
 
+    /** 主理人佣金钱包只读列表（F-119 §3）：直注 Service 同 dictService 先例；写路径只有跑批，本面零写端点 */
+    @Autowired
+    private PartnerWalletService partnerWalletService;
     /** 双轨第二轨用：解析 Bearer → claims（G-01 起的 parseClaims 通道，本类首次使用；只读 typ 与 subject） */
     @Autowired
     private JwtUtil jwtUtil;
@@ -869,6 +873,31 @@ public class AdminController {
             return R.fail(denied.getCode(), denied.getMessage());
         }
         return R.ok(adminService.settlementItems(id));
+    }
+
+    // ==================================================================
+    // F-119 主理人佣金钱包（只读一端点）：GET /api/admin/partner-wallets 运营侧全量钱包
+    // （user/店名/余额/流水数）。契约 §3 红线：无任何钱包写端点——写路径只有生成账期跑批
+    // （AdminServiceImpl#generateSettlement 挂锚后的追加步 ⑦.5），人工调额=资损面不设入口，
+    // 审计走 settlement.create 既有行；本端点只读档限流 IP 30/60s（照 F-110）。
+    // ==================================================================
+
+    /**
+     * 主理人钱包列表（F-119 §3）：{@code GET /api/admin/partner-wallets}——只读全量，按钱包 id 升序。
+     * 行内键 {@code userId,userPhone,storeNames,balance,flowCount}（userPhone 经 PhoneMask 脱敏；
+     * 判定与键序钉在 {@code PartnerWalletService#listWallets}）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-119 §3，照 F-110）
+    @GetMapping("/partner-wallets")
+    public R<List<Map<String, Object>>> partnerWallets(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                       @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 settlements 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(partnerWalletService.listWallets());
     }
 
     /**

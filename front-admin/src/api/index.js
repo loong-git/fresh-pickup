@@ -1144,8 +1144,9 @@ export function updateAdminStore(id, body) {
 
 /**
  * 账期列表：GET /api/admin/settlements?merchantId=
- * 出参 data 是数组，行内键序（契约 §1.2 逐字十四键）：id,settleNo,merchantId,merchantName,
- * periodStart,periodEnd,gross,refund,retain,net,itemCount,status,reconcileOk,paidChannelAbsent。
+ * 出参 data 是数组，行内键序（F-118 契约 §1.2 逐字十四键，F-119 §3 在 net 后追加 commission 成十五键）：
+ * id,settleNo,merchantId,merchantName,periodStart,periodEnd,gross,refund,retain,net,commission,
+ * itemCount,status,reconcileOk,paidChannelAbsent。
  * reconcileOk 是实时对账标志（金额+计数双对账，false=数据事故，页面必须标红不得静默）；
  * paidChannelAbsent 恒 true（记账态明示）；merchantId 可空=全量。只读档限流 IP 30/60s。
  * @param {number|string} [merchantId] 空值由 withQuery 挡下不下发（服务端把缺省当「全量」）
@@ -1187,6 +1188,25 @@ export function generateAdminSettlement(body) {
 export function getAdminSettlementItems(id) {
   return request({
     url: '/api/admin/settlements/' + encodeURIComponent(String(id)) + '/items',
+    method: 'GET'
+  })
+}
+
+// ==================== F-119 主理人佣金钱包（只读一端点；无任何钱包写端点） ====================
+// 契约真源：docs/F-119-主理人佣金记账契约.md §3。写路径只有生成账期跑批（AdminServiceImpl#generateSettlement
+// 挂锚后的追加步），人工调额=资损面不设入口；本层只提供只读函数，与本节红线一致。
+// 主理人端自查页走 front-partner 的 GET /api/partner/wallet（本人归属），不在本文件（两端身份隔离）。
+
+/**
+ * 主理人钱包列表（只读）：GET /api/admin/partner-wallets（F-119 §3，IP 30/60s）
+ * 出参 data 是数组，行内键（PartnerWalletService#listWallets 契约逐字）：
+ * userId, userPhone（PhoneMask 脱敏；user 行已删的悬挂钱包显 null）, storeNames（名下店名数组，
+ * 一主理人可能多店）, balance（记账态余额，提现属轨道 B；冲回余额不足可为负——如实展示）, flowCount。
+ * 无任何写操作；与结算中心（Settlements.vue）同一条运营侧只读线。
+ */
+export function getAdminPartnerWallets() {
+  return request({
+    url: '/api/admin/partner-wallets',
     method: 'GET'
   })
 }

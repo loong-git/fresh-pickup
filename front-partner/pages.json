@@ -31,6 +31,12 @@
       }
     },
     {
+      "path": "pages/commission/commission",
+      "style": {
+        "navigationBarTitleText": "我的佣金"
+      }
+    },
+    {
       "path": "pages/apply/apply",
       "style": {
         "navigationBarTitleText": "入驻申请"

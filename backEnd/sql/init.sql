@@ -53,6 +53,10 @@
 --       （status 枚举只登记 accounted——08 册 §2.2-5，见 m27 头注两处注释级差异说明）；
 --       supply_price 两列零回填种子（dish 种子 INSERT 列清单不含该列，NULL=未设），
 --       settle_id 本片只建列零写路径（F-118 跑批才写）、settlement 本片零读写（无生成入口）
+--   m28 partner_wallet + partner_wallet_flow（F-119 主理人佣金记账）：两表 CREATE TABLE IF NOT EXISTS
+--       天然幂等（照 m27 ③ 建表守卫），本建表体与 m28-migration.sql 逐字一致；零种子零回填——
+--       写路径只有 F-118 生成账期跑批并入的记账步（F-119 §2），uk_order_biz 是跑批幂等库侧护栏；
+--       独立钱包不与 user.balance 邀请现金钱包互通（05 册 A7.2，契约 §4 红线）
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -276,7 +280,7 @@ CREATE TABLE user_coupon (
 -- 发放时 threshold/amount/expire_at(=now+valid_days) 全取表行快照落 user_coupon，核销不回读模板。
 -- 回填 4 行照旧 TEMPLATES 常量逐字：coupon_1(19,4)/coupon_2(30,5)/coupon_3(50,21)/newbie_gift(30,8)；
 -- title 留 NULL（前端按满X减Y拼，出参原样透传）；存量库 issued_count=0 不回填历史计数是刻意口径
---（total_quota=NULL 下不参与判定），见 m24 头注。
+-- （total_quota=NULL 下不参与判定），见 m24 头注。
 -- ----------------------------
 DROP TABLE IF EXISTS coupon_template;
 CREATE TABLE coupon_template (
@@ -468,6 +472,51 @@ CREATE TABLE IF NOT EXISTS settlement (
   UNIQUE KEY uk_merchant_period (merchant_id, period_start, period_end),
   KEY idx_merchant_status (merchant_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家结算单（仅承载商家主体；自提点主理人佣金记账不共表，走独立钱包/流水——05 册 §A7.2；F-117/m27 照 06 册 §4.5 纸面定稿建表，本片零读写、F-118 跑批才写）';
+
+-- ----------------------------
+-- 主理人佣金钱包（F-119，m28-migration.sql 同步）：一人一钱包（uk_user_wallet）；
+-- 独立载体（05 册 A7.2）：不与 settlement 共表，也不与 user.balance 邀请现金钱包（m11）互通——两钱包
+-- 物理隔离，本表零涉及 user 列；balance 是「记账态」余额，提现属轨道 B，可被冲回减至负值（如实记账）；
+-- 写路径只有 F-118 生成账期跑批并入的记账步（F-119 §2，upsert 原子加/减），无人工调额/提现端点
+-- （契约 §3 红线：运营不可手改钱包，防资损）；零物理外键（对齐全库惯例）
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS partner_wallet (
+  id          BIGINT        NOT NULL AUTO_INCREMENT COMMENT '钱包ID',
+  user_id     BIGINT        NOT NULL COMMENT '主理人 user.id（唯一钱包，逻辑外键 user.id；主理人不占 user.role，归属由 store.owner_user_id 语义承载）',
+  balance     DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '佣金余额（记账态；提现属轨道 B；可被冲回减至负值——佣金已付情形轨道 B 处理，本期如实记账）',
+  created_at  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_wallet (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主理人佣金钱包（F-119/m28；05 册 A7.2 独立载体：不与 settlement 共表，也不与 user.balance 邀请现金钱包互通；写路径只有生成账期跑批记账，无人工调额端点）';
+
+-- ----------------------------
+-- 主理人佣金流水（F-119，m28-migration.sql 同步）：cash_flow 余额快照范式（balance_after=变动后余额）；
+-- biz_type 两值 commission_grant 佣金入账 / commission_reversal 佣金冲回，amount 正入负冲
+-- （grant 恒正 / reversal 恒负，绝对值同额——冲回冲的就是那一笔 grant）；
+-- 佣金锚=订单（order_id，VARCHAR(64) 同 orders.id 雪花串口径）；settlement_id 记产生它的账单（可追溯），
+-- Σ amount 按 settlement_id 归组即 settlement.commission，两处可互核；
+-- rate_snapshot 费率快照 0.0300（05 册 A7.1 防改率追溯歧义）；
+-- 唯一防重 uk_order_biz (order_id, biz_type)：同单同类型至多一条流水——一单至多记一次佣金（佣金基数
+-- =订单实付 orders.total_price 整单口径，跨商家同单二次记账被本键拦下）、一单至多冲回一次；
+-- 跑批重入时 INSERT 撞 uk 即跳过该单，配合 settlement uk_merchant_period 双保险；
+-- 索引选型：user_id 等值走 idx_user_time 最左前缀、order_id 等值走 uk_order_biz 最左前缀，不建冗余第二份
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS partner_wallet_flow (
+  id            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '流水ID',
+  user_id       BIGINT        NOT NULL COMMENT '钱包属主 user.id（逻辑外键 user.id；idx_user_time 最左前缀支撑本人流水分页）',
+  biz_type      VARCHAR(20)   NOT NULL COMMENT 'commission_grant 佣金入账 / commission_reversal 佣金冲回（写侧常量收口 PartnerWalletFlow）',
+  order_id      VARCHAR(64)   NOT NULL COMMENT '佣金锚=订单号（orders.id 同款 VARCHAR 雪花串；uk_order_biz 最左前缀支撑按单检索）',
+  settlement_id BIGINT        NULL COMMENT '产生它的账单 settlement.id（逻辑外键，可追溯；grant/reversal 都记当期账单，Σ amount 即 settlement.commission 可互核）',
+  amount        DECIMAL(10,2) NOT NULL COMMENT '变动金额：正入负冲（grant 恒正 / reversal 恒负）',
+  balance_after DECIMAL(10,2) NOT NULL COMMENT '变动后余额快照（cash_flow 范式；冲回可减至负，如实记）',
+  rate_snapshot DECIMAL(5,4)  NOT NULL COMMENT '费率快照 0.0300（防改率追溯歧义，05 册 A7.1）',
+  remark        VARCHAR(200)  NULL COMMENT '备注（预留轨道 B 提现等；本片两类流水不填）',
+  created_at    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_order_biz (order_id, biz_type),
+  KEY idx_user_time (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主理人佣金流水（F-119/m28；cash_flow 余额快照范式；写路径只有生成账期跑批记账——grant 入账/reversal 冲回同批，uk_order_biz 同单同类型至多一条）';
 
 -- ----------------------------
 -- 管理/商家操作审计表（F-12/G-01 M-04 补课，m15-migration.sql:89-101 同步）：现状日志不记操作者

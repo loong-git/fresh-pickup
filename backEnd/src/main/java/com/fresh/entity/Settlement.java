@@ -49,7 +49,8 @@ public class Settlement {
     /** 券抵扣分摊：本片恒 0（列位保留） */
     private BigDecimal couponDeduct;
 
-    /** 平台佣金：本片恒 0（F-119 partner_wallet 另片，佣金记账不落本列） */
+    /** 平台佣金（F-119 起：生成账期事务内在挂锚成功后按去重订单 Σ(total_price×3%)±冲回的净值回填；
+     *  逐单明细在 partner_wallet_flow（settlement_id 锚），Σ 与本列可互核；F-118 本片恒 0） */
     private BigDecimal commission;
 
     /** 应结款留存划转（保证金替代物）：轨道 B 留存抵扣才有值，本片恒 0（列位保留） */

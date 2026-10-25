@@ -489,7 +489,8 @@ public interface AdminService {
      * （merchantId 可空，空=全量；非空只做过滤不校验存在——照 listStores 全量先例，查无即空列表），
      * 按 id DESC（新账期在前）。每单键序固定
      * {@code id,settleNo,merchantId,merchantName,periodStart,periodEnd,gross,refund,retain,net,
-     * itemCount,status,reconcileOk,paidChannelAbsent}（契约逐字十四键，不加 orderCount）。
+     * commission,itemCount,status,reconcileOk,paidChannelAbsent}（F-118 契约逐字十四键，F-119 §3
+     * 在 net 后追加 commission 一键成十五键——佣金列显值，F-118 时代恒 0；仍不加 orderCount）。
      *
      * <p><b>reconcileOk 实时算</b>（不落列）：① 账面 gross==该单挂锚明细 Σ(supply_price×qty)
      * <b>且</b> ② 账面计数==实时挂锚计数 <b>且</b> ③ 挂锚明细无孤儿（orders 行被删即数据事故，

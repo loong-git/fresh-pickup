@@ -100,7 +100,7 @@ chk "front-partner 内 retrySecondsOf 定义份数" "$PM" "1"
 FM=$(grep -rn 'function retrySecondsOf' front-merchant --include=*.js --include=*.vue 2>/dev/null | wc -l || true)
 chk "front-merchant 内 retrySecondsOf 定义份数" "$FM" "1"
 IMP=$(grep -rln 'retrySecondsOf' front-partner/pages 2>/dev/null | wc -l || true)
-chk "主理人端引用它的页面数" "$IMP" "6"
+chk "主理人端引用它的页面数" "$IMP" "7"   # F-119：新增 commission/commission.vue 为第 7 个引用页（页内 429 冷却走 api 层 retrySecondsOf）
 
 say "=== 5b) 具名引用面：symbol-audit（F-30 建的审计器，F-48 才接上门禁）==="
 # 为什么这一节必须存在：F-26/27/31/34/35/41 六批把行号指针换成「Foo#bar」「a.vue 的 foo」这类具名引用，

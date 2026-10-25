@@ -6,6 +6,7 @@ import com.fresh.dto.PartnerStoreUpdateDTO;
 import com.fresh.interceptor.AuthInterceptor;
 import com.fresh.service.PartnerOrderService;
 import com.fresh.service.PartnerStoreService;
+import com.fresh.service.PartnerWalletService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -53,6 +54,8 @@ public class PartnerController {
     private PartnerOrderService partnerOrderService;
     @Autowired
     private PartnerStoreService partnerStoreService;
+    @Autowired
+    private PartnerWalletService partnerWalletService;
 
     /**
      * 名下门店（GET /api/partner/stores）：出参 id/name/address/status/service，
@@ -143,5 +146,20 @@ public class PartnerController {
                                                  @RequestAttribute(AuthInterceptor.ATTR_PARTNER_STORE_IDS) List<Long> storeIds,
                                                  @PathVariable("id") Long id) {
         return R.ok(partnerStoreService.confirmArrival(userId, storeIds, id), "到货已确认");
+    }
+
+    /**
+     * 我的佣金（F-119 §3，GET /api/partner/wallet）：本人钱包余额 + 流水分页。
+     * 归属=token userId（{@code ATTR_USER_ID}）——钱包按主理人 user 建（uk_user_wallet 一人一钱包），
+     * 与门店归属集合正交；拦截器的 /api/partner/ 分支已验「登录 + 名下有店」，本方法不重复归属判定。
+     * page/size 夹而不拒并回显生效值（照上方 orders 的既有姿势）。只读展示类：本功能无任何钱包写端点
+     * （写路径只有生成账期跑批记账，契约 §3 红线），余额卡「记账态：提现通道未接入」由前端恒显。
+     */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/wallet")
+    public R<Map<String, Object>> wallet(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
+                                         @RequestParam(required = false) Integer page,
+                                         @RequestParam(required = false) Integer size) {
+        return R.ok(partnerWalletService.walletView(userId, page, size));
     }
 }

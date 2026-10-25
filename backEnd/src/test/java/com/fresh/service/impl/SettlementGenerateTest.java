@@ -75,6 +75,9 @@ class SettlementGenerateTest {
     private final SettlementMapper settlementMapper = mock(SettlementMapper.class);
     private final MerchantMapper merchantMapper = mock(MerchantMapper.class);
     private final AdminAuditLogMapper auditMapper = mock(AdminAuditLogMapper.class);
+    /** F-119 追加依赖（生成账期 ⑦.5 佣金记账步）：本类不测它（PartnerCommissionTest 专测），注空 mock 保既有断言面不变 */
+    private final com.fresh.service.PartnerWalletService partnerWalletService =
+            mock(com.fresh.service.PartnerWalletService.class);
 
     private AdminServiceImpl adminService;
 
@@ -100,6 +103,7 @@ class SettlementGenerateTest {
         ReflectionTestUtils.setField(adminService, "merchantMapper", merchantMapper);
         ReflectionTestUtils.setField(adminService, "adminAuditLogMapper", auditMapper);
         ReflectionTestUtils.setField(adminService, "adminKey", "test-admin-key");
+        ReflectionTestUtils.setField(adminService, "partnerWalletService", partnerWalletService);
         when(merchantMapper.selectById(MERCHANT_ID)).thenReturn(merchant());
     }
 

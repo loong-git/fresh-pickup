@@ -415,12 +415,12 @@ export function getPartnerStores() {
 
 /**
  * 核销清单：GET /api/partner/orders?pickupDate=&status=&page=&size=（F-18.8 第 4 条，读 30/分）
- * ⚠ 日期参数的真名是 pickupDate（PartnerController.java:76 @RequestParam("pickupDate")），
+ * ⚠ 日期参数的真名是 pickupDate（PartnerController 的 orders 端点 @RequestParam("pickupDate")），
  *   契约 F-18.15 §3 写的 `date` 是那条端点的查询参数名笔误（arrivals 才叫 date）。
  *   本函数按「调用方传 date、下发 pickupDate」收敛，两种键名都收（src.pickupDate 优先），
  *   Step 6 核销台不必再记这个差异。已列为本轮契约疑点。
  * status 白名单 all|pending_pickup|completed，非法值后端 400（与商家侧备货单「未知值兜底 all」口径不同，
- * 见 PartnerController.java:70-71）；cancelled 三个取值下一律排除。page/size 夹而不拒并在 data 回显生效值。
+ * 见 PartnerController 的 orders 端点（status 白名单注释处）；cancelled 三个取值下一律排除。page/size 夹而不拒并在 data 回显生效值。
  * @param {{date?:string, pickupDate?:string, status?:string, page?:number, size?:number}} [query] date 形如 YYYY-MM-DD
  * @returns {Promise<{code,data:object,message:string}>}
  */
@@ -500,14 +500,14 @@ export function updatePartnerStore(fields) {
 /**
  * 到货批次清单：GET /api/partner/arrivals?date=&storeId=（F-18.12 第 6 条，读 30/分）
  * 出参 {storeId,date,list}，list 每行带 confirmed 布尔位（供「当日批次未确认」警示条，D-9）。
- * 参数名真值（F-18.17 §1.2 已核）：本端点是 `date`（PartnerController.java:131 @RequestParam date），
- * 与 orders 的 `pickupDate`（:76）**不同名**，两条各拼各的，页面不必记这个差异、更不许互换。
+ * 参数名真值（F-18.17 §1.2 已核）：本端点是 `date`（PartnerController 的 arrivals 端点 @RequestParam date），
+ * 与 orders 的 `pickupDate`（orders 端点 @RequestParam("pickupDate")）**不同名**，两条各拼各的，页面不必记这个差异、更不许互换。
  * date 缺省不下发 → 服务端默认「明日」（PartnerStoreServiceImpl 里 arrivals 那句 LocalDate effectiveDate 的三元式）。
  * F-60 口径订正：本页与核销台警示条**刻意查两个不同的日子**，不是待收口的不一致——警示条问的是
  * 「今天该到的货确认了没」（date=今天），批次页看的是「明天要来的货」（首屏 date=明日）。
  * 两页都显式传 date，是为了让「页面显示的日期」与「请求用的日期」永远同一个值，
  * 不依赖服务端缺省去猜；服务端那个缺省只是给直调接口的调用方兜底。
- * storeId 是 D-22 的「名下多店选一家」选择器（PartnerController.java:130 @RequestParam Long storeId）：
+ * storeId 是 D-22 的「名下多店选一家」选择器（PartnerController 的 arrivals 端点 @RequestParam Long storeId）：
  * 空值 = 取名下 id 最小的一家（PartnerStoreServiceImpl.java:377 Collections.min，方法体 :374-383）；集合外的 id → 404。
  * 它既不是归属也不是可改列（RF），归属仍由服务端解析。
  * 两个调用方的现状读数（FE-2/FE-3，别再当成「遗留项待收口」）：
@@ -571,4 +571,27 @@ export function getMyStoreApply() {
     url: '/api/store-applies/mine',
     method: 'GET'
   })
+}
+
+// ==================== 我的佣金钱包（F-119 §3） ====================
+// 归属纪律同上：/api/partner/** 的归属由服务端从 token 解析（钱包按主理人 user 建，uk_user_wallet
+// 一人一钱包），本层不拼任何归属参数。只读接口：本功能没有任何钱包写端点（写路径只有生成账期跑批记账）。
+
+/**
+ * 我的佣金：GET /api/partner/wallet?page=&size=（F-119 §3，读 30/分）
+ * 出参 data: {userId, balance, total, page, size, hasMore,
+ *   flows:[{id, bizType, orderId, settlementId, amount, balanceAfter, rateSnapshot, createdAt}]}。
+ * bizType 两值：commission_grant 佣金入账（amount 恒正）/ commission_reversal 佣金冲回（amount 恒负，
+ * 绝对值与该单 grant 同额）；balanceAfter 是变动后余额快照，冲回余额不足时可能显负值（后端如实记账，
+ * 页面照实展示不修饰）。余额为「记账态」：提现通道未接入（轨道 B），页面恒显该标注。
+ * page/size 夹而不拒并回显生效值（服务端口径：page<1→1，size<1→20，size>50→50）。
+ * @param {{page?:number, size?:number}} [query]
+ * @returns {Promise<{code,data:object,message:string}>}
+ */
+export function getPartnerWallet(query) {
+  const src = query && typeof query === 'object' ? query : {}
+  const data = {}
+  if (src.page) data.page = Number(src.page)
+  if (src.size) data.size = Number(src.size)
+  return request({ url: '/api/partner/wallet', method: 'GET', data })
 }
