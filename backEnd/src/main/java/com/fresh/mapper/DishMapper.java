@@ -158,7 +158,7 @@ public interface DishMapper extends BaseMapper<Dish> {
     //    d.merchant_id = #{merchantId} 的读路径绝不许拿过来凑数），所以 merchantId 在这里只是<b>筛选</b>，
     //    不是归属闸门；闸门在 Controller 那把 requireAdminJwtOnly。
     // 2) RB：页 + 独立 COUNT 两条手写 SQL；D-16：两条 WHERE 逐字相同 = 下面这一个编译期常量串。
-    // 3) D-9/D-17：筛选一律精确等值（merchantId/onSale/category），零 LIKE、零 <script>、零 @SelectProvider；
+    // 3) D-9/D-17：筛选一律精确等值（merchantId/onSale/category/auditStatus），零 LIKE、零 <script>、零 @SelectProvider；
     //    形态 (#{x} IS NULL OR col = #{x})，null 短路；同参数绑两次是既定代价。值只走 #{} 绑定、列名一律常量。
     // 4) D-18：create_time/update_time 一律 DATE_FORMAT 取串（createdAt 判例）；price/seckill_price 取原始 DECIMAL，
     //    由 Service 的 moneyText 统一两位小数字符串。on_sale/seckill 出 0/1 原值，映射文案归页面（D-18）。
@@ -168,13 +168,17 @@ public interface DishMapper extends BaseMapper<Dish> {
 
     /**
      * F-20.18 D-16：dish 面 COUNT 与页两条 SQL 的 WHERE <b>必须逐字相同</b>，用同一个编译期常量串作唯一来源。
-     * 三个筛选全可 null（null = 该条件短路不生效）：{@code merchantId} 等值、{@code onSale} ∈ {0,1}
+     * 四个筛选全可 null（null = 该条件短路不生效）：{@code merchantId} 等值、{@code onSale} ∈ {0,1}
      * （值域在 Service 拦白名单，本层只等值）、{@code category} 等值（现库 category 是字典 code：
-     * meat/vegetable/…，但库里<b>确有</b>一行非 ASCII 的脏值——见 Service 侧 category 形状闸门的注释）。
+     * meat/vegetable/…，但库里<b>确有</b>一行非 ASCII 的脏值——见 Service 侧 category 形状闸门的注释）、
+     * {@code auditStatus} ∈ {ok,rejected}（F-116 §2.1-1，值域同样在 Service 拦白名单）——
+     * 运营列表传 NULL（全量）或指定态（筛选）；常量的可空形态使同一份 WHERE 能同时服务
+     * 「C 端恒 'ok'」与「运营 NULL/指定态」两档调用语义。
      */
     String DISH_FILTER_WHERE = "WHERE (#{merchantId} IS NULL OR d.merchant_id = #{merchantId}) "
             + "AND (#{onSale} IS NULL OR d.on_sale = #{onSale}) "
-            + "AND (#{category} IS NULL OR d.category = #{category})";
+            + "AND (#{category} IS NULL OR d.category = #{category}) "
+            + "AND (#{auditStatus} IS NULL OR d.audit_status = #{auditStatus})";
 
     /**
      * 运营端商品列表的一页（契约 F-20.18）：逐键点名，<b>不选</b> {@code description}（长文本，列表页不展示、
@@ -192,6 +196,7 @@ public interface DishMapper extends BaseMapper<Dish> {
             + "d.on_sale AS onSale, d.sold_count AS soldCount, d.category AS category, d.unit AS unit, "
             + "d.image AS image, d.good_rate AS goodRate, d.seckill AS seckill, "
             + "d.seckill_price AS seckillPrice, d.limit_buy AS limitBuy, d.merchant_id AS merchantId, "
+            + "d.audit_status AS auditStatus, d.audit_reason AS auditReason, "
             + "DATE_FORMAT(d.create_time, '%Y-%m-%d %H:%i:%s') AS createTime, "
             + "DATE_FORMAT(d.update_time, '%Y-%m-%d %H:%i:%s') AS updateTime "
             + "FROM dish d "
@@ -201,17 +206,19 @@ public interface DishMapper extends BaseMapper<Dish> {
     List<Map<String, Object>> selectDishesPage(@Param("merchantId") Long merchantId,
                                                @Param("onSale") Integer onSale,
                                                @Param("category") String category,
+                                               @Param("auditStatus") String auditStatus,
                                                @Param("offset") long offset,
                                                @Param("size") int size);
 
     /**
      * 运营端商品列表的总数（独立 COUNT）：WHERE 与 {@link #selectDishesPage} 逐字相同
-     * （同 {@link #DISH_FILTER_WHERE}），仅去掉 SELECT 列表/ORDER BY/LIMIT；三个筛选参数与页那条签名顺序一致。
+     * （同 {@link #DISH_FILTER_WHERE}），仅去掉 SELECT 列表/ORDER BY/LIMIT；四个筛选参数与页那条签名顺序一致。
      */
     @Select("SELECT COUNT(*) FROM dish d " + DISH_FILTER_WHERE)
     long countDishes(@Param("merchantId") Long merchantId,
                      @Param("onSale") Integer onSale,
-                     @Param("category") String category);
+                     @Param("category") String category,
+                     @Param("auditStatus") String auditStatus);
 
     /**
      * 某分类下的商品数（F-108 §0.7 引用保护）：删除 {@code dish_category} 词条前，

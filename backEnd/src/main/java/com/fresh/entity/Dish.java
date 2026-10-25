@@ -26,6 +26,13 @@ public class Dish {
     private Integer stock;
     /** 是否在售（T-M3-09）：1 上架 / 0 下架，管理端可改 */
     private Integer onSale;
+    /** F-116 审核态两枚值（m26 迁移列口径）：先发后审，驳回即 C 端不可见不可买，恢复唯一入口=运营端 restore */
+    public static final String AUDIT_OK = "ok";
+    public static final String AUDIT_REJECTED = "rejected";
+    /** 审核态（F-116/m26）：ok 正常 / rejected 运营驳回；与 on_sale 两列正交（驳回不改上下架，商家改品不写本列） */
+    private String auditStatus;
+    /** 驳回理由（F-116/m26）：reject 必填 1~200，restore 清空；商家端展示 */
+    private String auditReason;
     /** 秒杀标记（T-M4-03）：1 秒杀 / 0 普通；种子按旧前端合成规则 id%3==0 迁移 */
     private Integer seckill;
     /** 秒杀价（T-M4-03）：种子 ROUND(price*0.78,2)，非秒杀为 null */

@@ -413,7 +413,8 @@ export function getAdminDishes(pageNum, pageSize, filters) {
       pageSize,
       merchantId: f.merchantId,
       onSale: f.onSale,
-      category: f.category
+      category: f.category,
+      auditStatus: f.auditStatus
     }),
     method: 'GET'
   })
@@ -508,6 +509,24 @@ export function updateAdminDish(id, patch) {
     url: '/api/admin/dishes/' + encodeURIComponent(String(id)),
     method: 'PUT',
     data: patch || {}
+  })
+}
+
+/**
+ * 商品内容审核（F-116 先发后审）：PUT /api/admin/dishes/{id}/audit，body {action, reason?}
+ * @param {number|string} id 菜品 id
+ * @param {{action:'reject'|'restore', reason?:string}} body
+ *        reject：reason 必填 trim 后 1~200，置 audit_status='rejected' + 理由（**不改 on_sale**，两列正交）；
+ *        restore：置 'ok' 并清理由，body 带 reason 忽略。
+ *        action 非法 400「action 仅允许 reject/restore」；查无此菜 404「菜品不存在」；
+ *        已是目标态幂等 200（重复驳回/恢复不产生假变化，审计照记）
+ * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「商品已审核」
+ */
+export function auditAdminDish(id, body) {
+  return request({
+    url: '/api/admin/dishes/' + encodeURIComponent(String(id)) + '/audit',
+    method: 'PUT',
+    data: body || {}
   })
 }
 

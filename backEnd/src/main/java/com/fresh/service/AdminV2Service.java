@@ -118,14 +118,19 @@ public interface AdminV2Service {
      *                   （库里 {@code dish.id=44} 的 category 就是中文「蔬菜」，列表自己会展示它；
      *                   auditLogs 那四枚的 ASCII 闸门不适用于这一列，详见 {@code AdminV2ServiceImpl.CATEGORY_PATTERN}）。
      *                   不做值域字典校验：形状合法但库里没这个分类 → 回空集不是 400
+     * @param auditStatus 审核态等值筛选（F-116 §2.1-1/§2.3），白名单 {@code ok}/{@code rejected}（归一小写后判）；
+     *                    null = 不限（全量）；其余值 → 400。DISH_FILTER_WHERE 同一枚可空参数，COUNT 与页同源
      * @return {@code {list:[{id, name, price, stock, onSale, soldCount, category, unit, image, goodRate,
-     *         seckill, seckillPrice, limitBuy, merchantId, createTime, updateTime}], total, pageNum, pageSize,
-     *         filters:{merchantId, onSale, category}}}；
+     *         seckill, seckillPrice, limitBuy, merchantId, auditStatus, auditReason, createTime, updateTime}],
+     *         total, pageNum, pageSize,
+     *         filters:{merchantId, onSale, category, auditStatus}}}；
      *         不输出 {@code description}/{@code tags}/{@code emoji}/{@code bg_color}（RD 最小暴露，SQL 层就没选）；
-     *         {@code onSale}/{@code seckill} 出 0/1 原值由页面映射文案（D-18）；
+     *         {@code onSale}/{@code seckill} 出 0/1 原值由页面映射文案（D-18）；审核态出库里原值
+     *         （'ok'/'rejected'，理由可空）供页面映射 tag 与驳回理由 tooltip（F-116 §2.3）；
      *         {@code price}/{@code seckillPrice} 是两位小数字符串（{@code seckillPrice} 非秒杀件为 null）
      */
-    Map<String, Object> dishes(Integer pageNum, Integer pageSize, Long merchantId, Integer onSale, String category);
+    Map<String, Object> dishes(Integer pageNum, Integer pageSize, Long merchantId, Integer onSale, String category,
+                               String auditStatus);
 
     /**
      * 运营端评价审核队列（{@code GET /api/admin/v2/reviews}）。

@@ -559,7 +559,7 @@ export function uploadMerchantImage(filePath) {
 
 /**
  * 商品分类字典：GET /api/dict?group=dish_category（匿名可读，DictController.java:29-31）
- * 11 类只选不建（F-13.4）：词条 definition 形如 'code:meat'，code 即 dish.category 列取值（init.sql:83 列注释）。
+ * 11 类只选不建（F-13.4）：词条 definition 形如 'code:meat'，code 即 dish.category 列取值（init.sql 的 dish.category 列注释）。
  * 分组名只能是 dish_category——后端 GROUP_ID 只登记了四个键（DictServiceImpl.java:36-39），
  * 写成 'category' 会 400「字典分组不存在」（契约 F-13.4 那句 group=category 是错值，已列契约疑点回报）。
  * 模块级缓存的理由：/api/dict 限流是 IP 维度 10 次/分（DictController.java:28 的
@@ -711,7 +711,7 @@ export function adjustMerchantDishStock(id, delta) {
 
 /**
  * 上下架：PUT /api/merchant/dishes/{id}/on-sale，body {onSale}
- * 用 1/0 不用 boolean：dish.on_sale 是 TINYINT、实体列是 Integer onSale（init.sql:86），
+ * 用 1/0 不用 boolean：dish.on_sale 是 TINYINT、实体列是 Integer onSale（见 init.sql 的 dish.on_sale 列），
  * 与后端 MerchantDishOnSaleDTO 及 AdminDishUpdateDTO 同一套口径，免得布尔↔tinyint 两边各猜
  */
 export function setMerchantDishOnSale(id, onSale) {

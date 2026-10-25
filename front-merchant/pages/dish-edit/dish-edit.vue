@@ -20,6 +20,13 @@
 
     <!-- ==================== 2. 表单 ==================== -->
     <template v-else>
+      <!-- 审核驳回横幅（F-116 §2.4 编辑态展示）：已驳回醒目提示 + 理由 + 「改品不洗白」文案；
+           状态真源在库，本页只展示不维护——恢复唯一入口=运营端 restore -->
+      <view v-if="isEdit && auditStatus === 'rejected'" class="card audit-reject-card">
+        <text class="audit-reject-title">⚠ 该商品已被平台运营驳回</text>
+        <text class="audit-reject-reason">驳回理由：{{ auditReason || '（运营未留理由）' }}</text>
+        <text class="audit-reject-hint">驳回期间 C 端看不到也买不了该商品；修改并保存商品不会改变驳回状态，恢复请联系平台运营处理。</text>
+      </view>
       <view class="card form-card">
         <view class="field-row de-field-name" :class="{ 'field-error': errorKey === 'name' }">
           <text class="field-label">名称</text>
@@ -270,7 +277,7 @@ export default {
         price: '',
         unit: '',
         category: '',
-        // 新增态这两个必填字段的初值直接取 DB 列默认（init.sql:85 stock DEFAULT 0 / :90 limit_buy DEFAULT 5）：
+        // 新增态这两个必填字段的初值直接取 DB 列默认（init.sql 的 dish.stock 列 DEFAULT 0 / dish.limit_buy 列 DEFAULT 5）：
         // 后端 @NotNull 缺了就 400，给个有出处的默认值比让商家对着空框猜强（F-13.6 边界 13）
         stock: '0',
         limitBuy: '5',
@@ -326,6 +333,9 @@ export default {
       stockSign: 'plus',
       adjusting: false,
       onSale: 1,
+      // 审核态（F-116 §2.4 展示类，编辑态详情回填）：rejected 时页面顶部横幅醒目提示；仅展示不提交
+      auditStatus: '',
+      auditReason: '',
       busySale: false,
       // 写请求撞上 403（非 active 停业/清退，F-13 决策④）：置 true 后三个写动作全禁，红条显后端原文
       forbidden: false,
@@ -733,6 +743,10 @@ export default {
       this.imgFail = false
       // on_sale 是 TINYINT 直出（1/0），脏值一律按「非 1 即下架」显示，与列表页同一口径
       this.onSale = Number(d.onSale) === 1 ? 1 : 0
+      // 审核态回填（F-116 §2.4 展示类）：只为驳回横幅服务；提交 payload 不含这两个键，
+      // 后端白名单也不收——改品绝不改变审核态（防"随手保存洗白"）
+      this.auditStatus = d.auditStatus || ''
+      this.auditReason = d.auditReason || ''
       this.syncCategoryIndex()
       // FEB-10：存一份「进页面时」的提交形态快照（与 buildPayload 同形状、同字符串化口径），
       // 编辑态保存前拿它做 diff。没这一份，什么都没改点保存也会发全量 PUT：
@@ -1187,6 +1201,14 @@ export default {
   border: 1rpx solid #FFE3E0;
 }
 .block-text { font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.6; }
+
+/* ==================== 0b. 审核驳回横幅（F-116 §2.4 编辑态展示） ====================
+   醒目但不 sticky（不是写闸门那种「每一笔提交都受它管」的常驻警示，进页面读一次即可）；
+   橙底黑字与写闸门红条区分，理由行用红字保证一眼可见 */
+.audit-reject-card { margin-top: 24rpx; display: flex; flex-direction: column; background-color: #FFF7E6; border: 1rpx solid #FFD591; }
+.audit-reject-title { font-size: 26rpx; font-weight: 600; color: #B45309; line-height: 1.6; }
+.audit-reject-reason { font-size: 24rpx; color: #E02020; line-height: 1.6; margin-top: 6rpx; }
+.audit-reject-hint { font-size: 22rpx; color: #666666; line-height: 1.6; margin-top: 6rpx; }
 
 /* ==================== 1. 加载/错误态 ==================== */
 .loading-card { margin-top: 56rpx; display: flex; justify-content: center; }

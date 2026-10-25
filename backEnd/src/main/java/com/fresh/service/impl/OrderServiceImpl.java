@@ -155,6 +155,11 @@ public class OrderServiceImpl implements OrderService {
             if (dish.getOnSale() == null || dish.getOnSale() != 1) {
                 throw new BizException("「" + dish.getName() + "」已下架，请重新选择");
             }
+            // F-116 §2.5 先发后审：运营驳回品对用户表现即下架品——同一拦截分支内先判 onSale 再判 audit，
+            // 文案与下架同款不新增（「「X」已下架，请重新选择」）；同为致命校验，仍前置于限购与扣库存
+            if (Dish.AUDIT_REJECTED.equals(dish.getAuditStatus())) {
+                throw new BizException("「" + dish.getName() + "」已下架，请重新选择");
+            }
             int quantity = itemDTO.getQuantity();
             // T-M4-03 限购以 dish.limit_buy 真实列为准（种子 [2,5,8] 循环），空值退回兜底表
             Integer limitBuyCol = dish.getLimitBuy();

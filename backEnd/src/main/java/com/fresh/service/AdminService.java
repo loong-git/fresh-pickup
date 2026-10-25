@@ -8,6 +8,7 @@ import com.fresh.dto.AdminCouponTemplateUpdateDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
+import com.fresh.dto.AdminDishAuditDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
@@ -52,6 +53,23 @@ public interface AdminService {
      * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
      */
     void updateDish(Long dishId, AdminDishUpdateDTO dto, String actor);
+
+    /**
+     * 商品内容审核（F-116 §2.2，「先发后审」唯一写入口）：只动 dish.audit_status / audit_reason 两列，
+     * <b>不改 on_sale</b>（两列正交，上下架仍归商家端/改价端点）。
+     * <ul>
+     *   <li>reject：reason 必填、trim 后 1~200 字符；置 {@code audit_status='rejected'} + 理由
+     *       （驳回即 C 端不可见不可买——列表/搜索/秒杀/推荐读路径与下单拦截即刻联动）；</li>
+     *   <li>restore：置 {@code 'ok'} 并清理由（body 带 reason 忽略）；</li>
+     *   <li>action 非 reject/restore → 400「action 仅允许 reject/restore」；dish 不存在 → 404「菜品不存在」；</li>
+     *   <li>已是目标态 → 幂等 200：不产生假变化（重复 reject 不覆盖既有理由），审计<b>照记</b>——
+     *       与 {@code updateOrderStatus} 幂等早退不留痕的口径刻意不同：这里留痕的是「运营再次确认同一态」这一动作。</li>
+     * </ul>
+     * 成功后写审计 {@code dish.audit}（before/after 记 {auditStatus, auditReason} + action）。
+     *
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    void auditDish(Long dishId, AdminDishAuditDTO dto, String actor);
 
     /**
      * 评价审核（T-M4-05 收口）：命中软词入库 pending 默认不展示，此处人工放行/驳回。

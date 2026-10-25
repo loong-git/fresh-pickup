@@ -144,6 +144,8 @@ public class AdminV2ServiceImpl implements AdminV2Service {
     private static final Set<Integer> DISH_ON_SALE_FILTERS = Set.of(0, 1);
     private static final Set<String> REVIEW_AUDIT_FILTERS = Set.of("pending", "visible");
     private static final Set<String> STORE_APPLY_STATUS_FILTERS = Set.of("pending", "approved", "rejected");
+    /** F-116 §2.1-1/§2.3：dish.audit_status 两枚值（m26 列口径），可空筛选走 validatedEnumChoice 归一后判定 */
+    private static final Set<String> DISH_AUDIT_FILTERS = Set.of("ok", "rejected");
 
     /** 400 文案：复用既有那一句（GlobalExceptionHandler:55 同串），本类不新造句子 */
     private static final String BAD_REQUEST_MSG = "请求参数有误，请检查后重试";
@@ -334,13 +336,15 @@ public class AdminV2ServiceImpl implements AdminV2Service {
      * <p>{@code merchantId} 在本面是<b>筛选条件</b>而非归属闸门（F-20.17 事实 1：运营要全量语义）；
      * 它绝不许被当成商家侧接口来用——商家侧那四条恒带 {@code d.merchant_id = #{merchantId}} 归属谓词的
      * 读路径与本面互不相干。
-     * <p>三个筛选的闸门分工（F-20.21 BE-G6-1/BE-G6-2）：{@code onSale} 是 {@code Integer}，直接过白名单
+     * <p>四个筛选的闸门分工（F-20.21 BE-G6-1/BE-G6-2 + F-116）：{@code onSale} 是 {@code Integer}，直接过白名单
      * （数值无大小写可归，绑定类型不许动）；{@code category} 过 {@link #CATEGORY_PATTERN}——只挡控制字符/零宽，
-     * 中文分类值（库里实况）是合法筛选值而不是 400；{@code merchantId} 不过形状闸门，同 orders.storeId 交绑定。
+     * 中文分类值（库里实况）是合法筛选值而不是 400；{@code merchantId} 不过形状闸门，同 orders.storeId 交绑定；
+     * {@code auditStatus}（F-116 §2.1-1）走 String 枚举那一档——归一小写后过 {ok,rejected} 白名单，null=全量。
      */
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Object> dishes(Integer pageNum, Integer pageSize, Long merchantId, Integer onSale, String category) {
+    public Map<String, Object> dishes(Integer pageNum, Integer pageSize, Long merchantId, Integer onSale, String category,
+                                      String auditStatus) {
         int pageNo = validatedPageNum(pageNum);
         int size = validatedPageSize(pageSize);
 
@@ -351,17 +355,21 @@ public class AdminV2ServiceImpl implements AdminV2Service {
         // category 用自己的那一枚闸门（BE-G6-1）：只挡控制字符/零宽，不再拿 ASCII 字符类当数据字典，
         // 于是 ?category=蔬菜（库里 dish.id=44 的真实取值）从 400 变成正常的等值命中。
         final String fCategory = validatedCategory(category);
+        // F-116 §2.1-1/§2.3：审核态筛选走 String 枚举那一档（归一小写后过白名单），null = 全量。
+        // 与 onSale/category 共用 DISH_FILTER_WHERE 的同一枚可空条件，COUNT 与页同源（D-16 继续成立）。
+        final String fAuditStatus = validatedEnumChoice(auditStatus, DISH_AUDIT_FILTERS);
 
-        long total = dishMapper.countDishes(fMerchantId, fOnSale, fCategory);
+        long total = dishMapper.countDishes(fMerchantId, fOnSale, fCategory, fAuditStatus);
         long offset = offsetOf(pageNo, size);
         List<Map<String, Object>> rows = offset >= total
                 ? List.of()
-                : dishMapper.selectDishesPage(fMerchantId, fOnSale, fCategory, offset, size);
+                : dishMapper.selectDishesPage(fMerchantId, fOnSale, fCategory, fAuditStatus, offset, size);
 
         List<Map<String, Object>> list = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
             // 白名单逐键点名（RD）：description/tags/emoji/bg_color 在 SQL 层就没选。
             // on_sale / seckill 出 0/1 原值（D-18：映射文案归页面，本类不产出「在售/下架」这种第二真源）。
+            // auditStatus/auditReason 出库里原值（F-116 §2.3：页面映射 tag + 理由 tooltip，本层不映射文案）。
             Map<String, Object> line = new LinkedHashMap<>();
             line.put("id", row.get("id"));
             line.put("name", row.get("name"));
@@ -378,6 +386,8 @@ public class AdminV2ServiceImpl implements AdminV2Service {
                     ? null : moneyText(row.get("seckillPrice")));
             line.put("limitBuy", row.get("limitBuy"));
             line.put("merchantId", row.get("merchantId"));
+            line.put("auditStatus", row.get("auditStatus"));
+            line.put("auditReason", row.get("auditReason"));
             line.put("createTime", row.get("createTime"));
             line.put("updateTime", row.get("updateTime"));
             list.add(line);
@@ -387,6 +397,7 @@ public class AdminV2ServiceImpl implements AdminV2Service {
         filters.put("merchantId", fMerchantId);
         filters.put("onSale", fOnSale);
         filters.put("category", fCategory);
+        filters.put("auditStatus", fAuditStatus);
 
         return pageResult(list, total, pageNo, size, filters);
     }

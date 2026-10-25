@@ -146,16 +146,18 @@ public class AdminV2Controller {
     /**
      * 运营端商品列表（F-20.18，{@code GET /api/admin/v2/dishes}，商品管理台的数据源；一期<b>只改不建</b>——
      * 平台侧本就没有「新建商品」端点，见 F-20.17 事实 3 附注）：
-     * {@code ?pageNum=&pageSize=&merchantId=&onSale=&category=} →
-     * {@code {list:[{id,name,price,stock,onSale,soldCount,category,unit,image,goodRate,seckill,seckillPrice,limitBuy,merchantId,createTime,updateTime}], total, pageNum, pageSize, filters:{merchantId,onSale,category}}}。
+     * {@code ?pageNum=&pageSize=&merchantId=&onSale=&category=&auditStatus=} →
+     * {@code {list:[{id,name,price,stock,onSale,soldCount,category,unit,image,goodRate,seckill,seckillPrice,limitBuy,merchantId,auditStatus,auditReason,createTime,updateTime}], total, pageNum, pageSize, filters:{merchantId,onSale,category,auditStatus}}}。
      * <p>闸门/限流/分页/取数与 {@code /orders} 同一套（D-14/D-16/RB），两条 SQL 共用
      * {@code DishMapper.DISH_FILTER_WHERE}。
-     * <p>三个筛选（D-17）：{@code merchantId} 等值（本面是<b>筛选</b>不是归属闸门——运营要的是全量语义，
+     * <p>四个筛选（D-17）：{@code merchantId} 等值（本面是<b>筛选</b>不是归属闸门——运营要的是全量语义，
      * 绝不许拿 {@code /api/merchant/**} 那种恒带归属谓词的接口凑数，F-20.17 事实 1）、
-     * {@code onSale} ∈ {0,1}（其余值 400）、{@code category} 等值（先过形状闸门）。
+     * {@code onSale} ∈ {0,1}（其余值 400）、{@code category} 等值（先过形状闸门）、
+     * {@code auditStatus} ∈ {ok,rejected}（F-116 §2.1-1/§2.3 审核态筛选 tab，其余值 400；null=全量）。
      * <b>没有</b>关键字搜索参数：D-17 把「商品搜索框」明确登记为边界，不许顺手加。
      * <p>{@code onSale}/{@code seckill} 出 0/1 原值由页面映射文案（D-18）；{@code price}/{@code seckillPrice}
-     * 是服务端定形两位小数字符串；{@code description/tags/emoji/bg_color} 不选（RD 最小暴露）。
+     * 是服务端定形两位小数字符串；{@code description/tags/emoji/bg_color} 不选（RD 最小暴露）；
+     * auditStatus/auditReason 出库里原值供审核态列与驳回理由 tooltip（F-116 §2.3）。
      */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     @GetMapping("/dishes")
@@ -164,12 +166,13 @@ public class AdminV2Controller {
                                           @RequestParam(required = false) Integer pageSize,
                                           @RequestParam(required = false) Long merchantId,
                                           @RequestParam(required = false) Integer onSale,
-                                          @RequestParam(required = false) String category) {
+                                          @RequestParam(required = false) String category,
+                                          @RequestParam(required = false) String auditStatus) {
         R<Map<String, Object>> denied = adminController.requireAdminJwtOnly(authz);
         if (denied != null) {
             return denied;
         }
-        return R.ok(adminV2Service.dishes(pageNum, pageSize, merchantId, onSale, category));
+        return R.ok(adminV2Service.dishes(pageNum, pageSize, merchantId, onSale, category, auditStatus));
     }
 
     /**

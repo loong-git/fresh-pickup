@@ -58,10 +58,12 @@ public class DishServiceImpl implements DishService {
         Set<Long> aliasSet = new HashSet<>(aliasIds);
         Set<Long> mergedIds = new LinkedHashSet<>(scoreById.keySet());
         mergedIds.addAll(aliasIds);
-        // category 与 keyword 组合语义不变（F-03.2⑤）：category 等值条件继续叠加在命中集合上
+        // category 与 keyword 组合语义不变（F-03.2⑤）：category 等值条件继续叠加在命中集合上；
+        // F-116 §2.1：C 端可见性恒 audit_status='ok'（运营驳回品即刻从搜索命中里消失，与列表同口径）
         List<Dish> dishes = dishMapper.selectList(new LambdaQueryWrapper<Dish>()
                 .in(Dish::getId, mergedIds)
-                .eq(hasCategory, Dish::getCategory, category));
+                .eq(hasCategory, Dish::getCategory, category)
+                .eq(Dish::getAuditStatus, Dish.AUDIT_OK));
         if (dishes.isEmpty()) {
             // 命中集合被 category 过滤后为空（该类目下无 FULLTEXT/别名命中）→ 同样回退 LIKE，维持现状召回
             return likeSearch(hasCategory, category, kw);
@@ -96,6 +98,8 @@ public class DishServiceImpl implements DishService {
         wrapper.eq(hasCategory, Dish::getCategory, category);
         wrapper.like(!kw.isEmpty(), Dish::getName, kw);
         // 仅推在售商品由 recommend 控制；列表保持全量（下架商品详情页仍可访问由 onSale 标记）
+        // F-116 §2.1：全量不含审核驳回品——C 端可见性恒 audit_status='ok'（下架品照旧出现，现状不变）
+        wrapper.eq(Dish::getAuditStatus, Dish.AUDIT_OK);
         wrapper.orderByDesc(Dish::getId);
         return dishMapper.selectList(wrapper);
     }
@@ -120,6 +124,8 @@ public class DishServiceImpl implements DishService {
                 .eq(Dish::getSeckill, 1)
                 // 只按秒杀标收录会把下架件塞进首页秒杀卡，用户点进去必吃一个 400
                 .eq(Dish::getOnSale, 1)
+                // F-116 §2.1：运营驳回件同样不进秒杀卡（与三条件过滤同位；详情直链/下单拦截另有对齐口径）
+                .eq(Dish::getAuditStatus, Dish.AUDIT_OK)
                 // stock 每笔下单都经 DishMapper#decreaseStock 扣减，卖空是必然事件而非假设
                 .gt(Dish::getStock, 0)
                 // 计价判据是 seckill==1 且 seckillPrice 非空（OrderServiceImpl#createOrder）：只打标不写价的行会在秒杀卡里打秒杀标却按原价收款

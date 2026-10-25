@@ -42,7 +42,7 @@ import java.util.Map;
 public class MerchantServiceImpl implements MerchantService {
 
     /**
-     * 审计 detail 列宽（admin_audit_log.detail VARCHAR(500)，init.sql:383）：MySQL 严格模式
+     * 审计 detail 列宽（admin_audit_log.detail VARCHAR(500)，见 init.sql 的 admin_audit_log.detail 列）：MySQL 严格模式
      * （STRICT_TRANS_TABLES）下超长 INSERT 报 1406，整行审计凭空消失（BE-2 / F-13.10 #2 实测）。
      */
     private static final int AUDIT_DETAIL_MAX = 500;

@@ -44,7 +44,7 @@ import java.util.regex.Pattern;
 public class MerchantDishServiceImpl implements MerchantDishService {
 
     /**
-     * 审计 detail 列宽：admin_audit_log.detail VARCHAR(500)（init.sql:383）。MySQL 严格模式
+     * 审计 detail 列宽：admin_audit_log.detail VARCHAR(500)（见 init.sql 的 admin_audit_log.detail 列）。MySQL 严格模式
      * （STRICT_TRANS_TABLES）下超长 INSERT 报 1406，而 writeAudit 是只 log.warn 的旁路 →
      * **业务写照常提交、审计行凭空消失**，且脏值一旦进了 dish.name，dishBrief 的 old 侧从此每次更新都带它，
      * 这一行商品永久脱审且外部不可发现（F-13.10 #2 实测 0→0 行）。列宽与合法性由 buildAuditDetail 收口。
@@ -158,7 +158,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         dishMapper.insert(dish);
 
         // 回查而非直接返回入参实体：on_sale/seckill/sold_count/good_rate/create_time 等列由 DB DEFAULT
-        // 与种子公式生成（新建默认 on_sale=1 上架，见 init.sql:86 与本类边界回报），商家端列表要读这些列；
+        // 与种子公式生成（新建默认 on_sale=1 上架，见 init.sql 的 dish.on_sale 列与本类边界回报），商家端列表要读这些列；
         // 回查本身也走 id + merchant_id 双条件（R3'，不给无归属读留口子）
         Dish created = detail(merchantId, dish.getId());
         log.info("商家端新增商品: merchantId={}, dishId={}, name={}, price={}, stock={}",
@@ -250,7 +250,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         // 折扣率按 (price − seckill_price)/price 换算——所以商家抬高 price 并不改动收款额，而是把折扣凭空放大，
         // 危害落在顾客看到的价签上。只拦 price 一列：把整条 update 关掉会顺手剥夺商家改标题/换图的能力，
         // 那是另一个决策。守卫必须落在下面的 update 之前（单测用 verify(never()) 钉住这个顺序）。
-        // seckill 实测是 Integer 且可空（entity/Dish.java:30），故写 equals 不写 ==，后者在 null 时拆箱 NPE→500。
+        // seckill 实测是 Integer 且可空（Dish#seckill / dish.seckill 列），故写 equals 不写 ==，后者在 null 时拆箱 NPE→500。
         if (dto.getPrice() != null && Integer.valueOf(1).equals(before.getSeckill())) {
             throw new BizException(R.CODE_BAD_REQUEST,
                     "该商品正在参加平台秒杀活动，挂牌价由运营统一维护，如需调价请联系运营");

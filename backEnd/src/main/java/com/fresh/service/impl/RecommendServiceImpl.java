@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
  * 推荐服务实现（F-02.1 算法定稿）：五信号加权打分，纯内存计算、无新表、全程确定性可复现。
  *
  * 约束依据（docs/上线任务文档.md）：
- * - F-02.1 候选集：on_sale=1 硬过滤 + excludeId 硬剔除；
+ * - F-02.1 候选集：on_sale=1 硬过滤 + excludeId 硬剔除（F-116 起再叠 audit_status='ok'，SQL+内存双保险同款）；
  * - F-02.1 打分：score = Σ wi×si ∈ [0,1]，五信号权重 s1=0.35 / s2=0.25 / s3=0.20 / s4=0.10 / s5=0.10；
  * - F-02.1 降权：候选 ∈ 用户已购 D → score×0.5（复购降权不剔除）；
  * - F-02.1 打散：score 降序后贪心扫描，同 category 连续 &gt;2 与下一个异类目项交换（尾段不足则保持）；
@@ -98,12 +98,15 @@ public class RecommendServiceImpl implements RecommendService {
         int n = (limit == null || limit < 1) ? DEFAULT_LIMIT : Math.min(limit, MAX_RECOMMEND_LIMIT);
 
         // F-02.1 候选集：on_sale=1 硬过滤 + excludeId 硬剔除（SQL 层表达）。
-        // 查询返回后再做一次内存兜底过滤（幂等）：防脏数据（on_sale 非 0/1），并保证单测 mock 路径下
+        // F-116 §2.1：候选集再叠 audit_status='ok'（运营驳回品不进推荐，SQL+内存双保险照 on_sale 同款模式）。
+        // 查询返回后再做一次内存兜底过滤（幂等）：防脏数据（on_sale 非 0/1、审核态非 ok），并保证单测 mock 路径下
         // 过滤语义同样成立（mock 不执行 SQL 条件）。
         List<Dish> candidates = new ArrayList<>(dishMapper.selectList(new LambdaQueryWrapper<Dish>()
                 .eq(Dish::getOnSale, 1)
+                .eq(Dish::getAuditStatus, Dish.AUDIT_OK)
                 .ne(excludeId != null && excludeId > 0, Dish::getId, excludeId)));
         candidates.removeIf(d -> d.getOnSale() == null || d.getOnSale() != 1
+                || !Dish.AUDIT_OK.equals(d.getAuditStatus())
                 || (excludeId != null && excludeId > 0 && excludeId.equals(d.getId())));
         if (candidates.isEmpty()) {
             return RecommendVO.of(RecommendVO.STRATEGY_BEST_SELLER, new ArrayList<>());

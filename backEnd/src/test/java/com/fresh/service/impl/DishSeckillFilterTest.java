@@ -91,7 +91,7 @@ class DishSeckillFilterTest {
 
     // —— fixture ——
 
-    /** 正常秒杀件：秒杀标 + 在售 + 有库存 + 秒杀价非空，即正向对照那一行 */
+    /** 正常秒杀件：秒杀标 + 在售 + 有库存 + 秒杀价非空 + 审核态 ok，即正向对照那一行（F-116 起秒杀集为四条件） */
     private static Dish seckillDish(long id, String name) {
         Dish d = new Dish();
         d.setId(id);
@@ -101,6 +101,7 @@ class DishSeckillFilterTest {
         d.setOnSale(1);
         d.setStock(20);
         d.setSeckillPrice(new BigDecimal("7.80"));
+        d.setAuditStatus(Dish.AUDIT_OK);
         return d;
     }
 
@@ -138,6 +139,17 @@ class DishSeckillFilterTest {
 
         assertEquals(List.of(10L), idsOf(dishService.listSeckill()),
                 "计价判据是秒杀标加秒杀价非空，这种行会打秒杀标却按原价收款；渲染出的条件：" + rendered());
+    }
+
+    @Test
+    void 驳回的秒杀件不进秒杀集() {
+        // F-116 §2.1：运营驳回件同样不进首页秒杀卡（详情直链与下单拦截另有对齐口径）
+        Dish rejected = seckillDish(14L, "驳回秒杀件");
+        rejected.setAuditStatus(Dish.AUDIT_REJECTED);
+        table = List.of(seckillDish(10L, "正常秒杀件"), rejected);
+
+        assertEquals(List.of(10L), idsOf(dishService.listSeckill()),
+                "驳回品 C 端即刻不可见不可买，秒杀卡不能漏；渲染出的条件：" + rendered());
     }
 
     @Test

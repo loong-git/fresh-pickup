@@ -62,6 +62,11 @@ public class DishController {
     public R<Dish> getDishDetail(@PathVariable Long id) {
         Dish dish = dishService.getDishById(id);
         if (dish != null) {
+            // F-116a 出参收口（契约复核算子1）：auditReason 置 null 后出参——驳回理由只给商家端链路
+            // （商家端走同一实体出参，需要看到理由），C 端详情直链不下发运营内部审核意见；
+            // auditStatus 保留，前端可用它渲染下架态。不能用 @JsonIgnore：那会把商家端的理由展示一起抹掉。
+            // C 端列表/秒杀/推荐的出参路径驳回品本就不可见（读路径已过滤），且非驳回品 audit_reason 恒 NULL，无泄露面。
+            dish.setAuditReason(null);
             return R.ok(dish);
         }
         return R.fail(R.CODE_NOT_FOUND, "菜品不存在");

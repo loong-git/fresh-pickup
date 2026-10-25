@@ -58,6 +58,8 @@ class RecommendServiceTest {
         d.setSoldCount(soldCount);
         d.setSeckill(seckill);
         d.setOnSale(1);
+        // F-116 起候选集内存兜底含 audit_status='ok' 判定，fixture 与库内 DEFAULT 对齐
+        d.setAuditStatus(Dish.AUDIT_OK);
         return d;
     }
 

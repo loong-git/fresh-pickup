@@ -93,9 +93,13 @@
           <view class="dish-body">
             <view class="dish-title-row">
               <text class="dish-name">{{ d.name }}</text>
+              <!-- 审核态（F-116 §2.4 展示类）：已驳回醒目红标，与在售徽标并排；状态值只有 ok/rejected 两枚，
+                   真源在库，本页只渲染不维护（改品/上下架都不会改变它） -->
+              <text v-if="isRejected(d)" class="dish-badge badge-audit-rejected">已驳回</text>
               <text class="dish-badge" :class="isOnSale(d) ? 'badge-on' : 'badge-off'">{{ isOnSale(d) ? '在售' : '已下架' }}</text>
             </view>
             <text class="dish-meta">{{ categoryText(d.category) }} · 库存 {{ d.stock }} · 限购 {{ d.limitBuy }}{{ d.unit }}</text>
+            <text v-if="isRejected(d)" class="dish-audit-reason">驳回理由：{{ d.auditReason || '（运营未留理由）' }}</text>
             <view class="dish-price-row">
               <text class="price-symbol">¥</text>
               <text class="price-num">{{ fmtPrice(d.price) }}</text>
@@ -544,6 +548,10 @@ export default {
     isOnSale(d) {
       return Number(d && d.onSale) === 1
     },
+    // 审核态（F-116 §2.4 展示类）：仅展示不维护——驳回/恢复唯一入口在运营端，商家端没有改变它的路径
+    isRejected(d) {
+      return !!(d && d.auditStatus === 'rejected')
+    },
     categoryText(code) {
       const hit = this.categories.filter((c) => c.code === code)[0]
       // 字典里查不到的 code（脏值/历史分类）原样展示，不替后端猜中文名
@@ -697,6 +705,9 @@ export default {
 }
 .badge-on { color: #FFFFFF; background-color: #E02020; }
 .badge-off { color: #999999; background-color: #F5F5F5; }
+/* 审核驳回徽标与理由行（F-116 §2.4）：醒目但不与在售红徽标同色系打架——用深底白字+理由红字双通道 */
+.badge-audit-rejected { color: #FFFFFF; background-color: #B45309; }
+.dish-audit-reason { font-size: 22rpx; color: #E02020; line-height: 1.5; }
 .dish-meta { font-size: 22rpx; color: #999999; line-height: 1.5; }
 .dish-price-row { display: flex; align-items: baseline; }
 .price-symbol { font-size: 22rpx; font-weight: 700; color: #E02020; }

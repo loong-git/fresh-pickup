@@ -44,6 +44,9 @@
 --       （INSERT ... SELECT WHERE NOT EXISTS 幂等），与 m25-migration.sql 逐字一致；definition 与原
 --       SeckillController 常量逐字一致（00:00/23:00），迁移保真 = C 端出参零变化；m23 的 23 条种子
 --       仍只在 m23-migration.sql 一处真源，m25 这 3 行是契约 §1 点名的并库例外
+--   m26 dish.audit_status + dish.audit_reason（F-116 先发后审）：两列加列走 m26-migration.sql 的
+--       information_schema 判存 + PREPARE 幂等骨架（照 m18 ① 加列先例），本建表体逐字一致、列序照迁移
+--       后物理序（表尾）；存量/种子行由 DEFAULT 'ok' 兜底零 UPDATE（dish 种子 INSERT 列清单不含该列）
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -109,6 +112,11 @@ CREATE TABLE dish (
     bg_color    VARCHAR(20)     DEFAULT ''                   COMMENT '背景颜色',
     create_time DATETIME        DEFAULT CURRENT_TIMESTAMP    COMMENT '创建时间',
     update_time DATETIME        DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    -- 审核态两列（m26-migration.sql 同步，F-116 先发后审）：ALTER 无 AFTER 子句、列追加在表尾，
+    -- 本建表体照迁移后的物理列序摆放（update_time 之后），存量库与新库结构逐列一致；
+    -- 存量行由 DEFAULT 语义自动 audit_status='ok' 零 UPDATE，驳回理由 NULL=未驳回
+    audit_status VARCHAR(20)    NOT NULL    DEFAULT 'ok'     COMMENT 'F-116 先发后审：ok 正常 / rejected 运营驳回（驳回即 C 端不可见不可买；恢复唯一入口=运营端）',
+    audit_reason VARCHAR(200)   NULL                         COMMENT 'F-116 驳回理由（reject 必填 1~200，restore 清空；商家端展示）',
     PRIMARY KEY (id),
     INDEX idx_category (category),
     INDEX idx_merchant (merchant_id),
@@ -384,7 +392,7 @@ CREATE TABLE IF NOT EXISTS merchant (
   contact_phone VARCHAR(20)  NOT NULL                COMMENT '联系手机号（登录号快照；权威绑定在 user.merchant_id，此列仅展示/检索，不设 UNIQUE）',
   contact_name  VARCHAR(50)  NULL                    COMMENT '联系人',
   status        VARCHAR(20)  NOT NULL DEFAULT 'active' COMMENT 'active正常/suspended停业整顿/terminated清退（执行口径见 06 §4.2「商家生命周期出口执行清单」：on_sale 下架+seckill 清除等六步，非仅 on_sale 熔断）',
-  credit_status VARCHAR(20)  NULL                    COMMENT '信用分（三期预留，对齐 review.audit_status 三态范式 init.sql:161；一期 NULL）',
+  credit_status VARCHAR(20)  NULL                    COMMENT '信用分（三期预留，对齐 review.audit_status 三态范式，见 init.sql 的 review.audit_status 列；一期 NULL）',
   remark        VARCHAR(255) NULL                    COMMENT '备注',
   created_at    DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -398,7 +406,7 @@ CREATE TABLE IF NOT EXISTS merchant (
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS merchant_profile (
   merchant_id       BIGINT       NOT NULL COMMENT '商家ID（逻辑外键 merchant.id，1:1 主键即关系）',
-  business_license  VARCHAR(255) NULL     COMMENT '营业执照图 URL（依赖 POST /api/merchant/uploads；VARCHAR(255) 对齐 dish.image 惯例 init.sql:37）',
+  business_license  VARCHAR(255) NULL     COMMENT '营业执照图 URL（依赖 POST /api/merchant/uploads；VARCHAR(255) 对齐 dish.image 惯例，见 init.sql 的 dish.image 列）',
   legal_person      VARCHAR(50)  NULL     COMMENT '法人姓名',
   address           VARCHAR(255) NULL     COMMENT '经营地址',
   settlement_account VARCHAR(64) NULL     COMMENT '结算账户（三期结算启用；列位预留代价为零）',
@@ -439,7 +447,7 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   actor       VARCHAR(64)  NOT NULL COMMENT '操作主体：admin:<key摘要> / merchant:<userId>（现状日志不记操作者，AdminServiceImpl.java:93）',
   action      VARCHAR(50)  NOT NULL COMMENT 'dish.update/order.status/review.audit/merchant.create/deposit.deduct…',
   target_type VARCHAR(30)  NOT NULL COMMENT 'dish/order/review/merchant/deposit',
-  target_id   VARCHAR(64)  NOT NULL COMMENT '目标ID（订单号 VARCHAR(50) 口径对齐 init.sql:62）',
+  target_id   VARCHAR(64)  NOT NULL COMMENT '目标ID（订单号 VARCHAR(50) 口径对齐 init.sql 的 orders.id 列）',
   detail      VARCHAR(500) NULL     COMMENT '旧值→新值 JSON',
   ip          VARCHAR(45)  NULL     COMMENT '操作来源 IP（IPv6 容量）',
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',

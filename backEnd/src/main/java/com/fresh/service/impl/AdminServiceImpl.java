@@ -17,6 +17,7 @@ import com.fresh.dto.AdminCouponTemplateUpdateDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
+import com.fresh.dto.AdminDishAuditDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
@@ -116,7 +117,7 @@ public class AdminServiceImpl implements AdminService {
     private static final ObjectMapper AUDIT_MAPPER = new ObjectMapper();
 
     /**
-     * 审计 detail 列宽与预算口径（admin_audit_log.detail VARCHAR(500)，init.sql:383；BE-2 同型修复）：
+     * 审计 detail 列宽与预算口径（admin_audit_log.detail VARCHAR(500)，见 init.sql 的 admin_audit_log.detail 列；BE-2 同型修复）：
      * MerchantDishServiceImpl 那边按「Jackson 最坏 2 倍」推预算的前提已被 F-13.10 #2 实测证伪——
      * 控制码转成六字符转义串（反斜杠 + u0001）是 **6 倍**，100 个 U+0001 序列化后 602 字符 > 500，STRICT_TRANS_TABLES 下 INSERT 报 1406，
      * 被本方法旧的「catch → log.warn」吞掉 → 业务写照常提交、审计行凭空消失。
@@ -154,7 +155,7 @@ public class AdminServiceImpl implements AdminService {
     private static final String NOTIFY_REJECT_CODE_UNSET = "UNSPECIFIED";
 
     /**
-     * {@code target_id} 列宽（{@code admin_audit_log.target_id VARCHAR(64) NOT NULL}，init.sql:382）。
+     * {@code target_id} 列宽（{@code admin_audit_log.target_id VARCHAR(64) NOT NULL}，见 init.sql 的 admin_audit_log.target_id 列）。
      * 路径段是请求方可控的（{@code /api/pay/<随便一串>/wx-notify} 没有长度闸门），超 64 字符会让整行审计
      * 撞 1406 被本类那两层 catch 静默吞掉——正是 BE-2 说过的「不可发现的脱审」。
      * 按 BE-2 的既有裁定处理：<b>「审计行必须存在」优先于「审计行有内容」</b>，截到列宽而不是丢行。
@@ -295,6 +296,75 @@ public class AdminServiceImpl implements AdminService {
         writeAudit(auditActor(actor), "dish.update", "dish", String.valueOf(dishId),
                 "price=" + dish.getPrice() + ",stock=" + dish.getStock() + ",onSale=" + dish.getOnSale(),
                 "price=" + dto.getPrice() + ",stock=" + dto.getStock() + ",onSale=" + dto.getOnSale());
+    }
+
+    // ==================================================================
+    // F-116 商品内容审核「先发后审」（一个写操作，只写 dish.audit_status / audit_reason 两列）：
+    // 闸门/限流在 AdminController（照 F-110~F-114 模式双轨 + IP 10/60s）；审计 dish.audit 与业务同源写。
+    // 红线（契约 §2.2/§2.6）：驳回/恢复一律不改 on_sale（两列正交，上下架仍归 updateDish/商家端）；
+    // 免费领池不做驳回联动（契约 §0 登记边界，运营自行移池）。
+    // ==================================================================
+
+    /** F-116 审核动作白名单（§2.2：reject 驳回 / restore 恢复，两枚；其余 400） */
+    private static final Set<String> ALLOWED_DISH_AUDIT_ACTIONS = Set.of("reject", "restore");
+
+    /** F-116 action 非法的 400 文案（契约 §2.2 逐字） */
+    private static final String DISH_AUDIT_ACTION_INVALID_MSG = "action 仅允许 reject/restore";
+
+    /** F-116 reject 理由的 400 文案（契约只定形状「必填 trim 后 1~200」，文案一处真源） */
+    private static final String DISH_AUDIT_REASON_INVALID_MSG = "驳回理由必填，且不超过 200 个字符";
+
+    /** F-116 审计动作名（契约 §2.2 点名 dish.audit；admin_audit_log.action VARCHAR(50)） */
+    private static final String AUDIT_DISH_AUDIT = "dish.audit";
+
+    /** F-116 驳回理由长度上界（契约 §2.2：trim 后 1~200；列宽 audit_reason VARCHAR(200) 同口径） */
+    private static final int DISH_AUDIT_REASON_MAX = 200;
+
+    @Override
+    public void auditDish(Long dishId, AdminDishAuditDTO dto, String actor) {
+        String op = dto == null || dto.getAction() == null ? "" : dto.getAction().trim();
+        if (!ALLOWED_DISH_AUDIT_ACTIONS.contains(op)) {
+            throw new BizException(DISH_AUDIT_ACTION_INVALID_MSG);
+        }
+        boolean reject = "reject".equals(op);
+        // reject 的理由缺失是请求自身的缺陷（同 updateOrderStatus 取消理由的判据位置）：
+        // 先于查库 400，不花那次 SELECT；restore 的 reason 即使带了也忽略（§2.2）
+        String why = dto == null || dto.getReason() == null ? "" : dto.getReason().trim();
+        if (reject && (why.isEmpty() || why.length() > DISH_AUDIT_REASON_MAX)) {
+            throw new BizException(DISH_AUDIT_REASON_INVALID_MSG);
+        }
+        Dish dish = dishId == null ? null : dishMapper.selectById(dishId);
+        if (dish == null) {
+            throw new BizException(404, "菜品不存在");
+        }
+        String target = reject ? Dish.AUDIT_REJECTED : Dish.AUDIT_OK;
+        String newStatus = dish.getAuditStatus();
+        String newReason = dish.getAuditReason();
+        if (!target.equals(dish.getAuditStatus())) {
+            LambdaUpdateWrapper<Dish> wrapper = new LambdaUpdateWrapper<Dish>().eq(Dish::getId, dishId)
+                    .set(Dish::getAuditStatus, target);
+            if (reject) {
+                wrapper.set(Dish::getAuditReason, why);   // 驳回置理由（trim 后）
+            } else {
+                // set 传 null 拼 SET audit_reason=NULL：清理由（auditReview approve 清 audit_status 同款姿势）
+                wrapper.set(Dish::getAuditReason, null);
+            }
+            dishMapper.update(null, wrapper);
+            newStatus = target;
+            newReason = reject ? why : null;
+            log.info("管理端商品审核: dishId={}, action={}, auditStatus: {} -> {}",
+                    dishId, op, dish.getAuditStatus(), target);
+        }
+        // 幂等分支（已是目标态）不写库、不覆盖既有理由，但审计照记（§2.2「审计照记」）——
+        // 留痕的是「运营再次确认同一态」这一动作本身，new 侧如实记库内保持的原值
+        writeAudit(auditActor(actor), AUDIT_DISH_AUDIT, AUDIT_TARGET_DISH, String.valueOf(dishId),
+                dishAuditDetail(op, dish.getAuditStatus(), dish.getAuditReason()),
+                dishAuditDetail(op, newStatus, newReason));
+    }
+
+    /** F-116 审计 detail 片段：before/after 各记 {auditStatus, auditReason} + action（短串，超 500 由既有预算截断兜底） */
+    private static String dishAuditDetail(String action, String auditStatus, String auditReason) {
+        return "action=" + action + ",auditStatus=" + auditStatus + ",auditReason=" + auditReason;
     }
 
     @Override

@@ -11,6 +11,7 @@ import com.fresh.dto.AdminCouponTemplateUpdateDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
+import com.fresh.dto.AdminDishAuditDTO;
 import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
@@ -122,6 +123,35 @@ public class AdminController {
         }
         adminService.updateDish(id, dto, grant.actor());
         return R.ok(null, "商品已更新");
+    }
+
+    // ==================================================================
+    // F-116 商品内容审核「先发后审」（一个端点，只写 dish.audit_status / audit_reason 两列；
+    // 驳回/恢复一律不改 on_sale——两列正交）。闸门/限流姿势逐字照本面其余端点（F-110~F-114 模式）：
+    // 双轨 checkKeyOrOperator；写档 10/60s，按 IP 维度（Admin 面无 JWT userId，§2.10a）。
+    // 审计（dish.audit）在 AdminServiceImpl 内与业务同源写。
+    // 红线（契约 §2.6）：免费领池不做驳回联动（契约 §0 登记边界）。
+    // ==================================================================
+
+    /**
+     * 商品内容审核（F-116 §2.2）：{@code PUT /api/admin/dishes/{id}/audit}，
+     * body {@code {action:'reject'|'restore', reason?}}。
+     * reject：reason 必填 trim 后 1~200，置 {@code audit_status='rejected'} + 理由（on_sale 不动）；
+     * restore：置 {@code 'ok'} 并清理由，body 带 reason 忽略。action 非法 → 400「action 仅允许 reject/restore」；
+     * dish 不存在 → 404「菜品不存在」；已是目标态 → 幂等 200（不产生假变化，审计照记）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-116 §2.2，照 F-110）
+    @PutMapping("/dishes/{id}/audit")
+    public R<Void> auditDish(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                             @RequestHeader(value = "Authorization", required = false) String authz,
+                             @PathVariable("id") Long id,
+                             @Valid @RequestBody AdminDishAuditDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        adminService.auditDish(id, dto, grant.actor());
+        return R.ok(null, "商品已审核");
     }
 
     /** 评价审核：PUT /api/admin/reviews/{id}/audit，body {action}（approve 过审展示 / reject 驳回删除） */

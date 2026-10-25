@@ -12,6 +12,8 @@
       金额（price / seckillPrice）与时间（createTime / updateTime）显示的是<b>服务端定形串</b>，本页不做二次格式化；
       goodRate 也是服务端算好的字符串（如 94.3%，可为空）。<br />
       布尔映射（服务端出 0/1 原值，文案由本页映射表给）：onSale 1=上架、0=下架；seckill 1=秒杀、0=非秒杀（非秒杀行 seckillPrice 恒为空）。<br />
+      审核态（F-116 先发后审）：出库里原值 ok/rejected，行操作含「驳回」（必填理由 1~200，驳回后 C 端即刻不可见不可买，恢复需运营）与「恢复」；
+      驳回/恢复不改动上下架状态（两列正交）。<br />
       一期<b>只改不建</b>：平台侧本就没有「新建商品」端点（dish.create 全是商家侧动作），所以本页没有「新建商品」按钮，不是漏做。
     </p>
 
@@ -35,6 +37,12 @@
       <el-input v-model="filters.category" size="small" class="filter-input" clearable
                 placeholder="分类（精确等值，可中文，如 蔬菜）"
                 :disabled="viewState === 'loading' || submitting" @change="onFilterChange" />
+      <el-select v-model="filters.auditStatus" size="small" class="filter-select" clearable
+                 placeholder="审核态（ok/rejected，精确）"
+                 :disabled="viewState === 'loading' || submitting" @change="onFilterChange">
+        <el-option label="正常 auditStatus=ok" value="ok" />
+        <el-option label="已驳回 auditStatus=rejected" value="rejected" />
+      </el-select>
       <el-button size="small" type="primary" :disabled="viewState === 'loading' || submitting" @click="onFilterChange">查询</el-button>
       <el-button size="small" :disabled="viewState === 'loading' || submitting" @click="onReset">重置</el-button>
     </div>
@@ -85,6 +93,17 @@
             <el-tag :type="row.onSale === 1 ? 'success' : 'info'" size="small" effect="light">{{ binaryText(row.onSale) }}</el-tag>
           </template>
         </el-table-column>
+        <!-- 审核态（F-116 §2.3）：出库里原值由本页映射 tag；已驳回行把驳回理由挂 tooltip（悬停可读） -->
+        <el-table-column label="审核态" min-width="100">
+          <template #default="{ row }">
+            <el-tooltip v-if="auditRejected(row) && row.auditReason"
+                        :content="'驳回理由：' + row.auditReason" placement="top">
+              <el-tag type="danger" size="small" effect="light">已驳回</el-tag>
+            </el-tooltip>
+            <el-tag v-else-if="auditRejected(row)" type="danger" size="small" effect="light">已驳回</el-tag>
+            <el-tag v-else type="success" size="small" effect="light">正常</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="soldCount" label="销量" min-width="90" />
         <el-table-column prop="category" label="分类" min-width="110" show-overflow-tooltip />
         <el-table-column label="单位" min-width="80">
@@ -106,11 +125,19 @@
         <el-table-column label="更新时间" min-width="160">
           <template #default="{ row }"><span class="muted">{{ row.updateTime }}</span></template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" plain
                        :disabled="viewState === 'loading' || submitting"
                        @click="openDialog(row)">改价/库存</el-button>
+            <!-- F-116 §2.3 行操作：驳回（弹窗必填理由 1~200 + 二次确认）/ 恢复（确认弹窗）；
+                 已驳回行不显示驳回钮（服务端幂等但 UI 不诱导重复操作），恢复钮同理只对驳回行出现 -->
+            <el-button v-if="!auditRejected(row)" size="small" type="danger" plain
+                       :disabled="viewState === 'loading' || submitting"
+                       @click="openReject(row)">驳回</el-button>
+            <el-button v-else size="small" type="warning" plain
+                       :disabled="viewState === 'loading' || submitting"
+                       @click="onRestore(row)">恢复</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -160,6 +187,28 @@
         <el-button size="small" type="primary" :loading="submitting" @click="onSubmit">提交更新</el-button>
       </template>
     </el-dialog>
+
+    <!-- 驳回理由弹窗（F-116 §2.3）：理由必填 1~200，确认文案点名「驳回后 C 端即刻不可见不可买，恢复需运营操作」；
+         与更新表单同理挂在状态块之外（提交后列表重拉会卸载表格，弹窗不能跟着消失） -->
+    <el-dialog v-model="rejectDialogVisible" :title="rejectDialogTitle"
+               width="560px" :close-on-click-modal="false">
+      <p class="dialog-note">
+        驳回<b>不会改动</b>该商品的上下架状态（on_sale 与审核态两列正交）；驳回后 C 端<b>即刻不可见不可买</b>
+        （列表/搜索/秒杀/推荐同时消失，下单被拦），<b>恢复需运营在本页操作</b>。
+        秒杀配位与免费领池不受本动作管理：秒杀集会因审核态自动隐藏，池内商品需自行移出（免费领管理页）。
+      </p>
+      <el-form class="dialog-form" label-width="110px" @submit.prevent="onSubmitReject">
+        <el-form-item label="驳回理由" :class="{ 'reject-field-error': rejectError }">
+          <el-input v-model="rejectForm.reason" type="textarea" :rows="3" maxlength="200" show-word-limit
+                    placeholder="必填，1~200 个字符；将展示给商家（商家端可见）" />
+        </el-form-item>
+        <div v-if="rejectError" class="reject-error-line">{{ rejectError }}</div>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="rejectDialogVisible = false">取消（不发出任何请求）</el-button>
+        <el-button size="small" type="danger" :loading="submitting" @click="onSubmitReject">下一步：确认驳回</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -173,7 +222,7 @@
 // 一期只改不建：Admin 面没有「新建商品」端点（F-20.17 事实 3 附注），本页不提供，也不是漏做。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { getAdminDishes, updateAdminDish, retryAfterText } from '../api'
+import { getAdminDishes, updateAdminDish, auditAdminDish, retryAfterText } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -184,6 +233,9 @@ const binaryText = (v) => BINARY_TEXT[v] || (v == null ? '' : String(v))
 const seckillText = (v) => SECKILL_TEXT[v] || (v == null ? '' : String(v))
 // null / undefined 显示成空串（而不是字符串 "null"）；其余原样透传，不做数字或金额格式化
 const displayOf = (v) => (v == null ? '' : String(v))
+// 审核态（F-116）：库里只有 'ok'/'rejected' 两枚（m26 列口径）；'rejected' 即驳回行。
+// 未知值按「非驳回」渲染正常 tag——脏值原样透传会在服务端 400 白名单处暴露，本页不猜第二真源
+const auditRejected = (row) => row && row.auditStatus === 'rejected'
 
 const viewState = ref('loading')
 const errorText = ref('')
@@ -197,7 +249,16 @@ const rows = ref([])
 const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(20)
-const filters = ref({ merchantId: '', onSale: '', category: '' })
+const filters = ref({ merchantId: '', onSale: '', category: '', auditStatus: '' })
+
+// 驳回弹窗（F-116 §2.3）：auditTarget 存目标行（只为标题与确认文案，真值以重拉后的列表为准）
+const rejectDialogVisible = ref(false)
+const rejectDialogTarget = ref({})
+const rejectForm = ref({ reason: '' })
+const rejectError = ref('')
+const rejectDialogTitle = computed(() => (rejectDialogTarget.value.id === undefined
+  ? '驳回商品'
+  : '驳回商品 #' + rejectDialogTarget.value.id + '（' + displayOf(rejectDialogTarget.value.name) + '）'))
 
 // 更新表单：editing 存的是服务端上一轮回的整行（只为把「当前值」摆进表单与确认文案，不是本地副本真值）
 const dialogVisible = ref(false)
@@ -234,7 +295,8 @@ const codeHint = computed(() => (CODE_HINTS[String(errorCode.value)] || '')
 const WRITE_CODE_HINTS = {
   400: '这笔写请求被 400 拒绝。400 不说明命中哪一句，本页不猜。三类可能同时存在：'
     + '通用两句「请求参数有误，请检查后重试」/「参数格式不正确」（body 里的 price 填了非数字就走前者）；'
-    + '业务校验「无更新字段（可传 price / stock / onSale）」；'
+    + '业务校验「无更新字段（可传 price / stock / onSale）」、'
+    + '审核动作的「驳回理由必填，且不超过 200 个字符」（理由空白或超长）与「action 仅允许 reject/restore」；'
     + '字段注解「价格必须大于 0」（price < 0.01）、「库存不能为负数」（stock < 0）、「onSale 仅允许 0（下架）或 1（上架）」。'
     + '具体命中哪一句，以「服务端原文」那一行为准。',
   403: '登录态有效但服务端判定本账号不能改商品（403 ≠ 登录失效，本页不清登录态）。'
@@ -320,6 +382,7 @@ function onReset() {
   filters.value.merchantId = ''
   filters.value.onSale = ''
   filters.value.category = ''
+  filters.value.auditStatus = ''
   pageNum.value = 1
   load()
 }
@@ -439,6 +502,94 @@ async function onSubmit() {
   }
 }
 
+// F-116 §2.3 驳回/恢复（写面走 PUT /api/admin/dishes/{id}/audit，既有改价/补库存/上下架端点不动）。
+// reject 理由本地先拦一句 1~200（与服务端 trim 后同口径），最终以服务端 400 原文为准并如实转述；
+// 二次确认文案逐字包含契约点名的两句：「驳回后 C 端即刻不可见不可买」「恢复需运营操作」。
+function openReject(row) {
+  if (submitting.value || viewState.value === 'loading') return
+  rejectDialogTarget.value = row
+  rejectForm.value = { reason: '' }
+  rejectError.value = ''
+  rejectDialogVisible.value = true
+}
+
+async function onSubmitReject() {
+  if (submitting.value || viewState.value === 'loading') return
+  const reason = String(rejectForm.value.reason == null ? '' : rejectForm.value.reason).trim()
+  if (reason.length < 1 || reason.length > 200) {
+    rejectError.value = '驳回理由必填，1~200 个字符（当前 ' + reason.length + ' 个）'
+    return
+  }
+  rejectError.value = ''
+  const target = rejectDialogTarget.value
+  const ok = await askConfirm(
+    '将驳回商品 ' + target.id + '（' + displayOf(target.name) + '）。\n\n'
+      + '· 驳回后 C 端即刻不可见不可买（列表/搜索/秒杀/推荐同时消失，下单被拦）。\n'
+      + '· 恢复需运营操作（本页该行的「恢复」按钮），商家端无法自行恢复。\n'
+      + '· 驳回理由（下方原文）会展示给商家：' + reason + '\n'
+      + '· 该商品的上下架状态不受影响；提交成功后本页会重拉列表。'
+  )
+  if (!ok) return
+  submitting.value = true
+  writeResult.value = null
+  try {
+    const envelope = await auditAdminDish(target.id, { action: 'reject', reason })
+    rejectDialogVisible.value = false
+    writeResult.value = {
+      kind: 'success',
+      title: '驳回已提交（商品 #' + target.id + '）',
+      serverText: envelope && envelope.message ? envelope.message : '',
+      hint: '列表已按当前筛选重新拉取。若当前开着审核态筛选（全部/正常），需切到「已驳回」或清除筛选才能看到该行。'
+    }
+    await load()
+  } catch (err) {
+    handleWriteFailure(err, '驳回')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function onRestore(row) {
+  if (submitting.value || viewState.value === 'loading') return
+  const ok = await askConfirm(
+    '将恢复商品 ' + row.id + '（' + displayOf(row.name) + '）。\n\n'
+      + '· 恢复后审核态置回「正常」，C 端恢复可见可买（若该商品同时是下架状态，仍不可买）。\n'
+      + '· 驳回理由将被清空；本次操作会记一条 dish.audit 审计。'
+  )
+  if (!ok) return
+  submitting.value = true
+  writeResult.value = null
+  try {
+    const envelope = await auditAdminDish(row.id, { action: 'restore' })
+    writeResult.value = {
+      kind: 'success',
+      title: '恢复已提交（商品 #' + row.id + '）',
+      serverText: envelope && envelope.message ? envelope.message : '',
+      hint: '列表已按当前筛选重新拉取；驳回理由已随恢复清空（body 带 reason 会被服务端忽略）。'
+    }
+    await load()
+  } catch (err) {
+    handleWriteFailure(err, '恢复')
+  } finally {
+    submitting.value = false
+  }
+}
+
+// 驳回/恢复共用的失败转述：复用本页 writeHintOf（服务端原文 + 分码人话），不另造第二套口径
+function handleWriteFailure(err, actionName) {
+  const e = err || {}
+  if (e.code === 401) {
+    writeResult.value = { kind: 'error', title: '登录状态已失效', serverText: '', hint: '正在返回登录页…' }
+    return
+  }
+  writeResult.value = {
+    kind: 'error',
+    title: (e.code === 403 ? '没有权限执行该动作' : actionName + '未完成（未生效）'),
+    serverText: e.message || '（后端未给出 message）',
+    hint: writeHintOf(e.code, e.data)
+  }
+}
+
 onMounted(() => {
   viewState.value = 'idle'
   load()
@@ -530,5 +681,13 @@ onMounted(() => {
 }
 .dialog-select {
   width: 220px;
+}
+.reject-field-error :deep(.el-textarea__inner) {
+  border-color: #f56c6c;
+}
+.reject-error-line {
+  margin: -6px 0 0 110px;
+  font-size: 12px;
+  color: #f56c6c;
 }
 </style>
