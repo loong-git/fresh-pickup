@@ -14,6 +14,7 @@ import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminSeckillUpdateDTO;
+import com.fresh.dto.AdminSettlementGenerateDTO;
 import com.fresh.dto.AdminStoreUpdateDTO;
 
 import java.util.List;
@@ -447,4 +448,65 @@ public interface AdminService {
      * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
      */
     void updateStore(Long id, AdminStoreUpdateDTO dto, String actor);
+
+    // ==================================================================
+    // F-118 结算跑批 + 结算中心（三个操作：生成账期 / 账期列表 / 账单明细）。
+    // 读端点不写审计；generate 成功后写 admin_audit_log：settlement.create。
+    // 红线（契约 §3）：settlement 只增不改——本组无 UPDATE/DELETE settlement 路径，
+    // 冲销走下一期 refund 列承载（06 册 §4.5 定稿）；主理人佣金（F-119）/打款（轨道 B）/
+    // 保证金（m1x）零涉及；下单/取消/支付链路零改动（本组只读它们产生的数据）。
+    // ==================================================================
+
+    /**
+     * 生成账期（{@code POST /api/admin/settlements/generate}，F-118 §1.1）。
+     *
+     * <p><b>校验顺序即报错优先级</b>：① merchantId 缺失/日期形状非法 → 400（请求自身缺陷，先于查库）→
+     * ② merchant 不存在 → 404「商家不存在」→ ③ start≥end → 400 →
+     * ④ 与该商家既有账期完全相同期（uk_merchant_period 预查，并发兜底 catch DuplicateKeyException）
+     * → 400「该商家此账期已生成」（幂等护栏）→ ⑤ 聚合候选明细
+     * （{@code OrderItemMapper#selectSettleCandidates}：supply_price 非空 + settle_id 空 +
+     * pay_status=1 + 非 shortage，契约 §1.1 逐字），空集 → 400「该商家本期无可结算明细」（不生成空账单）。
+     *
+     * <p><b>金额</b>：gross=Σ(supply_price×qty)；refund=冲销——自上一账期止之后发生退款
+     * （pay_status 1→2）的已挂锚明细负向计入本期（无账期历史则 0）；retain 恒 0（轨道 B 列位保留）；
+     * net=gross−refund−retain。
+     *
+     * <p><b>事务与幂等（06 册 §4.5 定稿照抄）</b>：{@code @Transactional} 内
+     * INSERT settlement（status=accounted，settle_no="SET"+雪花）→ 挂锚条件 UPDATE
+     * （{@code OrderItemMapper#attachSettle}），<b>影响行数=候选数才成功</b>，
+     * 不足即抛 400 整单回滚（并发跑批双开只有一个成功，另一个全回滚）。
+     *
+     * <p>成功后写审计 {@code settlement.create}（含 merchant/期/三金额/明细数）。
+     *
+     * @return {@code {id, settleNo, merchantId, merchantName, periodStart, periodEnd,
+     *         gross, refund, net, itemCount, orderCount, status}}（页面与 verify 脚本断言用）
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    Map<String, Object> generateSettlement(AdminSettlementGenerateDTO dto, String actor);
+
+    /**
+     * 账期列表（{@code GET /api/admin/settlements?merchantId=}，F-118 §1.2）：全量或按商家筛
+     * （merchantId 可空，空=全量；非空只做过滤不校验存在——照 listStores 全量先例，查无即空列表），
+     * 按 id DESC（新账期在前）。每单键序固定
+     * {@code id,settleNo,merchantId,merchantName,periodStart,periodEnd,gross,refund,retain,net,
+     * itemCount,status,reconcileOk,paidChannelAbsent}（契约逐字十四键，不加 orderCount）。
+     *
+     * <p><b>reconcileOk 实时算</b>（不落列）：① 账面 gross==该单挂锚明细 Σ(supply_price×qty)
+     * <b>且</b> ② 账面计数==实时挂锚计数 <b>且</b> ③ 挂锚明细无孤儿（orders 行被删即数据事故，
+     * 2026-10-25 主会话验收裁决第三条件），三者皆真才 true（{@code OrderItemMapper#selectAnchoredAggregates}
+     * 一次批量聚合，无 N+1）。settlement 表（06 册 §4.5 定稿）无 item_count 列，明细行数账面无落点——
+     * 计数对账以表内唯一计数列 order_count 对实时去重订单数承载；出参 {@code itemCount} 取实时挂锚行数
+     * （明细弹窗行数与它天然一致）。
+     * <b>paidChannelAbsent 恒 true</b>：「打款通道未接」是 UI 恒显语义，接口层带出防前端漏显。
+     */
+    List<Map<String, Object>> listSettlements(Long merchantId);
+
+    /**
+     * 账单明细（{@code GET /api/admin/settlements/{id}/items}，F-118 §1.3）：
+     * 该单挂锚的 order_item 行 {@code {itemId,dishName,supplyPrice,qty,subtotal,orderId,
+     * payStatus,fulfillStatus,orphan}}，只读；结算单不存在 → 404「结算单不存在」。
+     * pay_status 经 LEFT JOIN orders 取，孤儿行（orders 已删）payStatus=null、orphan=true
+     * （2026-10-25 主会话验收裁决：不静默丢行，前端标「订单已不存在」警示）。
+     */
+    List<Map<String, Object>> settlementItems(Long id);
 }

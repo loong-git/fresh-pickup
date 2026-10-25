@@ -26,6 +26,9 @@
              无新建无删除（创建只经入驻审核）；contact_phone/photos/经纬度/主理人归属不可改；
              改 status 后 C 端该店即刻置灰/可选，改日容量真实生效到下单拒单 -->
         <router-link to="/stores" class="nav-link" :class="{ active: isActive('/stores') }" title="自提点存量维护：改名称/地址/服务/状态/营业时间/日容量/接单，白名单八列；无新建无删除；改状态 C 端即刻置灰/可选，改日容量生效到下单拒单。"><span class="nav-dot" title="本页会改数据"></span>自提点管理</router-link>
+        <!-- F-118：结算中心，写侧只有「生成账期」一个动作（POST generate）；settlement 只增不改（无作废/重开），
+             冲销走下一期 refund 列负向计入；对账 ✗ = 数据事故标红；打款通道未接（轨道 B）恒显记账态 -->
+        <router-link to="/settlements" class="nav-link" :class="{ active: isActive('/settlements') }" title="结算中心：生成账期（聚合已支付·非缺货·已设供货价的未结算明细）+ 账期列表 + 账单明细。settlement 只增不改，冲销在下一账期负向计入；对账 ✗ 即数据事故。"><span class="nav-dot" title="本页会改数据"></span>结算中心</router-link>
         <!-- F-109：免费领活动配置（换品/日限量/门槛/上下线）与候选池维护；dailyClaimed 是运行时计数，本页不可改 -->
         <router-link to="/free-activity" class="nav-link" :class="{ active: isActive('/free-activity') }" title="免费领活动配置与候选池维护；dailyClaimed 是运行时计数，本页不可改，改它会超发。"><span class="nav-dot" title="本页会改数据"></span>免费领活动</router-link>
         <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="nav-dot" title="本页会改数据"></span>评价审核</router-link>
@@ -49,8 +52,8 @@
 </template>
 
 <script setup>
-// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112/F-113/F-114 又各追加一页，
-// 现为十四条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
+// 外壳（F-20.11 三页共同要求 + F-20.22 四页扩到六条入口；F-63/F-106/F-108/F-109/F-110/F-112/F-113/F-114/F-118 又各追加一页，
+// 现为十五条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
 // 并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
 // 清态与跳转都走 api 层的 logout()，本组件不各自读 storage（键名真源只有 TOKEN_STORAGE_KEY 一处）。
 import { computed } from 'vue'

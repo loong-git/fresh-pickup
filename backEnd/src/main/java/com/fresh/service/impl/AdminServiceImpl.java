@@ -23,6 +23,7 @@ import com.fresh.dto.AdminFreeActivityUpdateDTO;
 import com.fresh.dto.AdminFreePoolUpdateDTO;
 import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminSeckillUpdateDTO;
+import com.fresh.dto.AdminSettlementGenerateDTO;
 import com.fresh.dto.AdminStoreUpdateDTO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.ArrivalBatch;
@@ -40,6 +41,7 @@ import com.fresh.entity.MerchantProfile;
 import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
 import com.fresh.entity.Review;
+import com.fresh.entity.Settlement;
 import com.fresh.entity.Store;
 import com.fresh.entity.StoreApply;
 import com.fresh.entity.User;
@@ -59,6 +61,7 @@ import com.fresh.mapper.MerchantProfileMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.ReviewMapper;
+import com.fresh.mapper.SettlementMapper;
 import com.fresh.mapper.StoreApplyMapper;
 import com.fresh.mapper.StoreMapper;
 import com.fresh.mapper.UserMapper;
@@ -2682,5 +2685,268 @@ public class AdminServiceImpl implements AdminService {
             oldKeys.add(key + "=" + oldVal);
             newKeys.add(key + "=" + newVal);
         }
+    }
+
+    // ==================================================================
+    // F-118 结算跑批 + 结算中心（三个操作，只写 settlement 一张表 + order_item.settle_id 一列；
+    // settlement 只增不改——本段无任何 UPDATE/DELETE settlement 路径，冲销走下一期 refund 列承载，
+    // 06 册 §4.5 定稿照抄；主理人佣金（F-119）/打款（轨道 B）/保证金（m1x）零涉及；
+    // 下单/取消/支付链路零改动，本段只读它们产生的数据）。
+    // 读端点不写审计；generate 成功后写审计 settlement.create（旁路走本类唯一那份 writeAudit）。
+    // 新依赖与常量一律追加在文件末尾（本类被仓内行号指针引用的追加式纪律，同 F-63/F-113 段头注）。
+    // ==================================================================
+
+    /** 审计动作与目标类型（契约 §1.1「审计 settlement.create」；写侧唯一真源，action 列宽 VARCHAR(50)） */
+    private static final String AUDIT_SETTLEMENT_CREATE = "settlement.create";
+    private static final String AUDIT_TARGET_SETTLEMENT = "settlement";
+
+    /** 记账态唯一运行期值（08 册 §2.2-5「settlement.status 停在 accounted」，m27 DDL DEFAULT 同值） */
+    private static final String SETTLEMENT_STATUS_ACCOUNTED = "accounted";
+
+    /** 生成账期四句 400/404（契约 §1.1 定性；404 文案照 updateSeckillDish 的「商品不存在」同构） */
+    private static final String SETTLE_MERCHANT_NOT_FOUND_MSG = "商家不存在";
+    private static final String SETTLE_PERIOD_ORDER_MSG = "账期起止无效（start 须早于 end）";
+    private static final String SETTLE_PERIOD_DUPLICATE_MSG = "该商家此账期已生成";
+    private static final String SETTLE_NO_CANDIDATES_MSG = "该商家本期无可结算明细";
+    /** 挂锚影响行数不足（并发跑批双开的落败方）的对外文案：400 + 整单回滚（06 册定稿的回滚分支） */
+    private static final String SETTLE_ANCHOR_RACE_MSG = "本期候选明细已被其他账单结算（并发冲突），请刷新后重试";
+    private static final String SETTLE_DATE_SHAPE_MSG = "账期日期格式应为 YYYY-MM-DD";
+
+    /** 账期日期形状闸门（照 BATCH_DATE_PATTERN 同一枚正则口径，不另立形状） */
+    private static final Pattern SETTLE_DATE_PATTERN = BATCH_DATE_PATTERN;
+
+    /** F-118 的新依赖（只被本段方法使用；追加式字段声明同 F-63/F-113 那批） */
+    @Autowired
+    private SettlementMapper settlementMapper;
+
+    /**
+     * 生成账期（F-118 §1.1，判据顺序见接口注释）。聚合口径<b>逐字照契约</b>（selectSettleCandidates 的
+     * 四条谓词），金额 gross=Σ(supply_price×qty)、refund=冲销、retain 恒 0、net=gross−refund−retain。
+     * <p><b>事务与幂等（06 册 §4.5 定稿照抄）</b>：整个方法 {@code @Transactional}——
+     * INSERT settlement → 挂锚条件 UPDATE，<b>影响行数=候选数才成功</b>，不足即抛异常整单回滚
+     * （并发跑批双开只有一个成功，另一个全回滚，settlement 与挂锚两写同生同灭）。
+     * uk_merchant_period 预查挡住「完全相同期重跑」，并发兜底 catch DuplicateKeyException 转同一句 400
+     * （照 createCouponTemplate 的先查后插 + 并发兜底双保险姿势）。
+     * <p>settle_no：06 册只定列与 uk、未给明文格式，按对账凭证语义取 "SET"+19 位雪花（≤VARCHAR(32)）。
+     */
+    @Override
+    @Transactional
+    public Map<String, Object> generateSettlement(AdminSettlementGenerateDTO dto, String actor) {
+        // ① 请求自身缺陷（先于一切查库）：merchantId 缺失 / 日期形状或真日期非法
+        Long merchantId = dto == null ? null : dto.getMerchantId();
+        if (merchantId == null || merchantId <= 0) {
+            throw new BizException("merchantId 必填");
+        }
+        LocalDate start = parseSettleDate(dto.getPeriodStart());
+        LocalDate end = parseSettleDate(dto.getPeriodEnd());
+
+        // ② merchant 存在（404，先于期序校验：目标都不存在谈不上账期）
+        Merchant merchant = merchantMapper.selectById(merchantId);
+        if (merchant == null) {
+            throw new BizException(R.CODE_NOT_FOUND, SETTLE_MERCHANT_NOT_FOUND_MSG);
+        }
+
+        // ③ start < end（400）
+        if (!start.isBefore(end)) {
+            throw new BizException(SETTLE_PERIOD_ORDER_MSG);
+        }
+
+        // ④ 同期重跑 → 400（uk_merchant_period 预查 + 并发兜底，幂等护栏之一）
+        Long samePeriod = settlementMapper.selectCount(new LambdaQueryWrapper<Settlement>()
+                .eq(Settlement::getMerchantId, merchantId)
+                .eq(Settlement::getPeriodStart, start)
+                .eq(Settlement::getPeriodEnd, end));
+        if (samePeriod != null && samePeriod > 0) {
+            throw new BizException(SETTLE_PERIOD_DUPLICATE_MSG);
+        }
+
+        // ⑤ 聚合候选明细（契约 §1.1 逐字四谓词），空集 → 400「不生成空账单」
+        List<Map<String, Object>> candidates = orderItemMapper.selectSettleCandidates(merchantId);
+        if (candidates.isEmpty()) {
+            throw new BizException(SETTLE_NO_CANDIDATES_MSG);
+        }
+
+        // 金额：gross=Σ(supply_price×qty)；order_count=去重订单数；itemCount=明细行数（对账口径之一）
+        BigDecimal gross = BigDecimal.ZERO;
+        Set<Long> candidateIds = new LinkedHashSet<>();
+        Set<String> orderIds = new LinkedHashSet<>();
+        for (Map<String, Object> line : candidates) {
+            BigDecimal supply = (BigDecimal) line.get("supplyPrice");
+            int qty = ((Number) line.get("quantity")).intValue();
+            gross = gross.add(supply.multiply(BigDecimal.valueOf(qty)));
+            candidateIds.add(((Number) line.get("id")).longValue());
+            orderIds.add(String.valueOf(line.get("orderId")));
+        }
+
+        // 冲销（下一期 refund 列承载，06 册定稿）：上一账期止之后发生退款（pay_status 1→2）的已挂锚明细
+        LocalDate prevPeriodEnd = settlementMapper.selectMaxPeriodEnd(merchantId);
+        BigDecimal refund = prevPeriodEnd == null
+                ? BigDecimal.ZERO : orderItemMapper.sumRefundAfterAnchor(merchantId, prevPeriodEnd);
+        BigDecimal retain = BigDecimal.ZERO;   // 轨道 B 留存抵扣才有值，本片恒 0（列位保留）
+        BigDecimal net = gross.subtract(refund).subtract(retain);
+
+        // ⑥ INSERT settlement（status=accounted；gmv_amount 即 gross——F-118 §1.1 供货价基数口径）
+        Settlement row = new Settlement();
+        row.setSettleNo("SET" + com.baomidou.mybatisplus.core.toolkit.IdWorker.getIdStr());
+        row.setMerchantId(merchantId);
+        row.setPeriodStart(start);
+        row.setPeriodEnd(end);
+        row.setOrderCount(orderIds.size());
+        row.setGmvAmount(gross);
+        row.setCouponDeduct(BigDecimal.ZERO);
+        row.setCommission(BigDecimal.ZERO);
+        row.setRetainAmount(retain);
+        row.setDeduction(BigDecimal.ZERO);
+        row.setRefundAmount(refund);
+        row.setPayable(net);
+        row.setStatus(SETTLEMENT_STATUS_ACCOUNTED);
+        try {
+            settlementMapper.insert(row);
+        } catch (DuplicateKeyException e) {
+            // uk_merchant_period / uk_settle_no 的并发兜底：预查挡不住两人同时生成
+            throw new BizException(SETTLE_PERIOD_DUPLICATE_MSG);
+        }
+
+        // ⑦ 挂锚条件 UPDATE（06 册定稿）：影响行数=候选数才成功，不足即抛异常整单回滚——
+        // settlement INSERT 与挂锚同事务，回滚不留半截账单（并发跑批双开的落败方在这里败出）
+        int anchored = orderItemMapper.attachSettle(row.getId(), new ArrayList<>(candidateIds));
+        if (anchored != candidateIds.size()) {
+            throw new BizException(SETTLE_ANCHOR_RACE_MSG);
+        }
+
+        // ⑧ 审计 settlement.create（含 merchant/期/三金额/明细数；旁路，写失败不打断主事务）
+        writeAudit(auditActor(actor), AUDIT_SETTLEMENT_CREATE, AUDIT_TARGET_SETTLEMENT,
+                String.valueOf(row.getId()), null,
+                "merchantId=" + merchantId
+                        + ",period=" + start + "~" + end
+                        + ",gross=" + gross + ",refund=" + refund + ",net=" + net
+                        + ",items=" + candidateIds.size());
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", row.getId());
+        out.put("settleNo", row.getSettleNo());
+        out.put("merchantId", merchantId);
+        out.put("merchantName", merchant.getName());
+        out.put("periodStart", start.toString());
+        out.put("periodEnd", end.toString());
+        out.put("gross", gross);
+        out.put("refund", refund);
+        out.put("net", net);
+        out.put("itemCount", candidateIds.size());
+        out.put("orderCount", orderIds.size());
+        out.put("status", row.getStatus());
+        return out;
+    }
+
+    /** 账期日期解析：形状正则 + LocalDate 裁决真日期（照 AdminV2ServiceImpl#parseDate 的两道闸口径，非法 → 400） */
+    private static LocalDate parseSettleDate(String raw) {
+        if (raw == null || !SETTLE_DATE_PATTERN.matcher(raw.trim()).matches()) {
+            throw new BizException(SETTLE_DATE_SHAPE_MSG);
+        }
+        try {
+            return LocalDate.parse(raw.trim());
+        } catch (DateTimeException e) {
+            throw new BizException(SETTLE_DATE_SHAPE_MSG);
+        }
+    }
+
+    /**
+     * 账期列表（F-118 §1.2）：全量或按商家筛（merchantId 可空，空=全量），id DESC 新账期在前。
+     * reconcileOk 实时算：一次批量聚合（selectAnchoredAggregates）拿各单挂锚行数 / 去重订单数 /
+     * Σ(supply_price×qty) / 孤儿行数——三条件皆真才 true，不落列、每请求现算：
+     * 明细金额被改（①打穿）、行被删（②打穿）、挂锚明细的 orders 行被删即孤儿（③打穿，
+     * 2026-10-25 主会话验收裁决补的第三条件——此前孤儿态下弹窗空而对账仍 true，两口径矛盾）。
+     * paidChannelAbsent 恒 true（记账态明示防前端漏显）。
+     * 商家名批量查（selectBatchIds）不逐行查。periodStart/periodEnd 落 String（服务端定形，照 D-18）。
+     */
+    @Override
+    public List<Map<String, Object>> listSettlements(Long merchantId) {
+        List<Settlement> rows = settlementMapper.selectList(new LambdaQueryWrapper<Settlement>()
+                .eq(merchantId != null, Settlement::getMerchantId, merchantId)
+                .orderByDesc(Settlement::getId));
+        // 商家名映射（一次批量，无 N+1）
+        Map<Long, String> merchantNames = new LinkedHashMap<>();
+        Set<Long> merchantIds = new LinkedHashSet<>();
+        Set<Long> settleIds = new LinkedHashSet<>();
+        for (Settlement row : rows) {
+            merchantIds.add(row.getMerchantId());
+            settleIds.add(row.getId());
+        }
+        if (!merchantIds.isEmpty()) {
+            for (Merchant m : merchantMapper.selectBatchIds(merchantIds)) {
+                merchantNames.put(m.getId(), m.getName());
+            }
+        }
+        // 对账聚合（一次批量；无账单时短路不下发空 IN）
+        Map<Long, Map<String, Object>> anchored = new LinkedHashMap<>();
+        if (!settleIds.isEmpty()) {
+            for (Map<String, Object> agg : orderItemMapper.selectAnchoredAggregates(new ArrayList<>(settleIds))) {
+                anchored.put(((Number) agg.get("settleId")).longValue(), agg);
+            }
+        }
+
+        List<Map<String, Object>> out = new ArrayList<>(rows.size());
+        for (Settlement row : rows) {
+            Map<String, Object> agg = anchored.get(row.getId());
+            // reconcileOk 实时算（契约 §1.2，账面 vs 实时三条件皆真才 true）：
+            // ① 账面 gross（gmv_amount）== 实时挂锚明细 Σ(supply_price×qty)；
+            // ② 账面计数 == 实时挂锚计数——契约「明细数==itemCount」的账面明细行数在 settlement 表
+            //    （06 册 §4.5 定稿列清单）无 item_count 落点，计数对账以表内唯一计数列 order_count
+            //    对实时去重订单数承载（明细行被删/改锚在该半条件打穿）；
+            // ③ 挂锚明细无孤儿——孤儿（orders 行被删）明细的弹窗读不到 pay_status，与「对得上」
+            //    天然矛盾，orphanCount>0 即数据事故 → false（宁可错杀不可漏报）。
+            // 无聚合行（锚被清，理论不可达）也 false——对账标志宁可错杀不可漏报。
+            boolean reconcileOk = false;
+            if (agg != null) {
+                BigDecimal anchoredGross = (BigDecimal) agg.get("gross");
+                long anchoredOrders = ((Number) agg.get("orderCount")).longValue();
+                long orphanCount = ((Number) agg.get("orphanCount")).longValue();
+                reconcileOk = anchoredGross != null
+                        && anchoredGross.compareTo(row.getGmvAmount()) == 0
+                        && anchoredOrders == row.getOrderCount()
+                        && orphanCount == 0;
+            }
+            // itemCount 出参取实时挂锚行数（账面无列，实时即真值；明细弹窗行数与此天然一致）
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.getId());
+            line.put("settleNo", row.getSettleNo());
+            line.put("merchantId", row.getMerchantId());
+            line.put("merchantName", merchantNames.get(row.getMerchantId()));
+            line.put("periodStart", row.getPeriodStart() == null ? null : row.getPeriodStart().toString());
+            line.put("periodEnd", row.getPeriodEnd() == null ? null : row.getPeriodEnd().toString());
+            line.put("gross", row.getGmvAmount());
+            line.put("refund", row.getRefundAmount());
+            line.put("retain", row.getRetainAmount());
+            line.put("net", row.getPayable());
+            line.put("itemCount", agg == null ? 0 : ((Number) agg.get("lineCount")).intValue());
+            line.put("status", row.getStatus());
+            line.put("reconcileOk", reconcileOk);
+            line.put("paidChannelAbsent", Boolean.TRUE);   // 记账态明示：打款通道未接（轨道 B）
+            out.add(line);
+        }
+        return out;
+    }
+
+    /**
+     * 账单明细（F-118 §1.3）：结算单不存在 404「结算单不存在」（先于任何查询下推——
+     * id 连行都没有，明细集为空与单不存在是两种语义）；行键照契约七项
+     * {@code itemId,dishName,supplyPrice,qty,subtotal,orderId,payStatus,fulfillStatus}
+     * + {@code orphan}（2026-10-25 主会话验收裁决：orders 行被删的孤儿行不再被 JOIN 静默丢掉，
+     * pay_status 显 null、orphan 标记显 true，前端标「订单已不存在」警示）。
+     * SQL 侧 orphan 是 1/0 整数，本方法归一为 Boolean 下发（出参键序与 SQL 列序同源）。
+     */
+    @Override
+    public List<Map<String, Object>> settlementItems(Long id) {
+        if (id == null || settlementMapper.selectById(id) == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "结算单不存在");
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> raw : orderItemMapper.selectAnchoredItems(id)) {
+            Map<String, Object> line = new LinkedHashMap<>(raw);
+            Object orphan = raw.get("orphan");
+            line.put("orphan", orphan != null && ((Number) orphan).intValue() != 0);
+            out.add(line);
+        }
+        return out;
     }
 }

@@ -19,6 +19,7 @@ import com.fresh.dto.AdminMerchantCreateDTO;
 import com.fresh.dto.AdminOrderStatusDTO;
 import com.fresh.dto.AdminReviewAuditDTO;
 import com.fresh.dto.AdminSeckillUpdateDTO;
+import com.fresh.dto.AdminSettlementGenerateDTO;
 import com.fresh.dto.AdminStoreUpdateDTO;
 import com.fresh.entity.AdminUser;
 import com.fresh.mapper.AdminUserMapper;
@@ -802,6 +803,72 @@ public class AdminController {
         return R.ok(null, carriedIgnored
                 ? "门店已更新（owner_user_id/contact_phone/photos/lng/lat 不可改，已忽略）"
                 : "门店已更新");
+    }
+
+    // ==================================================================
+    // F-118 结算跑批 + 结算中心（三个端点：POST generate 写 / GET 列表 / GET 明细，无 PUT 无 DELETE——
+    // settlement 只增不改是契约 §3 红线：无更新无作废端点，冲销走下一期 refund 列承载，06 册 §4.5 定稿）。
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator；读 30/60s、写 10/60s，均按 IP。
+    // 审计（settlement.create）在 AdminServiceImpl 内与业务同源写。
+    // 红线（契约 §3）：主理人佣金（F-119）/打款（轨道 B）/保证金（m1x）零涉及；
+    // 下单/取消/支付链路零改动（本段只读它们产生的数据）；不新增 yml 键。
+    // ==================================================================
+
+    /**
+     * 生成账期（F-118 §1.1）：{@code POST /api/admin/settlements/generate}，
+     * body {@code {merchantId, periodStart, periodEnd}}（日期 YYYY-MM-DD）。
+     * 聚合口径、金额、事务与幂等（INSERT→条件 UPDATE 挂锚影响行数=候选数才成功）、
+     * 404/400 判据顺序全部钉在 {@code AdminService#generateSettlement}；
+     * 成功出参为生成单概要，message「账期已生成」。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-118 §1，照 F-110）
+    @PostMapping("/settlements/generate")
+    public R<Map<String, Object>> generateSettlement(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                     @RequestHeader(value = "Authorization", required = false) String authz,
+                                                     @RequestBody AdminSettlementGenerateDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 merchantApplies/arrivalPreview 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.generateSettlement(dto, grant.actor()), "账期已生成");
+    }
+
+    /**
+     * 账期列表（F-118 §1.2）：{@code GET /api/admin/settlements?merchantId=}，全量或按商家筛。
+     * 行内含实时对账标志 reconcileOk 与 paidChannelAbsent:true（记账态明示），
+     * 判定与键序钉在 {@code AdminService#listSettlements}。只读端点不写审计（RF 只约束写动作）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-118 §1.2，照 F-110）
+    @GetMapping("/settlements")
+    public R<List<Map<String, Object>>> settlements(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                    @RequestHeader(value = "Authorization", required = false) String authz,
+                                                    @RequestParam(value = "merchantId", required = false) Long merchantId) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 couponTemplates/listStores 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.listSettlements(merchantId));
+    }
+
+    /**
+     * 账单明细（F-118 §1.3）：{@code GET /api/admin/settlements/{id}/items}——明细弹窗数据源，
+     * 该单挂锚的 order_item 行（快照列+订单支付态，只读）。id 不存在 404「结算单不存在」。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-118 §1.3，照 F-110）
+    @GetMapping("/settlements/{id}/items")
+    public R<List<Map<String, Object>>> settlementItems(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                        @RequestHeader(value = "Authorization", required = false) String authz,
+                                                        @PathVariable("id") Long id) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.settlementItems(id));
     }
 
     /**

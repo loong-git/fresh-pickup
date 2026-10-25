@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -336,4 +337,97 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
             + "AND o.status <> 'cancelled'")
     long countArrivalOrdersForStore(@Param("date") LocalDate date,
                                     @Param("storeId") Long storeId);
+
+    // ------------------------------------------------------------------
+    // F-118 结算跑批（四条，全平台视角，归属入参 merchantId 来自运营请求体而非鉴权注入——
+    // 上方 F-63 那组「平台全量视角无归属谓词」的注记同样适用于本组；聚合口径逐字照契约 §1.1）。
+    // settlement 只增不改（契约 §3 红线）：挂锚 UPDATE 是 settle_id 的唯一运行期写入口，
+    // 已挂锚明细（settle_id 非 NULL）永不被本组 SQL 复写或解除。
+    // ------------------------------------------------------------------
+
+    /**
+     * 结算候选明细（F-118 §1.1 聚合口径逐字）：{@code merchant_id=? AND settle_id IS NULL AND
+     * supply_price IS NOT NULL} JOIN 同单 {@code orders.pay_status=1 AND fulfill_status != 'shortage'}。
+     * 不排 cancelled：已支付单先取消（pay_status→2）后跑批则不满足 pay_status=1 不进聚合；
+     * 先跑批后取消则已挂锚、由下一期 refund 列冲销——两个方向都自洽，不加契约没有的第四条谓词。
+     * ORDER BY oi.id 给挂锚序一个稳定真源（IN 列表序即此序）。
+     */
+    @Select("SELECT oi.id AS id, oi.order_id AS orderId, oi.dish_name AS dishName, "
+            + "oi.supply_price AS supplyPrice, oi.quantity AS quantity, "
+            + "o.pay_status AS payStatus, oi.fulfill_status AS fulfillStatus "
+            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.merchant_id = #{merchantId} "
+            + "AND oi.settle_id IS NULL "
+            + "AND oi.supply_price IS NOT NULL "
+            + "AND o.pay_status = 1 "
+            + "AND oi.fulfill_status != 'shortage' "
+            + "ORDER BY oi.id ASC")
+    List<Map<String, Object>> selectSettleCandidates(@Param("merchantId") Long merchantId);
+
+    /**
+     * 挂锚条件 UPDATE（F-118 §1.1 事务步 2，06 册 §4.5 生成结算单事务定稿照抄）：
+     * {@code UPDATE order_item SET settle_id=? WHERE id IN (候选) AND settle_id IS NULL}——
+     * <b>影响行数=候选数才成功</b>，不足即调用方抛异常整单回滚（并发跑批双开只有一个成功，另一个全回滚）；
+     * {@code AND settle_id IS NULL} 同时是防复写保险：已挂锚明细绝不被第二个账单改锚。
+     * foreach 的 IN 逐字照契约语序（id IN 在前、IS NULL 在后）。
+     */
+    @Update("<script>UPDATE order_item SET settle_id = #{settleId} WHERE id IN "
+            + "<foreach collection='ids' item='iid' open='(' separator=',' close=')'>#{iid}</foreach> "
+            + "AND settle_id IS NULL</script>")
+    int attachSettle(@Param("settleId") Long settleId, @Param("ids") List<Long> ids);
+
+    /**
+     * 冲销金额（F-118 §1.1）：自上一账期止之后发生退款的已挂锚明细 Σ(supply_price×qty)。
+     * 「已挂锚」= settle_id IS NOT NULL（且 oi.merchant_id 同商家——挂锚只挂本商家候选，锚随明细走）；
+     * 「发生退款」= pay_status=2（该列注释明言退款时间不单设列、由 update_time 隐含，init.sql orders.pay_status）
+     * 且 o.update_time ≥ 上一期止的次日元（DATE_ADD 1 DAY）——退款在上一期含日内不算本期冲销，下一期起才计。
+     * 正数返回，调用方落 refund_amount 列并在 net 里减（06 册「负向计入」的落列口径）。
+     * 无退款明细回 0（IFNULL 兜底，照上方 selectStatSummary 的 G5 纪律）。
+     */
+    @Select("SELECT IFNULL(SUM(oi.supply_price * oi.quantity), 0) "
+            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.merchant_id = #{merchantId} "
+            + "AND oi.settle_id IS NOT NULL "
+            + "AND o.pay_status = 2 "
+            + "AND o.update_time >= DATE_ADD(#{anchorAfter}, INTERVAL 1 DAY)")
+    BigDecimal sumRefundAfterAnchor(@Param("merchantId") Long merchantId,
+                                    @Param("anchorAfter") LocalDate anchorAfter);
+
+    /**
+     * 对账统计（F-118 §1.2 reconcileOk 实时算）：按 settle_id 分组回挂锚行数 / 去重订单数 /
+     * Σ(supply_price×qty) / 孤儿行数。<b>LEFT JOIN orders</b>（2026-10-25 主会话验收裁决收口：
+     * 此前不 JOIN，orders 行被删的孤儿明细对不上弹窗口径）——孤儿行（orders 已删）不丢行地留在
+     * COUNT/Σ 里（账面 vs 实时可比），由孤儿计数列单独打穿对账；不筛 supply_price IS NOT NULL——
+     * NULL 行（数据事故态）要如实进 COUNT 把对账打穿成 false，正是这枚标志存在的意义。
+     * 空 IN 列表由调用方短路，绝不下发。
+     * 注：settlement 表（06 册 §4.5 定稿）没有 item_count 列，账面计数只有 order_count——
+     * 对账落地为「账面 gmv_amount vs 实时 Σ」「账面 order_count vs 实时去重订单数」「孤儿=0」三条。
+     */
+    @Select("<script>SELECT oi.settle_id AS settleId, COUNT(*) AS lineCount, "
+            + "COUNT(DISTINCT oi.order_id) AS orderCount, "
+            + "IFNULL(SUM(oi.supply_price * oi.quantity), 0) AS gross, "
+            + "SUM(CASE WHEN o.id IS NULL THEN 1 ELSE 0 END) AS orphanCount "
+            + "FROM order_item oi LEFT JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.settle_id IN "
+            + "<foreach collection='settleIds' item='sid' open='(' separator=',' close=')'>#{sid}</foreach> "
+            + "GROUP BY oi.settle_id</script>")
+    List<Map<String, Object>> selectAnchoredAggregates(@Param("settleIds") List<Long> settleIds);
+
+    /**
+     * 账单明细弹窗数据源（F-118 §1.3；2026-10-25 主会话验收裁决修订）：
+     * <b>LEFT JOIN orders</b> 取 pay_status——order_item 自带 dish_name/supply_price/quantity/
+     * fulfill_status 全部快照（本表列，历史不漂移纪律同上方 selectOrderItemsByDate），
+     * 此前 STRAIGHT_JOIN 会在 orders 行被删（孤儿）时静默丢行=弹窗空，与对账口径互相矛盾；
+     * 修订后孤儿行<b>保留</b>：pay_status 显 null、orphan=1 显式标记，前端标「订单已不存在」警示。
+     * 小计=supply_price×quantity 逐行现算。只读，ORDER BY oi.id 与挂锚序同源。
+     */
+    @Select("SELECT oi.id AS itemId, oi.dish_name AS dishName, oi.supply_price AS supplyPrice, "
+            + "oi.quantity AS qty, oi.supply_price * oi.quantity AS subtotal, "
+            + "oi.order_id AS orderId, o.pay_status AS payStatus, "
+            + "(o.id IS NULL) AS orphan, "
+            + "oi.fulfill_status AS fulfillStatus "
+            + "FROM order_item oi LEFT JOIN orders o ON oi.order_id = o.id "
+            + "WHERE oi.settle_id = #{settleId} "
+            + "ORDER BY oi.id ASC")
+    List<Map<String, Object>> selectAnchoredItems(@Param("settleId") Long settleId);
 }

@@ -1132,3 +1132,61 @@ export function updateAdminStore(id, body) {
     data: body
   })
 }
+
+// ==================== F-118 结算跑批 + 结算中心（三个端点，只增不改） ====================
+// 契约真源：docs/F-118-结算跑批与结算中心契约.md §1/§2。三个端点全在 AdminController 的 Admin 面
+// （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
+// 读端点限流 IP 30/60s、写端点 IP 10/60s（照 F-110/F-113 档位）。
+// 语义边界（契约 §3 红线）：settlement 只增不改——本节无任何 UPDATE/DELETE 函数；冲销走下一期 refund
+// 列承载（06 册 §4.5 定稿）；「打款通道未接」是页面恒显语义（paidChannelAbsent 由接口层带出防漏显）。
+// ⚠ 商家下拉数据源：契约 §1 只授权三端点、未给商家清单端点——选项来自列表返回的 merchantId/merchantName
+//   去重 + allow-create 手输 merchantId（首次对某商家出账直接输入其 id），本层不为此新造请求。
+
+/**
+ * 账期列表：GET /api/admin/settlements?merchantId=
+ * 出参 data 是数组，行内键序（契约 §1.2 逐字十四键）：id,settleNo,merchantId,merchantName,
+ * periodStart,periodEnd,gross,refund,retain,net,itemCount,status,reconcileOk,paidChannelAbsent。
+ * reconcileOk 是实时对账标志（金额+计数双对账，false=数据事故，页面必须标红不得静默）；
+ * paidChannelAbsent 恒 true（记账态明示）；merchantId 可空=全量。只读档限流 IP 30/60s。
+ * @param {number|string} [merchantId] 空值由 withQuery 挡下不下发（服务端把缺省当「全量」）
+ */
+export function getAdminSettlements(merchantId) {
+  return request({
+    url: withQuery('/api/admin/settlements', { merchantId }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 生成账期（写）：POST /api/admin/settlements/generate，body {merchantId, periodStart, periodEnd}。
+ * 服务端判定（契约 §1.1）：merchant 不存在 404「商家不存在」；start≥end 400；
+ * 同期重跑 400「该商家此账期已生成」；无可结算明细 400「该商家本期无可结算明细」（不生成空账单）；
+ * 并发跑批落败方 400（整单回滚）。成功 message「账期已生成」，data 为生成单概要
+ * {id, settleNo, merchantId, merchantName, periodStart, periodEnd, gross, refund, net, itemCount, orderCount, status}。
+ * 聚合口径（已支付·非缺货·已设供货价）由页面二次确认文案说明；写档限流 IP 10/60s。
+ * ⚠ 写成功与否由页面重拉列表核对，绝不本地改行（纪律 3）。
+ * @param {{merchantId:number, periodStart:string, periodEnd:string}} body 日期 YYYY-MM-DD
+ */
+export function generateAdminSettlement(body) {
+  return request({
+    url: '/api/admin/settlements/generate',
+    method: 'POST',
+    data: body
+  })
+}
+
+/**
+ * 账单明细（只读）：GET /api/admin/settlements/{id}/items——明细弹窗数据源。
+ * 出参 data 是数组，行内键：itemId,dishName,supplyPrice,qty,subtotal,orderId,payStatus,fulfillStatus,
+ * orphan（2026-10-25 验收裁决：payStatus 经 LEFT JOIN orders 取，orders 行被删的孤儿行不再静默丢行——
+ * payStatus=null、orphan=true，页面标「订单已不存在」警示；正常行 orphan=false）。
+ * dish_name/supply_price/qty/fulfill_status 全部是 order_item 下单快照（不 JOIN dish）。id 不存在 404。
+ * 只读档限流 IP 30/60s。
+ * @param {number|string} id settlement.id（自增小整数）
+ */
+export function getAdminSettlementItems(id) {
+  return request({
+    url: '/api/admin/settlements/' + encodeURIComponent(String(id)) + '/items',
+    method: 'GET'
+  })
+}

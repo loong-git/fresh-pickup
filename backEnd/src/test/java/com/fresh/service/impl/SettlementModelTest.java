@@ -64,10 +64,13 @@ import static org.mockito.Mockito.when;
  * ③ m27 重放幂等（照 m26 门禁断言模式做文本级断言——本仓测试全离线无真库，重放与真库断言由 verify 脚本跑）
  *    + settlement DDL 关键约束存在性断言（uk_settle_no / uk_merchant_period 两索引）
  *    + init.sql 与 m27-migration.sql 的 settlement 建表体逐字一致（两处同步纪律的机器保证）
- *    + 红线（契约 §4）：OrderItem 实体不映射 settle_id（零写路径）、src/main/java 无 settlement 表 SQL 触点（零读写）。
+ *    + 红线（F-118 契约 §3，F-117 片「零读写」临时红线到期后升格）：settlement 只增不改——
+ *      OrderItem 映射 settle_id（F-118 挂锚写路径启用、下单链路仍零写），src/main/java 无
+ *      UPDATE settlement / DELETE FROM settlement 触点。
  *
  * <p><b>本类测不成什么（免得留假收据）</b>：真库 DECIMAL(10,2) 落值/DEFAULT 兜底、m27 在真库的重放幂等、
- * 双轨闸门/限流（Controller 层）——由 logs/verify-settlement-model.sh 与主会话门禁覆盖。
+ * 双轨闸门/限流（Controller 层）——由 logs/verify-settlement-model.sh 与主会话门禁覆盖；
+ * 跑批聚合/挂锚/冲销/对账的行为断言归同批 SettlementGenerateTest。
  */
 class SettlementModelTest {
 
@@ -182,14 +185,16 @@ class SettlementModelTest {
     }
 
     @Test
-    void 下单快照_mp插入语句不含settle_id_零写路径() {
+    void 下单快照_settleId已映射_F118挂锚写路径启用() {
         createOrderAndCaptureItem();
 
-        // settle_id 零写路径的实体侧证据：OrderItem 不映射该列 → MP 为 insert 生成的列集合里没有它
+        // F-117 片「OrderItem 不映射 settle_id」的临时红线随 F-118 到期：挂锚写路径（OrderItemMapper#attachSettle）
+        // 自 F-118 启用，实体必须映射；supplyPrice 快照列映射不变。下单链路仍零写 settle_id
+        // （insert 时 settleId 为 null，MP NOT_NULL 策略下该列不进 INSERT，落库由 DB NULL 兜底）。
         Set<String> entityFields = Arrays.stream(OrderItem.class.getDeclaredFields())
                 .map(java.lang.reflect.Field::getName).collect(Collectors.toSet());
-        assertFalse(entityFields.contains("settleId"),
-                "OrderItem 绝不允许映射 settle_id（F-118 跑批才写；本片只建列零写路径，契约 §4）：fields=" + entityFields);
+        assertTrue(entityFields.contains("settleId"),
+                "F-118 起挂锚写路径启用，OrderItem 必须映射 settle_id：fields=" + entityFields);
         assertTrue(entityFields.contains("supplyPrice"), "快照列必须映射才能落库");
     }
 
@@ -411,11 +416,13 @@ class SettlementModelTest {
     }
 
     @Test
-    void 红线_settlement零读写_主代码无SQL触点() throws IOException {
+    void 红线_settlement只增不改_主代码无UPDATE或DELETE触点() throws IOException {
+        // F-117 片「零读写」红线随 F-118 到期（generate 端点启用 INSERT+SELECT）；
+        // 永久红线升格为 F-118 契约 §3「settlement 只增不改」：主代码任何地方不许出现
+        // UPDATE settlement / DELETE FROM settlement / DELETE INTO 之类的改删触点（冲销走下一期 refund 列承载）。
         Path mainJava = locateMainJava();
         assumeTrue(mainJava != null, "未定位到 src/main/java（工作目录非 backEnd/ 或仓库根），本条跳过");
 
-        // 契约 §4：settlement 表本片零读写（无端点无服务逻辑）——主代码不允许出现该表的任何 SQL 触点/实体映射
         try (Stream<Path> paths = Files.walk(mainJava)) {
             List<String> violations = paths
                     .filter(p -> p.toString().endsWith(".java"))
@@ -426,13 +433,13 @@ class SettlementModelTest {
                             return "";
                         }
                     })
-                    .filter(text -> text.contains("@TableName(\"settlement\"")
-                            || text.contains("FROM settlement")
-                            || text.contains("INTO settlement")
-                            || text.contains("UPDATE settlement"))
+                    .filter(text -> text.contains("UPDATE settlement")
+                            || text.contains("DELETE FROM settlement")
+                            || text.contains("delete from settlement")
+                            || text.contains("update settlement"))
                     .toList();
             assertTrue(violations.isEmpty(),
-                    "settlement 表必须零读写（F-118 才有生成入口）：命中 " + violations.size() + " 个文件");
+                    "settlement 只增不改（F-118 契约 §3）：主代码不允许 UPDATE/DELETE 触点，命中 " + violations.size() + " 个文件");
         }
     }
 
