@@ -2,10 +2,10 @@
   <view class="page-container">
     <view class="page-header">
       <text class="page-title">我的订单</text>
-      <text class="page-sub" v-if="hasToken && total > 0">共 {{ total }} 单</text>
+      <text class="page-sub" v-if="hasToken && total > 0">{{ activeTab === 'all' ? '共 ' + total + ' 单' : '当前筛选 ' + total + ' 单' }}</text>
     </view>
 
-    <!-- 四状态 tab（全部/待自提/已完成/已取消）：对已加载数据做前端过滤 -->
+    <!-- 四状态 tab（全部/待自提/已完成/已取消）：切换走服务端 status 筛选（P4-1），不再只过滤已加载页 -->
     <view class="status-tabs" v-if="hasToken">
       <view
         class="status-tab"
@@ -18,6 +18,9 @@
       </view>
     </view>
 
+    <!-- P4-1：刷新时保留旧列表，不白屏；只加一条轻提示 -->
+    <view v-if="hasToken && loading && orders.length > 0" class="refresh-tip">正在刷新订单…</view>
+
     <!-- 引导态：未登录（M2 归属升级：订单按 token userId 过滤；401 已由 request 层清登录态，此处响应式呈现） -->
     <view v-if="!hasToken" class="guide-state">
       <text class="empty-icon">📱</text>
@@ -27,8 +30,8 @@
     </view>
 
     <!-- 订单列表 -->
-    <view v-else-if="filteredOrders.length > 0" class="order-list">
-      <view class="order-card" v-for="order in filteredOrders" :key="order.id">
+    <view v-else-if="orders.length > 0" class="order-list">
+      <view class="order-card" v-for="order in orders" :key="order.id">
         <view class="order-top">
           <text class="order-id">订单号：{{ order.id }}</text>
           <view class="order-badges">
@@ -69,6 +72,11 @@
           <view class="info-row">
             <text class="info-label">地址</text>
             <text class="info-val">{{ order.address || '到店自提（以自提点为准）' }}</text>
+          </view>
+          <!-- P4-1：自提日/自提点常驻卡片（原仅取货码出示层可见，未支付/已完成/已取消单看不到） -->
+          <view class="info-row">
+            <text class="info-label">自提</text>
+            <text class="info-val">{{ order.pickupDate || '--' }} · {{ order.storeName || '以自提点为准' }}</text>
           </view>
           <view class="info-row">
             <text class="info-label">手机</text>
@@ -120,8 +128,13 @@
       <button class="btn-retry" @click="retryLoad">点击重试</button>
     </view>
 
-    <!-- 空态：全部 tab 无单引导去逛逛；过滤 tab 无单给状态文案 -->
-    <view v-else-if="!loading" class="empty-state">
+    <!-- 加载态（P4-1）：首屏/切 tab 且无旧数据时显示，不能再把加载中当空态 -->
+    <view v-else-if="loading" class="loading-state">
+      <text class="empty-sub">正在加载订单…</text>
+    </view>
+
+    <!-- 空态：全部 tab 无单引导去逛逛；过滤 tab 无单给状态文案；只有已成功加载才允许出现 -->
+    <view v-else-if="loaded" class="empty-state">
       <template v-if="activeTab === 'all'">
         <text class="empty-icon">📦</text>
         <text class="empty-label">暂无订单</text>
@@ -158,7 +171,9 @@ const STATUS_MAP = { pending_pickup: '待自提', completed: '已完成', cancel
 export default {
   data() {
     return {
-      // 状态 tab：all + 订单三态（前端过滤已加载数据，切换不重新请求）
+      // 状态 tab：all + 订单三态（P4-1 起切换走服务端 status 筛选并重新请求，见 switchTab）。
+      // 这三枚 key 必须逐字等于后端枚举：OrderServiceImpl#isValidStatus 对认不出的值不报错，
+      // 而是连 count 一起不加过滤条件 → 标题写「当前筛选 N 单」、卡片却混排四态。加第四态要两侧同时加。
       tabs: [
         { key: 'all', label: '全部' },
         { key: 'pending_pickup', label: '待自提' },
@@ -182,20 +197,17 @@ export default {
       payingId: '',
       // F-59 取货码出示层当前展示的那一单（null=收起）
       codeOrder: null,
-      // 错误态标记（M3-T-05 部分）：重置加载（首屏/重试）接口异常时置 true，显示错误态而非空态
+      // 错误态标记（M3-T-05 部分）：重置加载（首屏/重试）接口异常且无旧数据时置 true
       loadError: false,
+      // P4-1：是否至少成功加载过一次（空态只在成功且为空时出现，加载中不再伪装成空）
+      loaded: false,
       statusMap: STATUS_MAP
     }
   },
   computed: {
     ...mapState(['user']),
     // 是否已登录（M2：token 鉴权，未登录显示引导态；401 时 request 层清登录态，此处响应式切换）
-    hasToken() { return !!(this.user && this.user.token) },
-    // 四 tab 前端过滤：all 不过滤，其余按 status 精确匹配
-    filteredOrders() {
-      if (this.activeTab === 'all') return this.orders
-      return this.orders.filter(o => o.status === this.activeTab)
-    }
+    hasToken() { return !!(this.user && this.user.token) }
   },
   onShow() {
     // 每次进入页面重置到第一页重新拉取（新下单/新取消后数据最新）
@@ -221,20 +233,30 @@ export default {
   methods: {
     async loadOrders(reset = true) {
       // 未登录（无 token / 401 后登录态已被 request 层清空）：不发请求，展示登录引导态
-      if (!this.hasToken) return
+      // 早退也要作废在飞响应并摘掉 loading：否则上一 tab 还在飞的回包会 concat 进刚被切空的列表，
+      // 且没人再清 loading（加载更多会永久进不去）
+      if (!this.hasToken) {
+        this._ordersSeq = (this._ordersSeq || 0) + 1
+        this.loading = false
+        return
+      }
+      // 刷新失败保留旧列表时要回滚的两枚游标（见 catch 里那段注释）
+      const snapPageNum = this.pageNum
+      const snapFinished = this.finished
       if (reset) {
         this.pageNum = 1
-        this.orders = []
-        this.total = 0
         this.finished = false
+        this.loadError = false
+      } else if (this.loading) {
+        return
       }
-      if (this.loading) return
+      // P4-1：onShow 刷新 / 切 tab 可能并发 reset；只认最后一次响应，旧响应不能覆盖新 tab
+      const seq = (this._ordersSeq = (this._ordersSeq || 0) + 1)
       this.loading = true
       try {
-        // 本次请求发起前先清错误标记（失败会在 catch 重新置位）
-        this.loadError = false
-        // M2 归属升级：不带 phone 参数，后端按 token 解析的 userId 过滤
-        const res = await getOrders(this.pageNum, this.pageSize)
+        // M2 归属升级：不带 phone 参数；P4-1 起 status 由服务端过滤（all/空不传）
+        const res = await getOrders(this.pageNum, this.pageSize, this.activeTab)
+        if (seq !== this._ordersSeq) return
         const data = (res && res.data) || {}
         const list = Array.isArray(data.list) ? data.list : []
         this.total = Number(data.total) || 0
@@ -242,17 +264,25 @@ export default {
         // 已加载满 total 或本页空 → 没有更多
         this.finished = this.orders.length >= this.total || list.length === 0
         this.pageNum++
+        this.loaded = true
       } catch (e) {
-        // M3-T-05 部分：首屏/重试加载失败 → 错误态 + 点击重试（区别于空态）；
-        // 翻页（loadMore）失败仅 toast 透出，列表保留现场；
-        // 401 时登录态已被清空，页面同步切换登录引导态
+        if (seq !== this._ordersSeq) return
+        // 有旧列表：刷新失败保留现场，只提示；无旧数据才进错误态，避免白屏/假空
         if (reset) {
-          this.loadError = true
+          if (this.orders.length === 0) {
+            this.loadError = true
+          } else {
+            // reset 已把游标改写成「第 1 页、还能翻页」，而列表里留的是刷失败之前的深度页数据；
+            // 不回滚就会把同一页重复拼进来（实测：3 行在表 → 加载更多 → 5 行 / 3 唯一，:key 重复）
+            this.pageNum = snapPageNum
+            this.finished = snapFinished
+            this.showToast((e && e.message) || '刷新失败，请稍后重试')
+          }
         } else {
           this.showToast((e && e.message) || '网络异常')
         }
       } finally {
-        this.loading = false
+        if (seq === this._ordersSeq) this.loading = false
       }
     },
     // 错误态重试（M3-T-05 部分）：清错误标记并重置到第一页重新拉取
@@ -265,16 +295,28 @@ export default {
       if (this.loading || this.finished || !this.hasToken) return
       this.loadOrders(false)
     },
-    // tab 切换：仅本地过滤，不重新请求
-    switchTab(key) { this.activeTab = key },
-    // 取消订单：仅待自提单展示入口；后端校验状态，成功后刷新列表
+    // tab 切换：服务端 status 筛选；清掉旧 tab 的行，避免新标题下短暂显示旧状态订单
+    switchTab(key) {
+      if (this.activeTab === key) return
+      this.activeTab = key
+      this.orders = []
+      this.total = 0
+      this.finished = false
+      this.loaded = false
+      this.loadError = false
+      this.loadOrders(true)
+    },
+    // 取消订单：仅待自提单展示入口；P4-1 起必须二次确认（取消不可恢复，已支付单立即退款）
     async onCancel(order) {
       if (this.cancelingId) return
+      const paid = this.payStatus(order) === 1
+      const ok = await this.confirmCancel(paid)
+      if (!ok) return
       this.cancelingId = order.id
       try {
         await cancelOrder(order.id)
         // 已支付单取消即退款（后端置 pay_status=2），文案区分；未支付单维持原提示
-        uni.showToast({ title: this.payStatus(order) === 1 ? '订单已取消，退款已原路退回' : '订单已取消', icon: 'success' })
+        uni.showToast({ title: paid ? '订单已取消，退款已原路退回' : '订单已取消', icon: 'success' })
         // 重置到第一页刷新（状态变化后各 tab 数据同步更新）
         this.loadOrders(true)
       } catch (e) {
@@ -283,6 +325,21 @@ export default {
       } finally {
         this.cancelingId = ''
       }
+    },
+    // 取消二次确认：Promise 化 uni.showModal，取消/关闭一律 false（不发请求）
+    confirmCancel(paid) {
+      return new Promise((resolve) => {
+        uni.showModal({
+          title: '取消订单',
+          content: paid
+            ? '取消后立即退款，库存回补，取货码作废，且不可恢复。确定取消？'
+            : '取消后库存回补，且不可恢复。确定取消？',
+          confirmText: '确认取消',
+          cancelText: '不取消',
+          success: (res) => resolve(!!res.confirm),
+          fail: () => resolve(false)
+        })
+      })
     },
     // 待支付单"去支付"：同收银台逻辑调 mock-pay（幂等），成功后刷新列表同步支付徽标
     async onPay(order) {
@@ -384,6 +441,10 @@ export default {
   padding: 12rpx 0; border: 1rpx solid #EEEEEE;
 }
 .status-tab.active { color: #FFFFFF; font-weight: 700; background-color: #E02020; border-color: #E02020; }
+
+/* P4-1：刷新保留旧列表时的轻提示；首屏加载态（无旧数据） */
+.refresh-tip { text-align: center; font-size: 22rpx; color: #999999; padding: 4rpx 0 12rpx; }
+.loading-state { display: flex; align-items: center; justify-content: center; padding-top: 240rpx; }
 
 /* 订单卡片 */
 .order-card { background-color: #FFFFFF; border-radius: 12rpx; margin-bottom: 20rpx; overflow: hidden; }

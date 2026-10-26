@@ -219,13 +219,16 @@ export function submitOrder(orderData) {
  * 分页查询当前登录用户订单（M2 归属升级：后端按 token 解析的 userId 过滤，phone 查询参数废弃）
  * @param {number} pageNum - 页码（从 1 起）
  * @param {number} pageSize - 每页条数（默认 10）
+ * @param {string} [status] - 订单状态筛选（all/空=全部；pending_pickup/completed/cancelled 由后端过滤）
  * @returns {Promise<{code,data:{list:Array,total:number}}>}
  */
-export function getOrders(pageNum = 1, pageSize = 10) {
+export function getOrders(pageNum = 1, pageSize = 10, status = '') {
+  const data = { pageNum, pageSize }
+  if (status && status !== 'all') data.status = status
   return request({
     url: '/api/orders',
     method: 'GET',
-    data: { pageNum, pageSize }
+    data
   })
 }
 
