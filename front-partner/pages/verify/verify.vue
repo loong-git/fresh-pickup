@@ -24,11 +24,15 @@
              核销是写操作，重复提交会撞 D-14 枚举锁，第二次点击必须发不出去。 ==================== -->
     <view class="card verify-card">
       <text class="block-title">取货码核销</text>
+      <!-- P4-5 S4（D2）：:focus 绑的是布尔位而不是裸 focus=true——裸值只在首帧生效，第二次清码时值没变化就
+           再拉不起焦点；姿势照 front/pages/pickup/pickup.vue 的 :focus="searchFocus"，
+           「先置 false → $nextTick → 置 true」的复位动作在 refocusCodeInput 一处做完 -->
       <input
         class="code-input"
         type="number"
         maxlength="6"
         :value="code"
+        :focus="codeFocus"
         placeholder="请输入取货码（6 位数字）"
         placeholder-style="color:#BBBBBB;"
         @input="onCodeInput"
@@ -58,14 +62,27 @@
         <text class="date-field-label">自提日期</text>
       </view>
       <view class="date-row">
-        <view class="date-step" hover-class="pill-hover" @click="stepDay(-1)">前一天</view>
+        <!-- P4-5 S3（D3/D4）：日期步进只重拉清单、撞的是 orders 读桶，所以按**读侧**闸门 retryLock 禁用，
+             不是写侧 writeRetryLock（那把管核销提交）——挂错桶会同时造出「锁着但清单能翻」和「能锁但翻不动」。
+             view 没有原生 disabled 语义，所以这里**不写** :disabled（写了也只是个不起作用的假属性，
+             还会让人以为拦点击靠它）——仓内姿势是 apply.vue 的 pill-disabled 类名 + 方法首行 return，
+             真正拦下点击的是 stepDay/goToday 首行那道早退（禁用态要等一次重渲染才生效，同帧两击照样会打出去——P4-4 实测过）。
+             旁边那句只给不带数的状态词：本仓耐久判据是「同一枚锁的秒数一屏只出现一次」，
+             本页读侧带数处仍是错误卡那一行与「加载更多」pill（两支互斥、各只一处），写侧数在常驻反馈行 -->
+        <view class="date-step" :class="{ 'date-pill-disabled': retryLock > 0 }"
+          hover-class="pill-hover" @click="stepDay(-1)">前一天</view>
         <text class="date-current">{{ effectiveDate || '--' }}</text>
-        <view class="date-step" hover-class="pill-hover" @click="stepDay(1)">后一天</view>
+        <view class="date-step" :class="{ 'date-pill-disabled': retryLock > 0 }"
+          hover-class="pill-hover" @click="stepDay(1)">后一天</view>
       </view>
       <view class="date-sub-row">
-        <view class="date-quick" hover-class="pill-hover" @click="goToday">今天</view>
+        <view class="date-quick" :class="{ 'date-pill-disabled': retryLock > 0 }"
+          hover-class="pill-hover" @click="goToday">今天</view>
         <text class="date-note">清单固定只看「待自提」，已完成/已取消不在这一页</text>
       </view>
+      <!-- 这一行只在冷却中出现，且**不带秒数**（D4）；日期卡在本页四态之外常驻，
+           所以空态里那两枚「看前一天/看后一天」文字链被早退挡掉时，理由也在屏上 -->
+      <text v-if="retryLock > 0" class="form-hint">切换日期冷却中</text>
     </view>
 
     <!-- ==================== 4. 加载中（首屏与切日期后的重拉都走这一态，避免上一日期的行被读成本日期的） ==================== -->
@@ -182,6 +199,9 @@ export default {
     return {
       // 输码区：@input 已过滤成纯数字且最多 6 位，长度判定因此可直接采信
       code: '',
+      // P4-5 S4（D2）：输码框的聚焦位（母版 front/pages/pickup/pickup.vue 的 searchFocus 同职责）。
+      // 每次要聚焦都先置 false 再在 $nextTick 里置 true，值真的发生变化才拉得起来；初值 false = 首屏不抢键盘
+      codeFocus: false,
       // 提交单飞锁（写操作专用；finally 复位，失败也不能把它留在 true）
       verifying: false,
       // 常驻反馈：{tone:'ok'|'neutral'|'err'|'cooling', text:string}；null = 本次会话还没提交过
@@ -212,6 +232,16 @@ export default {
       retryLockTimer: null,
       writeRetryLock: 0,
       writeRetryLockTimer: null,
+      // P4-5 S2（D5）：上面两把闸门各自的墙上时钟锚点（ms）——闸门真值改存这里，
+      // retryLock / writeRetryLock 降级为「每秒由锚点现算出来的读数」，判据名一个都不改
+      // （模板、canSubmit、feedbackText 仍读那两枚派生值）。
+      // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时屏上的数
+      // 比真实剩余少（600s 的锁能差出几十秒）。形状照 front-merchant/pages/dish-edit/dish-edit.vue
+      // 的 writeGates.retryAt + writeGateRemaining（同仓已验收的那份设计），本页不另起第三套闸门抽象；
+      // 锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长。
+      // 两把锁的锚点各自独立（X-1 拆锁语义不变），stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      retryLockUntil: 0,
+      writeRetryLockUntil: 0,
       // ===== 到货警示条 =====
       // null = 还没查/这次没查成（不显示）；true = 今日确有「该有货却没落定」的门店（显示）；false = 今日全部已确认（不显示）
       alertUnconfirmed: null,
@@ -294,6 +324,12 @@ export default {
     }
   },
   onShow() {
+    // P4-5 S2（D5）收尾：回前台先按墙上时钟重算一次派生读数，再让下面那道读侧闸门判它。
+    // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+    // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
+    // onShow 请求无谓地挡掉（总纲验收④「后台切回倒计时准确」要的就是这一行）
+    this.retryLock = this.retryLockRemaining()
+    this.writeRetryLock = this.writeRetryLockRemaining()
     // 首屏默认今天（本页是「今天来提货的人」这一件事，不像备货单那样让后端缺省顶上来）
     if (!this.queryDate) this.queryDate = this.todayStr()
     // X-4b：回页重拉要过读侧闸门。裁定口径同商家端本轮定稿——onShow 是「页面重新显示时自己发的请求」，
@@ -332,6 +368,10 @@ export default {
     // #endif
     // 定时器清理：X-1 拆锁后本页有两枚 setInterval（读侧 retryLockTimer / 写侧 writeRetryLockTimer），都必须成对清掉
     // （挂在 window 上不摘就会在页面销毁后继续每秒写一次已死组件的状态）
+    // P4-5 S2（D5）：锚点字段 retryLockUntil / writeRetryLockUntil 也在这一对 stop* 里成对归零，
+    // 所以上面两行同时是「摘表」与「抹平真值」两件事——残值会让下一实例的闸门从上一实例那里读数。
+    // 锚点改造没有新增第二枚定时器，也没有让 tick 变成异步写：clearInterval 是同步的，
+    // 卸载后不会再有一次 tick 落到已死组件上（原来那份「不摘就继续每秒写」的风险面一字未变）
     this.stopRetryLock()
     this.stopWriteRetryLock()
   },
@@ -343,6 +383,22 @@ export default {
     onCodeInput(e) {
       const raw = String((e && e.detail && e.detail.value) || '')
       this.code = raw.replace(/\D/g, '').slice(0, 6)
+    },
+    // P4-5 S1（D1 分界）：只有「这个码已经有结论」的出口才清码——幂等/404/400/核销成功四支；
+    // 429、403、500、网络层失败（code<=0）一律不清（判据就是 catch 里那枚 e.code，不新增布尔位）。
+    // 清完立刻把焦点放回输码框：主理人是连着一单接一单作业的，清码后还要手动点一下框才是净损失。
+    clearCodeAndFocus() {
+      this.code = ''
+      this.refocusCodeInput()
+    },
+    // 聚焦姿势（P4-5 S4/D2，母版 front/pages/pickup/pickup.vue 的 :focus="searchFocus"）：
+    // 必须「先置 false → $nextTick → 置 true」——focus 是值变化才生效的绑定，
+    // 上一轮留在 true 时再写一次 true 不会重新拉起焦点（裸 :focus="true" 那种只在首帧有效，所以没用）
+    refocusCodeInput() {
+      this.codeFocus = false
+      this.$nextTick(() => {
+        this.codeFocus = true
+      })
     },
     // ==================== 核销提交（四支常驻反馈） ====================
     // 单飞锁 verifying 在 finally 复位；冷却闸门写在方法级第一行——小程序端 disabled 按钮的
@@ -360,9 +416,14 @@ export default {
         // 那会让主理人以为又放行了一件货
         if (data.idempotent === true) {
           this.setFeedback('neutral', '该码此前已核销，未重复计数')
+          // P4-5 S1（D1）：幂等支也清码+聚焦。这个码已经有结论了（在别处被核掉），
+          // 留在框里就是「还没放行」的错觉；改前这一支只给反馈、不清码
+          this.clearCodeAndFocus()
         } else {
           this.setFeedback('ok', '核销成功：' + this.orderSummary(data))
           this.code = ''
+          // P4-5 S4（D2）：这一支本来就清码，补的是聚焦（改后下一单的键盘已经就位）
+          this.refocusCodeInput()
         }
         // 静默重拉第 1 页（不传 resetView：清单留在屏上，被核掉的那一行自然消失）。
         // 幂等那一支也重拉：既然这单在别处已被核掉，屏上就不该还挂着它。
@@ -384,6 +445,8 @@ export default {
           // 免得归零后常驻行永久停在「请 Ns 后再试」（改前这里存 coolingText(seconds)，把数整句存死了）。
           // X-1：起写侧闸门 writeRetryLock——这是 D-14 防枚举锁的前端闸门，读侧冷却（retryLock）再动也碰不到它。
           // FE-10 + F-28.5 路 A：不带数整句不再页内写死，与 coolingText 无参支同一出处（api 层一份）
+          // P4-5 S1（D1）：这一支刻意**不清码**——429 报的不是这个码的问题，而是这一档桶满了，
+          // 而锁最长 600s；把主理人手里唯一的事实抹掉，只会让解闸后必须凭记忆重输一遍
           this.setFeedback('cooling', coolingText())
           this.startWriteRetryLock(e)
           return
@@ -393,13 +456,25 @@ export default {
           // （PartnerOrderServiceImpl#verify 的 code_not_found / code_not_in_owned_stores 两条 failAs，不泄漏「码本身是对的」），前端跟着分两支就是
           // 替攻击者把 404 拆成可区分的预言机
           this.setFeedback('err', '码不存在或不属于你的门店')
+          // P4-5 S1（D1）：404 是「这个码已经有结论」的出口（不存在/不属于你），清码+聚焦
+          this.clearCodeAndFocus()
           return
         }
         if (code === 400) {
           // 后端原文（码形状不符/已取消/未支付共用「请求参数有误，请检查后重试」，常量 :79、三处出口 :224/:249/:252）
           this.setFeedback('err', message || '请求参数有误，请检查后重试')
+          // P4-5 S1（D1）：400 同样是已结论的出口（这个码按规则就是不可核销），清码+聚焦。
+          // 至于这一支到底是「状态不符 / 已取消 / 未支付」哪一种，后端只把 reason 写进日志、
+          // 抛出的是共用常量，前端拿不到可区分的字段——这里只补清码，不替后端猜原因
+          this.clearCodeAndFocus()
           return
         }
+        // P4-5 S1（D1）：从这里往下三支（403、500 等业务码、code<=0 的网络层失败）一律不动 this.code——
+        // 这些出口上「这个码还没有结论」。网络失败时服务端很可能已经核销成功、只是响应在路上丢了：
+        // 留着同一个码再点一次会命中后端的幂等出口（PartnerOrderServiceImpl 对已完成单返回 idempotent=true，
+        // 既不重复放行也不计一次失败），是把「未知」换成确定答案的安全动作，不是重复提交。
+        // 真正的代价在反面：清掉码就等于逼主理人凭记忆或再问顾客重输一次，
+        // 重输输成另一个 6 位数字就是 404，而 404 会计入防枚举（5 笔锁 600s）——码形状错的 400 反而不计数
         if (code === 403) {
           this.setFeedback('err', message || '无权限访问')
           return
@@ -630,15 +705,25 @@ export default {
       this.fetchList(false)
     },
     stepDay(delta) {
+      // P4-5 S3（D3）：读侧闸门未清就一步都不走，而且**先看闸门再改 queryDate**——
+      // 模板的禁用态要等一次重渲染才生效，同帧两击照样会打出去（P4-4 刚实测过这条），
+      // 所以「禁用态」与「这道早退」两件事都得有；顺序反过来（先改日期再被拦）会让日期条已跳到新一天、
+      // 清单还是上一天的行，那正是本仓在打的那类显示不一致
+      if (this.retryLock > 0) return
       const base = this.queryDate || this.effectiveDate || this.todayStr()
       const d = this.parseDate(base) || this.newToday()
       d.setDate(d.getDate() + delta)
       this.queryDate = this.fmtDate(d)
-      // 步进日期只重拉清单，不动输码区与反馈行：核销现场是「手里正拿着一个码」，
+      // 步进只重拉清单，且冷却期内整枚日期条不可用（P4-5 S3/D3：按读侧闸门 retryLock 禁用 + 首行早退；
+      // 原先「只重拉清单」那半句是「因此不设闸门」的理由，现已作废——步进撞的就是 orders 读桶，
+      // 放行它等于绕过冷却）。
+      // 「不动输码区与反馈行」这半句仍然成立：核销现场是「手里正拿着一个码」，
       // 翻一下日期就把已输的码清掉等于逼主理人重输；上一条反馈也是刚那次提交的事实，不随翻页失效
       this.fetchList(true, true)
     },
     goToday() {
+      // P4-5 S3（D3）：与 stepDay 同一对姿势——模板禁用态 + 方法首行早退，缺一个就还能打出去
+      if (this.retryLock > 0) return
       this.queryDate = this.todayStr()
       this.fetchList(true, true)
     },
@@ -711,28 +796,53 @@ export default {
       // 秒数 = 后端 data.retryAfterSeconds（读桶 429 的剩余 TTL）优先，取不到回落本地 60。
       // 回落 60 与读侧 @RateLimit 的 60s 窗口同档；冷却结束再拉仍可能吃一次 429，
       // 那一支会把这一行重新写上，反馈不会说谎
-      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // P4-5 S2（D5）：闸门真值改存墙上时钟锚点，秒数只由它派生（形状照 dish-edit 的
+      // 「g.retryAt = Date.now() + retrySecondsOf(...) * 1000」+ 立刻取一次派生值）。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf（上面 F-25/P-3 那条纪律一字未动），页内零推算。
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 读侧锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板与各处闸门隐掉冷却态的判据）。
+    // 屏上的数、按钮的判定、toast 里那句用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // P4-5 S2：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // X-1：写侧闸门专用一对——submitVerify 撞 D-14 防枚举锁（可达 600s）只动这两枚变量，
     // 读侧任何失败（含非 429 的 stopRetryLock）都无法把这里的长闸门清掉。秒数仍只来自 retrySecondsOf。
     startWriteRetryLock(err) {
       this.stopWriteRetryLock()
-      this.writeRetryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // P4-5 S2（D5）：与读侧同一形状——锚点写真值、writeRetryLock 只是派生读数，两把锁各挂各的桶
+      // （X-1 拆锁语义一字未动：这里只改「数是怎么算出来的」，不改「谁归零谁」）。
+      // 600s 的防枚举锁正是自减版差得最多的那一支：后台挂几分钟回来，屏上还剩的数与真锁剩余已对不上。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf（上面 X-1 那条「秒数仍只来自 retrySecondsOf」一字未动），页内零推算时长。
+      this.writeRetryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.writeRetryLock = this.writeRetryLockRemaining()
       this.writeRetryLockTimer = setInterval(() => {
-        this.writeRetryLock--
+        this.writeRetryLock = this.writeRetryLockRemaining()
         if (this.writeRetryLock <= 0) this.stopWriteRetryLock()
       }, 1000)
     },
+    writeRetryLockRemaining() {
+      if (!(this.writeRetryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.writeRetryLockUntil - Date.now()) / 1000))
+    },
     stopWriteRetryLock() {
       if (this.writeRetryLockTimer) { clearInterval(this.writeRetryLockTimer); this.writeRetryLockTimer = null }
+      // P4-5 S2：同上，锚点与读数成对归零
+      this.writeRetryLockUntil = 0
       this.writeRetryLock = 0
     },
     // ==================== 跳转 ====================
@@ -831,6 +941,11 @@ export default {
   background-color: #F5F5F5; border: 1rpx solid #EEEEEE; border-radius: 999rpx; padding: 12rpx 24rpx;
 }
 .date-note { flex: 1; min-width: 0; font-size: 20rpx; color: #BBBBBB; line-height: 1.4; }
+/* P4-5 S3（D3/D4）：日期条三枚控件在读侧冷却里的灰态。两个灰值照本页既有姿势
+   （.error-retry-cooling 与 .btn-more.btn-more-cooling 用的就是同一对 #BBBBBB / #EEEEEE）。
+   刻意排在 .date-step 与 .date-quick 之后：同优先级下后写的才压得过它们各自的 color/border。
+   注意 view 没有原生 disabled 语义——这一枚只负责「看着就按不动」，真拦住点击的是 stepDay/goToday 首行那道早退 */
+.date-pill-disabled { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 
 /* ==================== 4/5/6. 三态卡 ==================== */
 .loading-card { display: flex; justify-content: center; }

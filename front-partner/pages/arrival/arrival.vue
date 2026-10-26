@@ -11,14 +11,26 @@
         <text class="date-field-label">到货日期</text>
       </view>
       <view class="date-row">
-        <view class="date-step" hover-class="pill-hover" @click="stepDay(-1)">前一天</view>
+        <!-- P4-5 S5（D3/D4）：日期步进只重拉批次、撞的是 arrivals 读桶，所以按**读侧**闸门 retryLock 禁用，
+             不是写侧 writeRetryLock（那把管「确认到货」）。view 没有原生 disabled 语义，所以这里**不写** :disabled
+             （写了也只是个不起作用的假属性，还会让人以为拦点击靠它；仓内姿势是 apply.vue 的 pill-disabled 类名 + 首行 return），
+             真正拦下点击的是 stepDay/goToday 首行那道早退（禁用态要等一次重渲染才生效，同帧两击照样会打出去——P4-4 实测过）。
+             「ready/empty 态没有重试入口」这条原意依然有效（理由见 loadBatches 上面那条注释），
+             所以拦的位置选在控件侧而不是请求侧：闸门期内一步都走不了，日期条与卡片永远同一天 -->
+        <view class="date-step" :class="{ 'date-pill-disabled': retryLock > 0 }"
+          hover-class="pill-hover" @click="stepDay(-1)">前一天</view>
         <text class="date-current">{{ effectiveDate || '--' }}</text>
-        <view class="date-step" hover-class="pill-hover" @click="stepDay(1)">后一天</view>
+        <view class="date-step" :class="{ 'date-pill-disabled': retryLock > 0 }"
+          hover-class="pill-hover" @click="stepDay(1)">后一天</view>
       </view>
       <view class="date-sub-row">
-        <view class="date-quick" hover-class="pill-hover" @click="goToday">今天</view>
+        <view class="date-quick" :class="{ 'date-pill-disabled': retryLock > 0 }"
+          hover-class="pill-hover" @click="goToday">今天</view>
         <text class="date-note">{{ storeText }}</text>
       </view>
+      <!-- 只在冷却中出现、且**不带秒数**（D4「同一枚锁的秒数一屏只出现一次」）：
+           本页读侧唯一的带数处还是错误卡那一句「Ns后可重试」，位置和措辞一字未动 -->
+      <text v-if="retryLock > 0" class="form-hint">切换日期冷却中</text>
     </view>
 
     <!-- ==================== 2. 加载中（首屏与切日期后的重拉都走这一态，避免上一日期的批次被读成本日期的） ==================== -->
@@ -180,7 +192,17 @@ export default {
       retryLock: 0,
       retryLockTimer: null,
       writeRetryLock: 0,
-      writeRetryLockTimer: null
+      writeRetryLockTimer: null,
+      // P4-5 S6（D5）：上面两把闸门各自的墙上时钟锚点（ms）——闸门真值改存这里，
+      // retryLock / writeRetryLock 降级为「每秒由锚点现算出来的读数」，判据名一个都不改
+      // （模板、confirmBatch 首行、reloadOneBatch 首行、feedbackText 仍读那两枚派生值）。
+      // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时屏上的数
+      // 比真实剩余少。形状照 front-merchant/pages/dish-edit/dish-edit.vue 的 writeGates.retryAt +
+      // writeGateRemaining（同仓已验收的那份设计），本页不另起第三套闸门抽象；
+      // 锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长。
+      // 两把锁的锚点各自独立（X-1 拆锁语义不变），stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      retryLockUntil: 0,
+      writeRetryLockUntil: 0
     }
   },
   computed: {
@@ -219,6 +241,10 @@ export default {
     if (DATE_RE.test(d)) this.queryDate = d
   },
   onShow() {
+    // P4-5 S6（D5）收尾：回前台先按墙上时钟重算两把锁的派生读数，再走下面那道读侧闸门
+    // （口径与 verify.vue 的 onShow 同一处，理由也相同：节流后旧读数会把已到期的锁继续说成「冷却中」）
+    this.retryLock = this.retryLockRemaining()
+    this.writeRetryLock = this.writeRetryLockRemaining()
     // 每次进入重拉（确认动作在别的页/别的设备做过也要第一时间反映）。
     // 不传 resetView：日期没变就不该把已有卡片整页换成加载态白卡（静默重拉成功后直接覆盖，
     // 姿势照 pickup-plan.vue 的 onShow）
@@ -251,6 +277,10 @@ export default {
     }
     // #endif
     // 定时器清理：X-1 拆锁后本页有两枚 setInterval（读侧 retryLockTimer / 写侧 writeRetryLockTimer），都必须成对清掉
+    // P4-5 S6（D5）：锚点字段 retryLockUntil / writeRetryLockUntil 也在这一对 stop* 里成对归零，
+    // 所以下面两行同时是「摘表」与「抹平真值」——残值会让下一实例的闸门从上一实例那里读数。
+    // 锚点改造没新增第二枚定时器，tick 也只是同步写派生读数：clearInterval 是同步的，
+    // 卸载后不会再有一次 tick 落到已死组件上（原来「不摘就继续每秒写」的风险面一字未变）
     this.stopRetryLock()
     this.stopWriteRetryLock()
   },
@@ -264,9 +294,14 @@ export default {
         this._reloadQueued = true
         return
       }
-      // 刻意不在这里 gate retryLock（姿势照 plan-orders.vue 的 fetchList：闸门只装在
-      // 「自动翻页」和「错误卡重试按钮」两处，用户主动改条件必须立刻发请求）：
-      // 冷却期里挡掉步进 = 日期条已变、卡片还是上一天，而且 ready 态没有任何重试入口，那点就永久丢了
+      // 请求侧刻意不设 retryLock 闸门（姿势照 plan-orders.vue 的 fetchList），冷却期改由**控件侧**拦：
+      // stepDay/goToday 在 retryLock>0 时禁用并首行早退，onShow 与 reloadOneBatch 各自首行也早有同一道判定。
+      // 这条注释原来反对的是「请求后 gate」那种做法——那样日期条已变、卡片还是上一天，而 ready 态没有任何
+      // 重试入口，那一下就真的永久丢了。**这句原意依然成立，也没有被我们请回来**：
+      // 禁用控件恰好满足它真正担心的那件事（不出现日期与数据不一致）——闸门期内一步都走不了，
+      // queryDate 与卡片永远同一天，也就不存在「按了没反应又找不到重试入口」的悬空一步。
+      // 换句话说：它反对的不是「冷却期里翻不了日期」这件事本身，而是「挡在请求那一侧」这个做法——
+      // 控件禁用后按不动、queryDate 也不会变，「用户主动改条件必须立刻发请求」这半句就不再需要请求侧兜底了。
       this._loadingBatches = true
       const reqDate = this.queryDate
       if (resetView || this.viewState !== 'ready') this.viewState = 'loading'
@@ -422,6 +457,12 @@ export default {
     },
     // ==================== 日期步进（基准优先 queryDate，照 pickup-plan.vue 的 stepDay） ====================
     stepDay(delta) {
+      // P4-5 S5（D3）：读侧闸门未清就一步都不走，而且**先看闸门再改 queryDate**——
+      // 模板的禁用态要等一次重渲染才生效，同帧两击照样会打出去（P4-4 刚实测过这条），
+      // 所以「禁用态」与「这道早退」两件事都得有。
+      // 顺序反过来（先改日期再被拦）就会造出本页原来最怕的那件事：日期条已跳到新一天、卡片还是上一天的批次，
+      // 而 ready/empty 态没有任何重试入口，那一下就真的永久丢了——所以拦在控件侧而不是请求侧（见 loadBatches 上面那条）
+      if (this.retryLock > 0) return
       const base = this.queryDate || this.effectiveDate || this.todayStr()
       const d = this.parseDate(base) || this.newToday()
       d.setDate(d.getDate() + delta)
@@ -429,6 +470,8 @@ export default {
       this.loadBatches(true)
     },
     goToday() {
+      // P4-5 S5（D3）：与 stepDay 同一对姿势——模板禁用态 + 方法首行早退，缺一个就还能打出去
+      if (this.retryLock > 0) return
       this.queryDate = this.todayStr()
       this.loadBatches(true)
     },
@@ -569,28 +612,51 @@ export default {
       // （与 apply/login/workspace 那一族同形，消除同名方法两种语义）。原先这里那道
       // `Number(seconds) > 0 ? seconds : RETRY_FALLBACK_SECONDS` 二次兜底已删——回落只能有一个出处，
       // 两处各算一遍正是「拷一行就静默失效」的源头。闸门值与改前逐 case 等值（见 logs/scratch26 探针）。
-      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // P4-5 S6（D5）：闸门真值改存墙上时钟锚点，秒数只由它派生（形状照 dish-edit 的
+      // 「g.retryAt = Date.now() + retrySecondsOf(...) * 1000」+ 立刻取一次派生值）。
+      // 上面那条 F-25/P-3 的纪律一字未动：秒数唯一出处仍是 api 层 retrySecondsOf，页内零推算；
+      // 未被节流的正常路径上，派生读数与改前的自减值逐 tick 相等（起闸那刻就是整轮秒数）。
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次直接从墙上时钟重算
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 读侧锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板与各处闸门隐掉冷却态的判据）。
+    // 屏上的数、控件的判定、toast 里那句用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // P4-5 S6：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // X-1：写侧闸门专用一对——confirmBatch 撞确认写桶的 429 只动这两枚变量，
     // 读侧任何路径（含 loadBatches 非 429 失败的 stopRetryLock）都清不掉它。秒数仍只来自 retrySecondsOf。
     startWriteRetryLock(err) {
       this.stopWriteRetryLock()
-      this.writeRetryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // P4-5 S6（D5）：与读侧同一形状——锚点写真值、writeRetryLock 只是派生读数，
+      // 两把锁各挂各的桶（X-1 拆锁语义一字未动：这里只改「数是怎么算出来的」，不改「谁归零谁」）
+      this.writeRetryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.writeRetryLock = this.writeRetryLockRemaining()
       this.writeRetryLockTimer = setInterval(() => {
-        this.writeRetryLock--
+        this.writeRetryLock = this.writeRetryLockRemaining()
         if (this.writeRetryLock <= 0) this.stopWriteRetryLock()
       }, 1000)
     },
+    writeRetryLockRemaining() {
+      if (!(this.writeRetryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.writeRetryLockUntil - Date.now()) / 1000))
+    },
     stopWriteRetryLock() {
       if (this.writeRetryLockTimer) { clearInterval(this.writeRetryLockTimer); this.writeRetryLockTimer = null }
+      // P4-5 S6：同上，锚点与读数成对归零
+      this.writeRetryLockUntil = 0
       this.writeRetryLock = 0
     },
     // ==================== 跳转 ====================
@@ -646,6 +712,11 @@ export default {
   background-color: #F5F5F5; border: 1rpx solid #EEEEEE; border-radius: 999rpx; padding: 12rpx 24rpx;
 }
 .date-note { flex: 1; min-width: 0; font-size: 20rpx; color: #BBBBBB; line-height: 1.4; }
+/* P4-5 S5（D3/D4）：日期条三枚控件在读侧冷却里的灰态。两个灰值照本页既有姿势
+   （.error-retry-cooling 用的就是同一对 #BBBBBB / #EEEEEE）。
+   刻意排在 .date-step 与 .date-quick 之后：同优先级下后写的才压得过它们各自的 color/border。
+   注意 view 没有原生 disabled 语义——这一枚只负责「看着就按不动」，真拦住点击的是 stepDay/goToday 首行那道早退 */
+.date-pill-disabled { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 .pill-hover { opacity: .82; }
 
 /* ==================== 2/3/4. 三态卡 ==================== */
