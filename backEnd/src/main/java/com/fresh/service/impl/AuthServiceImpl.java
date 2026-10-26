@@ -151,6 +151,11 @@ public class AuthServiceImpl implements AuthService {
             }
         }
 
+        // F-122：封禁判定在验码之后（未持码者探测不到该号状态）、邀请绑定/认领/签发 token 之前
+        if (user != null && User.STATUS_BANNED.equals(user.getStatus())) {
+            throw new BizException(R.CODE_FORBIDDEN, "账号已被封禁");
+        }
+
         if (isNew) {
             // —— 邀请新人（F-01.2 新用户分支，同一事务内）：① 邀请码生成查重写回（存量用户
             //    由 GET /api/invite/me 惰性生成，此处失败不影响登录，惰性链路兜底）；
@@ -190,6 +195,10 @@ public class AuthServiceImpl implements AuthService {
         }
         if (!PasswordUtil.verify(password == null ? "" : password, user.getPasswordHash())) {
             throw new BizException("手机号或密码错误");
+        }
+        // F-122：判封禁必须在密码校验之后——否则会给未持密码者一个手机号状态探测信号
+        if (User.STATUS_BANNED.equals(user.getStatus())) {
+            throw new BizException(R.CODE_FORBIDDEN, "账号已被封禁");
         }
         String token = jwtUtil.createToken(user.getId());
         // R8：同 login，user 透传 avatar（可空用 LinkedHashMap）

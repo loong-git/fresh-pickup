@@ -60,6 +60,10 @@
 --   m29 rate_limit_hit（F-121 限流观测）：CREATE TABLE IF NOT EXISTS 天然幂等（照 m28 建表守卫），
 --       本建表体与 m29-migration.sql 逐字一致；零种子零回填——写路径只有拦截器命中分支的旁路 INSERT
 --       （插入失败只 warn 不吞拦截）+ RateLimitHitCleanupTask 每日删 30 天前，读只有运营聚合端点；
+--   m30 user.status（F-122 封禁体系）：加列走 m30-migration.sql 的 information_schema 判存 +
+--       PREPARE 幂等骨架（照 m26 写法），本建表体逐字一致、列序照迁移后物理序（表尾）；
+--       存量行由 DEFAULT 'active' 兜底零 UPDATE（active 正常 / banned 封禁）；
+--       商家封禁复用既有 merchant.status='suspended'，本片对 merchant 表零 DDL、零注释改动
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -75,6 +79,7 @@ USE fresh_db;
 -- balance + cash_rewarded（m11-migration.sql 同步，F-04）：新库全量重建与存量增量两路结构一致
 -- role + merchant_id + uk_user_merchant（m15-migration.sql 同步，F-12/G-01 商家化地基）：
 --   存量行 ALTER 后由 DEFAULT 语义自动 role='user'，零 UPDATE 零回填；merchant_id NULL=非商家
+-- status（m30-migration.sql 同步，F-122 封禁体系）
 -- ----------------------------
 DROP TABLE IF EXISTS user;
 CREATE TABLE user (
@@ -88,6 +93,7 @@ CREATE TABLE user (
     avatar        TEXT         NULL                          COMMENT '头像（R8）：data:image/(jpeg|png|webp);base64, 前缀，≤60000 字符；NULL=未设置（前端兜默认 SVG 头像）',
     role          VARCHAR(20)  NOT NULL DEFAULT 'user'       COMMENT '角色（F-12/m15）：user 普通用户 / merchant 商家（admin 预留不启用——平台 Admin 走 X-Admin-Key 独立线）',
     merchant_id   BIGINT       NULL                          COMMENT '归属商家ID（F-12/m15，逻辑外键 merchant.id）；NULL=非商家；uk_user_merchant 一人一主体',
+    status        VARCHAR(20)  NOT NULL DEFAULT 'active'     COMMENT 'F-122 封禁体系：active正常/banned封禁（封禁即登录拒 + 已签发 token 的需登录请求 403）',
     PRIMARY KEY (id),
     UNIQUE INDEX uk_phone (phone),
     UNIQUE INDEX uk_user_invite_code (invite_code),

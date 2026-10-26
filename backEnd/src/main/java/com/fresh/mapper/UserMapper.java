@@ -4,9 +4,12 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.fresh.entity.User;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
@@ -38,4 +41,35 @@ public interface UserMapper extends BaseMapper<User> {
      */
     @Update("UPDATE user SET avatar = #{avatar} WHERE id = #{id}")
     int updateAvatar(@Param("id") Long id, @Param("avatar") String avatar);
+
+    /**
+     * 运营端用户列表的筛选 WHERE（F-122 §3.4.1，页与 COUNT 两条 SQL 逐字共用）：
+     * 三参为 null 即短路为全部；phone 是<b>精确等值</b>（不做 LIKE、不在 SQL 里掩码），
+     * 非 null 值由 Service 校验/归一后才绑定。表名按契约 §3.4.3 用反引号包住 {@code `user`}。
+     */
+    String USER_LIST_WHERE = "WHERE (#{userId} IS NULL OR id = #{userId})"
+            + " AND (#{phone} IS NULL OR phone = #{phone})"
+            + " AND (#{status} IS NULL OR status = #{status})";
+
+    /**
+     * 运营端用户列表的一页（F-122 §3.4.1，{@code GET /api/admin/users}）：
+     * 只 SELECT 白名单六列——{@code password_hash/invite_code/balance/cash_rewarded/avatar}
+     * 一律<b>不查询</b>（把「不输出」写成「不查询」）；phone 原文交 Service 过 {@code PhoneMask.mask}。
+     * 本工程无 MP 分页插件（{@code selectPage}/{@code Page<T>} 会静默回全量且 total=0），页面与
+     * COUNT 走两条手写 SQL；{@code ORDER BY id DESC} 由自增主键保证分页全序。
+     */
+    @Select("SELECT id AS id, phone AS phone, role AS role, merchant_id AS merchantId, status AS status, "
+            + "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt "
+            + "FROM `user` " + USER_LIST_WHERE + " ORDER BY id DESC LIMIT #{offset}, #{size}")
+    List<Map<String, Object>> selectUsersPage(@Param("userId") Long userId,
+                                              @Param("phone") String phone,
+                                              @Param("status") String status,
+                                              @Param("offset") long offset,
+                                              @Param("size") int size);
+
+    /** 运营端用户总数（独立 COUNT）：WHERE 与 {@link #selectUsersPage} 逐字相同 */
+    @Select("SELECT COUNT(*) FROM `user` " + USER_LIST_WHERE)
+    long countUsers(@Param("userId") Long userId,
+                    @Param("phone") String phone,
+                    @Param("status") String status);
 }

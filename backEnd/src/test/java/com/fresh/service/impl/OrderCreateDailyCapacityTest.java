@@ -6,11 +6,13 @@ import com.baomidou.mybatisplus.core.toolkit.GlobalConfigUtils;
 import com.fresh.common.BizException;
 import com.fresh.dto.OrderCreateDTO;
 import com.fresh.entity.Dish;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
 import com.fresh.entity.Store;
 import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -54,6 +56,7 @@ class OrderCreateDailyCapacityTest {
     private final OrderMapper orderMapper = mock(OrderMapper.class);
     private final OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
     private final DishMapper dishMapper = mock(DishMapper.class);
+    private final MerchantMapper merchantMapper = mock(MerchantMapper.class);
     private final StoreMapper storeMapper = mock(StoreMapper.class);
     private final ArrivalBatchMapper arrivalBatchMapper = mock(ArrivalBatchMapper.class);
     private final CouponService couponService = mock(CouponService.class);
@@ -80,10 +83,15 @@ class OrderCreateDailyCapacityTest {
         ReflectionTestUtils.setField(orderService, "orderMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "orderItemMapper", orderItemMapper);
         ReflectionTestUtils.setField(orderService, "dishMapper", dishMapper);
+        ReflectionTestUtils.setField(orderService, "merchantMapper", merchantMapper);
         ReflectionTestUtils.setField(orderService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", arrivalBatchMapper);
         ReflectionTestUtils.setField(orderService, "couponService", couponService);
         when(orderMapper.selectOne(any())).thenReturn(null); // 幂等快查未命中 → 进入校验段
+        // F-122：既有用例的 dish 不带 merchantId（null 键同样被 any() 命中），默认商家 active，不改变原断言语义
+        Merchant activeMerchant = new Merchant();
+        activeMerchant.setStatus("active");
+        when(merchantMapper.selectById(any())).thenReturn(activeMerchant);
         when(storeMapper.selectByIdForUpdate(STORE_ID)).thenReturn(store(2));
         when(dishMapper.selectById(DISH_ID)).thenReturn(dish());
         when(dishMapper.decreaseStock(DISH_ID, 1)).thenReturn(1);

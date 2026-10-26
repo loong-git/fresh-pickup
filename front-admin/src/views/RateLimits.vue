@@ -4,9 +4,9 @@
       <h2 class="page-title">限流观测</h2>
       <el-tag type="success" effect="plain" size="small">只读页（无写操作）</el-tag>
     </div>
-    <!-- F-121 §3：页头说明（契约逐字）——命中即异常流量信号；本页只读，封禁操作在 F-122。 -->
+    <!-- F-121 §3：页头说明（契约逐字）——命中即异常流量信号；本页只读，封禁操作见「封禁管理」。 -->
     <div class="accounting-banner">
-      限流命中即异常流量信号（刷接口/恶意重试）；本页只读，封禁操作在 F-122。
+      限流命中即异常流量信号（刷接口/恶意重试）；本页只读，封禁操作见「封禁管理」。
     </div>
     <p class="page-note">
       数据源是限流拦截器命中旁路写的 rate_limit_hit（F-121 §2）：拦截判定本身零涉及，落库失败只记 warn
@@ -78,7 +78,7 @@
 
 <script setup>
 // 限流观测只读页（F-121 §3）：照 F-114 Stores.vue 页面模式（PartnerWallets.vue 同款骨架），无写操作——
-// 契约红线：命中即异常流量信号，封禁操作在 F-122（后端尚无任何封禁端点），本页连二次确认弹层都不需要。
+// 契约红线：命中即异常流量信号，封禁操作见「封禁管理」，本页连二次确认弹层都不需要。
 // 唯一动作 = 时间档切换/刷新（GET /api/admin/rate-limit/hits?days=，1/7/30 白名单，IP 30/60s 只读档）；
 // 结构与错误处理照 PartnerWallets.vue：loading / error / 空表三态，信封判定全在 api 层。
 import { computed, onMounted, ref } from 'vue'

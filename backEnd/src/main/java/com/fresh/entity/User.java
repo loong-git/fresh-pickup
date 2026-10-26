@@ -52,5 +52,12 @@ public class User {
     private String role;
     private Long merchantId;
 
+    /** 封禁状态（F-122/m30）：active 正常 / banned 封禁；缺省 active，存量行由 DEFAULT 兜底 */
+    private String status;
+
+    /** 封禁态常量（全仓唯一真源，供 AuthServiceImpl / AuthInterceptor / AdminServiceImpl 共用） */
+    public static final String STATUS_ACTIVE = "active";
+    public static final String STATUS_BANNED = "banned";
+
     private LocalDateTime createdAt;
 }

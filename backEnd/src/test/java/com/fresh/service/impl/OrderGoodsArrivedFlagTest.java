@@ -2,9 +2,11 @@ package com.fresh.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Order;
 import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -62,6 +64,7 @@ class OrderGoodsArrivedFlagTest {
         inject(service, "orderMapper", orderMapper);
         inject(service, "orderItemMapper", itemMapper);
         inject(service, "dishMapper", mock(DishMapper.class));
+        inject(service, "merchantMapper", activeMerchantMapper()); // F-122：本类不走下单链路，仍补齐新增依赖防 NPE
         inject(service, "storeMapper", mock(StoreMapper.class));
         inject(service, "couponService", mock(CouponService.class));
         inject(service, "arrivalBatchMapper", batchMapper);
@@ -72,6 +75,15 @@ class OrderGoodsArrivedFlagTest {
         Field f = target.getClass().getDeclaredField(name);
         f.setAccessible(true);
         f.set(target, value);
+    }
+
+    /** F-122 新增依赖：默认商家 active，保持既有用例（不涉商家状态）的行为不变 */
+    private static MerchantMapper activeMerchantMapper() {
+        MerchantMapper merchantMapper = mock(MerchantMapper.class);
+        Merchant active = new Merchant();
+        active.setStatus("active");
+        when(merchantMapper.selectById(any())).thenReturn(active);
+        return merchantMapper;
     }
 
     private static Order order(String id, String status, Integer payStatus,

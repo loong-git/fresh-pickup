@@ -13,6 +13,7 @@ import com.fresh.entity.Store;
 import com.fresh.entity.UserCoupon;
 import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -31,6 +32,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +70,9 @@ public class OrderServiceImpl implements OrderService {
     private OrderItemMapper orderItemMapper;
     @Autowired
     private DishMapper dishMapper;
+    /** F-122：下单校验商品所属商家 status（封禁商家商品照常展示，仅下单拦） */
+    @Autowired
+    private MerchantMapper merchantMapper;
     @Autowired
     private StoreMapper storeMapper;
     /** F-62 只读用到 arrival_batch 的「已确认到货」键；写入方仍在主理人端（confirmById） */
@@ -146,6 +151,8 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
+        // F-122：商家状态请求内缓存（购物车多件同商家只查一次，绝不移入循环体）
+        Map<Long, String> merchantStatusCache = new HashMap<>();
         for (OrderCreateDTO.OrderItemDTO itemDTO : dto.getItems()) {
             Dish dish = dishMapper.selectById(itemDTO.getDishId());
             if (dish == null) {
@@ -159,6 +166,15 @@ public class OrderServiceImpl implements OrderService {
             // 文案与下架同款不新增（「「X」已下架，请重新选择」）；同为致命校验，仍前置于限购与扣库存
             if (Dish.AUDIT_REJECTED.equals(dish.getAuditStatus())) {
                 throw new BizException("「" + dish.getName() + "」已下架，请重新选择");
+            }
+            // F-122：封禁商家的商品照常展示（拍板 2），但下单在此拦；必须在扣库存之前（零副作用）。
+            // 单请求内按 merchantId 缓存状态，购物车多件同商家只查一次库；商家行缺失/null 一律拒。
+            String merchantStatus = merchantStatusCache.computeIfAbsent(dish.getMerchantId(), mid -> {
+                com.fresh.entity.Merchant m = merchantMapper.selectById(mid);
+                return m == null ? "missing" : m.getStatus();
+            });
+            if (!"active".equals(merchantStatus)) {
+                throw new BizException("「" + dish.getName() + "」所属商家暂停营业，请重新选择");
             }
             int quantity = itemDTO.getQuantity();
             // T-M4-03 限购以 dish.limit_buy 真实列为准（种子 [2,5,8] 循环），空值退回兜底表

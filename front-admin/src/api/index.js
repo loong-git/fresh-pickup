@@ -1213,7 +1213,7 @@ export function getAdminPartnerWallets() {
 
 // ==================== F-121 限流观测（只读一端点；无任何写操作） ====================
 // 契约真源：docs/F-121-限流观测契约.md §2/§3。数据源是拦截器命中旁路写的 rate_limit_hit（F-121 §2），
-// 命中即异常流量信号；本面纯只读，封禁操作属 F-122（后端尚无任何封禁端点）。
+// 命中即异常流量信号；本面纯只读，封禁操作见「封禁管理」页。
 
 /**
  * 限流命中聚合（只读）：GET /api/admin/rate-limit/hits?days=（F-121 §2，IP 30/60s）
@@ -1226,6 +1226,98 @@ export function getAdminRateLimitHits(days) {
   return request({
     url: withQuery('/api/admin/rate-limit/hits', { days }),
     method: 'GET'
+  })
+}
+
+// ==================== F-122 封禁体系（用户/商家两个域 × 列表 + 状态变更，共四端点） ====================
+// 契约真源：docs/F-122-封禁体系契约.md §3.4。四端点全在 AdminController 的 Admin 面
+// （checkKeyOrOperator 双轨；浏览器端只走运营 JWT 这一轨——request() 在 admin_token 存在时自动挂 Bearer）。
+// 读端点限流 IP 30/60s、写端点 IP 10/60s。
+// 语义边界（契约 §1.2 红线，本层逐条不越界）：写只落 user.status / merchant.status 一列，**零级联**；
+// 封禁商家不下架商品、不清秒杀、不移出免费领池；在途订单仍归「订单管理」逐单处理。
+// user 封禁后旧 token 立即失效靠后端拦截器实时判库（本层无任何 token 操作）；
+// merchant 封禁复用既有 suspended（D-9/BE-5 闸门已覆盖商家端写与履约），terminated 不可经这两个端点变更。
+// 列表出参统一 {list,total,pageNum,pageSize,filters}；phone/contactPhone 已在服务端过 PhoneMask，
+// 本层与页面都不许拼回明文；createdAt 是服务端定形串，页面原样显示、不做二次格式化。
+
+/**
+ * 用户列表（运营端）：GET /api/admin/users?userId=&phone=&status=&pageNum=&pageSize=
+ * 行内恰六键 {id,phone,role,merchantId,status,createdAt}，按 id 倒序（契约 §3.4.1）。
+ * status 白名单 {active,banned}（服务端 Locale.ROOT 归一小写后判定，空=全部）；
+ * userId 非空须 >0、phone 精确等值（trim 后，不做 LIKE）；分页 pageNum≥1、pageSize∈[1,100]、
+ * 越界一律 400 不夹取；offset 越界短路回 {list:[]}。
+ * 失败按请求层 toast；判定与「下一步」文案由页面呈现。
+ * @param {{userId?:number|string, phone?:string, status?:string, pageNum?:number, pageSize?:number}} [params]
+ *        空值一律由 withQuery 挡下、不下发（服务端把缺省当「不筛」）
+ */
+export function getAdminUsers(params) {
+  const p = params || {}
+  return request({
+    url: withQuery('/api/admin/users', {
+      userId: p.userId,
+      phone: p.phone,
+      status: p.status,
+      pageNum: p.pageNum,
+      pageSize: p.pageSize
+    }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 用户封禁/解封：PUT /api/admin/users/{id}/status，body {action}（ban/unban，其余 400「action 仅允许 ban/unban」）。
+ * 用户不存在 404「用户不存在」；幂等 no-op（已 banned 再 ban / 已 active 再 unban）200 且不写审计，
+ * message 分别是「用户已处于封禁状态」「用户已处于正常状态」；实际变更 message「用户已封禁」/「用户已解封」。
+ * 只改 status 一列，不级联 merchant/store/settlement/order，也不动其 token（拦截器实时判库失效）。
+ * 写档限流 IP 10/60s。成功与否由页面重拉当前 tab 核对，绝不本地改行。
+ * @param {number|string} id user.id
+ * @param {'ban'|'unban'} action
+ */
+export function updateAdminUserStatus(id, action) {
+  return request({
+    url: '/api/admin/users/' + encodeURIComponent(String(id)) + '/status',
+    method: 'PUT',
+    data: { action }
+  })
+}
+
+/**
+ * 商家列表（运营端）：GET /api/admin/merchants?merchantId=&status=&pageNum=&pageSize=
+ * 行内恰六键 {id,name,contactPhone,contactName,status,createdAt}，按 id 升序（契约 §3.4.2）。
+ * status 白名单 {active,suspended,terminated}（空=全部）；merchantId 非空须 >0；分页规则同用户列表。
+ * 注意与写端点 POST /api/admin/merchants（平台代开通，F-12）同路径不同方法，本函数只发 GET。
+ * @param {{merchantId?:number|string, status?:string, pageNum?:number, pageSize?:number}} [params]
+ *        空值一律由 withQuery 挡下、不下发
+ */
+export function getAdminMerchants(params) {
+  const p = params || {}
+  return request({
+    url: withQuery('/api/admin/merchants', {
+      merchantId: p.merchantId,
+      status: p.status,
+      pageNum: p.pageNum,
+      pageSize: p.pageSize
+    }),
+    method: 'GET'
+  })
+}
+
+/**
+ * 商家封禁/解封：PUT /api/admin/merchants/{id}/status，body {action}（ban/unban，其余 400「action 仅允许 ban/unban」）。
+ * ban：active→suspended；unban：suspended→active；terminated/脏值 → 400「该商家已清退，不可变更封禁状态」；
+ * 商家不存在 404「商家不存在」；幂等 no-op 200 不写审计（message「商家已处于封禁状态」/「商家已处于正常营业状态」）；
+ * 实际变更 message「商家已封禁」/「商家已解封」。
+ * 只写 merchant.status 一列（零级联）；封禁期间 C 端商品照常展示、仅下单被拒，商家端写与看板/营销接口 403
+ * （备货计划/供货明细按既有 D-9 口径仍可读）。
+ * 写档限流 IP 10/60s。成功与否由页面重拉当前 tab 核对，绝不本地改行。
+ * @param {number|string} id merchant.id
+ * @param {'ban'|'unban'} action
+ */
+export function updateAdminMerchantStatus(id, action) {
+  return request({
+    url: '/api/admin/merchants/' + encodeURIComponent(String(id)) + '/status',
+    method: 'PUT',
+    data: { action }
   })
 }
 

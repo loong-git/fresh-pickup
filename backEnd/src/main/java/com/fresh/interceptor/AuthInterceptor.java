@@ -96,11 +96,18 @@ public class AuthInterceptor implements HandlerInterceptor {
             ResponseUtil.writeJson(response, R.CODE_UNAUTHORIZED, R.MSG_UNAUTHORIZED);
             return false;
         }
+        // F-122：需登录面每请求查一次 user.status——banned → 403（已签发旧 token 即时失效）；
+        // u == null 同拒（fail-closed：token 有效但用户行已删，旧行为会放行需登录面）。
+        // 同一次查询复用到下方 /api/merchant/** 角色判定，不重复查库。
+        com.fresh.entity.User u = userMapper.selectById(userId);
+        if (u == null || com.fresh.entity.User.STATUS_BANNED.equals(u.getStatus())) {
+            ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+            return false;
+        }
         request.setAttribute(ATTR_USER_ID, userId);
 
         // F-12/G-01 查库定角色：/api/merchant/** 前缀需 role=merchant 双校验（需否登录由 requiresLogin 的同前缀分支定，两处配套）
         if (path.startsWith("/api/merchant/")) {
-            com.fresh.entity.User u = userMapper.selectById(userId);
             // merchant_id 为空必须在此收口 403：setAttribute(name, null) 按 Servlet 语义等于移除属性，Controller 的
             // @RequestAttribute(merchantId)（required 默认 true）会先抛 ServletRequestBindingException 被兜底转 500
             // → Service 层那两行判空 403 不可达（此判空勿删）

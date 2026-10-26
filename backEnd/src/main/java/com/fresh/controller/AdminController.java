@@ -6,6 +6,7 @@ import com.fresh.common.R;
 import com.fresh.dto.AdminAliasCreateDTO;
 import com.fresh.dto.AdminAliasUpdateDTO;
 import com.fresh.dto.AdminArrivalDepartDTO;
+import com.fresh.dto.AdminBanActionDTO;
 import com.fresh.dto.AdminCouponTemplateCreateDTO;
 import com.fresh.dto.AdminCouponTemplateUpdateDTO;
 import com.fresh.dto.AdminDictGroupUpdateDTO;
@@ -1057,5 +1058,99 @@ public class AdminController {
         }
         AdminUser account = adminUserMapper.selectById(adminUserId);
         return account != null && "active".equals(account.getStatus()) ? adminUserId : null;
+    }
+
+    // ==================================================================
+    // F-122 封禁体系（四个端点：用户/商家列表 + 各自封禁解封；全部追加到文件末尾）。
+    // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator；读 30/60s、写 10/60s，均按 IP。
+    // 审计（ban.create / unban）在 AdminServiceImpl 内与业务同源写，且只在<实际状态迁移>时写。
+    // 红线：C 端可见性零改动；两域零级联；merchant 封禁复用既有 status='suspended'，
+    // terminated 不可经本组端点变更；不加表不加列不加迁移不新增 yml 键。
+    // ==================================================================
+
+    /**
+     * 用户列表（F-122 §3.4.1）：{@code GET /api/admin/users?userId=&phone=&status=&pageNum=&pageSize=} →
+     * {@code {list,total,pageNum,pageSize,filters}}；行 {@code {id,phone,role,merchantId,status,createdAt}}，
+     * phone 已过 PhoneMask；status 白名单 {active,banned}，phone 精确等值。
+     * 分页与 400 判据全部钉在 {@code AdminService#users}。只读端点不写审计。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-122 §3.4，照 F-114）
+    @GetMapping("/users")
+    public R<Map<String, Object>> users(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                        @RequestHeader(value = "Authorization", required = false) String authz,
+                                        @RequestParam(value = "userId", required = false) Long userId,
+                                        @RequestParam(value = "phone", required = false) String phone,
+                                        @RequestParam(value = "status", required = false) String status,
+                                        @RequestParam(value = "pageNum", required = false) Integer pageNum,
+                                        @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 stores/settlements 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.users(pageNum, pageSize, userId, phone, status));
+    }
+
+    /**
+     * 封禁/解封用户（F-122 §3.4.1）：{@code PUT /api/admin/users/{id}/status}，body {@code {action: ban|unban}}。
+     * 404/400/幂等判据与审计全部钉在 {@code AdminService#updateUserStatus}；body 缺省/null action
+     * 由 Service 判 400（此处不 NPE）。封禁后旧 token 由 AuthInterceptor 实时失效（无需清 token）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-122 §3.4，照 F-114）
+    @PutMapping("/users/{id}/status")
+    public R<Void> updateUserStatus(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                    @RequestHeader(value = "Authorization", required = false) String authz,
+                                    @PathVariable("id") Long id,
+                                    @RequestBody(required = false) AdminBanActionDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        String action = dto == null ? null : dto.getAction();
+        String message = adminService.updateUserStatus(id, action, grant.actor());
+        return R.ok(null, message);
+    }
+
+    /**
+     * 商家列表（F-122 §3.4.2）：{@code GET /api/admin/merchants?merchantId=&status=&pageNum=&pageSize=} →
+     * 形状同用户列表；行 {@code {id,name,contactPhone,contactName,status,createdAt}}，contactPhone 已过 PhoneMask；
+     * status 白名单 {active,suspended,terminated}，排序 id 升序。只读端点不写审计。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-122 §3.4，照 F-114）
+    @GetMapping("/merchants")
+    public R<Map<String, Object>> merchants(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                            @RequestHeader(value = "Authorization", required = false) String authz,
+                                            @RequestParam(value = "merchantId", required = false) Long merchantId,
+                                            @RequestParam(value = "status", required = false) String status,
+                                            @RequestParam(value = "pageNum", required = false) Integer pageNum,
+                                            @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 stores/settlements 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.merchants(pageNum, pageSize, merchantId, status));
+    }
+
+    /**
+     * 封禁/解封商家（F-122 §3.4.2）：{@code PUT /api/admin/merchants/{id}/status}，body {@code {action: ban|unban}}。
+     * ban → suspended、unban → active；terminated/脏值 400「该商家已清退，不可变更封禁状态」；
+     * 判定与零级联边界全部钉在 {@code AdminService#updateMerchantStatus}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（F-122 §3.4，照 F-114）
+    @PutMapping("/merchants/{id}/status")
+    public R<Void> updateMerchantStatus(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                        @RequestHeader(value = "Authorization", required = false) String authz,
+                                        @PathVariable("id") Long id,
+                                        @RequestBody(required = false) AdminBanActionDTO dto) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        if (grant.denied() != null) {
+            return grant.denied();
+        }
+        String action = dto == null ? null : dto.getAction();
+        String message = adminService.updateMerchantStatus(id, action, grant.actor());
+        return R.ok(null, message);
     }
 }

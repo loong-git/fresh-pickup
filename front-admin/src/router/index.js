@@ -2,7 +2,7 @@
 // F-106 片 C 再加 merchant-applies 一页，F-108 片 2 再加 dicts 一页，F-109 再加 free-activity 一页，
 // F-110 再加 aliases 一页，F-112 再加 seckill 一页，F-113 再加 coupon-templates 一页，
 // F-114 再加 stores 一页，F-118 再加 settlements 一页，F-119 再加 partner-wallets 一页，
-// F-121 再加 rate-limit 一页，现共 1 + 17）+
+// F-121 再加 rate-limit 一页，F-122 再加 bans 一页，现共 1 + 18）+
 // 一条全局前置守卫。
 // 依赖方向是单向的：router → api，api 绝不 import router（否则成 api → router → views → api 的静态循环，
 // 与本仓三端 main.js ↔ api 的做法同构）——api 层 401 要跳 /login，靠的是本模块末尾注册的回调。
@@ -112,11 +112,19 @@ const routes = [
     meta: { requiresAuth: true }
   },
   // F-121 限流观测：只读聚合页（时间档单选 + 命中聚合表 + total 卡），无任何写操作——命中即异常流量
-  // 信号，封禁操作属 F-122（本页只读）。同一套 requiresAuth 守卫，动态 import 不进首屏包。
+  // 信号，封禁操作见「封禁管理」页。同一套 requiresAuth 守卫，动态 import 不进首屏包。
   {
     path: '/rate-limit',
     name: 'rate-limit',
     component: () => import('../views/RateLimits.vue'),
+    meta: { requiresAuth: true }
+  },
+  // F-122 封禁管理：用户/商家两个 tab 的封禁与解封（写侧页，四端点见契约 §3.4），紧挨限流观测（风险/观测线相邻）。
+  // 同一套 requiresAuth 守卫，动态 import 不进首屏包。
+  {
+    path: '/bans',
+    name: 'bans',
+    component: () => import('../views/Bans.vue'),
     meta: { requiresAuth: true }
   },
   {

@@ -12,8 +12,10 @@ import com.fresh.dto.OrderCreateDTO;
 import com.fresh.dto.RecommendVO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.Dish;
+import com.fresh.entity.Merchant;
 import com.fresh.mapper.AdminAuditLogMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.ReviewMapper;
@@ -90,6 +92,15 @@ class DishAuditFlowTest {
     }
 
     // ---------------------------------------------------------------- fixtures
+
+    /** F-122 新增依赖：默认商家 active，保留下单链路既有断言语义（本类测的是审核拦截） */
+    private static MerchantMapper activeMerchantMapper() {
+        MerchantMapper merchantMapper = mock(MerchantMapper.class);
+        Merchant active = new Merchant();
+        active.setStatus("active");
+        when(merchantMapper.selectById(any())).thenReturn(active);
+        return merchantMapper;
+    }
 
     private static Dish dish(long id, String name, Integer onSale, String auditStatus) {
         Dish d = new Dish();
@@ -261,6 +272,7 @@ class DishAuditFlowTest {
         ReflectionTestUtils.setField(orderService, "orderMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "orderItemMapper", orderItemMapper);
         ReflectionTestUtils.setField(orderService, "dishMapper", dishMapper);
+        ReflectionTestUtils.setField(orderService, "merchantMapper", activeMerchantMapper());
         ReflectionTestUtils.setField(orderService, "storeMapper", mock(com.fresh.mapper.StoreMapper.class));
         when(orderMapper.selectOne(any())).thenReturn(null); // 幂等快查未命中 → 进入校验段
         Dish rejected = dish(9L, "问题菜品", 1, Dish.AUDIT_REJECTED);

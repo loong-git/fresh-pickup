@@ -3,8 +3,8 @@ package com.fresh.common;
 /**
  * 手机号脱敏工具（F-17/G-03 RD 红线「脱敏不可绕过」的唯一出口）。
  *
- * <p>输出形态 {@code 138****1234}，掩码结果与 {@code OrderServiceImpl#maskPhone}（现位于 :397-399，
- * 契约 F-17.2 #5 记作 347-349 是改动前的行号——差异已登记「契约疑点」）**逐字相同**：保留前 3 位、
+ * <p>输出形态 {@code 138****1234}，掩码结果与 {@code OrderServiceImpl#maskPhone}
+ * （契约 F-17.2 #5 记的旧行号已随代码演进漂移，故此处改具名引用——差异已登记「契约疑点」）**逐字相同**：保留前 3 位、
  * 中间固定 4 个星号、保留第 8 位起的尾串。对合法 11 位号码，本方法与 F-17 当时那四份私有实现
  * （OrderServiceImpl / UserController / AdminServiceImpl / MerchantServiceImpl）输出完全相等（2026-10-21 实测：本仓<b>现存</b>私有 maskPhone 是 5 份 = 前三者 + FreeServiceImpl + ReviewServiceImpl，MerchantServiceImpl 那份已改调本方法），
  * 故 {@code MerchantServiceImpl} 改调本方法不构成行为变更（现库 19 笔 orders.phone 与 5 笔

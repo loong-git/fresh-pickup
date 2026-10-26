@@ -3,9 +3,11 @@ package com.fresh.service.impl;
 import com.fresh.common.BizException;
 import com.fresh.dto.OrderCreateDTO;
 import com.fresh.entity.Dish;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Order;
 import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -44,6 +46,7 @@ class OrderCreateOffSaleMessageTest {
     private final OrderMapper orderMapper = mock(OrderMapper.class);
     private final OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
     private final DishMapper dishMapper = mock(DishMapper.class);
+    private final MerchantMapper merchantMapper = mock(MerchantMapper.class);
     private final StoreMapper storeMapper = mock(StoreMapper.class);
     private final ArrivalBatchMapper arrivalBatchMapper = mock(ArrivalBatchMapper.class);
     private final CouponService couponService = mock(CouponService.class);
@@ -57,10 +60,15 @@ class OrderCreateOffSaleMessageTest {
         ReflectionTestUtils.setField(orderService, "orderMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "orderItemMapper", orderItemMapper);
         ReflectionTestUtils.setField(orderService, "dishMapper", dishMapper);
+        ReflectionTestUtils.setField(orderService, "merchantMapper", merchantMapper);
         ReflectionTestUtils.setField(orderService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", arrivalBatchMapper);
         ReflectionTestUtils.setField(orderService, "couponService", couponService);
         when(orderMapper.selectOne(any())).thenReturn(null); // 幂等快查未命中 → 进入校验段
+        // F-122：默认商家 active；本类断言的「已下架」校验前置于商家状态判定，原语义不变
+        Merchant activeMerchant = new Merchant();
+        activeMerchant.setStatus("active");
+        when(merchantMapper.selectById(any())).thenReturn(activeMerchant);
     }
 
     /** 购物车里只有一件：dishId + 数量 */

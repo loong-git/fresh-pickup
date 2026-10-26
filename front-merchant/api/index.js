@@ -235,7 +235,7 @@ function handleEnvelope(res, resolve, reject) {
  *   （NanosToWaitForRefill 向上取整、下限 1，实测个位秒），绝大多数 429 出自这里，也是 fallbackSeconds 要对标的档位；
  * - backEnd/src/main/java/com/fresh/service/impl/AdminAuthServiceImpl.java:276 —— **401**（不是 429）
  *   运营登录防枚举锁定的剩余 TTL，上限 600 秒（LOGIN_FAIL_LOCK_TTL=10 分钟）；
- * - backEnd/src/main/java/com/fresh/service/impl/AuthServiceImpl.java:299 —— 429（F-65 验证码失败锁），
+ * - backEnd/src/main/java/com/fresh/service/impl/AuthServiceImpl.java 的 assertCodeNotLocked —— 429（F-65 验证码失败锁），
  *   同一手机号连错 5 次的剩余锁定期，同为 600 秒封顶；
  * - backEnd/src/main/java/com/fresh/service/impl/PartnerOrderServiceImpl.java:218 —— 核销枚举锁的剩余 TTL，同为 600 秒封顶。
  * 为什么不能与 front-admin/src/api/index.js 的 retryAfterText 互换（两者只是长得像）：

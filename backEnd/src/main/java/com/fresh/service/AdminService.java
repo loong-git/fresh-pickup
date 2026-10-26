@@ -510,4 +510,57 @@ public interface AdminService {
      * （2026-10-25 主会话验收裁决：不静默丢行，前端标「订单已不存在」警示）。
      */
     List<Map<String, Object>> settlementItems(Long id);
+
+    // ==================================================================
+    // F-122 封禁体系（四个端点，全部追加到本接口文件末尾）
+    // 读端点不写审计；写端点仅在<b>实际状态迁移</b>时写 admin_audit_log：
+    //   ban.create / unban（target_type = user / merchant）。
+    // 红线：C 端可见性零改动（封禁商家商品照常展示，仅下单被 OrderServiceImpl 拦）；
+    // 两域零级联——封 user 不动其 merchant/store/settlement/order，封 merchant 不动其 user 账号；
+    // merchant 封禁复用既有 status='suspended'，terminated 不可经本组端点变更。
+    // ==================================================================
+
+    /**
+     * 运营端用户列表（F-122 §3.4.1，{@code GET /api/admin/users}）：
+     * {@code {list,total,pageNum,pageSize,filters}}，行 {@code {id,phone,role,merchantId,status,createdAt}}。
+     *
+     * <p>status 空=全部，非空归一小写后过白名单 {active,banned}，否则 400（复用 BAD_REQUEST_MSG）；
+     * userId 非空须 &gt;0；phone trim 后精确等值（无 LIKE）；分页缺省 1/20、值域 [1,100]、越界 400 不夹取。
+     * 行内 phone 必过 {@link com.fresh.common.PhoneMask#mask}；password_hash/invite_code/balance/avatar
+     * 等列<b>不查询</b>（把「不输出」写成「不查询」）。
+     */
+    Map<String, Object> users(Integer pageNum, Integer pageSize, Long userId, String phone, String status);
+
+    /**
+     * 封禁/解封用户（F-122 §3.4.1，{@code PUT /api/admin/users/{id}/status}）：
+     * action trim 后仅 ban/unban（否则 400）；用户不存在 404「用户不存在」；
+     * ban → banned、unban → active，已是目标态幂等成功且<b>不写库、不写审计</b>（契约 §7-8）。
+     * 实际迁移时写审计 {@code ban.create}/{@code unban}，detail {@code {"old","new"}}。
+     * <b>零级联</b>：不动该用户的 merchant/store/settlement/order，也不动其 token——失效由
+     * {@code AuthInterceptor} 每请求查 {@code user.status} 承载。
+     *
+     * @param actor 本次调用者身份（null = 静态密钥轨），见类注释
+     * @return 本次结果文案：实际迁移为「用户已封禁/已解封」；幂等 no-op 为「用户已处于封禁状态/正常状态」
+     */
+    String updateUserStatus(Long userId, String action, String actor);
+
+    /**
+     * 运营端商家列表（F-122 §3.4.2，{@code GET /api/admin/merchants}）：出参形状同 {@link #users}；
+     * 行 {@code {id,name,contactPhone,contactName,status,createdAt}}，contactPhone 必过 PhoneMask。
+     * status 白名单 {active,suspended,terminated}，其余规则（空=全部、归一、400、分页）与用户列表同款；
+     * 排序 {@code ORDER BY id ASC}。
+     */
+    Map<String, Object> merchants(Integer pageNum, Integer pageSize, Long merchantId, String status);
+
+    /**
+     * 封禁/解封商家（F-122 §3.4.2，{@code PUT /api/admin/merchants/{id}/status}）：
+     * ban → suspended、unban → active；已是目标态幂等成功且不写审计；
+     * terminated/脏值 → 400「该商家已清退，不可变更封禁状态」；商家不存在 404「商家不存在」。
+     * <b>零级联</b>：只写 merchant.status 一列——不下架商品、不清秒杀/免费领池、不动 merchant_store
+     * 与其 user 账号；C 端商品仍展示，下单由 {@code OrderServiceImpl#createOrder} 拦。
+     *
+     * @param actor 本次调用者身份（null = 静态密钥轨），见类注释
+     * @return 本次结果文案：实际迁移为「商家已封禁/已解封」；幂等 no-op 为「商家已处于封禁状态/正常营业状态」
+     */
+    String updateMerchantStatus(Long merchantId, String action, String actor);
 }

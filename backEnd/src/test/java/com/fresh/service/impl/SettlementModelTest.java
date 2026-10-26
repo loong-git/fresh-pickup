@@ -9,11 +9,13 @@ import com.fresh.dto.AdminDishUpdateDTO;
 import com.fresh.dto.OrderCreateDTO;
 import com.fresh.entity.AdminAuditLog;
 import com.fresh.entity.Dish;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
 import com.fresh.mapper.AdminAuditLogMapper;
 import com.fresh.mapper.ArrivalBatchMapper;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -108,6 +110,7 @@ class SettlementModelTest {
         ReflectionTestUtils.setField(orderService, "orderMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "orderItemMapper", orderItemMapper);
         ReflectionTestUtils.setField(orderService, "dishMapper", dishMapper);
+        ReflectionTestUtils.setField(orderService, "merchantMapper", activeMerchantMapper());
         ReflectionTestUtils.setField(orderService, "storeMapper", mock(StoreMapper.class));
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", mock(ArrivalBatchMapper.class));
         ReflectionTestUtils.setField(orderService, "couponService", mock(CouponService.class));
@@ -120,6 +123,15 @@ class SettlementModelTest {
     }
 
     // ---------------------------------------------------------------- fixtures
+
+    /** F-122 新增依赖：默认商家 active，保留下单快照既有断言语义 */
+    private static MerchantMapper activeMerchantMapper() {
+        MerchantMapper merchantMapper = mock(MerchantMapper.class);
+        Merchant active = new Merchant();
+        active.setStatus("active");
+        when(merchantMapper.selectById(any())).thenReturn(active);
+        return merchantMapper;
+    }
 
     private static Dish dish(BigDecimal supplyPrice) {
         Dish d = new Dish();

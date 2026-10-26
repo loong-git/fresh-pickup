@@ -2969,4 +2969,248 @@ public class AdminServiceImpl implements AdminService {
         }
         return out;
     }
+
+    // ==================================================================
+    // F-122 封禁体系（用户/商家列表 + 封禁解封，全部追加到文件末尾——
+    // 本类被仓内行号指针引用，只追加不插行，理由同 F-106 片 B2 / F-107 段注释）。
+    // 读端点不写审计；写端点只在<b>实际状态迁移</b>时写一行 ban.create / unban
+    // （幂等 no-op 不留痕，契约 §7-8，与 auditDish「幂等照记」刻意不同）。
+    // 红线：C 端可见性零改动（封禁商家商品照常展示，仅下单由 OrderServiceImpl 拦）；
+    // 两域零级联——封 user 不动其 merchant/store/settlement/order，封 merchant 不动其 user 账号；
+    // merchant 封禁复用既有 status='suspended'，terminated 不可经本组方法变更。
+    // ==================================================================
+
+    /** 用户状态白名单（F-122 §3.4.1 逐字两态） */
+    private static final Set<String> USER_STATUSES = Set.of("active", "banned");
+
+    /** 商家状态白名单（F-122 §3.4.2 逐字三态，与 merchant 实体既有枚举同集合） */
+    private static final Set<String> MERCHANT_STATUSES = Set.of("active", "suspended", "terminated");
+
+    /** 封禁动作白名单与 400 文案（契约 §3.4.1/§3.4.2 逐字） */
+    private static final String ACTION_BAN = "ban";
+    private static final String ACTION_UNBAN = "unban";
+    private static final String BAN_ACTION_MSG = "action 仅允许 ban/unban";
+
+    /** 商家 terminated/脏值不可变更封禁态的 400 文案（契约 §3.4.2 逐字） */
+    private static final String MERCHANT_LOCKED_MSG = "该商家已清退，不可变更封禁状态";
+
+    /**
+     * 运营端用户列表（F-122 §3.4.1）：参数闸门、排序与出参口径见接口注释。
+     *
+     * <p>分页照 {@link #listMerchantApplies} 范式：无 MP 分页插件，页 + 独立 COUNT 两条手写 SQL；
+     * 越界脏值一律 400、不夹取，offset 用 long 防 int 溢出，offset &gt;= total 短路回空列表。
+     * <p>status 空=全部，非空 Locale.ROOT 归一小写后过 {active,banned} 白名单；
+     * phone trim 后精确等值（不做 LIKE）；filters 回显归一后的三值。
+     * <p>行内 phone 必过 {@link PhoneMask#mask}；password_hash/invite_code/balance/avatar
+     * 等列在 Mapper 的 SELECT 白名单里根本不存在（把「不输出」写成「不查询」）。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> users(Integer pageNum, Integer pageSize, Long userId, String phone, String status) {
+        int pageNo = pageNum == null ? LIST_DEFAULT_PAGE_NUM : pageNum;
+        if (pageNo < LIST_DEFAULT_PAGE_NUM) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        int size = pageSize == null ? LIST_DEFAULT_PAGE_SIZE : pageSize;
+        if (size < LIST_MIN_PAGE_SIZE || size > LIST_MAX_PAGE_SIZE) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        if (userId != null && userId <= 0) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+
+        String fPhone = phone == null ? null : phone.trim();
+        if (fPhone != null && fPhone.isEmpty()) {
+            fPhone = null;
+        }
+        String fStatus = status == null ? null : status.trim();
+        if (fStatus != null && fStatus.isEmpty()) {
+            fStatus = null;
+        }
+        if (fStatus != null) {
+            fStatus = fStatus.toLowerCase(Locale.ROOT);
+            if (!USER_STATUSES.contains(fStatus)) {
+                throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+            }
+        }
+
+        long total = userMapper.countUsers(userId, fPhone, fStatus);
+        long offset = (long) (pageNo - 1) * size;
+        List<Map<String, Object>> rows = offset >= total
+                ? List.of()
+                : userMapper.selectUsersPage(userId, fPhone, fStatus, offset, size);
+
+        List<Map<String, Object>> list = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.get("id"));
+            line.put("phone", PhoneMask.mask((String) row.get("phone")));
+            line.put("role", row.get("role"));
+            line.put("merchantId", row.get("merchantId"));
+            line.put("status", row.get("status"));
+            line.put("createdAt", row.get("createdAt"));
+            list.add(line);
+        }
+
+        Map<String, Object> filters = new LinkedHashMap<>();
+        filters.put("userId", userId);
+        // 脱敏回显：筛选输入是明文，但响应全文不得出现明文手机号（契约 §3.4.1/§5.2 红线）
+        filters.put("phone", PhoneMask.mask(fPhone));
+        filters.put("status", fStatus);
+
+        // 键名与键序逐字照 AdminV2ServiceImpl#pageResult / listMerchantApplies（不新造形状）
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("list", list);
+        data.put("total", total);
+        data.put("pageNum", pageNo);
+        data.put("pageSize", size);
+        data.put("filters", filters);
+        return data;
+    }
+
+    /**
+     * 封禁/解封用户（F-122 §3.4.1）：action trim 后仅 ban/unban；用户不存在 404「用户不存在」；
+     * ban → banned、unban → active。已是目标态即幂等成功：不写库、不写审计。
+     * 实际迁移时写审计 ban.create / unban，detail 走 {@link #buildAuditDetail} 的 {"old","new"}。
+     * <b>零级联</b>：不动该用户的 merchant/store/settlement/order，也不动 token——
+     * 已签发 token 由 {@code AuthInterceptor} 每请求查 {@code user.status} 实时失效。
+     */
+    @Override
+    @Transactional
+    public String updateUserStatus(Long userId, String action, String actor) {
+        String act = action == null ? "" : action.trim();
+        if (!ACTION_BAN.equals(act) && !ACTION_UNBAN.equals(act)) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAN_ACTION_MSG);
+        }
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "用户不存在");
+        }
+        String old = user.getStatus();
+        String target;
+        if (ACTION_BAN.equals(act)) {
+            if (User.STATUS_BANNED.equals(old)) {
+                return "用户已处于封禁状态"; // 幂等 no-op：不写库、不写审计
+            }
+            target = User.STATUS_BANNED;
+        } else {
+            if (User.STATUS_ACTIVE.equals(old)) {
+                return "用户已处于正常状态"; // 幂等 no-op：不写库、不写审计
+            }
+            target = User.STATUS_ACTIVE;
+        }
+        userMapper.update(null, new LambdaUpdateWrapper<User>()
+                .eq(User::getId, userId)
+                .set(User::getStatus, target));
+        writeAudit(auditActor(actor), ACTION_BAN.equals(act) ? "ban.create" : "unban",
+                "user", String.valueOf(userId), old, target);
+        return ACTION_BAN.equals(act) ? "用户已封禁" : "用户已解封";
+    }
+
+    /**
+     * 运营端商家列表（F-122 §3.4.2）：出参形状同 {@link #users}；行 {@code {id,name,contactPhone,
+     * contactName,status,createdAt}}，contactPhone 必过 {@link PhoneMask#mask}。
+     * status 白名单 {active,suspended,terminated}，其余闸门与用户列表同款；排序 id ASC。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> merchants(Integer pageNum, Integer pageSize, Long merchantId, String status) {
+        int pageNo = pageNum == null ? LIST_DEFAULT_PAGE_NUM : pageNum;
+        if (pageNo < LIST_DEFAULT_PAGE_NUM) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        int size = pageSize == null ? LIST_DEFAULT_PAGE_SIZE : pageSize;
+        if (size < LIST_MIN_PAGE_SIZE || size > LIST_MAX_PAGE_SIZE) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        if (merchantId != null && merchantId <= 0) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+
+        String fStatus = status == null ? null : status.trim();
+        if (fStatus != null && fStatus.isEmpty()) {
+            fStatus = null;
+        }
+        if (fStatus != null) {
+            fStatus = fStatus.toLowerCase(Locale.ROOT);
+            if (!MERCHANT_STATUSES.contains(fStatus)) {
+                throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+            }
+        }
+
+        long total = merchantMapper.countMerchants(merchantId, fStatus);
+        long offset = (long) (pageNo - 1) * size;
+        List<Map<String, Object>> rows = offset >= total
+                ? List.of()
+                : merchantMapper.selectMerchantsPage(merchantId, fStatus, offset, size);
+
+        List<Map<String, Object>> list = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("id", row.get("id"));
+            line.put("name", row.get("name"));
+            line.put("contactPhone", PhoneMask.mask((String) row.get("contactPhone")));
+            line.put("contactName", row.get("contactName"));
+            line.put("status", row.get("status"));
+            line.put("createdAt", row.get("createdAt"));
+            list.add(line);
+        }
+
+        Map<String, Object> filters = new LinkedHashMap<>();
+        filters.put("merchantId", merchantId);
+        filters.put("status", fStatus);
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("list", list);
+        data.put("total", total);
+        data.put("pageNum", pageNo);
+        data.put("pageSize", size);
+        data.put("filters", filters);
+        return data;
+    }
+
+    /**
+     * 封禁/解封商家（F-122 §3.4.2）：ban → suspended、unban → active；已是目标态即幂等成功
+     * （不写库、不写审计）；terminated/脏值 → 400「该商家已清退，不可变更封禁状态」；
+     * 商家不存在 404「商家不存在」。
+     * <b>零级联</b>：只写 merchant.status 一列——不下架商品、不清秒杀/免费领池、不动 merchant_store
+     * 与其 user 账号；商家端写闸门由既有 {@code MerchantServiceImpl#requireActive} 联动。
+     */
+    @Override
+    @Transactional
+    public String updateMerchantStatus(Long merchantId, String action, String actor) {
+        String act = action == null ? "" : action.trim();
+        if (!ACTION_BAN.equals(act) && !ACTION_UNBAN.equals(act)) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAN_ACTION_MSG);
+        }
+        Merchant merchant = merchantMapper.selectById(merchantId);
+        if (merchant == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "商家不存在");
+        }
+        String old = merchant.getStatus();
+        String target;
+        if (ACTION_BAN.equals(act)) {
+            if ("suspended".equals(old)) {
+                return "商家已处于封禁状态"; // 幂等 no-op：不写库、不写审计
+            }
+            if (!"active".equals(old)) {
+                throw new BizException(R.CODE_BAD_REQUEST, MERCHANT_LOCKED_MSG);
+            }
+            target = "suspended";
+        } else {
+            if ("active".equals(old)) {
+                return "商家已处于正常营业状态"; // 幂等 no-op：不写库、不写审计
+            }
+            if (!"suspended".equals(old)) {
+                throw new BizException(R.CODE_BAD_REQUEST, MERCHANT_LOCKED_MSG);
+            }
+            target = "active";
+        }
+        merchantMapper.update(null, new LambdaUpdateWrapper<Merchant>()
+                .eq(Merchant::getId, merchantId)
+                .set(Merchant::getStatus, target));
+        writeAudit(auditActor(actor), ACTION_BAN.equals(act) ? "ban.create" : "unban",
+                "merchant", String.valueOf(merchantId), old, target);
+        return ACTION_BAN.equals(act) ? "商家已封禁" : "商家已解封";
+    }
 }
