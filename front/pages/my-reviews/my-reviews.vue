@@ -39,7 +39,9 @@
             </view>
           </view>
         </view>
-        <view v-else class="empty-row"><text class="empty-text">暂无评价，去商品详情写下第一条吧</text></view>
+        <!-- S3（P4-3）：请求返回过之前不得断言「暂无评价」——「还没读到」不是「没有」 -->
+        <view v-else-if="!loaded" class="empty-row"><text class="empty-text">正在加载…</text></view>
+        <view v-else-if="loaded" class="empty-row"><text class="empty-text">暂无评价，去商品详情写下第一条吧</text></view>
       </template>
     </view>
 
@@ -65,7 +67,9 @@ export default {
     return {
       // 我的评价原始列表（getMyReviews 全量返回，无分页；服务端按 dish_id 填充 dishName）
       reviews: [],
-      reviewError: false
+      reviewError: false,
+      // S3（P4-3）：评价请求是否已返回过（成功/失败都置真，口径同 free.vue）；空态判据须经它把关
+      loaded: false
     }
   },
   computed: {
@@ -87,6 +91,9 @@ export default {
       } else {
         this.reviews = []
         this.reviewError = false
+        // 清态后本页不再发请求，loaded 退回 false（口径同 my-coupons 与 R2）：这一支被 !hasToken 引导行遮住，
+        // 置真没有收益；判据留 false 才不会在渲染序竞态里替系统断言「暂无评价」
+        this.loaded = false
       }
     }
   },
@@ -112,13 +119,18 @@ export default {
     // GET /api/reviews/mine（登录）：我的评价全量（无分页）；
     // 401（token 失效）：request 层已清登录态，页面响应式切游客视图，不再置错误态；其余失败显示错误态可重试
     async loadReviews() {
+      // 未登录早退不置 loaded（同 my-coupons 的裁定）：外层 `!hasToken` 引导行先渲染，加载行不会露出；
+      // 在这里置真反而会让会话内登录后的首拉顶着 loaded 报一句「暂无评价」
       if (!this.hasToken) { this.reviews = []; this.reviewError = false; return }
       try {
         const res = await getMyReviews()
         this.reviews = Array.isArray(res && res.data) ? res.data : []
         this.reviewError = false
+        this.loaded = true
       } catch (e) {
         if (!e || e.code !== 401) this.reviewError = true
+        // 失败同样算「请求返回过」（D1）：加载行不得在失败后常驻，空态仍由 reviewError 挡住
+        this.loaded = true
       }
     },
     // ==================== 列表项 ====================

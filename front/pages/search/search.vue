@@ -196,8 +196,13 @@
               </view>
             </view>
           </view>
-          <!-- 空态：搜索请求中不显示 -->
-          <view v-if="!searchLoading && searchResults.length === 0" class="empty-state">
+          <!-- F2（P4-3）：搜索失败 ≠ 没找到——失败只出错误行与重试，绝不得报「没有找到相关商品」；
+               空态判据同时要求 loaded（本次会话至少返回过一次）与 !searchLoading（在飞中不闪现） -->
+          <view v-if="searchFailed" class="error-state" @click="doSearch">
+            <text class="error-text">搜索失败，请检查网络</text>
+            <text class="error-retry">点击重试</text>
+          </view>
+          <view v-if="!searchLoading && !searchFailed && loaded && searchResults.length === 0" class="empty-state">
             <text>没有找到相关商品</text>
           </view>
         </view>
@@ -371,6 +376,10 @@ export default {
       searchMode: false,
       searchResults: [],   // 搜索结果（GET /api/dishes?keyword=，decorateDish 增强）
       searchLoading: false,// 搜索请求飞行中（空态在请求中不闪现）
+      // F2（P4-3）：本轮搜索是否请求失败——失败与「没找到」必须可分，二者共用一个空列表会说假话
+      searchFailed: false,
+      // F2（P4-3）：至少有一次搜索请求返回过（成功/失败都置真，口径同 free.vue）；exitSearch 把它退回 false
+      loaded: false,
       loadError: false,    // 榜单数据加载失败（≠空态，点击重试）
       imgFail: {},         // 图片加载失败记录表（id -> true，@error 后回退 emoji 色块）
       // 全量商品（榜单数据源 + 购物车行回查 seckill/limitBuy/soldText/bgColor）
@@ -558,13 +567,18 @@ export default {
       this.saveSearchHistory(kw)
       this.searchMode = true
       this.searchLoading = true
+      // 每轮开始先撤销上一轮的失败标记，否则重试成功后错误行会赖在屏上不走
+      this.searchFailed = false
       try {
         this.searchResults = await this.dishRequest({ keyword: kw })
       } catch (e) {
         this.searchResults = []
+        // 置空列表不足以区分「读失败」与「真没结果」（F2）：另记失败标记供错误行判定；toast 保留（即时反馈）
+        this.searchFailed = true
         this.showToast((e && e.message) || '网络异常')
       } finally {
         this.searchLoading = false
+        this.loaded = true
       }
     },
     // 输入时清空关键词：自动退出结果态回发现页（三大块）
@@ -581,6 +595,10 @@ export default {
       this.searchMode = false
       this.keyword = ''
       this.searchResults = []
+      // F2（P4-3）：loaded 与 searchFailed 一并退回——退出结果态即「本轮没读过任何结果」，
+      // 只退 loaded 的话，上一轮的失败位会跟着回到搜索框，靠 searchMode 的结构遮住而非判据自洽（复核 #4）
+      this.loaded = false
+      this.searchFailed = false
     },
     // ==================== 最近搜索 ====================
     // 历史词读取（storage 键 search_history，脏数据兜底空数组；本页独立持有）

@@ -13,7 +13,8 @@
     <view class="review-section">
       <view class="section-header">
         <text class="section-title">商品评价</text>
-        <text class="review-count" v-if="reviews.length > 0">共 {{ reviews.length }} 条</text>
+        <!-- S4（P4-3）：计数须经 loaded——加载中 reviews 恒空，此处会先报出一句假的「共 0 条」 -->
+        <text class="review-count" v-if="loaded && reviews.length > 0">共 {{ reviews.length }} 条</text>
       </view>
 
       <!-- 错误态（M3-T-05 部分）：接口异常兜底，区别于"暂无评价"空态，可点击重试 -->
@@ -40,7 +41,11 @@
           <text class="review-time">{{ formatTime(r.createTime) }}</text>
         </view>
       </view>
-      <view v-else class="review-empty">
+      <!-- S4（P4-3）：请求返回过之前不得断言「暂无评价」——「还没读到」不是「没有」 -->
+      <view v-else-if="!loaded" class="review-empty">
+        <text class="empty-text">正在加载…</text>
+      </view>
+      <view v-else-if="loaded" class="review-empty">
         <text class="empty-icon">📝</text>
         <text class="empty-text">暂无评价，快来抢沙发~</text>
       </view>
@@ -92,6 +97,9 @@ export default {
       reviews: [],
       // 错误态标记（M3-T-05 部分）：首屏接口异常时置 true，显示错误态而非整页白屏/空态
       loadError: false,
+      // S4（P4-3）：评价请求是否已返回过（成功/失败都置真，口径同 free.vue）
+      // —— 空态与「共 N 条」计数都必须经它把关，否则请求在飞时报「暂无评价」/「共 0 条」
+      loaded: false,
       // 长文本展开状态表（M3-T-07）：key 为评价 id，true = 已展开
       expandedReviews: {},
       showPopup: false,
@@ -121,6 +129,10 @@ export default {
     // 拉取商品简要信息与评价列表：任一失败置 loadError 显示错误态（≠"暂无评价"空态）
     async loadAll() {
       this.loadError = false
+      // 每次拉取都退回「没返回过」：错误态刚被清掉，若 loaded 还留着上一轮的真值，
+      // 重试在飞的几百毫秒里判据会是「返回过 + 无错误 + 空列表」→「暂无评价」又替系统撒一次谎。
+      // 手里已有评价时不受影响：列表分支在 v-else 链里先命中，不会改闪成加载行
+      this.loaded = false
       try {
         const [dishRes, reviewRes] = await Promise.all([
           getDishDetail(this.dishId),
@@ -128,8 +140,11 @@ export default {
         ])
         if (dishRes && dishRes.data) this.dish = dishRes.data
         this.reviews = reviewRes && Array.isArray(reviewRes.data) ? reviewRes.data : []
+        this.loaded = true
       } catch (e) {
         this.loadError = true
+        // 失败同样算「请求返回过」（D1）：错误行与加载行互斥，加载行不得在失败后常驻
+        this.loaded = true
       }
     },
     // 评价人昵称兜底（M3-T-07）：脏数据 reviewer=null 显示"匿名"，避免 charAt(0) 报错

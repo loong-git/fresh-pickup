@@ -50,7 +50,9 @@
               <text v-else-if="couponTab === 'expired'" class="coupon-flag">已过期</text>
             </view>
           </view>
-          <view v-else class="empty-row"><text class="empty-text">该状态下暂无优惠券</text></view>
+          <!-- S2（P4-3）：请求返回过之前不得断言「该状态下暂无优惠券」——「还没读到」不是「没有」 -->
+          <view v-else-if="!loaded" class="empty-row"><text class="empty-text">正在加载…</text></view>
+          <view v-else-if="loaded" class="empty-row"><text class="empty-text">该状态下暂无优惠券</text></view>
         </template>
       </template>
     </view>
@@ -86,7 +88,9 @@ export default {
       couponTab: 'available',
       // 优惠券原始列表（getMyCoupons 全量返回，含 used 券，前端按三态归类）
       coupons: [],
-      couponError: false
+      couponError: false,
+      // S2（P4-3）：券请求是否已返回过（成功/失败都置真，口径同 free.vue）；空态判据须经它把关
+      loaded: false
     }
   },
   computed: {
@@ -129,6 +133,9 @@ export default {
       } else {
         this.coupons = []
         this.couponError = false
+        // 清态后本页不再发请求，loaded 退回 false：这一支由上面的 !hasToken 引导行遮住，
+        // 置真置假都不会露出——但判据要自洽，万一渲染序上有竞态，露「正在加载」也比替系统断言「暂无」诚实（口径同 R2）
+        this.loaded = false
       }
     }
   },
@@ -154,13 +161,20 @@ export default {
     // GET /api/coupons（登录）：我的优惠券全量（含 used），三分归类见 couponGroups；
     // 401（token 失效）：request 层已清登录态，页面响应式切游客视图，不再置错误态；其余失败显示错误态可重试
     async loadCoupons() {
+      // 未登录早退**不**置 loaded（主会话裁定，推翻契约 S2 原口径）：外层 `!hasToken` 引导行先渲染，
+      // 加载行在这一支根本不会露出，也就不存在「悬空态」；反过来若在这里置真，
+      // 会话内登录后（watch 触发首拉）那几百毫秒会顶着 loaded=true 报「该状态下暂无优惠券」——
+      // 用一个可露出的假空态去换一个不会露出的悬空态，是亏的
       if (!this.hasToken) return
       try {
         const res = await getMyCoupons()
         this.coupons = Array.isArray(res && res.data) ? res.data : []
         this.couponError = false
+        this.loaded = true
       } catch (e) {
         if (!e || e.code !== 401) this.couponError = true
+        // 失败同样算「请求返回过」（D1）：加载行不得在失败后常驻，空态仍由 couponError 挡住
+        this.loaded = true
       }
     },
     // ==================== 三分 tab ====================

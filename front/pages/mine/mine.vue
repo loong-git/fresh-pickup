@@ -101,9 +101,13 @@ export default {
       // 优惠券原始列表（getMyCoupons 全量拉取，onShow 刷新；F-09 概要行只取 couponGroups.available.length 报数）
       coupons: [],
       couponError: false,
+      // S5（P4-3）：券请求是否已返回过（成功/失败都置真）；概要行未返回前只给中性文案
+      couponLoaded: false,
       // 我的评价列表（getMyReviews，服务端按 dish_id 填充 dishName）；F-11：仅驱动概要行 reviewSummary 报数，列表承载在 my-reviews 独立页
       reviews: [],
-      reviewError: false
+      reviewError: false,
+      // S6（P4-3）：评价请求是否已返回过（成功/失败都置真）；概要行未返回前只给中性文案
+      reviewLoaded: false
     }
   },
   computed: {
@@ -138,6 +142,9 @@ export default {
     couponSummary() {
       if (!this.hasToken) return '登录后查看'
       if (this.couponError) return '点击查看全部'
+      // D6（P4-3）：请求未返回过时报「暂无可用」等于把「还没读到」说成「没有」，
+      // 概要行只有一行小字，故给不带事实结论的中性动词短语
+      if (!this.couponLoaded) return '查看优惠券'
       const n = this.couponGroups.available.length
       return n > 0 ? `可用 ${n} 张` : '暂无可用，去领券'
     },
@@ -147,6 +154,8 @@ export default {
     reviewSummary() {
       if (!this.hasToken) return '登录后查看'
       if (this.reviewError) return '点击查看全部'
+      // D6（P4-3）：同上——未返回过就报「暂无评价」是断言而非状态，先给中性文案
+      if (!this.reviewLoaded) return '查看我的评价'
       const n = this.reviews.length
       return n > 0 ? `共 ${n} 条评价` : '暂无评价'
     }
@@ -190,9 +199,12 @@ export default {
         const res = await getMyCoupons()
         this.coupons = Array.isArray(res && res.data) ? res.data : []
         this.couponError = false
+        this.couponLoaded = true
       } catch (e) {
         // 401（token 失效）：request 层已清登录态，页面响应式切游客视图，不再置错误态；其余失败显示错误态可重试
         if (!e || e.code !== 401) this.couponError = true
+        // 失败同样算「请求返回过」（D1）：概要行此后交给上面两条分支，不得停在「查看优惠券」
+        this.couponLoaded = true
       }
     },
     async loadReviews() {
@@ -201,8 +213,11 @@ export default {
         const res = await getMyReviews()
         this.reviews = Array.isArray(res && res.data) ? res.data : []
         this.reviewError = false
+        this.reviewLoaded = true
       } catch (e) {
         if (!e || e.code !== 401) this.reviewError = true
+        // 失败同样算「请求返回过」（D1）：概要行此后交给上面两条分支，不得停在「查看我的评价」
+        this.reviewLoaded = true
       }
     },
     // ==================== 优惠券概要入口（F-09） ====================

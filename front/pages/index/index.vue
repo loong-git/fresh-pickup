@@ -100,7 +100,7 @@
                 <text class="sp-num">{{ d.seckillPrice }}</text>
               </view>
             </view>
-            <view v-if="seckillDishes.length === 0" class="seckill-empty"><text>本场已抢空，下一场即将开始</text></view>
+            <view v-if="seckillLoaded && seckillDishes.length === 0" class="seckill-empty"><text>本场已抢空，下一场即将开始</text></view>
           </scroll-view>
         </view>
 
@@ -164,8 +164,13 @@
                 </view>
               </view>
             </view>
-            <!-- 空态只有"暂无商品"一支：搜索结果的空态在 search.vue，本页没有可压住它的请求中态 -->
-            <view v-if="!searchLoading && displayDishes.length === 0" class="empty-state">
+            <!-- S1：请求返回过之前只出轻提示行——「还没读到」不等于「没有」（空态判据须 loaded && !loadError）；
+                 加载行只在「手里还没东西」时出现：下单/支付后的刷新带着已有列表，那时露一行「正在加载」是噪音不是诚实；
+                 搜索结果的空态在 search.vue，本页列表恒为分类过滤结果 -->
+            <view v-if="!loaded && displayDishes.length === 0" class="empty-state">
+              <text>正在加载…</text>
+            </view>
+            <view v-if="loaded && !loadError && displayDishes.length === 0" class="empty-state">
               <text>暂无商品</text>
             </view>
           </template>
@@ -381,7 +386,14 @@
           <!-- M4-T-02：优惠券选择行（该用户可用券，小计满足门槛可选，不满足置灰） -->
           <view class="pay-section">
             <text class="section-title">优惠券</text>
-            <view v-if="availableCoupons.length === 0" class="coupon-empty">
+            <!-- F1（P4-3）：三态互斥——失败 ≠ 无券，且「还没读到」也不得说成「暂无可用」 -->
+            <view v-if="couponLoadFailed" class="coupon-empty" @click="loadMyCoupons">
+              <text>优惠券读取失败，点击重试</text>
+            </view>
+            <view v-else-if="!couponLoaded" class="coupon-empty">
+              <text>正在读取优惠券…</text>
+            </view>
+            <view v-else-if="availableCoupons.length === 0" class="coupon-empty">
               <text>暂无可用优惠券，可在首页领券中心领取</text>
             </view>
             <view
@@ -519,6 +531,9 @@ export default {
       dishes: [],
       // 商品列表加载失败错误态（≠空态，显示"点击重试"，T-M3-05）
       loadError: false,
+      // S1（P4-3）：首屏商品请求是否已返回过（成功与失败都置真，口径同 free.vue 的 loaded）
+      // —— 空态必须由它把关，否则请求在飞时列表长度恒 0 会被渲染成「暂无商品」
+      loaded: false,
       // 图片加载失败记录表（id -> true）：@error 后该卡回退 emoji 色块（T-M3-01）
       imgFail: {},
       // 超级秒杀倒计时（23:00 截单逻辑，十分位；时间计算走 utils/time.js 共用逻辑）
@@ -536,10 +551,11 @@ export default {
       catDropOpen: false,       // 全部分类面板展开动画状态（translateY 过渡）
       // 搜索区变色态：滚动到达"分类 tab 吸顶位"（tab 文档偏移 - 搜索区高度）后为 true，搜索区由红底切白底
       catTabStuck: false,
-      // 白条内没有 input 也没有绑定值（整条只有 @click 跳转），下面两键在本页无任何写入点
+      // 白条内没有 input 也没有绑定值（整条只有 @click 跳转），下面这键在本页无任何写入点
       // 本页没有页内搜索模式（无该开关键）：列表恒走分类过滤，金刚区/秒杀区/分类 tab 恒显示，搜索由 pages/search/search 独立页承担
       searchResults: [],        // 死键：本页零读写，搜索结果的实现只在 search.vue
-      searchLoading: false,     // 死键：只有模板读、无赋值点故恒 false，上方空态实际只看列表长度
+      // D3（P4-3）：此处原有的搜索中态死键已删——没有任何赋值点故恒 false，那条空态守卫形同装饰；
+      // 列表区的「请求返回前」改由上方 loaded 把关
       showCartDetail: false,    // 购物车弹层
       showPersonPopup: false,   // 修改提货人弹窗
       showPayPopup: false,      // 支付弹窗（原有流程）
@@ -574,9 +590,16 @@ export default {
       seckillServerMode: false,
       // 当前场次商品（接口 dishes 优先；空时回退本地列表过滤）
       seckillSessionDishes: [],
+      // 场次请求返回过没有（复核 #3）：秒杀条的「本场已抢空」是断言不是占位，
+      // 在飞/未发起时不得出口——这是 P4-3 六处之外同页的第七处同族病
+      seckillLoaded: false,
       // === M4-T-02 优惠券 ===
       // 当前登录用户券列表（GET /api/coupons，即 api/index.js 的 getMyCoupons；used 券在 availableCoupons 过滤）
       myCoupons: [],
+      // F1（P4-3）：券请求失败标记——失败与「一张券都没有」必须可分，否则下单页对顾客宣称「暂无可用优惠券」是假话
+      couponLoadFailed: false,
+      couponLoaded: false,      // 券请求返回过没返回过（F1 补）：打开确认订单弹窗不 await 这次请求，
+                                 // 少了它，在飞的那几百毫秒券行会替系统说「暂无可用优惠券」——同一族谎的残留位点
       // 选中的券 id（null=不使用；小计变化时 watch 自动重置）
       selectedCouponId: null,
       // === 免费领商品引导弹窗（共享组件 free-gift-guide）：冷启动会话首次进入延迟 1.5s 判定弹出 ===
@@ -751,6 +774,9 @@ export default {
     },
     async loadDishes() {
       this.loadError = false
+      // 每次拉取都退回「没返回过」：错误态在上面已被清掉，若 loaded 仍是上一轮的真值，
+      // 重试在飞的那几百毫秒里判据会是 loaded && !loadError && 空列表 →「暂无商品」又替系统撒一次谎
+      this.loaded = false
       try {
         // 一次拉全量（不带 category 返回全部，天然覆盖对齐字典 code 后的所有分类），
         // 各分类真实过滤在前端本地完成（T-M3-12：点任意分类即出对应商品）
@@ -758,10 +784,13 @@ export default {
         // 与后端排序习惯保持一致（按 id 倒序）
         all.sort((a, b) => b.id - a.id)
         this.dishes = all
+        this.loaded = true
       } catch (e) {
         // 拉取失败显示错误态（≠空态），列表区出现"点击重试"（T-M3-05）
         this.dishes = []
         this.loadError = true
+        // 失败同样算「请求返回过」（S1）：错误行与加载行互斥由 loadError 决定，加载行不得在失败后常驻
+        this.loaded = true
       }
     },
     // 错误态重试（T-M3-05）
@@ -804,6 +833,8 @@ export default {
         return false
       } finally {
         this._seckillFetching = false
+        // 三条出口（数据不全回退 / 成功 / 异常回退）都算「返回过」：之后那句「本场已抢空」才是读过之后的结论
+        this.seckillLoaded = true
       }
     },
     // 切场（end 过点）：置灰"已切明日场次"并重拉接口；重拉失败 2s 后回退本地口径不闪跳
@@ -1000,12 +1031,22 @@ export default {
     // 拉取当前用户券列表（GET /api/coupons，登录）；未登录不发；401（登录态失效，request 层
     // 已清态）/网络异常均静默兜底空列表，不打扰下单主流程
     async loadMyCoupons() {
-      if (!this.user.token) { this.myCoupons = []; return }
+      // 每次真发请求都退回「没返回过」：弹窗可以反复打开，上一轮的 loaded 不得替本轮作保
+      this.couponLoaded = false
+      // 未登录这一支根本没发请求，必须同时撤销上一轮的失败位：否则券区会在「什么都没做过」的人面前
+      // 常驻一句「优惠券读取失败，点击重试」，而点击又走回这条早退——断言无从复核也修不掉（复核 #1）
+      if (!this.user.token) { this.myCoupons = []; this.couponLoadFailed = false; this.couponLoaded = true; return }
       try {
         const res = await getMyCoupons()
         this.myCoupons = Array.isArray(res && res.data) ? res.data : []
+        // 成功即撤销失败标记：上一轮的失败不得污染本轮的空态判定
+        this.couponLoadFailed = false
+        this.couponLoaded = true
       } catch (e) {
         this.myCoupons = []
+        // 置空列表不足以区分「读失败」与「真没券」（F1）：失败必须单独留痕给券行出重试行
+        this.couponLoadFailed = true
+        this.couponLoaded = true
       }
     },
     // 券是否满足门槛（勾选小计 >= threshold 可选，否则置灰不可点）
