@@ -1139,8 +1139,8 @@ export function updateAdminStore(id, body) {
 // 读端点限流 IP 30/60s、写端点 IP 10/60s（照 F-110/F-113 档位）。
 // 语义边界（契约 §3 红线）：settlement 只增不改——本节无任何 UPDATE/DELETE 函数；冲销走下一期 refund
 // 列承载（06 册 §4.5 定稿）；「打款通道未接」是页面恒显语义（paidChannelAbsent 由接口层带出防漏显）。
-// ⚠ 商家下拉数据源：契约 §1 只授权三端点、未给商家清单端点——选项来自列表返回的 merchantId/merchantName
-//   去重 + allow-create 手输 merchantId（首次对某商家出账直接输入其 id），本层不为此新造请求。
+// ⚠ 商家下拉数据源（P4-6）：F-122 起已有 GET /api/admin/merchants（只读，分页/状态筛选，无名称过滤）；
+//   生成账期页用 pageSize=100 分页拉全后本地过滤，已去掉 allow-create 手输，避免错 merchantId 生成不可逆账单。
 
 /**
  * 账期列表：GET /api/admin/settlements?merchantId=

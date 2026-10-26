@@ -20,11 +20,19 @@
 
     <div class="toolbar">
       <el-button size="small" type="primary" :disabled="submitting" @click="openGenerate">生成账期</el-button>
-      <el-select v-model="filterMerchantId" clearable filterable placeholder="按商家筛（可空=全部）" style="width: 220px" @change="loadSettlements">
+      <el-select v-model="filterMerchantId" clearable filterable placeholder="按商家筛（可空=全部）" style="width: 220px" @change="onFilterChange">
         <el-option v-for="m in merchantOptions" :key="m.value" :label="m.label" :value="m.value" />
       </el-select>
       <el-button size="small" :loading="loading" :disabled="submitting" @click="loadSettlements">刷新</el-button>
       <span class="toolbar-hint">共 {{ settlements.length }} 单；按 id 倒序（新账期在前）。</span>
+    </div>
+
+    <!-- P4-6：生成成功提示。若当前筛选不是该商家，给一键切筛选，避免「生成了但列表里看不见」。 -->
+    <div v-if="generatedHint" class="generated-hint">
+      已为「{{ generatedHint.merchantName }}」(#{{ generatedHint.merchantId }}) 生成账期
+      <span v-if="generatedHint.settleNo"> · {{ generatedHint.settleNo }}</span>。
+      <el-button v-if="generatedHidden" link type="primary" size="small" :disabled="loading" @click="showGeneratedMerchant">按该商家筛选</el-button>
+      <el-button link size="small" @click="generatedHint = null">关闭</el-button>
     </div>
 
     <section class="panel">
@@ -93,12 +101,26 @@
     <el-dialog v-model="generateVisible" title="生成账期" width="520px" :close-on-click-modal="false">
       <el-form label-width="100px" @submit.prevent="onGenerate">
         <el-form-item label="商家">
-          <!-- 数据源=列表已出账商家去重 + allow-create 手输 merchantId（契约 §1 只授权三端点，
-               无商家清单端点；首次对某商家出账直接输入其 merchantId 回车即成一项） -->
-          <el-select v-model="form.merchantId" filterable allow-create default-first-option
-                     placeholder="选已出账商家或输入 merchantId" style="width: 100%">
-            <el-option v-for="m in merchantOptions" :key="m.value" :label="m.label" :value="m.value" />
+          <!-- P4-6：真实商家下拉（GET /api/admin/merchants，分页拉全后本地过滤）；
+               去掉 allow-create——错 merchantId 会生成错商家账单且 settlement 只增不改。 -->
+          <el-select v-model="form.merchantId" filterable :loading="merchantChoicesLoading"
+                     :disabled="merchantChoicesLoading || !!merchantChoicesError"
+                     placeholder="按名称或 #id 搜索真实商家" style="width: 100%">
+            <el-option v-for="m in merchantChoices" :key="m.id" :label="merchantLabel(m)" :value="String(m.id)">
+              <span>{{ m.name }}</span>
+              <span class="option-meta">#{{ m.id }} · {{ merchantStatusText(m.status) }}</span>
+            </el-option>
           </el-select>
+          <div v-if="merchantChoicesLoading" class="field-hint">正在加载商家列表…</div>
+          <div v-else-if="merchantChoicesError" class="field-error">
+            {{ merchantChoicesError }}
+            <el-button link type="primary" size="small" @click="loadMerchantChoices">重试</el-button>
+          </div>
+          <div v-else-if="merchantChoices.length === 0" class="field-warn">
+            没有可选的商家（无法生成账期）。
+            <el-button link type="primary" size="small" @click="loadMerchantChoices">重新加载</el-button>
+          </div>
+          <div v-else class="field-hint">已加载 {{ merchantChoices.length }} 个商家；只能选真实商家，不再支持手输 merchantId。</div>
         </el-form-item>
         <el-form-item label="账期起">
           <el-date-picker v-model="form.periodStart" type="date" value-format="YYYY-MM-DD"
@@ -119,7 +141,9 @@
       </p>
       <template #footer>
         <el-button size="small" :disabled="submitting" @click="generateVisible = false">取消（不发出任何请求）</el-button>
-        <el-button size="small" type="primary" :loading="submitting" @click="onGenerate">生成</el-button>
+        <el-button size="small" type="primary" :loading="submitting"
+                   :disabled="submitting || merchantChoicesLoading || !!merchantChoicesError || merchantChoices.length === 0"
+                   @click="onGenerate">生成</el-button>
       </template>
     </el-dialog>
 
@@ -194,7 +218,7 @@
 //   5) 生成成功后重拉列表，绝不本地改行；错误一律 ElMessage + 后端 message 原文。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminSettlements, generateAdminSettlement, getAdminSettlementItems } from '../api'
+import { getAdminSettlements, generateAdminSettlement, getAdminSettlementItems, getAdminMerchants } from '../api'
 
 const settlements = ref([])
 const loading = ref(false)
@@ -204,6 +228,10 @@ const filterMerchantId = ref(null)
 
 const generateVisible = ref(false)
 const form = ref({ merchantId: null, periodStart: '', periodEnd: '' })
+const merchantChoices = ref([])
+const merchantChoicesLoading = ref(false)
+const merchantChoicesError = ref('')
+const generatedHint = ref(null)
 
 const itemsVisible = ref(false)
 const itemsLoading = ref(false)
@@ -212,8 +240,8 @@ const itemsRow = ref(null)
 const items = ref([])
 const itemsTitle = computed(() => (itemsRow.value ? '账单明细 · ' + itemsRow.value.settleNo : '账单明细'))
 
-// 商家下拉选项：列表已出账商家去重（value 存字符串——el-select allow-create 产出的手输值是字符串，
-// 统一字符串键，发请求时再转数字）
+// 列表筛选的商家选项：来自已出账列表去重（value 统一字符串，与 el-select 选项值同类型）；
+// 生成弹窗的商家选项已改为真实商家列表（merchantChoices），两者数据源不同、不要混用。
 const merchantOptions = computed(() => {
   const seen = new Map()
   settlements.value.forEach((row) => {
@@ -224,8 +252,60 @@ const merchantOptions = computed(() => {
   return Array.from(seen, ([value, label]) => ({ value, label }))
 })
 
-async function loadSettlements() {
-  if (loading.value) return
+// P4-6：真实商家选项（GET /api/admin/merchants，分页拉全后本地过滤）。
+// 该端点没有名称过滤，pageSize 上限 100；商家多于 100 时必须按 total 继续翻页，不能只取第一页。
+const MERCHANT_STATUS_TEXT = { active: '正常营业', suspended: '停业整顿', terminated: '已清退' }
+const merchantStatusText = (s) => MERCHANT_STATUS_TEXT[s] || (s == null ? '未知' : String(s))
+const merchantLabel = (m) => m.name + ' (#' + m.id + ')'
+
+const generatedHidden = computed(() => !!(generatedHint.value && filterMerchantId.value != null
+  && String(filterMerchantId.value) !== String(generatedHint.value.merchantId)))
+
+async function loadMerchantChoices() {
+  if (merchantChoicesLoading.value) return
+  merchantChoicesLoading.value = true
+  merchantChoicesError.value = ''
+  try {
+    const all = []
+    const pageSize = 100
+    let pageNum = 1
+    let total = 0
+    do {
+      const envelope = await getAdminMerchants({ pageNum, pageSize })
+      const data = envelope && envelope.data ? envelope.data : {}
+      if (!Array.isArray(data.list)) {
+        throw new Error('商家列表返回形状异常（list 不是数组）')
+      }
+      const list = data.list
+      all.push(...list)
+      total = Number(data.total) || 0
+      pageNum += 1
+      if (list.length === 0) {
+        // total 与页不一致时防死循环；有 total 却返回 0 行说明数据不完整，不能静默当空
+        if (total > 0) throw new Error('商家列表返回不完整（0 行 / 共 ' + total + '）')
+        break
+      }
+    } while (all.length < total)
+    merchantChoices.value = all
+  } catch (err) {
+    const e = err || {}
+    merchantChoices.value = []
+    merchantChoicesError.value = e.message || '商家列表加载失败'
+    if (e.message) ElMessage.error(e.message)
+  } finally {
+    merchantChoicesLoading.value = false
+  }
+}
+
+let reloadQueued = false
+
+// force=true 时若已有请求在飞，不静默丢弃，而是等当前请求结束后再补拉一次
+//（P4-6：生成成功/切换筛选后必须看到新数据，不能被既有在飞守卫吞掉）。
+async function fetchSettlements(force) {
+  if (loading.value) {
+    if (force) reloadQueued = true
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -238,7 +318,19 @@ async function loadSettlements() {
     if (e.message) ElMessage.error(e.message)
   } finally {
     loading.value = false
+    if (reloadQueued) {
+      reloadQueued = false
+      fetchSettlements(true)
+    }
   }
+}
+
+function loadSettlements() {
+  return fetchSettlements(false)
+}
+
+function reloadSettlements() {
+  return fetchSettlements(true)
 }
 
 // 对账 ✗ 行整行标红（row-class-name）；✓ 行不额外着色
@@ -254,14 +346,34 @@ function itemRowClass({ row }) {
 function openGenerate() {
   form.value = { merchantId: null, periodStart: '', periodEnd: '' }
   generateVisible.value = true
+  loadMerchantChoices()
 }
 
-// 生成前校验（与后端同款形状）：merchantId 必填、两日期齐全
+// 列表筛选变化：清掉上一次生成提示，避免旧提示与新筛选并存
+function onFilterChange() {
+  generatedHint.value = null
+  loadSettlements()
+}
+
+// 生成成功后若当前筛选看不到该商家，一键切到该商家（不偷偷改筛选）；
+// 保留提示条，切完由 reloadSettlements 补拉（在飞时排队，不静默丢）。
+function showGeneratedMerchant() {
+  if (!generatedHint.value) return
+  filterMerchantId.value = String(generatedHint.value.merchantId)
+  reloadSettlements()
+}
+
+// 生成前校验（与后端同款形状）：商家必须是列表里的真实商家、两日期齐全
 function validateForm() {
   const f = form.value
-  const merchantId = Number(f.merchantId)
+  const selected = merchantChoices.value.find((m) => String(m.id) === String(f.merchantId))
+  if (!selected) {
+    ElMessage.warning('请从下拉中选择真实商家（不再支持手输 merchantId）')
+    return null
+  }
+  const merchantId = Number(selected.id)
   if (!Number.isInteger(merchantId) || merchantId <= 0) {
-    ElMessage.warning('商家必填：选已出账商家或输入 merchantId')
+    ElMessage.warning('商家参数不合法，请重新选择')
     return null
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f.periodStart || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(f.periodEnd || ''))) {
@@ -272,17 +384,27 @@ function validateForm() {
     ElMessage.warning('账期起须早于账期止')
     return null
   }
-  return { merchantId, periodStart: String(f.periodStart), periodEnd: String(f.periodEnd) }
+  return {
+    merchantId,
+    merchantName: selected.name,
+    merchantStatus: selected.status,
+    periodStart: String(f.periodStart),
+    periodEnd: String(f.periodEnd)
+  }
 }
 
 async function onGenerate() {
   if (submitting.value) return
   const parsed = validateForm()
   if (parsed === null) return
-  // 二次确认（契约 §2）：说明聚合口径与「只增不改」后果
+  // 二次确认（契约 §2）：说明聚合口径与「只增不改」后果；P4-6 回显商家名+#id，避免错商家
+  const statusLine = parsed.merchantStatus && parsed.merchantStatus !== 'active'
+    ? '\n注意：该商家当前为「' + merchantStatusText(parsed.merchantStatus) + '」，仍可按历史订单生成账期。'
+    : ''
   try {
     await ElMessageBox.confirm(
-      '确认为商家 #' + parsed.merchantId + ' 生成账期 ' + parsed.periodStart + ' ~ ' + parsed.periodEnd + ' 吗？\n'
+      '确认为商家「' + parsed.merchantName + '」（#' + parsed.merchantId + '）生成账期 '
+      + parsed.periodStart + ' ~ ' + parsed.periodEnd + ' 吗？' + statusLine + '\n'
       + '聚合口径：该商家本期「已支付 · 非缺货 · 已设供货价」的未结算明细，gross=Σ(供货价×数量)。\n'
       + '账单只增不改：生成后无作废/重开入口，冲销在下一账期 refund 列负向计入；同期不可重出。',
       '生成账期',
@@ -297,10 +419,20 @@ async function onGenerate() {
   }
   submitting.value = true
   try {
-    const envelope = await generateAdminSettlement(parsed)
+    const envelope = await generateAdminSettlement({
+      merchantId: parsed.merchantId,
+      periodStart: parsed.periodStart,
+      periodEnd: parsed.periodEnd
+    })
+    const created = envelope && envelope.data ? envelope.data : null
+    generatedHint.value = {
+      merchantId: parsed.merchantId,
+      merchantName: parsed.merchantName,
+      settleNo: created && created.settleNo ? created.settleNo : ''
+    }
     ElMessage.success((envelope && envelope.message) || '账期已生成')
     generateVisible.value = false
-    await loadSettlements()
+    await reloadSettlements()
   } catch (err) {
     const e = err || {}
     if (e.message) ElMessage.error(e.message)
@@ -380,6 +512,32 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.6;
   color: #e6a23c;
+}
+.field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #909399;
+}
+.field-error {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #f56c6c;
+}
+.option-meta {
+  margin-left: 12px;
+  color: #909399;
+  font-size: 12px;
+}
+.generated-hint {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f0f9eb;
+  border: 1px solid #e1f3d8;
+  border-radius: 6px;
+  color: #529b2e;
+  font-size: 13px;
 }
 .dialog-note {
   margin: 0;
