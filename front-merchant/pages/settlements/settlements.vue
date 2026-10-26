@@ -81,10 +81,10 @@
 
           <!-- 展开区：明细懒加载（首次展开拉一次，收起不丢缓存；失败给行内重试，不打断列表） -->
           <view v-if="expandedId === s.id" class="detail-zone" @click.stop>
-            <view v-if="itemsLoading === s.id" class="detail-state">
+            <view v-if="itemsLoadingById[s.id]" class="detail-state">
               <text class="detail-state-text">正在加载明细…</text>
             </view>
-            <view v-else-if="itemFailed === s.id" class="detail-state" @click.stop="loadItems(s)">
+            <view v-else-if="itemFailedById[s.id]" class="detail-state" @click.stop="loadItems(s)">
               <text class="detail-state-text detail-state-fail">明细加载失败，点击重试</text>
             </view>
             <template v-else>
@@ -101,7 +101,11 @@
                 <!-- 孤儿行警示（orphan=true：orders 行已删、payStatus 无从取）——照运营端口径明示不静默 -->
                 <text v-if="it.orphan" class="detail-orphan">⚠ 订单已不存在，本行不计入对账口径，请联系平台运营</text>
               </view>
-              <view v-if="!(itemsBySettle[s.id] || []).length" class="detail-state">
+              <!-- 空态判据（P4-4 §3-3）：只有「这张账单成功返回过、返回的确实是空数组」才许说「没有可展示的明细」。
+                   改前判的是 !(itemsBySettle[s.id] || []).length，把「还没有缓存」当成了「明细为空」——
+                   而请求没发出去/被丢弃/失败后不写缓存这几种情况都没有缓存，界面就会对商家宣称一句
+                   他无从核对的「本账单没有可展示的明细」，这正是最容易被当成事实的那句假话 -->
+              <view v-if="itemsBySettle[s.id] && itemsBySettle[s.id].length === 0" class="detail-state">
                 <text class="detail-state-text">本账单没有可展示的明细</text>
               </view>
             </template>
@@ -153,8 +157,10 @@ export default {
       // 展开态单值：同一时刻只展开一张账单（再点已展开的行收起）
       expandedId: null,
       itemsBySettle: {},   // 结算单 id -> 明细行数组（懒加载缓存）
-      itemsLoading: null,  // 正在拉明细的结算单 id
-      itemFailed: null,    // 明细拉取失败的结算单 id（行内重试）
+      // 加载态与失败态都按 id 存（P4-4 §3-2）：原先各只有一枚单值 id，而展开态允许多张账单同时在飞
+      // （A 在飞时点开 B，两张都该有自己的态）。单值表达不了「多张各自在飞」，后起的那张会拿不到态
+      itemsLoadingById: {}, // 结算单 id -> true（正在拉明细）
+      itemFailedById: {},   // 结算单 id -> true（明细拉取失败，行内重试；false/缺键 = 无失败）
       // 四态互斥：loading | ready | forbidden | error
       viewState: 'loading',
       errorText: '',
@@ -265,10 +271,16 @@ export default {
     },
     async loadItems(s) {
       const id = s && s.id
-      if (id === null || id === undefined || this._loadingItems) return
-      this._loadingItems = true
-      this.itemsLoading = id
-      this.itemFailed = null
+      if (id === null || id === undefined) return
+      // 单飞按 id 计（P4-4 §3-1）：改前是一枚全局 _loadingItems，A 的明细在飞时点开 B，
+      // B 的请求被静默丢弃——B 既不进缓存也拿不到失败态，屏上只剩一个由「没缓存」冒充出来的空态，
+      // 而且连重试入口都没有。非响应式实例属性即可（形状同上面的 _loadingList）
+      if (!this._loadingItemsById) this._loadingItemsById = {}
+      if (this._loadingItemsById[id]) return
+      this._loadingItemsById[id] = true
+      this.itemsLoadingById = { ...this.itemsLoadingById, [id]: true }
+      // 重试前只清这一张的失败态：整体清掉会把另一张已失败账单的行内提示一起抹平
+      this.itemFailedById = { ...this.itemFailedById, [id]: false }
       try {
         const res = await getMerchantSettlementItems(id)
         // 回包晚于收起/换行展开：整批丢弃（展开态已不指向它，塞进缓存会渲染到看不见的地方）
@@ -277,11 +289,14 @@ export default {
       } catch (e) {
         // 只在仍展开着这张账单时给行内失败提示；401 已由请求层处理，不在这里二次跳转
         if (this.expandedId === id && Number((e && e.code) || 0) !== 401) {
-          this.itemFailed = id
+          this.itemFailedById = { ...this.itemFailedById, [id]: true }
         }
       } finally {
-        this._loadingItems = false
-        if (this.itemsLoading === id) this.itemsLoading = null
+        // 只摘自己那一枚：把整枚闸门清空会放行同一张账单的重复请求，也会别处的在飞态跟着失真
+        this._loadingItemsById[id] = false
+        const loading = { ...this.itemsLoadingById }
+        delete loading[id]
+        this.itemsLoadingById = loading
       }
     },
     // ==================== 渲染辅助 ====================

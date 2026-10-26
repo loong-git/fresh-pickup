@@ -247,6 +247,10 @@ export default {
       // 提交单飞锁（写操作，finally 复位）与定位请求的进行中标记
       submitting: false,
       locating: false,
+      // 离开总闸（P4-4 §2）：本页原先没有这枚状态，它只服务 onBackPress 的「丢弃并离开」一支——
+      // 先置真再退，navigateBack 二次触发本钩子时才会走放行而不再弹一次。
+      // 刻意不参与 submit 的入口判据：「正在离开」不是「正在提交」，混用会把离页显示成提交中
+      leaving: false,
       // 常驻反馈：{tone:'ok'|'neutral'|'err'|'cooling', text:string}；null = 本次会话还没提交过
       feedback: null,
       // error 态文案与错误码（决定主文案是「点太快」还是「读取失败」）
@@ -262,6 +266,15 @@ export default {
     }
   },
   computed: {
+    // 「有没有改动」的判据：与进页面时的基线比，而不是「有没有非空字段」。
+    // 基线口径不可省——驳回态服务端会回填 proposedName/proposedAddress（见 applyMine 的 rejected 支），
+    // 用「非空即有改动」判，一个字没填的人点返回也会被弹「申请还没提交，填的内容会丢弃」：
+    // 前半句假（他提交过、刚被驳回，页面顶部就挂着「已驳回」状态卡），后半句也假（那两栏是库里的存量，重进还回填）。
+    // 无基线（还没读到 mine）时回落到「任一字段非空」，宁可多问一句也不静默丢弃
+    formTouched() {
+      if (this._formBaseline) return JSON.stringify(this.form) !== this._formBaseline
+      return Object.keys(this.form).some((k) => String(this.form[k]).trim() !== '')
+    },
     canSubmit() {
       return this.applyStatus !== STATUS_PENDING && !this.submitting && this.writeRetryLock === 0
     },
@@ -348,6 +361,36 @@ export default {
     // 状态优先（F-18.19 §3）：先读 mine，再决定渲染状态卡还是空白表单
     this.loadMine(true)
   },
+  // M3：未填完就返回时问一句（本页无 onShow 重拉、也没有草稿，离开即真丢）。
+  // 实测边界（口径照母版 front-partner/pages/store/store.vue 的 onBackPress，D6）：
+  // 导航栏返回按钮走 uni.navigateBack、会触发本钩子；浏览器物理「后退」是 popstate、不经过本钩子，
+  // 那一支拦不住——所以本守卫只承诺「拦导航栏返回」，不声称拦所有返回。
+  onBackPress() {
+    // applyStatus === STATUS_PENDING 这一条不能省：本页 submit 成功后刻意不离页（只把视图切成状态卡、
+    // form 值原样留着，见 submit 成功支），那时表单必然「非空」。少了这条放行，刚提交成功的人点返回
+    // 会被告知「申请还没提交」——当着人撒一句假话比不拦更糟
+    if (this.leaving || this.applyStatus === STATUS_PENDING || !this.formTouched) return false
+    uni.showModal({
+      title: '离开本页',
+      // 两句话必须按状态分开：驳回件的说「申请还没提交」是假话（他提交过、刚被驳回）。
+      // 判据用 applyStatus 而不是 formTouched 的两种形态——谁拥有这件事实是谁自己知道
+      content: this.applyStatus === STATUS_REJECTED
+        ? '这次的改动还没提交，现在离开即丢弃；上次被驳回的申请内容仍在。'
+        : '申请还没提交，现在离开填的内容会丢弃。',
+      confirmText: '留下继续改',
+      cancelText: '丢弃并离开',
+      success: (r) => {
+        // 只有明确点了「丢弃」才放行；confirm（留下）与拿不到结果一律停在本页
+        if (r && r.confirm) return
+        this.leaveByBack()
+      },
+      fail: () => {
+        // 弹框起不来的端：不能把人锁在表单里，退化为原行为（直接离开），内容是否丢弃由系统决定
+        this.leaveByBack()
+      }
+    })
+    return true
+  },
   // #ifdef H5
   onReady() {
     // 页面级滚轮兜底（front-partner/pages/workspace/workspace.vue 的 onPageWheel 同款，F-25/P-4 重测）：index.html 锁 html,body overflow:hidden 后
@@ -424,10 +467,13 @@ export default {
         // 其余留空由用户重填——hint 已在模板里如实说明，不假装「已恢复上次填写」
         this.form.proposedName = this.textOr(data.proposedName, '')
         this.form.proposedAddress = this.textOr(data.proposedAddress, '')
+        // 回填完立刻打基线：这两栏是服务端给的，不算「用户这次填的」（formTouched 判据见 computed）
+        this._formBaseline = JSON.stringify(this.form)
         return
       }
       // status 为空 = 从未申请过（StoreApplyServiceImpl#mine 各键回 null、historyCount=0）→ 空白表单
       this.applyStatus = 'none'
+      this._formBaseline = JSON.stringify(this.form)
     },
     // 提交成功后的静默纠偏：只为把 createdAt/historyCount 这类本地拿不到的值对齐服务端。
     // 这是一条静默通道（同 verify.vue 的 loadAlert 的纪律，F-25/P-4 重测）：失败不动四态、不清已有反馈、
@@ -737,6 +783,13 @@ export default {
         return
       }
       uni.reLaunch({ url: '/pages/workspace/workspace' })
+    },
+    // onBackPress 的「丢弃并离开」出口：先置总闸再退。顺序反了就白做——
+    // uni.navigateBack 自己也会触发 onBackPress，leaving 还是 false 的话会再弹一次同样的问。
+    // 退页走上面那枚 goWorkspace（含「栈深 ≤1 时 reLaunch 回工作台」的兜底），不裸调 uni.navigateBack()
+    leaveByBack() {
+      this.leaving = true
+      this.goWorkspace()
     },
     // ==================== 429 冷却（定时器与闸门同端母版同款；F-25/P-3 起入参是错误对象，起锁秒数由 retrySecondsOf 取值） ====================
     // X-1 拆锁：startRetryLock/stopRetryLock 只管读侧闸门 retryLock（loadMine/refreshMineQuiet 撞 mine 读桶）；

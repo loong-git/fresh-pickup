@@ -440,6 +440,40 @@ export default {
     await this.syncMerchantSnapshot()
     if (this.isEdit) await this.loadDish()
     this.loadCategories()
+    // 新增态也要建快照（复核 C 项）：本页损失最大的正是「填了一半的新商品按返回直接没了」，
+    // 而快照原先只在编辑态的 fillForm 里建，onBackPress 的「无快照即放行」会把这一支整个跳过。
+    // 建在 loadCategories 之后：类目异步回填的不是 form 字段，不会让基线一建好就自判「已改」
+    if (!this.isEdit) this._originalSnapshot = this.snapshotPayload()
+  },
+  // M3：未保存改动的离开守卫（判据与后果见下面两处放行条件）。
+  // 实测边界（口径照母版 front-partner/pages/store/store.vue 的 onBackPress，D6）：
+  // 导航栏返回按钮走 uni.navigateBack，会触发本钩子；浏览器物理「后退」是 popstate、不经过本钩子，
+  // 那一支拦不住——所以本守卫只承诺「拦导航栏返回」，不声称拦所有返回。
+  // 判据不新造（D5）：复用 FEB-10 为「没改动就别发 PUT」建的那份提交形态快照，
+  // 两处问的本来就是同一件事（「这页和进来时比变了吗」），再造一枚 dirty 布尔就是两个真值会各说各话
+  onBackPress() {
+    // 放行①：leaving 总闸已置。本页所有离页出口都经 toastThenBack（首行 this.leaving = true），
+    // 于是「保存成功自动回列表」「商品不存在回列表」这些系统带着人走的返回不会被二次弹框
+    if (this.leaving) return false
+    // 放行②：详情还没回填（编辑态 loadDish 失败/尚在飞）时无从比较，按原行为放行——
+    // 守卫的前提是「知道进来时长什么样」，不知道就不该拦人（新增态的基线已在 onLoad 建好，不走这支）
+    if (!this._originalSnapshot || this.snapshotPayload() === this._originalSnapshot) return false
+    uni.showModal({
+      title: '还有未保存的改动',
+      content: '本页有未保存的修改，现在离开即丢弃。',
+      confirmText: '留下继续改',
+      cancelText: '丢弃并离开',
+      success: (r) => {
+        // 只有明确点了「丢弃」才放行；confirm（留下）与拿不到结果一律停在本页
+        if (r && r.confirm) return
+        this.leaveByBack()
+      },
+      fail: () => {
+        // 弹框起不来的端：不能把人永久锁在表单里，退化为原行为（直接离开），改动是否丢弃由系统决定
+        this.leaveByBack()
+      }
+    })
+    return true
   },
   // #ifdef H5
   onReady() {
@@ -494,6 +528,14 @@ export default {
         return
       }
       uni.reLaunch({ url: '/pages/dishes/dishes' })
+    },
+    // onBackPress 的「丢弃并离开」出口：先置总闸再退。顺序反了就等于白做——
+    // uni.navigateBack 自己也会触发 onBackPress，leaving 还是 false 的话会再弹一次同样的问。
+    // 离页仍走 goBackToList（它含「栈深 ≤1 时 reLaunch 回列表」的兜底），不在这里裸调 uni.navigateBack()：
+    // 深链直达时裸调就是 FEB-4 那条注释登记的「落到站外」
+    leaveByBack() {
+      this.leaving = true
+      this.goBackToList()
     },
     // toast 之后再回列表：立刻 navigateBack 会把 toast 一起带走，等于没告知
     // 首行置 leaving 总闸：这 900ms 里 saving 会被 finally 解禁，但四个写入口一律看 leaving 早退
@@ -817,7 +859,10 @@ export default {
     },
     // 上传出参两个键，入库只取 path（/static/images/uploads/<名>）；取 url 就是决策①点名的静默假成功
     async uploadImage(filePath) {
-      if (this.leaving) return
+      // M4：光靠模板的 :disabled 拦不住重复写——禁用态要等一次重渲染才生效，同一帧内的连点两击都能进到方法体。
+      // 判自己这把锁的姿势照本页 save 的首行（if (this.saving || this.leaving) return），不新增状态。
+      // 早退必须排在冷却提示之前：第二击不该再多报一声「冷却中」（上传支的闸门在 chooseImage 开选图框前就判掉了）
+      if (this.uploading || this.leaving) return
       this.uploading = true
       // 上一轮的上传反馈（429 冷却句 / 400 原文）到这一次真发请求时作废：留着就是常驻行在说上一次的事
       // （口径同保存支的 this.saveFeedback = null）
@@ -865,7 +910,9 @@ export default {
     },
     // ==================== 库存增量（编辑态） ====================
     async adjustStock() {
-      if (this.leaving) return
+      // M4：同 uploadImage 那条纪律——连点第二击是一次重复的库存增量写（delta 是「加」不是「设为」，
+      // 两次就是 +2n），而 disabled 的重渲染延迟救不了它。判在冷却闸门之前，免得第二击多报一声「冷却中」
+      if (this.adjusting || this.leaving) return
       // X-7b：库存增量是第三枚独立桶（MerchantDishController#adjustStock），冷却里再点只会续自己的桶
       const gateLeft = this.writeGateRemaining('stock')
       if (gateLeft > 0) {
@@ -924,13 +971,22 @@ export default {
     },
     // ==================== 上下架 ====================
     async changeOnSale(onSale) {
-      if (this.leaving) return
+      // M4：同 uploadImage 那条纪律。这一支还多一层意义——「上架」「下架」两个按钮点的是同一个方法，
+      // 所以第一击在飞时另一支的点击也一并拦得住（早退排在冷却提示之前，第二击不多报一声「冷却中」）
+      if (this.busySale || this.leaving) return
       // X-7b：上下架是第四枚独立桶（MerchantDishController#setOnSale）——「上架」「下架」两个按钮点的是
       // 同一个方法，因此共用这一把锁是准确的（同一枚桶），与保存/上传/库存那三把互不覆盖
       const gateLeft = this.writeGateRemaining('sale')
       if (gateLeft > 0) {
         this.showToast(coolingFullText(COOLING_LOCK_LABEL.sale, gateLeft))
         return
+      }
+      // D1/M14：只给「下架」加确认——下架有可见损失（C 端立即买不到），上架没有损失、加确认只会变啰嗦。
+      // 判在 busySale 之前是刻意的：点「不下架」等于什么都没发生过，既不许锁住按钮也不许起冷却（那把锁
+      // 对应的是 MerchantDishController#setOnSale 那一枚桶，为一次没发的请求起闸就是在偷商家的额度）
+      if (Number(onSale) === 0) {
+        const ok = await this.confirmOffSale()
+        if (!ok) return
       }
       this.busySale = true
       // 上一轮的上下架反馈到这一次真发请求时作废（口径同保存支）
@@ -961,6 +1017,26 @@ export default {
       } finally {
         this.busySale = false
       }
+    },
+    // 下架二次确认（M14）：Promise 化 uni.showModal，姿势照 C 端 front/pages/order/order.vue 的 confirmCancel(paid)，
+    // 让「确认过才发请求」在代码里只有一种写法。关闭/fail 一律 false——弹框起不来的端宁可这一次下架不发，
+    // 也不能替商家做「下架」这个有损失的决定。
+    // 文案只写实测过的四条事实：
+    // ① C 端列表/搜索不过滤 on_sale（DishServiceImpl#likeSearch 明写「列表保持全量」）→ 不能说「不可见」；
+    // ② 真闸门在下单（OrderServiceImpl 的 onSale 判定，实测下架后下单回 400「已下架，请重新选择」）；
+    // ③ 首页推荐与秒杀卡按 on_sale 过滤（RecommendServiceImpl / DishServiceImpl#listSeckill），那两处是立即消失的；
+    // ④ 已下单不受影响：order_item 建单时快照了名称/价格，核销只看 orders.status + 取货码，不读 dish.on_sale
+    confirmOffSale() {
+      return new Promise((resolve) => {
+        uni.showModal({
+          title: '下架商品',
+          content: '下架后顾客仍能搜到、看到本商品，但下单会被拦；首页推荐与秒杀位立即不再展示。已下单的订单不受影响。确定下架？',
+          confirmText: '确认下架',
+          cancelText: '不下架',
+          success: (res) => resolve(!!(res && res.confirm)),
+          fail: () => resolve(false)
+        })
+      })
     },
     // ==================== 保存 ====================
     // 本地只拦「一眼能判的」长度/必填，语义校验（分类取值、价格精度等）交服务端，400 原文原样 toast。
@@ -1089,16 +1165,21 @@ export default {
       // 但 on_sale 走 DB 默认 1 → 建出来的是「C 端立刻可见却一件买不了」的商品。
       // 给一次可确认提示（问一句就继续，不硬拦），stockZeroNoticed 保证只问一次
       if (skipZeroStockNotice !== true && !this.isEdit && Number(this.form.stock) === 0 && !this.stockZeroNoticed) {
-        this.stockZeroNoticed = true
         uni.showModal({
           title: '库存为 0',
           content: '库存为 0，商品会在 C 端显示但无法下单，建议先填库存',
           confirmText: '仍要新增',
           cancelText: '去填库存',
           success: (r) => {
-            if (r && r.confirm) this.save(true)
-            else this.focusField('stock')
+            // M10：标记只在商家明确选了「仍要新增」的那一刻消耗。改前它写在 showModal 之前，
+            // 于是点「去填库存」也把这一问吞掉了——商家照着填好库存再保存时永远不再提醒，
+            // 页面把他自己选的「先去填」当成了「已经问过并同意了」
+            if (r && r.confirm) {
+              this.stockZeroNoticed = true
+              this.save(true)
+            } else this.focusField('stock')
           }
+          // 刻意不写 fail 支：起不了弹框的端什么都不置位，正好等于「没确认 = 不消耗这一问」
         })
         return
       }
