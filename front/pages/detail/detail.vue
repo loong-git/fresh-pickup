@@ -150,8 +150,8 @@
         </view>
       </view>
 
-      <!-- ============ 7. 商品评价（入口与预览逻辑不变，标题右侧加好评率） ============ -->
-      <view class="section-block review-entry" v-if="reviews.length > 0" @click="goToReview">
+      <!-- ============ 7. 商品评价（P4-2 D1 入口常驻：零评价引导写首评，加载中/失败不报 0 条；标题右侧好评率） ============ -->
+      <view class="section-block review-entry" @click="goToReview">
         <view class="entry-header">
           <view class="entry-left">
             <text class="entry-icon">📝</text>
@@ -159,7 +159,9 @@
           </view>
           <view class="entry-right">
             <text v-if="dish.goodRate" class="entry-rate">好评率{{ dish.goodRate }}</text>
-            <text class="entry-count">{{ reviews.length }}条 ›</text>
+            <!-- P4-2（D1）count 三支门禁：成功且有评价 → N条；成功且零评价 → 引导首评；未成功返回（加载中/失败）→ 不显示 -->
+            <text v-if="reviewsOk && reviews.length" class="entry-count">{{ reviews.length }}条 ›</text>
+            <text v-else-if="reviewsOk" class="entry-count">暂无，去写首评 ›</text>
           </view>
         </view>
         <view class="review-preview">
@@ -352,6 +354,9 @@ export default {
     return {
       dish: {},
       reviews: [],
+      // P4-2（D1）：最近一次评价请求成功返回才 true，失败/onShow 重拉失败退回 false——
+      // 单向置位会腐烂，失败必须定义退位点；入口常驻后 count 行经它门禁，不报「0条」也不报旧数
+      reviewsOk: false,
       countdownText: '',
       countdownTenth: '0',
       isAfterCutoff: false,
@@ -477,6 +482,9 @@ export default {
     // M4-T-03：拉取当前秒杀场次（onShow 在 onLoad 后必触发一次，此后每次返回页面刷新；
     // 倒计时基准切到服务端时钟 serverTime+end，改本机时钟不影响；深链非法时跳过）
     if (this._dishId != null) this.loadSeckillSession()
+    // P4-2（D2）：主详情加载成功后每次回页轻量重拉评价（评价页提交返回后 count/预览含新评价）；
+    // _detailLoaded 门禁防 onLoad+onShow 双请求；只拉评价，不动主详情/秒杀/推荐/倒计时
+    if (this._detailLoaded && this._dishId != null) this.refreshReviews()
   },
   onUnload() {
     // 清理倒计时定时器（含归零展示态定时器）
@@ -489,10 +497,14 @@ export default {
     async loadDetail(dishId) {
       this.pageError = false
       try {
-        // 评价接口失败不阻塞主详情展示（单独兜底空数组），商品详情失败才进错误态
+        // P4-2（D1）：评价接口失败不阻塞主详情展示（catch 保留：失败分支 resolve 哨兵，不拖垮 Promise.all），
+        // 但不再伪装成「没有评价」——入口常驻 + count 门禁 reviewsOk，置位见下方评价分支
         const [dishRes, reviewRes] = await Promise.all([
           getDishDetail(dishId),
-          getReviews(dishId).catch(() => ({ data: [] }))
+          getReviews(dishId).then(
+            res => ({ ok: true, data: res && res.data }),
+            () => ({ ok: false })
+          )
         ])
         // getDishDetail 内部已按数据契约经 decorateDish 增强，dish 自带
         // seckill/seckillPrice/cutText/limitBuy/soldText/tags/goodRate 等字段
@@ -503,9 +515,18 @@ export default {
           return
         }
         this.dish = dishData
+        // P4-2（D2）：主详情成功路径置位，onShow 重拉评价的门禁（防 onLoad+onShow 双请求）
+        this._detailLoaded = true
         this.imgFail = false
         this.recImgFail = {}
-        this.reviews = (reviewRes && reviewRes.data) || []
+        // P4-2（D1/D2）评价分支置位（与 refreshReviews 同形状）：成功 → reviews=data + reviewsOk=true；
+        // 失败 → reviewsOk=false，reviews 保留旧值不清空（count 行退回隐藏，预览仍是真实拉过的旧评价）
+        if (reviewRes.ok) {
+          this.reviews = reviewRes.data || []
+          this.reviewsOk = true
+        } else {
+          this.reviewsOk = false
+        }
         // 购物车里已有该商品（或购物车非空）则直接展示"分栏"态，返回再进不重置
         const cart = this.$store.state.cart || []
         this.grabbed = cart.some(i => i.id === dishId) || cart.length > 0
@@ -537,6 +558,17 @@ export default {
     // 空态页"点击重试"（仅网络异常时出现）
     retryLoad() {
       if (this._dishId != null) this.loadDetail(this._dishId)
+    },
+    // P4-2（D2）：轻量重拉评价（onShow 返回本页时调用）。成功 → reviews=data + reviewsOk=true；
+    // 失败 → reviewsOk=false、reviews 保留旧值不清空（与 loadDetail 评价分支同形状）
+    async refreshReviews() {
+      try {
+        const reviewRes = await getReviews(this._dishId)
+        this.reviews = (reviewRes && reviewRes.data) || []
+        this.reviewsOk = true
+      } catch (e) {
+        this.reviewsOk = false
+      }
     },
     // 页面局部请求（T-M3-13/T-M3-05）：api/index.js 归另一位同事维护，为避免文件冲突，
     // 推荐接口与回退全量拉取在页面内用 uni.request 直连（复用 config.js BASE_URL + decorateDish 增强）。

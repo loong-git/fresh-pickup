@@ -74,7 +74,8 @@
             <textarea class="review-textarea" v-model="reviewContent" placeholder="分享您的购物体验..." maxlength="200" />
             <text class="char-count">{{ reviewContent.length }}/200</text>
           </view>
-          <button class="btn-submit" @click="submitReview">提交评价</button>
+          <!-- P4-2（D3）提交单飞：submitting 中灰态禁用 + 文案切换（姿势照 index.vue btn-confirm）；同帧双击由方法首行早退拦 -->
+          <button class="btn-submit" :class="{ 'btn-submit-disabled': submitting }" :disabled="submitting" @click="submitReview">{{ submitting ? '提交中…' : '提交评价' }}</button>
         </view>
       </view>
     </view>
@@ -104,7 +105,9 @@ export default {
       expandedReviews: {},
       showPopup: false,
       newRating: 5,
-      reviewContent: ''
+      reviewContent: '',
+      // P4-2（D3）提交单飞标志：校验全过后置 true，finally 退回（成功/失败都退），失败后可再点重试
+      submitting: false
     }
   },
   async onLoad(options) {
@@ -165,6 +168,8 @@ export default {
       this.showPopup = true
     },
     async submitReview() {
+      // P4-2（D3）单飞早退：模板 :disabled 要等一次重渲染才生效，同帧双击靠方法首行拦第二发
+      if (this.submitting) return
       if (!this.reviewContent.trim()) {
         uni.showToast({ title: '请输入评价内容', icon: 'none' })
         return
@@ -177,21 +182,36 @@ export default {
         uni.showToast({ title: '评价包含违规内容', icon: 'none', duration: 2000 })
         return
       }
+      // P4-2（D3）置位点：空内容校验与硬词预检全部通过之后、请求发出之前——校验失败不置位不耗锁，
+      // 用户改内容重试零成本
+      this.submitting = true
       try {
-        const res = await submitReview(this.dishId, {
+        // P4-2（D4）reviewer 随机昵称已删：后端 M6 起按登录手机号脱敏生成昵称，DTO 已废弃不读该字段，
+        // 前端随机昵称是「昵称由前端生成」的误导源死代码，只传 rating/content
+        await submitReview(this.dishId, {
           rating: this.newRating,
-          content: this.reviewContent.trim(),
-          reviewer: '用户' + Math.floor(Math.random() * 9000 + 1000)
+          content: this.reviewContent.trim()
         })
-        if (res && res.code === 200) {
-          this.showPopup = false
-          uni.showToast({ title: '评价成功', icon: 'success' })
+        // P4-2（D4）request 层业务失败必 reject（api/index.js 封装），resolve 到手即业务已成功，
+        // 上一版恒真的业务码等值判断已删，直接使用 resolve 值不再判
+        // P4-2（D5）成功 → 关弹窗 → toast → 重拉列表；重拉包 catch 置 loadError 走既有错误态+重试
+        // （loadAll），成功 toast 不撤回——评价已成功的事实不被列表刷新失败抹掉
+        this.showPopup = false
+        uni.showToast({ title: '评价成功', icon: 'success' })
+        try {
           const reviewRes = await getReviews(this.dishId)
-          if (reviewRes && reviewRes.data) this.reviews = reviewRes.data
+          this.reviews = (reviewRes && reviewRes.data) || []
+          // P4-2（D5）拿到新列表才复位 loadError：首屏加载失败置过 true 的用户直接提交成功时，
+          // 错误态不得与「评价成功」同屏；重拉失败走下方 catch 置回 true（错误态自带重试）
+          this.loadError = false
+        } catch (e) {
+          this.loadError = true
         }
       } catch (e) {
         // 提交失败不再静默：code!==200 透出后端 message，网络异常提示可重试（弹窗保留）
         uni.showToast({ title: (e && e.message) || '网络异常', icon: 'none' })
+      } finally {
+        this.submitting = false
       }
     },
     formatTime(ts) {
@@ -273,4 +293,6 @@ export default {
 .review-textarea { width: 100%; height: 240rpx; background-color: #F5F5F5; border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; color: #333333; box-sizing: border-box; line-height: 1.7; }
 .char-count { position: absolute; bottom: 12rpx; right: 16rpx; font-size: 20rpx; color: #CCCCCC; }
 .btn-submit { width: 100%; height: 88rpx; background: linear-gradient(135deg, #FF6600, #FF8533); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+/* 提交飞行中禁用态（P4-2 D3）：置灰提示「提交中…」，姿势照 index.vue btn-confirm-disabled（浅色底 + 降透明白字） */
+.btn-submit-disabled { background: #FFB27F; color: rgba(255,255,255,.9); }
 </style>
