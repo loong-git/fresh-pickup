@@ -1,11 +1,12 @@
 <template>
   <view class="page-container">
-    <!-- ==================== 1. 「暂无商家权限」引导态（me 回 403）
-             与登录页同源语义：账号能登、角色不对，故不清登录态也不报「未登录」，
-             只透出后端 message 并给「换个账号」出口（401 不在本页处理，请求层已统一回登录页） ==================== -->
+    <!-- ==================== 1. 「访问受限」引导态（me 回 403）
+             与登录页同源语义（D1/M1）：403 只说明「可能受限」（未开通 / 已停业 / 被封禁），
+             未开通、停业、被 F-122 封禁回的都是同一枚 403，页面无从分辨，故不断言具体原因；
+             不清登录态也不报「未登录」，只透出后端 message 并给「换个账号」出口（401 不在本页处理，请求层已统一回登录页） ==================== -->
     <view v-if="viewState === 'forbidden'" class="card guide-card">
-      <text class="guide-title">暂无商家权限</text>
-      <text class="guide-text">当前账号已登录，但不是商家账号，工作台不对其开放</text>
+      <text class="guide-title">访问受限</text>
+      <text class="guide-text">当前账号可能没有商家权限（未开通 / 已停业 / 被限制），工作台不对其开放</text>
       <text v-if="forbiddenMessage" class="guide-tip">{{ forbiddenMessage }}</text>
       <button class="btn-main" @click="switchAccount"><text>换个账号</text></button>
       <!-- token 还在，刚被平台开通的商家点「重新检查」只重发一次 me 即可 200，不必清态重收验证码（换账号是重路径） -->
@@ -27,7 +28,13 @@
     <view v-else-if="viewState === 'error'" class="card">
       <view class="error-row">
         <text class="error-text">{{ errorText || '商家资料加载失败，请稍后重试' }}</text>
-        <text class="error-retry" @click="loadMe">点击重试</text>
+        <!-- D5/M12：429 的秒数只在这一行出（本屏唯一带数处），重试按钮只写「冷却中」不再复述读数 -->
+        <text v-if="retryLock > 0" class="error-cooling">{{ retryFullText }}</text>
+        <text
+          class="error-retry"
+          :class="{ 'error-retry-cooling': retryLock > 0 }"
+          @click="loadMe"
+        >{{ retryLock > 0 ? '冷却中' : '点击重试' }}</text>
         <text class="guide-link" @click="switchAccount">换个账号</text>
       </view>
     </view>
@@ -52,7 +59,13 @@
         <!-- 每次 onShow 重拉 me 的成功时刻（资料变更/审核状态流转后回页即可见，验收时用它辨认刷新确实发生） -->
         <text v-if="refreshText" class="refresh-tip">资料刷新于 {{ refreshText }}</text>
         <!-- 会话内已有完整快照时，onShow 重拉失败降级为本行提示，不把整页换成错误卡（对照用户端 mine.vue 分区块错误态） -->
-        <text v-if="refreshFailed" class="refresh-fail" @click="loadMe">资料刷新失败，点击重试</text>
+        <!-- D5/M12：429 时本行同样承担冷却读数（降级态下它是本屏唯一带数处），其余失败仍是「点击重试」 -->
+        <text
+          v-if="refreshFailed"
+          class="refresh-fail"
+          :class="{ 'refresh-fail-cooling': retryLock > 0 }"
+          @click="loadMe"
+        >{{ refreshFailText }}</text>
       </view>
 
       <!-- 正常态唯一登出/换账号出口：没有这一行，已登录用户既退不出也换不了号（403 分支的 switchAccount 走不到）；
@@ -90,8 +103,13 @@
 // 商家工作台页（G-01 §3.3 建页）：五入口已全部交付在册（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态 / F-120 结算账单）；可点与否仍只由 ENTRY_ROUTES 裁决。
 // 数据加载纪律照用户端 front/pages/mine/mine.vue：onShow 每次重拉 me，回页即反映服务端最新状态。
 // 页面不预判角色：role 判定与 401/403 分流全在 api 层（handleEnvelope），本页只按 code 渲染三态。
-import { getMerchantMe, merchantStatusText } from '@/api/index.js'
+import { getMerchantMe, merchantStatusText, retrySecondsOf, coolingFullText } from '@/api/index.js'
 import '@/styles/common.css'
+
+// 429 冷却秒数的回落档：GET /api/merchant/me 的限流窗口是 60 秒（后端不给 data.retryAfterSeconds 时，
+// 整个窗口是唯一能确定的安全上限），口径同 settlements.vue / dashboard.vue 的同名常量；
+// 秒数优先由 api 层 retrySecondsOf 转述后端真值，取不到才回落这里（D5/M12）
+const RETRY_COOLING_SECONDS = 60
 
 // 资质审核三态文案（列值域见 m15-migration.sql:40 pending/approved/rejected）
 const AUDIT_TEXT = {
@@ -125,6 +143,10 @@ export default {
       refreshAt: 0,
       // onShow 重拉失败但会话已有商家快照时的降级标记：卡片照常展示，只在卡底追加一行重试提示
       refreshFailed: false,
+      // 429 冷却剩余秒数与定时器（D5/M12，口径照 settlements.vue/dashboard.vue：
+      // 限流态下的重试必须有秒级闸门，否则「点击重试」就是在给限流桶续命）
+      retryLock: 0,
+      retryLockTimer: null,
       // 五入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
       // 可点与否由 ENTRY_ROUTES[entry.key] 决定，本页不再持第二个开关字段（两处真值会打架）
       entries: [
@@ -166,6 +188,14 @@ export default {
     },
     refreshText() {
       return this.refreshAt ? this.formatClock(this.refreshAt) : ''
+    },
+    // D5/M12：429 冷却的归因 + 秒数整句（同一把锁的读数只由这一处出；格式与句式的唯一实现在 api 层）
+    retryFullText() {
+      return coolingFullText('商家资料', this.retryLock)
+    },
+    // 正常态卡底的降级行：冷却时换成带秒数的整句（该行就本屏唯一带数处），否则仍是可点的重试提示
+    refreshFailText() {
+      return this.retryLock > 0 ? this.retryFullText : '资料刷新失败，点击重试'
     }
   },
   onShow() {
@@ -189,6 +219,8 @@ export default {
       this._pageWheelHandler = null
     }
     // #endif
+    // 429 冷却定时器清理（照 settlements.vue 的 onUnload 收尾）：不收拾就会继续每秒写一次已死组件的状态
+    this.stopRetryLock()
   },
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
@@ -196,6 +228,9 @@ export default {
     // GET /api/merchant/me：200 → ready；403 → 引导态；401 → 请求层已清 merchant_token 并 reLaunch 回登录页，
     // 本页只收起加载态不再发第二个请求；其余（网络异常/400/500）→ 错误态可点重试
     async loadMe() {
+      // D5/M12：429 冷却闸门置于首行——模板上的禁用要等一轮重渲染，同帧双击会绕过它，
+      // 判据放在这里才是真闸：冷却期间错误卡「点击重试」、引导卡「重新检查」、卡底降级行三个入口都发不出请求
+      if (this.retryLock > 0) return
       // 并发守卫：错误卡重试/引导卡「重新检查」/刷新区「点击重试」都可连点，
       // 慢失败不能盖掉快成功——同一时刻只放行一个 me 请求
       if (this._loading) return
@@ -206,11 +241,18 @@ export default {
         this.merchant = me
         this.refreshAt = Date.now()
         this.refreshFailed = false
+        // 成功即撤闸（照 settlements.vue 的同款收尾）：上一轮若因 429 起过冷却，拿到数据后不该再挂着读数
+        this.stopRetryLock()
         // 已有 token 却拿到没有角色的空响应：按「非商家」处理，绝不渲染工作台内容（不放水）
         this.viewState = (me && me.role === 'merchant') ? 'ready' : 'forbidden'
         this.forbiddenMessage = (me && me.role === 'merchant') ? '' : '未返回商家主体信息'
         if (this.viewState === 'ready') this.$store.commit('setMerchant', me)
       } catch (e) {
+        const code = Number((e && e.code) || 0)
+        // D5/M12：429 先起闸再做四态分流（改前本 catch 只写 refreshFailed/errorText，连点重试等于给限流桶续命）；
+        // 秒数由 retrySecondsOf 转述后端真值，取不到回落 RETRY_COOLING_SECONDS；非 429 失败照旧撤闸
+        if (code === 429) this.startRetryLock(e)
+        else this.stopRetryLock()
         if (e && e.code === 403) {
           this.forbiddenMessage = (typeof e.message === 'string' ? e.message : '').trim()
           this.viewState = 'forbidden'
@@ -277,6 +319,21 @@ export default {
       const p = (n) => String(n).padStart(2, '0')
       return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
     },
+    // ==================== 429 冷却（D5/M12：照 settlements.vue 的最小同款，秒级禁用范式） ====================
+    // 秒数只由 api 层 retrySecondsOf 转述后端 data.retryAfterSeconds，取不到才回落本页读档的窗口（RETRY_COOLING_SECONDS）；
+    // 字面量只出现在那个回落常量里，文案与时长换算一律由 api 层生成
+    startRetryLock(err) {
+      this.stopRetryLock()
+      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
+      this.retryLockTimer = setInterval(() => {
+        this.retryLock--
+        if (this.retryLock <= 0) this.stopRetryLock()
+      }, 1000)
+    },
+    stopRetryLock() {
+      if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      this.retryLock = 0
+    },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
     onPageWheel(e) {
@@ -298,6 +355,10 @@ export default {
 .guide-card .btn-main { margin-top: 16rpx; }
 /* 后端 403 原文透出行：小字主红，与本页自撰文案区分，避免用户以为原因是前端编的 */
 .guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+/* 429 冷却读数行（D5/M12）：本屏唯一带数处，比原文行稍深一档以便与兜底文案分开 */
+.error-cooling { font-size: 22rpx; color: #E02020; line-height: 1.5; text-align: center; }
+/* 冷却中的重试：保持同一枚按钮的形状但置灰（真闸在 loadMe 首行早退，样式只负责让用户一眼看出此刻点不动） */
+.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 
 /* ==================== 4. 商家卡 ==================== */
 .merchant-card { margin-top: 24rpx; }
@@ -329,6 +390,8 @@ export default {
 .status-tip { font-size: 22rpx; color: #E02020; opacity: .8; line-height: 1.5; }
 /* 有快照时 onShow 重拉失败的降级重试行：与刷新时间行同位呼应，可点 */
 .refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
+/* 降级行的冷却态（429）：秒数就在这一行里，置灰表明此刻点它不会发请求 */
+.refresh-fail-cooling { color: #BBBBBB; cursor: not-allowed; }
 
 /* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中红色字） ==================== */
 .cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #E02020; }

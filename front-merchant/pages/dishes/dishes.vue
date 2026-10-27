@@ -4,7 +4,7 @@
              三个条件都作为 query 交列表接口，本页不做二次过滤：归属集合与筛选口径由服务端唯一裁决
              （tab/category/keyword 的宽松语义见 F-13.6 边界 14，前端不复制一份判定逻辑） -->
     <view class="card filter-card">
-      <!-- 商家生命周期状态只读透出（与 workspace.vue:45「商家当前状态」那条只读行同款、同走 api 层 merchantStatusText）：
+      <!-- 商家生命周期状态只读透出（与 workspace.vue 的「商家当前状态」那条只读行同款、同走 api 层 merchantStatusText）：
            本页的「新增」是写路径，停业/清退商家点了必然吃 403，故状态行必须出现在写入口旁边而不是只在工作台 -->
       <text v-if="merchantStatus && merchantStatus !== 'active'" class="status-tip">商家当前状态：{{ statusText }}</text>
       <view class="search-row">

@@ -52,9 +52,17 @@
             <text class="flow-row flow-time">{{ timeText(f) }}</text>
           </view>
         </view>
-        <!-- 加载更多：hasMore 是后端现算（offset + 本页行数 < total），本页不做本地估算 -->
-        <view v-if="flows.length && hasMore" class="load-more" hover-class="pill-hover" @click="loadMore">
-          <text class="load-more-text">{{ loadingMore ? '加载中…' : '加载更多' }}</text>
+        <!-- 加载更多：hasMore 是后端现算（offset + 本页行数 < total），本页不做本地估算。
+             D4（M11）：loadMore 撞 429 也起本页同一把 retryLock——冷却期内这一行置灰不可点、去掉按压反馈，
+             文案只写「冷却中」不带数：本页唯一的冷却数字留给主 load 错误卡的「Ns后可重试」那一处（同锁同屏只带数一次） -->
+        <view
+          v-if="flows.length && hasMore"
+          class="load-more"
+          :class="{ 'load-more-disabled': retryLock > 0 }"
+          :hover-class="retryLock > 0 ? 'none' : 'pill-hover'"
+          @click="loadMore"
+        >
+          <text class="load-more-text">{{ loadingMore ? '加载中…' : (retryLock > 0 ? '加载更多（冷却中）' : '加载更多') }}</text>
         </view>
         <text v-if="flows.length && !hasMore" class="flow-end">已显示全部 {{ total }} 条</text>
         <!-- 追加失败降级提示：列表照常展示（已有快照），只如实说最新一页没拉到 -->
@@ -72,6 +80,7 @@
 // ① 状态位单值互斥 loading|error|ready（本页无 empty 态——后端对无钱包主理人回余额 0 + 空流水，
 //    「从没记过佣金」是正常态不是错误态，空列表提示放在流水卡内）；
 // ② 冷却锁只在 code===429 起（retrySecondsOf 转述后端 data.retryAfterSeconds，取不到回落本地 60）；
+//    主 load 与 loadMore 共用这一把 retryLock（D4/M11：追加页撞限流也起锁），冷却期内本页两个重试入口一起停；
 // ③ onUnload 成对清定时器；④ 请求全走 @/api/index.js（页内零原生请求）；
 // ⑤ 只渲染后端白名单键，缺键就如实不渲染，绝不为了好看前端编数据。
 // 分页：追加式加载（loadMore 拼在 flows 尾部），hasMore/total 都取后端回显值；
@@ -178,6 +187,8 @@ export default {
     },
     // 加载更多：只追加 flows 尾部，不整页换态；失败保留已有列表并给一行降级提示
     async loadMore() {
+      // 429 冷却期内不重发（与主 load 共用 retryLock 这一张表）：模板置灰要等重渲染，同帧双击会绕过，故首行再兜一道
+      if (this.retryLock > 0) return
       if (this.loadingMore || !this.hasMore) return
       this.loadingMore = true
       this.loadMoreFailed = false
@@ -199,6 +210,9 @@ export default {
       } catch (e) {
         const code = Number((e && e.code) || 0)
         if (code === 401) return
+        // D4（M11）：追加页独立撞 429 时同样起冷却，闸门与主 load 同一把 retryLock；
+        // loadMoreFailed 保留（已有列表照常展示，只如实说这一页没拉到），冷却结束后「加载更多」恢复可点
+        if (code === 429) this.startRetryLock(e)
         this.loadMoreFailed = true
       } finally {
         this.loadingMore = false
@@ -342,6 +356,9 @@ export default {
 /* 按压反馈（arrival.vue 的 .pill-hover 同款，scoped 内自带一份） */
 .pill-hover { opacity: .82; }
 .load-more-text { font-size: 26rpx; color: #666666; }
+/* 429 冷却中的「加载更多」：置灰不可点（与 .error-retry-cooling 同色），点击再由 loadMore 首行的 retryLock 早退兜住 */
+.load-more-disabled { background-color: #FAFAFA; border-color: #F5F5F5; }
+.load-more-disabled .load-more-text { color: #CCCCCC; }
 .flow-end { font-size: 22rpx; color: #CCCCCC; text-align: center; padding: 8rpx 0; }
 .flow-refresh-fail { font-size: 22rpx; color: #E02020; opacity: .8; text-align: center; }
 

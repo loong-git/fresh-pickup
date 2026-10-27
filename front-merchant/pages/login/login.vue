@@ -13,17 +13,16 @@
       <text class="checking-text">正在校验登录状态…</text>
     </view>
 
-    <!-- ==================== 3. 「暂无商家权限」引导态（me 回 403）
-             不跳转、不当登录失效：账号本身是登录成功的，只是角色不是商家，
-             踢回登录页或跳工作台都是错的（§3.2 三分支的第二支） ==================== -->
+    <!-- ==================== 3. 「访问受限」引导态（me 回 403）
+             D1/M1：未开通 / 已停业 / 被封禁（F-122 封禁也回这同一枚 403），登录页无从分辨是哪一种，
+             故标题只说到「访问受限」、说明只列举可能，不把某一种原因当成事实报给用户。
+             不跳转、不当登录失效：账号本身是登录成功的，踢回登录页或跳工作台都是错的（§3.2 三分支的第二支） ==================== -->
     <view v-else-if="forbidden" class="card guide-card">
-      <text class="guide-title">暂无商家权限</text>
+      <text class="guide-title">访问受限</text>
+      <!-- 号码行内 v-if：老状态 storage 无 merchant_login_phone 时 forbiddenPhone 为空，句子退成「当前账号可能没有商家权限…」仍通顺 -->
       <text class="guide-text">
-        账号<text v-if="forbiddenPhone" class="guide-strong"> {{ forbiddenPhone }} </text>已登录，但不是商家账号
+        当前账号<text v-if="forbiddenPhone" class="guide-strong"> {{ forbiddenPhone }} </text>可能没有商家权限（未开通 / 已停业 / 被限制），工作台不对其开放
       </text>
-      <!-- 老状态 storage 无 merchant_login_phone 时 forbiddenPhone 为空：这一行不能出现「该手机号」空指代，故按有无号码分两个表述 -->
-      <text v-if="forbiddenPhone" class="guide-text">商家资质由平台统一开通，需平台代开通商家后用该手机号重新登录</text>
-      <text v-else class="guide-text">商家资质由平台统一开通，需平台代开通商家后重新登录</text>
       <!-- 后端 403 的 message 原样透出一行（前端不改写、不猜原因），排查时能一眼看出是拦截器还是 Service 判空 -->
       <text v-if="forbiddenMessage" class="guide-tip">{{ forbiddenMessage }}</text>
       <button class="btn-main" @click="switchAccount"><text>换个账号</text></button>
@@ -146,7 +145,7 @@ export default {
       pwdLogging: false,
       // 登录态复查中（onLoad 时 storage 有 token 才为 true，期间表单区整块隐藏）
       checking: false,
-      // 「暂无商家权限」引导态（me 回 403）：message 为后端原文透出不改写
+      // 「访问受限」引导态（me 回 403）：message 为后端原文透出不改写
       forbidden: false,
       forbiddenPhone: '',
       forbiddenMessage: ''
@@ -165,7 +164,8 @@ export default {
   // 两枚数各自写在**自己那一枚按钮**上，控件本身就是归因（X-5「能看出报的是哪把」），
   // 所以这里用 api 层的短式而不铺「X请求太频繁」整句——验证码按钮置灰时文案若是「后可重试」会说错事，
   // 它报的是「什么时候能再要一条码」，故走 resendPillText（动词「后重发」）；登录那枚走 cooldownPillText。
-  // 时长数值一律不动：smsCountdown 仍是 1 分钟 1 码的业务节奏，loginLock 仍是 retrySecondsOf 转述的后端真值
+  // 时长数值：smsCountdown 成功支仍是 1 分钟 1 码的业务节奏（60），429 支自 D2/M6 起改由
+  // retrySecondsOf 转述后端真值（发码锁到 600 就报 600）；loginLock 仍是 retrySecondsOf 转述的后端真值
   computed: {
     smsResendPillText() {
       return resendPillText(this.smsCountdown)
@@ -205,7 +205,8 @@ export default {
       this.activeTab = tab === 'password' ? 'password' : 'sms'
     },
     // ==================== 验证码登录 ====================
-    // 发送验证码：POST /api/auth/send-code，60s 倒计时防重（dev 后端固定验证码 123456）
+    // 发送验证码：POST /api/auth/send-code，发码成功后 60s 倒计时防重（dev 后端固定验证码 123456）；
+    // 429 时改按后端 data.retryAfterSeconds 起表（D2/M6，见下方 catch）
     async sendSmsCode() {
       if (this.codeSending || this.smsCountdown > 0) return
       const phone = (this.smsPhone || '').trim()
@@ -221,18 +222,22 @@ export default {
         this.showToast((e && e.message) || '网络异常')
         // 429（IP 或手机号维度限流，后端提示「1 分钟后再试」类原文已 toast 透出）：前端同步进入倒计时，
         // 否则按钮立刻可再点，用户只会连续撞限流；非 429 分支维持原行为（不启动倒计时）
+        // D2/M6：原样无参调 startSmsCountdown() 会把后端的 600 秒锁定印成 60 秒，用户 60 秒后又去撞锁；
+        // 秒数改由 retrySecondsOf 转述 429 data.retryAfterSeconds，取不到才回落本端发码节奏 60
         if (e && e.code === 429) {
-          this.startSmsCountdown()
+          this.startSmsCountdown(retrySecondsOf(e, 60))
           this.smsCooldownPhone = phone
         }
       } finally {
         this.codeSending = false
       }
     },
-    // 60s 倒计时：期间「获取验证码」置灰防重
-    startSmsCountdown() {
+    // 发码倒计时：期间「获取验证码」置灰防重。
+    // D2/M6：seconds 由调用方按场景给——发码成功走本端 1 分钟 1 码的节奏（缺省 60），
+    // 429 走 retrySecondsOf 转述的后端真值（发码锁 600 就倒 600），非正数/漏传一律回落 60
+    startSmsCountdown(seconds) {
       this.stopSmsCountdown()
-      this.smsCountdown = 60
+      this.smsCountdown = (Number(seconds) > 0 ? Number(seconds) : 60)
       this.smsTimer = setInterval(() => {
         this.smsCountdown--
         if (this.smsCountdown <= 0) this.stopSmsCountdown()
@@ -269,16 +274,18 @@ export default {
       try {
         const res = await login(phone, code)
         const data = (res && res.data) || {}
-        this.smsLogging = false
         if (!data.token) { this.showToast('登录异常，请重试'); return }
         await this.afterToken(data.token, data.user && data.user.phone ? data.user.phone : phone)
       } catch (e) {
-        this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429：后端 IP 维度 5 次/分（AuthController.java:45），toast 透出的即是「操作过于频繁，请稍后再试」人话原文，
         // 前端同步锁定登录按钮（F-23-fix/FF-5：秒数转述后端真值，e 必须透传给 startLoginLock），
         // 避免连点继续撞限流窗；非 429 分支行为不变
         if (e && e.code === 429) this.startLoginLock(e)
+      } finally {
+        // D3/M20：复位必须压在 finally——放在 await afterToken(...) 之前会在「token 已到手、me 还在飞」那段
+        // 把按钮提前放开，同帧再点就会发出第二次 login；afterToken 成功跳转的语义不变（reLaunch 后本页即卸载）
+        this.smsLogging = false
       }
     },
     // 密码登录：POST /api/auth/login-password（未设密码时后端 code:400 且 message 人话透出，直接 toast）
@@ -292,21 +299,22 @@ export default {
       try {
         const res = await loginPassword(phone, password)
         const data = (res && res.data) || {}
-        this.pwdLogging = false
         if (!data.token) { this.showToast('登录异常，请重试'); return }
         await this.afterToken(data.token, data.user && data.user.phone ? data.user.phone : phone)
       } catch (e) {
-        this.pwdLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429 同验证码通道：IP 维度限流不分登录方式，锁定的是两个 tab 共用的登录按钮
         // F-23-fix/FF-5：这里也要把 e 透传下去，否则 startLoginLock 收到 undefined、只能回落 60
         if (e && e.code === 429) this.startLoginLock(e)
+      } finally {
+        // D3/M20：与验证码通道同款——复位压在 finally，afterToken 在飞期间按钮保持禁用，双击只发一次请求
+        this.pwdLogging = false
       }
     },
     // ==================== 拿到 token 后的角色判定（§3.2 三分支唯一落点） ====================
     // token 必须先落 store（请求层从 storage 读它注入 Bearer 头），再拉 me：
     // - 200 且 role='merchant' → 存 me 快照 → reLaunch 工作台
-    // - 403（已登录非商家 / 商家无归属）→ 渲染引导态并透出后端 message，停在登录页，不跳工作台也不清登录态
+    // - 403（可能受限：未开通 / 停业 / 被封禁）→ 渲染引导态并透出后端 message，停在登录页，不跳工作台也不清登录态
     // - 401（token 失效）→ 请求层已清 merchant_token，本页停留让用户重新登录
     async afterToken(token, phone) {
       this.$store.commit('setToken', token)
@@ -337,7 +345,7 @@ export default {
         }
       }
     },
-    // 403 引导态渲染（token 保留：这是「账号能登但没商家权限」，不是登录失效）
+    // 403 引导态渲染（token 保留：这是「账号能登、但可能没有商家权限」，不是登录失效）
     showForbidden(phone, message) {
       this.checking = false
       this.forbidden = true

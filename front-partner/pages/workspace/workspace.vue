@@ -5,7 +5,7 @@
       <text class="checking-text">正在加载门店资料…</text>
     </view>
 
-    <!-- ==================== 2. 加载失败（区别于「名下无店」的 empty：这一态是请求没成功，重试有可能成）
+    <!-- ==================== 2. 加载失败（区别于「访问受限」的 empty：这一态是请求没成功，重试有可能成）
              出口按「重试有没有可能成功」给：403/401 不会走到这里（各自另有去向，见 script 注释），
              剩下的都是「等一会儿或查网络就能成」，故给重试；429 起秒级冷却，冷却期内只显秒数 ==================== -->
     <view v-else-if="viewState === 'error'" class="card">
@@ -18,15 +18,16 @@
       </view>
     </view>
 
-    <!-- ==================== 3. 空态：名下还没有可用的自提点
-             两个来源都落这里（见 script）：① GET /api/partner/stores 回 403——token 有效但
-             store.owner_user_id 归属集合为空（AuthInterceptor.java 的 ATTR_PARTNER_STORE_IDS，R.CODE_FORBIDDEN）；
+    <!-- ==================== 3. 空态（「访问受限」：既不是「加载失败」，也不是「登录失效」）
+             两个来源都落这里（见 script）：① GET /api/partner/stores 回 403——token 有效但进不了工作台，
+             store.owner_user_id 归属集合为空（AuthInterceptor.java 的 ATTR_PARTNER_STORE_IDS，R.CODE_FORBIDDEN）
+             与账号本身受限（未开通 / 已停业 / 被限制）回的是同一枚码，故文案只列举可能、不断言原因（D1）；
              ② 200 但数组为空（后端走不到，纯防契约漂移的兜底闸，绝不因此放行渲染工作台内容）。
-             这不是错误态：重试永远失败（店不会自己长出来），故给的两条去向是「申请入驻」与「换个账号」，
-             另留一条「重新检查」——平台刚把门店绑定到这个手机号时，点它只重发一次请求，不必重收验证码。 ==================== -->
+             这不是错误态：在归属/账号状态被平台变更前，重试不会改变结果，故给的两条去向是「申请入驻」与「换个账号」，
+             另留一条「重新检查」——平台刚把门店绑定到这个手机号或刚恢复账号时，点它只重发一次请求，不必重收验证码。 ==================== -->
     <view v-else-if="viewState === 'empty'" class="card guide-card">
-      <text class="guide-title">名下还没有可用的自提点</text>
-      <text class="guide-text">当前账号已登录，但没有一家自提点绑定到它，工作台没有可操作的数据</text>
+      <text class="guide-title">访问受限</text>
+      <text class="guide-text">当前账号可能没有门店归属或账号受限（未开通 / 已停业 / 被限制），工作台不对其开放</text>
       <text v-if="emptyMessage" class="guide-tip">{{ emptyMessage }}</text>
       <button class="btn-main" @click="goStoreApply"><text>去申请入驻</text></button>
       <text v-if="!retryLock" class="guide-link" @click="load(true)">我已绑定，重新检查</text>
@@ -102,8 +103,9 @@
 //    GET /api/partner/store（F-18.12 第 4 条，白名单 Map，含 openTime/closeTime/dailyCapacity/
 //    accepting/contactPhone/photos 六新列）。列表定「能不能进」、明细填「这家店什么样」。
 // ② 状态位：母版是 loading|ready|forbidden|error，本页按 §4 收敛为 loading|error|empty|ready 四态互斥
-//    （单值 viewState，不叠布尔）。母版的 forbidden 在这里就是 empty——名下无店是「没有数据」而不是
-//    「权限报错」，重试永远失败，所以它给的不是重试按钮而是申请入驻/换账号两条去向。
+//    （单值 viewState，不叠布尔）。母版的 forbidden 在这里就是 empty——403 可能是无门店归属，也可能是账号受限
+//    （未开通 / 已停业 / 被限制），两者按「没有可操作数据」渲染引导态、不当成权限报错红字（D1 只列举不断言）；
+//    在归属/账号状态被平台变更前重试不会改变结果，所以它给的不是重试按钮而是申请入驻/换账号两条去向。
 // ③ 入口：可点与否由 ENTRY_ROUTES 唯一裁决（F-18.17 放开核销台/到货批次两行，F-18.19 放开门店信息与
 //    入驻申请两行——四行全部在册，未交付占位分支随之退役）。
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并 reLaunch 回登录页）；
@@ -245,7 +247,7 @@ export default {
       // message「网络异常」，本页 errorCode 因此是 -1；没带码的失败归 0，两支同一条出路
       if (this.errorCode <= 0) return '门店资料加载失败，请检查网络后重试'
       // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文。
-      // 403 走不到这里——它被 load() 归进 empty 态（名下归属集合为空，重试永远失败）
+      // 403 走不到这里——它被 load() 归进 empty 态（归属集合为空或账号受限，两种原因同一枚码）
       return '门店资料加载失败，请稍后重试'
     }
   },
@@ -293,7 +295,7 @@ export default {
           // 200 但空数组：后端归属集合为空时直接回 403，走不到这里；留这一道闸是为了
           // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 front-merchant/pages/workspace/workspace.vue 的 loadMe
           // 那道闸管的是「有 token 但 me 没返回角色时也不放水成 ready」，同口径，F-25/P-4 重测）
-          this.showEmpty('名下没有可用的自提点')
+          this.showEmpty('未返回可用的自提点')
           return
         }
         this.stores = list
@@ -310,7 +312,8 @@ export default {
           return
         }
         if (code === 403) {
-          // 归属集合为空（AuthInterceptor 的 /api/partner/ 归属分支）：不是登录失效、也不是「加载失败」，落 empty 给去向
+          // 403 的两个来源（AuthInterceptor 只回 MSG_FORBIDDEN）：归属集合为空（/api/partner/ 归属分支），
+          // 或账号被限制（F-122 banned 在同一拦截器里也回 403）；不是登录失效、也不是「加载失败」，落 empty 给去向
           this.showEmpty((e && e.message) || '')
           return
         }
@@ -380,7 +383,7 @@ export default {
     },
     // 「去申请入驻」：pages/apply/apply 已在 pages.json 注册（F-18.19），这里给真实跳转。
     // 申请页只要求登录（D-20 挂 /api/store-applies），所以从 empty 态进来必然可用——
-    // 名下无店的账号正是这一页唯一的目标用户
+    // 无门店归属的账号正是这一页的主要目标用户
     goStoreApply() {
       uni.navigateTo({ url: '/pages/apply/apply' })
     },

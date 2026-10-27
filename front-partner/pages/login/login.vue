@@ -13,16 +13,18 @@
       <text class="checking-text">正在校验登录状态…</text>
     </view>
 
-    <!-- ==================== 3. 「名下还没有绑定的自提点」引导态（stores 回 403）
-             与商家端「暂无商家权限」同源但结论不同：主理人身份不占 user.role，而是
-             store.owner_user_id 的归属集合（AuthInterceptor.java 的 ATTR_PARTNER_STORE_IDS 集合为空即 403）。
+    <!-- ==================== 3. 「访问受限」引导态（stores 回 403；D1 口径）
+             403 只说明「这个账号此刻进不了工作台」，前端不断言具体原因：归属集合为空、账号未开通、
+             门店已停业、账号被限制（F-122 封禁也回同一枚 403——AuthInterceptor 只回 MSG_FORBIDDEN，
+             只有登录接口才开始区分封禁）都落这一态，故文案只列举可能，把判定交回用户与平台。
+             主理人身份不占 user.role，而是 store.owner_user_id 的归属集合（AuthInterceptor.java 的 ATTR_PARTNER_STORE_IDS）。
              账号本身是登录成功的，故不清登录态、不跳工作台，给两条明确去向：
              ①「去申请入驻」（pages/apply/apply 已注册于 pages.json:34，真 navigateTo 过去）
-             ②「重新检查」（平台刚给这个账号绑店后自救，不用重收验证码）——它带 429 秒级冷却 ==================== -->
+             ②「重新检查」（平台刚给这个账号绑店/恢复状态后自救，不用重收验证码）——它带 429 秒级冷却 ==================== -->
     <view v-else-if="forbidden" class="card guide-card">
-      <text class="guide-title">该账号还没有绑定的自提点</text>
+      <text class="guide-title">访问受限</text>
       <text class="guide-text">
-        账号<text v-if="forbiddenPhone" class="guide-strong"> {{ forbiddenPhone }} </text>已登录，但名下还没有绑定的自提点
+        当前账号<text v-if="forbiddenPhone" class="guide-strong"> {{ forbiddenPhone }} </text>可能没有门店归属或账号受限（未开通 / 已停业 / 被限制），请核对账号状态或联系平台
       </text>
       <!-- 老状态 storage 无 partner_login_phone 时 forbiddenPhone 为空：这一行不能出现「该手机号」空指代，故按有无号码分两个表述 -->
       <text v-if="forbiddenPhone" class="guide-text">可以先提交入驻申请，也可以让平台把已有自提点绑定到该手机号，之后重新检查即可进入工作台</text>
@@ -117,9 +119,10 @@
 // 与商家端的差异清单（其余表单手感/倒计时/错误文案分流一律照母版）：
 // ① 母版调 getMerchantMe()（两处调用），本页调 getPartnerStores()，且两处收敛进同一个
 //    resolveIdentity()（§4 明令「判定函数与文案分流写在同一个 resolveIdentity() 里，别散到 onLoad/onLogin 两处」）；
-// ② 403 的含义不同：商家端 403 = 角色不是 merchant（只能等平台代开通）；
-//    主理人端 403 = token 有效但 store.owner_user_id 名下门店集合为空（AuthInterceptor 的 /api/partner/ 归属分支），
-//    这是一条用户自己能走通的路——所以引导态给「去申请入驻」主按钮，而不是只有一句「等平台开通」；
+// ② 403 的含义不同：商家端 403 = 角色不是 merchant 或账号被限制（F-122 封禁同回 403，只能等平台代开通）；
+//    主理人端 403 = token 有效但进不了工作台——store.owner_user_id 归属集合为空（AuthInterceptor 的 /api/partner/ 分支）
+//    与账号本身受限（未开通 / 已停业 / 被限制）回的是同一枚 MSG_FORBIDDEN，故文案只列举可能、不断言原因（D1）；
+//    其中「无门店归属」这一支是用户自己能走通的路——所以引导态给「去申请入驻」主按钮，而不是只有一句「等平台开通」；
 // ③ 429 多了 retryLock 冷却（「重新检查」是反复打 /api/partner/stores 的入口，USER 30 次/分）。
 // C 端专属逻辑一律不引进来：邀请码横幅与 inviteCode 透传、头像入 store、设置密码卡区、syncPickupFromServer
 // 之类的 C 端启动链（主理人端无「默认自提点」概念，C-7 明令）。
@@ -167,7 +170,7 @@ export default {
       pwdLogging: false,
       // 登录态复查中（onLoad 时 storage 有 token 才为 true，期间表单区整块隐藏）
       checking: false,
-      // 「名下还没有绑定的自提点」引导态（stores 回 403）：message 为后端原文透出不改写
+      // 「访问受限」引导态（stores 回 403，原因只列举不断言）：message 为后端原文透出不改写
       forbidden: false,
       forbiddenPhone: '',
       forbiddenMessage: '',
@@ -237,20 +240,23 @@ export default {
         this.smsCooldownPhone = phone
       } catch (e) {
         this.showToast((e && e.message) || '网络异常')
-        // 429（IP 或手机号维度限流，后端提示「1 分钟后再试」类原文已 toast 透出）：前端同步进入倒计时，
-        // 否则按钮立刻可再点，用户只会连续撞限流；非 429 分支维持原行为（不启动倒计时）
+        // 429（IP 或手机号维度限流，后端提示原文已 toast 透出）：前端同步进入倒计时，
+        // 否则按钮立刻可再点，用户只会连续撞限流；非 429 分支维持原行为（不启动倒计时）。
+        // D2（M6）：秒数不再写死——后端 600s 锁的信封带 data.retryAfterSeconds，转述它让屏上倒计时显示真实等待；
+        // 取不到真值（60s 频控/日上限不带 data）才回落 60，与成功支同一个缺省。
         if (e && e.code === 429) {
-          this.startSmsCountdown()
+          this.startSmsCountdown(retrySecondsOf(e, 60))
           this.smsCooldownPhone = phone
         }
       } finally {
         this.codeSending = false
       }
     },
-    // 60s 倒计时：期间「获取验证码」置灰防重
-    startSmsCountdown() {
+    // 发码倒计时：期间「获取验证码」置灰防重。
+    // D2（M6）：支持入参 seconds——429 分支传后端真值（缺省 60），屏上读数走 resendPillText（「Ns后重发」）。
+    startSmsCountdown(seconds) {
       this.stopSmsCountdown()
-      this.smsCountdown = 60
+      this.smsCountdown = (Number(seconds) > 0 ? Number(seconds) : 60)
       this.smsTimer = setInterval(() => {
         this.smsCountdown--
         if (this.smsCountdown <= 0) this.stopSmsCountdown()
@@ -303,16 +309,18 @@ export default {
       try {
         const res = await login(phone, code)
         const data = (res && res.data) || {}
-        this.smsLogging = false
         if (!data.token) { this.showToast('登录异常，请重试'); return }
         await this.afterToken(data.token, data.user && data.user.phone ? data.user.phone : phone)
       } catch (e) {
-        this.smsLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429：后端 IP 维度 5 次/分（AuthController.java:45），toast 透出的即是「操作过于频繁，请稍后再试」人话原文，
         // 前端同步锁定登录按钮（F-23-fix/FF-5：秒数转述后端真值，e 必须透传给 startLoginLock），
         // 避免连点继续撞限流窗；非 429 分支行为不变
         if (e && e.code === 429) this.startLoginLock(e)
+      } finally {
+        // M20（D3）：复位必须在 afterToken 之后——afterToken 里还有一次 GET /api/partner/stores，
+        // 在飞期间按钮若已解禁，同帧双击会再发一次登录请求。放 finally 覆盖成功/失败/异常三条路。
+        this.smsLogging = false
       }
     },
     // 密码登录：POST /api/auth/login-password（未设密码时后端 code:400 且 message 人话透出，直接 toast）
@@ -326,15 +334,16 @@ export default {
       try {
         const res = await loginPassword(phone, password)
         const data = (res && res.data) || {}
-        this.pwdLogging = false
         if (!data.token) { this.showToast('登录异常，请重试'); return }
         await this.afterToken(data.token, data.user && data.user.phone ? data.user.phone : phone)
       } catch (e) {
-        this.pwdLogging = false
         this.showToast((e && e.message) || '网络异常')
         // 429 同验证码通道：IP 维度限流不分登录方式，锁定的是两个 tab 共用的登录按钮
         // F-23-fix/FF-5：这里也要把 e 透传下去，否则 startLoginLock 收到 undefined、只能回落 60
         if (e && e.code === 429) this.startLoginLock(e)
+      } finally {
+        // M20（D3）：同验证码通道，afterToken 在飞期间保持禁用
+        this.pwdLogging = false
       }
     },
     // ==================== 拿到 token 后落 store，再交唯一判定处 ====================
@@ -348,19 +357,20 @@ export default {
     // ==================== 身份判定与文案分流的唯一落点（§4：两处调用、一处判定） ====================
     // 调用方只有两个：afterToken（登录成功那一刻）与 restoreSession（冷启复查 / 引导态「重新检查」）。
     // GET /api/partner/stores 的四条分支（三分支 + 限流）：
-    // - 200 且数组非空 → 名下有店 → reLaunch 工作台（多店也进同一个工作台，切换归 Step 6/7）
-    // - 200 但数组为空 → 后端集合为空时直接回 403（走不到这里），仍按「无店」渲染引导态、绝不放行：
+    // - 200 且数组非空 → 有可用门店 → reLaunch 工作台（多店也进同一个工作台，切换归 Step 6/7）
+    // - 200 但数组为空 → 后端集合为空时直接回 403（走不到这里），仍按「受限」渲染引导态、绝不放行：
     //   这是防契约漂移的兜底闸，与母版 front-merchant/pages/workspace/workspace.vue 的 loadMe 那道闸（管的是「已有 token 却拿到没有角色的空响应，也不当 ready 放行」）同口径（F-25/P-4 重测）
-    // - 403（token 有效但名下无店）→ 渲染引导态 + 透出后端原文，停在登录页，不清登录态也不跳工作台
+    // - 403（归属集合为空或账号受限，两种原因同一枚码）→ 渲染引导态 + 透出后端原文，停在登录页，不清登录态也不跳工作台
     // - 401（token 失效）→ 请求层 rejectUnauthorized 已清 partner_token 并回登录页，本页清态停留让用户重登
-    // - 429（USER 30 次/分撞限流）→ 人话文案 + retryLock 秒级冷却，不当成「无店」误判
+    // - 429（USER 30 次/分撞限流）→ 人话文案 + retryLock 秒级冷却，不当成「受限」误判
     // - 其余（网络异常/400/500）→ toast 透出后端原文，不清 token（用户可停在表单重试，不必重收验证码）
     async resolveIdentity(phone) {
       try {
         const res = await getPartnerStores()
         const list = (res && Array.isArray(res.data)) ? res.data : []
         if (!list.length) {
-          this.showForbidden(phone, '账号已登录，但名下没有可用的自提点')
+          // 兜底闸的文案也只说数据事实（响应里没有可用门店），不替账号状态下结论（D1）
+          this.showForbidden(phone, '账号已登录，但未返回可用的自提点')
           return
         }
         uni.showToast({ title: '登录成功', icon: 'success' })
@@ -390,7 +400,7 @@ export default {
         this.showToast((e && e.message) || '网络异常')
       }
     },
-    // 403 引导态渲染（token 保留：这是「账号能登但没绑店」，不是登录失效）
+    // 403 引导态渲染（token 保留：这是「账号能登但当前受限」，不是登录失效）
     showForbidden(phone, message) {
       this.checking = false
       this.forbidden = true
@@ -398,8 +408,8 @@ export default {
       this.forbiddenMessage = (typeof message === 'string' ? message : '').trim()
     },
     // 「去申请入驻」：pages/apply/apply 已在 pages.json:34 注册（F-18.19 交付），这里是真跳转。
-    // 引导态其余分支（保留 token、换账号）一律不动——本页 403 的语义是「登录成功、名下还没绑店」，
-    // 那张表单正是这条路的下一步，跳过去比 toast 诚实。
+    // 引导态其余分支（保留 token、换账号）一律不动——本页 403 的语义是「登录成功、但工作台还不对其开放」，
+    // 无门店归属那一支的下一步正是这张表单，跳过去比 toast 诚实；账号受限支同样可先提交/查看申请。
     goStoreApply() {
       uni.navigateTo({ url: APPLY_PAGE })
     },
