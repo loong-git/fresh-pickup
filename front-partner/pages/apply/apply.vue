@@ -40,6 +40,10 @@
         <text v-if="historyText" class="status-line">{{ historyText }}</text>
         <text class="status-note">坐标与其余资料不在本接口的出参里（GET /api/store-applies/mine 是最小暴露，StoreApplyController.java:51-52），这里只列能确认的部分</text>
         <text class="status-note">材料补充随 G-05 文件服务开放</text>
+        <!-- M13（P4-11 D4）：pending/rejected 也要有刷新入口——审核在平台侧推进，本页停留期间不会自己变；
+             姿势与冷却照 empty 分支的同类入口（同一对 class、同一个 loadMine(true)） -->
+        <text v-if="!retryLock" class="guide-link" @click="loadMine(true)">状态有变，重新检查</text>
+        <text v-else class="guide-link guide-link-cooling">{{ retryLock }}s后可重新检查</text>
       </view>
 
       <!-- pending：表单不给编辑口（改=新申请，与后端 D-21 一致），只把「为什么不能改」说清 -->

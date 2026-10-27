@@ -445,6 +445,11 @@ export default {
     // 建在 loadCategories 之后：类目异步回填的不是 form 字段，不会让基线一建好就自判「已改」
     if (!this.isEdit) this._originalSnapshot = this.snapshotPayload()
   },
+  // 每次回到本页都复查一次商家状态：仍停在 active 早退的话，「停留期间被停业」永远不会反映。
+  // 只补快照（写闸门 lockedByStatus 读它），不碰未保存守卫基线（基线仍以 onLoad 为准）、不重拉商品
+  onShow() {
+    this.syncMerchantSnapshot()
+  },
   // M3：未保存改动的离开守卫（判据与后果见下面两处放行条件）。
   // 实测边界（口径照母版 front-partner/pages/store/store.vue 的 onBackPress，D6）：
   // 导航栏返回按钮走 uni.navigateBack，会触发本钩子；浏览器物理「后退」是 popstate、不经过本钩子，
@@ -662,17 +667,20 @@ export default {
       return g.feedback.text
     },
     // ==================== 数据加载 ====================
-    // store 的 me 快照缺失或非 active 时补拉一次（lockedByStatus 读的就是它）：
-    // 失败一律静默——快照只是预判，真被停了写请求照样吃 403，拉不到不该拦住表单渲染
+    // 每次 onShow 都复查：active 早退会让「停留期间被停业」永不反映；快照只是预判，失败静默
+    //（lockedByStatus 读的就是它，真被停业的写请求照样吃 403，拉不到不该拦住表单渲染）
     async syncMerchantSnapshot() {
-      const cached = this.$store.state.merchant
-      if (cached && cached.status === 'active') return
+      // 首屏 onLoad 的 /me 未回时 onShow 会再发一次（uni 不 await onLoad），防重口径与 dishes.vue 对齐
+      if (this._syncingMe) return
+      this._syncingMe = true
       try {
         const res = await getMerchantMe()
         const me = (res && res.data) || null
         if (me && me.role === 'merchant') this.$store.commit('setMerchant', me)
       } catch (e) {
         // 维持原快照，不 toast、不切换视图
+      } finally {
+        this._syncingMe = false
       }
     },
     // 手动重试（红条 hint 的点击口）：闸门时长取最近一次后端给的 retryAfterSeconds（FB-3），

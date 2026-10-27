@@ -403,12 +403,9 @@ export default {
       this.catRetryLock = 0
       this.catRetryBackendSeconds = 0
     },
-    // store 的 me 快照缺失或停在非 active 时补拉一次（编辑页与本页的写闸门都读这份快照）：
-    // 平台恢复营业后不必先绕一次工作台才解除假锁，本页的状态行与「新增」置灰也据此翻转。
-    // 失败静默——快照只是预判，真被停业的写请求照样吃 403，这一路拉不到不该打扰列表页
+    // 每次 onShow 都复查：active 早退会让「停留期间被停业」永不反映；快照只是预判，失败静默
+    // （真被停业的写请求照样吃 403，这一路拉不到不该打扰列表页；编辑页与本页的写闸门都读这份快照）
     async syncMerchantSnapshot() {
-      const cached = this.$store.state.merchant
-      if (cached && cached.status === 'active') return
       if (this._syncingMe) return
       this._syncingMe = true
       try {
