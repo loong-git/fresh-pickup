@@ -392,7 +392,7 @@ export default {
     }
   },
   computed: {
-    // 登录态（与首页弹层同源 store.state.user）：底栏"立即抢购"未登录拦截用
+    // 登录态（与首页弹层同源 store.state.user）：结算（goPay）未登录拦截用
     ...mapState(['user']),
     cartCount() { return this.$store.getters.cartCount },
     // 购物车 id -> 项 的映射（仿首页）：推荐卡判断"已加购"与展示数量
@@ -777,21 +777,9 @@ export default {
       }
       uni.reLaunch({ url: '/pages/index/index' })
     },
-    // 底栏"立即抢购"（空车整条/分栏右钮共用）：游客下单拦截——未登录弹窗引导去登录页，
-    // 登录成功后 reLaunch 回本页（redirect 带当前商品 id）；加购类入口（推荐卡/步进器）不拦截
+    // 底栏"立即抢购"（空车整条/分栏右钮共用）：加购免登录、结算再拦（与首页/搜索/免费页统一），
+    // 未登录也可直接入车；登录拦截留在 goPay
     addToCart() {
-      if (!this.user.token) {
-        uni.showModal({
-          title: '登录提示',
-          content: '登录后即可下单，是否前往登录？',
-          confirmText: '去登录',
-          cancelText: '再逛逛',
-          success: (r) => {
-            if (r.confirm) uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/detail/detail?id=' + (this.dish && this.dish.id || '')) })
-          }
-        })
-        return
-      }
       // 加购：可连续点击累加；达到 limitBuy 限购后只提示不再加
       const dish = this.dish
       if (!dish || !dish.id) return

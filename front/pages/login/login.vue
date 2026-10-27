@@ -1,5 +1,7 @@
 <template>
   <view class="login-page">
+    <!-- C11 返回：有页面栈回上一页；深链直达无栈时 reLaunch 回首页 -->
+    <view class="login-back" @click="onBack"><text class="login-back-icon">‹</text></view>
     <!-- ==================== 1. 顶部品牌区 ==================== -->
     <view class="brand-area">
       <text class="brand-emoji">🛒</text>
@@ -157,6 +159,12 @@ export default {
   },
   // #endif
   methods: {
+    // C11 返回：有页面栈回上一页；深链直达无栈（getCurrentPages 仅 1 层）reLaunch 回首页
+    onBack() {
+      const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+      if (pages.length > 1) uni.navigateBack()
+      else uni.reLaunch({ url: '/pages/index/index' })
+    },
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
     // tab 切换：仅切表单展示，不清已输入内容（验证码倒计时跨 tab 持续）
     switchTab(tab) {
@@ -286,11 +294,23 @@ export default {
 <style scoped>
 /* 多多买菜风格：白底 + 主红 #E02020 + 圆角胶囊输入框 */
 .login-page {
+  position: relative;
   min-height: 100vh;
   background-color: #FFFFFF;
   box-sizing: border-box;
   padding: 0 56rpx 60rpx;
 }
+
+/* C11 返回控件：custom 导航下自绘；min-width/height 撑到 64rpx 保证点击区，品牌区 padding-top 140rpx 已让开不遮挡 */
+.login-back {
+  position: absolute; top: 24rpx; left: 24rpx;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 64rpx; min-height: 64rpx;
+  padding: 12rpx 20rpx;
+  box-sizing: border-box;
+  z-index: 10;
+}
+.login-back-icon { font-size: 44rpx; color: #333333; line-height: 1; }
 
 /* ==================== 1. 顶部品牌区 ==================== */
 .brand-area {

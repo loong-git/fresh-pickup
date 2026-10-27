@@ -43,11 +43,29 @@ function rejectUnauthorized(reject) {
   reject({ code: 401, message: '请先登录' })
 }
 
+// 403 统一回调注册器：main.js 启动时注册 → 触发时弹「访问受限」统一提示
+// （与 401 同构：api 层只通知、不反向依赖 store；不清 token、不跳登录，权限拒绝仍落通用 reject）
+let forbiddenHandler = null
+export function setForbiddenHandler(fn) {
+  forbiddenHandler = typeof fn === 'function' ? fn : null
+}
+
+// 403 统一通知：回调异常静默，不影响后续 reject
+function notifyForbidden(payload) {
+  if (!forbiddenHandler) return
+  try {
+    forbiddenHandler(payload)
+  } catch (e) {
+    // 通知异常不影响 reject
+  }
+}
+
 /**
  * 统一请求封装：
  * - 有 token 时自动携带 Authorization: Bearer <token>（游客模式无 token 不带该头）
  * - res.statusCode===200 且 res.data.code===200 → resolve(res.data)（完整 R 信封 {code,data,message}）
  * - 401（无/伪造/过期 token）→ 清登录态 + reject({code:401,message:'请先登录'})，登录请求本身不带 token 不受影响
+ * - 403（权限拒绝/账号受限）→ 通知 forbiddenHandler 弹统一提示（不清 token、不跳登录），随后仍按通用分支结构化 reject
  * - 业务失败（code!==200）/ HTTP 异常状态码 → reject({code, message})，调用方须 toast message
  * - 网络异常/超时 → reject({code:-1, message:'网络异常'})，调用方须 toast（全站无静默分支）
  */
@@ -72,6 +90,11 @@ const request = (options) => {
         if (res.statusCode === 401 || (body && body.code === 401)) {
           rejectUnauthorized(reject)
           return
+        }
+        // 403（HTTP 状态码或信封 code 命中）：只通知统一提示（不清 token、不跳登录），
+        // 不 return、不新增第二处 reject，继续落下方 else 的通用结构化 reject 透出后端 code/message
+        if (res.statusCode === 403 || (body && body.code === 403)) {
+          notifyForbidden({ code: 403, message: (body && body.message) || '无权限访问' })
         }
         if (res.statusCode === 200 && body && body.code === 200) {
           resolve(body)

@@ -1,7 +1,7 @@
 import { createSSRApp } from 'vue'
 import { createStore } from 'vuex'
 import App from './App.vue'
-import { setUnauthorizedHandler, getStores } from './api/index.js'
+import { setUnauthorizedHandler, setForbiddenHandler, getStores } from './api/index.js'
 
 // ===== 存储安全兜底（M3-T-06）=====
 // uni.setStorageSync 在隐私模式/存储超额/序列化失败等场景会抛异常导致页面中断，
@@ -327,6 +327,32 @@ const store = createStore({
 // （本地存储 'user' 由 request 层清理；此处注册避免 api 层反向依赖 store 造成循环引用）
 setUnauthorizedHandler(() => {
 	store.commit('setClearUser')
+})
+
+// 403 统一提示：request 层命中 403 时回调（不清 token、不跳登录，仍由调用方 toast 后端 message）。
+// 后端无法区分 403 具体原因，文案只说「可能受限」不断言封禁；确认退出与 mine 页 onLogout 同款动作。
+// forbiddenModalOpen 防抖：并发多个 403 请求只弹一次，complete 后复位
+let forbiddenModalOpen = false
+setForbiddenHandler((payload) => {
+	if (forbiddenModalOpen) return
+	forbiddenModalOpen = true
+	uni.showModal({
+		title: '访问受限',
+		content: (payload && payload.message ? payload.message + '\n\n' : '') + '当前账号可能受限，可退出登录后换账号，或联系客服。',
+		confirmText: '退出登录',
+		cancelText: '知道了',
+		confirmColor: '#E02020',
+		success: (res) => {
+			if (res.confirm) {
+				store.commit('setClearUser')
+				uni.showToast({ title: '已退出', icon: 'success' })
+				uni.reLaunch({ url: '/pages/index/index' })
+			}
+		},
+		complete: () => {
+			forbiddenModalOpen = false
+		}
+	})
 })
 
 // ==================== 跨标签页购物车同步（H5） ====================

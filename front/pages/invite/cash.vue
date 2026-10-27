@@ -371,17 +371,29 @@ export default {
     // ==================== 提现 ====================
     // POST /api/invite/cash/withdraw（后端限流 1 次/分，余额不足 code:400 差额文案透出）：
     // 成功 toast 明示模拟到账（F-04.5），并刷新余额/流水；失败 toast message 保留现场
+    // P4-9 C13：点击后先二次确认（金额=全部余额 + 演示环境明示）；取消零请求直接返回，
+    // 确认框弹出期间不置 withdrawing（允许取消），确认后才走原提现逻辑并置在飞防重
     onWithdraw() {
       if (this.withdrawDisabled) return
       const amountText = this.balanceText
-      this.withdrawing = true
-      withdrawCash().then(() => {
-        uni.showToast({ title: `提现申请成功，¥${amountText} 将到账（演示环境模拟到账，不发生实际打款）`, icon: 'none', duration: 3000 })
-        this.loadCash()
-      }).catch((e) => {
-        uni.showToast({ title: (e && e.message) || '提现失败，请稍后重试', icon: 'none' })
-      }).finally(() => {
-        this.withdrawing = false
+      uni.showModal({
+        title: '确认提现',
+        content: `将提现全部余额 ¥${amountText}。演示环境模拟到账，不发生实际打款。确认提现？`,
+        confirmText: '提现',
+        cancelText: '取消',
+        confirmColor: '#E02020',
+        success: (res) => {
+          if (!res.confirm) return
+          this.withdrawing = true
+          withdrawCash().then(() => {
+            uni.showToast({ title: `提现申请成功，¥${amountText} 将到账（演示环境模拟到账，不发生实际打款）`, icon: 'none', duration: 3000 })
+            this.loadCash()
+          }).catch((e) => {
+            uni.showToast({ title: (e && e.message) || '提现失败，请稍后重试', icon: 'none' })
+          }).finally(() => {
+            this.withdrawing = false
+          })
+        }
       })
     },
     // ==================== 展示辅助 ====================
