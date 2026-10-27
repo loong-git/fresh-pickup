@@ -1,12 +1,16 @@
 <template>
   <view class="page-container">
     <!-- 主滚动区（scroll-view 底部预留 300rpx，给固定购物车栏 + 平台优惠条让位） -->
+    <!-- P4-15（D2）：页面本身不滚动（主体是 scroll-view），下拉刷新只能挂 scroll-view 内建 refresher -->
     <scroll-view
       class="main-scroll"
       scroll-y
       :scroll-top="mainScrollTop"
       :scroll-with-animation="true"
       @scroll="onMainScroll"
+      refresher-enabled
+      :refresher-triggered="refresherTriggered"
+      @refresherrefresh="onPullRefresh"
     >
       <view class="scroll-inner">
         <!-- ==================== 吸顶层：仅搜索框（原生 sticky 吸附于滚动区顶部；未滚动红底，分类 tab 吸顶时刻随 catTabStuck 切白底） ==================== -->
@@ -345,11 +349,11 @@
         <text class="person-title">修改提货人信息</text>
         <view class="form-group">
           <text class="form-label">提货人</text>
-          <input class="form-input" v-model="formPersonName" placeholder="请输入提货人姓名" />
+          <input class="form-input" v-model="formPersonName" placeholder="请输入提货人姓名" :adjust-position="true" cursor-spacing="24" />
         </view>
         <view class="form-group">
           <text class="form-label">手机号</text>
-          <input class="form-input" v-model="formPersonPhone" type="number" maxlength="11" placeholder="请输入手机号码" />
+          <input class="form-input" v-model="formPersonPhone" type="number" maxlength="11" placeholder="请输入手机号码" :adjust-position="true" cursor-spacing="24" />
         </view>
         <view class="person-btns">
           <button class="btn-clear-person" @click="clearPersonForm">清空</button>
@@ -579,6 +583,8 @@ export default {
       // 本页无地址表单 data：自提地址读 pickupPoint.address 快照，提货人用上方 formPerson* 两键
       // 秒杀锚点滚动位置（scroll-view scroll-top）
       mainScrollTop: 0,
+      // P4-15（D2）：scroll-view 内建下拉刷新的受控态（onPullRefresh 置真，finally 复位）
+      refresherTriggered: false,
       // 优惠券三卡（游客/失败：字典 coupon_template 渲染，word 显示、parseCoupon 拆 threshold/amount/state；
       // 登录态：P4-8 C12 改源 /api/coupons/center 前 3 张，claimed 决定置灰，多于 3 张出「更多」）
       coupons: [],
@@ -805,6 +811,18 @@ export default {
     // 错误态重试（T-M3-05）
     retryLoad() {
       if (this.loadError) this.loadDishes()
+    },
+    // ==================== P4-15（D2）下拉刷新 ====================
+    // 只做「重拉」聚合，不改下方各 load* 方法内部：并行刷商品/字典/秒杀场次，登录态再刷券卡（游客不发请求）；
+    // finally 无条件复位 triggered——失败时下拉圈也必须落下，否则页面会永久停在"刷新中"
+    async onPullRefresh() {
+      this.refresherTriggered = true
+      try {
+        await Promise.all([this.loadDishes(), this.loadDicts(), this.loadSeckillSession()])
+        if (this.user.token) this.loadCouponCards()
+      } finally {
+        this.refresherTriggered = false
+      }
     },
     // 图片加载失败：标记该商品回退 emoji 色块（T-M3-01，emoji 字段保留不删）
     onImgFail(id) {

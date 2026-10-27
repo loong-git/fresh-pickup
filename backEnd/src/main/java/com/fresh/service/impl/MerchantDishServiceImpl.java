@@ -386,7 +386,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
      * 故只放行两种形态：空串（清空）、/static/images/（平台静态件，含上传落盘前缀 /static/images/uploads/）。
      * <p><b>BE-9 收紧（本批）**：/uploads/ 从白名单剔除。它是 CorsConfig 对同一目录注册的第一条映射（:68）、
      * 只服务商家端 dev 预览（商家端跑独立 origin，C 端静态根路径在它那里取不到文件），而 C 端
-     * &lt;image :src="dish.image"&gt; **不拼 BASE_URL**（front/pages/index/index.vue:118、detail.vue:23 即此形态）——
+     * &lt;image :src="dish.image"&gt; **不拼 BASE_URL**（front/pages/index/index.vue 与 detail.vue 即此形态）——
      * 库里存了 /uploads/xxx.jpg 时，dev 下 5173 把它当自己的路由走 SPA 回退、prod 下 nginx try_files 同样
      * 回 index.html，浏览器拿到的是 text/html 不是图片，@error 触发 → C 端**静默退回 emoji 兜底**。
      * 症状「上传成功、库里有值、C 端看起来没图」正是决策①点名的静默假成功形态，且入库侧留着这一档，

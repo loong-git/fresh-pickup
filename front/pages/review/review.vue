@@ -71,7 +71,7 @@
             </view>
           </view>
           <view class="form-group">
-            <textarea class="review-textarea" v-model="reviewContent" placeholder="分享您的购物体验..." maxlength="200" />
+            <textarea class="review-textarea" v-model="reviewContent" placeholder="分享您的购物体验..." maxlength="200" :adjust-position="true" cursor-spacing="24" />
             <text class="char-count">{{ reviewContent.length }}/200</text>
           </view>
           <!-- P4-2（D3）提交单飞：submitting 中灰态禁用 + 文案切换（姿势照 index.vue btn-confirm）；同帧双击由方法首行早退拦 -->
