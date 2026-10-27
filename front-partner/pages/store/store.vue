@@ -214,6 +214,8 @@ const SERVICE_MAX = 50
 
 // 门店平台状态的正常值（init.sql store.status 值域 open/closed）：其余值原样透出，不替后端猜中文
 const STORE_STATUS_OPEN = 'open'
+// P4-14 M16（D3）：另一个已知取值与 open 同构映射（英文枚举 + 中文），其余未知值仍原样透出
+const STORE_STATUS_CLOSED = 'closed'
 
 // 后端 400 文案 → 表单字段（GlobalExceptionHandler 的 @Pattern/@Size 文案点名了字段，
 // 这里据此把描红落到那一栏；映射不上就只出原文，不猜一栏）
@@ -305,6 +307,8 @@ export default {
       const s = this.store ? this.store.status : null
       if (s === undefined || s === null || s === '') return '未返回'
       if (s === STORE_STATUS_OPEN) return 'open（正常营业）'
+      // P4-14 M16（D3）：已知的第二个取值按同一形状映射；其余未知值不替后端猜，仍原样透出
+      if (s === STORE_STATUS_CLOSED) return 'closed（暂停营业）'
       return String(s)
     },
     acceptingLabel() {

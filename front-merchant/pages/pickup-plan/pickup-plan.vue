@@ -8,6 +8,9 @@
            措辞与 plan-orders 的 .picker-label 逐字一致（同一枚日期在两端不能两种叫法） -->
       <view class="date-field-row">
         <text class="date-field-label">自提日期</text>
+        <!-- 首屏 date 不传、由后端按「明天」兜底并回显：屏上只摆一枚日期会被读成「今天」，
+             故在字段名旁标注口径（只标注，默认值与请求参数都不动） -->
+        <text class="date-default-hint">默认明天</text>
       </view>
       <view class="date-row">
         <view class="date-step" hover-class="pill-hover" @click="stepDay(-1)">前一天</view>
@@ -414,8 +417,12 @@ export default {
 /* ==================== 1. 日期条 ==================== */
 .date-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
 /* 字段名标签：与 plan-orders 的 .picker-label 同一档（26rpx/#999999），日期条不再是个裸日期 */
-.date-field-row { display: flex; margin-bottom: 12rpx; }
+/* baseline：字段名与右侧「默认明天」是两档字号并排，按基线对齐才不会一小一大上下飘 */
+.date-field-row { display: flex; align-items: baseline; margin-bottom: 12rpx; }
 .date-field-label { font-size: 26rpx; color: #999999; line-height: 1.4; }
+/* 默认口径旁注：比字段名小一档的灰字（22rpx/#BBBBBB，同本页 .guide-tip 的字号与 .plan-empty-line 的灰），
+   只做标注、不承接任何交互（改日期仍走下面的步进/今天按钮） */
+.date-default-hint { margin-left: 8rpx; font-size: 22rpx; color: #BBBBBB; line-height: 1.4; }
 .date-row { display: flex; align-items: center; gap: 16rpx; }
 /* 胶囊按钮：view + 12rpx 24rpx 内边距（原 8rpx 上下偏薄），四枚入口同一形状 */
 .date-step {

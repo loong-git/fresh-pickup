@@ -60,6 +60,9 @@
         <!-- 叫法与商家端两页逐字一致（同一枚日期在三端不能三种叫法）；本页语义确实是自提日期：
              请求参数就是 pickupDate（PartnerController 的 orders 端点） -->
         <text class="date-field-label">自提日期</text>
+        <!-- P4-14 M15（D2）：首屏默认取的那一天要在屏上说出来（值仍由 onShow 的 todayStr 给，本行只是可见化，
+             不改默认值、不改请求参数） -->
+        <text class="form-hint date-default-hint">默认今天</text>
       </view>
       <view class="date-row">
         <!-- P4-5 S3（D3/D4）：日期步进只重拉清单、撞的是 orders 读桶，所以按**读侧**闸门 retryLock 禁用，
@@ -925,6 +928,8 @@ export default {
 .date-card { display: flex; flex-direction: column; gap: 12rpx; }
 .date-field-row { display: flex; align-items: center; }
 .date-field-label { font-size: 26rpx; color: #999999; line-height: 1.5; }
+/* P4-14 M15：默认日期标注复用本页 .form-hint 小字档，只加一个左间距（不新增大块样式） */
+.date-default-hint { margin-left: 8rpx; }
 .date-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .date-step {
   flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.4;

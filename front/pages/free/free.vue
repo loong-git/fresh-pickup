@@ -728,7 +728,10 @@ export default {
     // 「明细」轻实现：跳订单页（免费单为 clientRequestId 以 free- 开头的 0 元单）
     onDetail() {
       uni.navigateTo({ url: '/pages/order/order' })
-      this.showToast('已为您筛选免费领取订单')
+      // 订单页只有「全部/待自提/已完成/已取消」四态、没有免费领筛选参数（D1：不新增筛选参数，
+      // 那要扩到订单页的入参解析与后端），故只说「已打开订单列表」并给出辨认办法，
+      // 不再声称「已为您筛选免费领取订单」——那枚筛选页面上根本不存在
+      this.showToast('已打开订单列表，免费领订单可按时间与金额辨认')
     },
     // 「规则」弹窗（门槛口径/截单口径/限量口径，金额随 current.threshold 动态拼入；门槛按购物车重算口径）
     onRules() {
