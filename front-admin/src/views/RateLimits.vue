@@ -74,6 +74,13 @@
               <span class="mono">{{ row.lastHitAt }}</span>
             </template>
           </el-table-column>
+          <el-table-column label="处置" width="120">
+            <template #default="{ row }">
+              <el-button v-if="row.bucketKey && row.bucketKey.startsWith('user:')" link type="primary" size="small"
+                         @click="goBan(row)">去封禁</el-button>
+              <span v-else class="muted" title="IP 维度请在封禁页按手机号/用户处理">—</span>
+            </template>
+          </el-table-column>
         </el-table>
       </template>
     </section>
@@ -87,7 +94,10 @@
 // 结构与错误处理照 PartnerWallets.vue：loading / error / 空表三态，信封判定全在 api 层。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { getAdminRateLimitHits } from '../api'
+
+const router = useRouter()
 
 const days = ref(7)
 // A4：null = 「未知」，只有成功态才写数。与 Overview.vue 的「未取到数据是 '-'，不是 0」同一条纪律：
@@ -124,6 +134,16 @@ async function loadHits() {
   } finally {
     loading.value = false
   }
+}
+
+// P4-13 D3（A11）：user 维度的桶键（user:<id>:<路由标识>）给「去封禁」直达封禁页；
+// 只解析 user:<id>: 里的正整数，解析不出就什么都不做（ip: 行在模板里本就不给按钮）。
+function goBan(row) {
+  const matched = /^user:(\d+):/.exec(String((row && row.bucketKey) || ''))
+  if (!matched) return
+  const id = Number(matched[1])
+  if (!Number.isInteger(id) || id <= 0) return
+  router.push({ path: '/bans', query: { userId: String(id) } })
 }
 
 onMounted(() => {

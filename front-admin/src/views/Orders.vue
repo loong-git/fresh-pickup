@@ -34,8 +34,17 @@
         <el-option label="已完成 completed" value="completed" />
         <el-option label="已取消 cancelled" value="cancelled" />
       </el-select>
-      <el-input v-model="filters.storeId" size="small" class="filter-input" clearable
-                placeholder="门店 ID（精确等值，如 1）"
+      <!-- P4-13 A15/D1：门店筛选由手输 ID 改为真实门店下拉（GET /api/stores，匿名端点）；
+           value 统一字符串（与筛选口径一致），label=门店名 (#id)。加载失败时退回手输 ID，
+           筛选能力不净减（契约 §2.1/§3）——下拉与手输绑同一份 filters.storeId。 -->
+      <el-select v-if="!storeChoicesError" v-model="filters.storeId" size="small" class="filter-select" clearable filterable
+                 :loading="storeChoicesLoading"
+                 placeholder="门店（不选=全部）"
+                 :disabled="viewState === 'loading' || submitting" @change="onFilterChange">
+        <el-option v-for="s in storeChoices" :key="s.id" :label="s.name + ' (#' + s.id + ')'" :value="String(s.id)" />
+      </el-select>
+      <el-input v-else v-model="filters.storeId" size="small" class="filter-input" clearable
+                placeholder="门店 ID（手输，门店列表加载失败时的回退）"
                 :disabled="viewState === 'loading' || submitting" @change="onFilterChange" />
       <el-date-picker v-model="filters.date" size="small" type="date" class="filter-date"
                       value-format="YYYY-MM-DD" format="YYYY-MM-DD" :clearable="true"
@@ -43,6 +52,12 @@
                       :disabled="viewState === 'loading' || submitting" @change="onFilterChange" />
       <el-button size="small" type="primary" :disabled="viewState === 'loading' || submitting" @click="onFilterChange">查询</el-button>
       <el-button size="small" :disabled="viewState === 'loading' || submitting" @click="onReset">重置</el-button>
+      <!-- P4-13 D2：下拉失败不阻断主列表（列表照常读），只在本行尾给可点重试；
+           文案与全部筛选控件同一行，运营不必离开筛选区就能自救。 -->
+      <span v-if="storeChoicesError" class="muted choices-fallback" :title="storeChoicesError">
+        <el-button link type="primary" size="small" :disabled="storeChoicesLoading"
+                   @click="loadStoreChoices">门店列表加载失败，点击重试</el-button>
+      </span>
     </div>
 
     <!-- 写动作的结果条：同样放在状态块之外——写成功后要重拉列表，那一刻 viewState 是 'loading'，
@@ -166,8 +181,8 @@
 //   ③ 写成功后一律 load() 重拉列表，绝不在前端把行本地改成 completed/cancelled（纪律 3）：
 //      幂等早退、并发翻态这些只有服务端状态机知道，本地改行就是说谎。
 import { computed, onMounted, ref } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { getAdminOrders, updateAdminOrderStatus, retryAfterText } from '../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getAdminOrders, updateAdminOrderStatus, getStores, retryAfterText } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -195,6 +210,12 @@ const pageNum = ref(1)
 const pageSize = ref(20)
 // 本页筛选态的唯一真源就是这一份（后端回显的 filters 不参与渲染）。空串由请求层 withQuery 挡下、不下发。
 const filters = ref({ status: '', storeId: '', date: '' })
+
+// P4-13 A15/D1：门店下拉的数据源（GET /api/stores 是既有匿名端点，与 Arrivals.vue 同源）。
+// 三件套各管一件事：choices=选项、loading=加载中、error=失败（非空即退回手输 ID + 行尾重试）。
+const storeChoices = ref([])
+const storeChoicesLoading = ref(false)
+const storeChoicesError = ref('')
 
 // ---------- 读侧「下一步」文案 ----------
 // 纪律 4：400 在服务端有<b>两句</b>诚实原文（AdminV2ServiceImpl 的 BAD_REQUEST_MSG「请求参数有误，请检查后重试」
@@ -344,6 +365,26 @@ function onReset() {
   load()
 }
 
+// P4-13 D2：门店下拉的加载/失败态照 Arrivals 的姿势——失败只弹 toast + 记下原因（模板据此退回手输 ID
+// 并在筛选行尾给「点击重试」），既不写本页 viewState，也不动 filters，所以订单列表照常可读可筛。
+// 开拉时先清原因（同 Arrivals loadStores 的 storesNote=null）：重试期间下拉以 :loading 表达在飞。
+async function loadStoreChoices() {
+  if (storeChoicesLoading.value) return
+  storeChoicesLoading.value = true
+  storeChoicesError.value = ''
+  try {
+    const envelope = await getStores()
+    storeChoices.value = Array.isArray(envelope && envelope.data) ? envelope.data : []
+  } catch (err) {
+    const e = err || {}
+    storeChoices.value = []
+    storeChoicesError.value = e.message || '门店列表加载失败'
+    ElMessage.error(e.message || '门店列表加载失败')
+  } finally {
+    storeChoicesLoading.value = false
+  }
+}
+
 /**
  * 二次确认（纪律 2）。只有点「确认执行」才返回 true；
  * 点「取消」、点右上角关闭、按 Esc 在 ElMessageBox 里一律是 reject → 这里吞掉并返回 false，
@@ -481,6 +522,8 @@ onMounted(() => {
   // load() 立刻置回 'loading'，浏览器不会在两个值之间绘制。
   viewState.value = 'idle'
   load()
+  // P4-13：门店下拉独立加载（与订单列表互不阻塞，各自失败各自报）
+  loadStoreChoices()
 })
 </script>
 
@@ -557,6 +600,11 @@ onMounted(() => {
 }
 .muted {
   color: #909399;
+}
+/* P4-13：门店下拉失败时的行尾重试行——与工具栏同一条 flex 行，垂直居中即可，不另造视觉 */
+.choices-fallback {
+  display: inline-flex;
+  align-items: center;
 }
 .pager {
   display: flex;

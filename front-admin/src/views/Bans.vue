@@ -209,6 +209,7 @@
 //   4) 商家 terminated 行不给可点按钮（置灰 + title「已清退商家不可变更封禁状态」）——服务端同样 400 同句；
 //   5) 两域独立、零级联：本页只发状态位，不碰 token/商品/秒杀/免费领池/订单，口径见页头横幅。
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getAdminUsers,
@@ -216,6 +217,9 @@ import {
   updateAdminUserStatus,
   updateAdminMerchantStatus
 } from '../api'
+
+// P4-13 D4（A11）：限流页「去封禁」跳来时带 userId；只读进入本页时的这一份 query，不新增 watch。
+const route = useRoute()
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -554,6 +558,12 @@ async function runMerchantStatus(row, action) {
 }
 
 onMounted(() => {
+  // P4-13 D4：先读 route.query.userId，合法正整数才预填（与输入框的 isPositiveInt 同口径）；
+  // 预填完只调用一次 loadUsers（原调用合并在这里，不重复请求）。
+  const rawUserId = route.query ? route.query.userId : undefined
+  if (rawUserId != null && /^[1-9]\d*$/.test(String(rawUserId))) {
+    userFilters.value.userId = String(rawUserId)
+  }
   loadUsers()
 })
 </script>

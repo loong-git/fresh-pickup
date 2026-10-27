@@ -137,7 +137,7 @@
 // ⚠ pageSize 越界（0 / >100 / 负数）后端是 **400 而不是夹到边界**（F-20.10 追认），
 //   所以可选页大小只能提供 [10,20,50,100]，不给任何越界选项。
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getAdminAuditLogs, retryAfterText } from '../api'
 // F-54 改动 B：actor / action 这两枚字符值的真值在服务端，定义收在 ../constants.js 一处（复述而非第二份真值）。
 // 本页与大盘那一格的跳转 query 共用同一枚出口，服务端改名时两端只会有一处要改。
@@ -145,8 +145,10 @@ import { AUDIT_ACTOR_SYSTEM_WX_NOTIFY, AUDIT_ACTION_PAY_NOTIFY_REJECT } from '..
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
-// F-50：只用来读**进入本页时**那一份 query——不 watch、不回写 URL、不新增任何状态变量。
+// F-50 / P4-13 D5：route 只用来读**进入本页时**那一份 query，并在筛选/翻页后回写 URL——
+// **不 watch**（回写触发的 route 变更不再拉一次请求），也不新增任何状态变量。
 const route = useRoute()
+const router = useRouter()
 
 // 初值 'loading' 只服务首屏渲染；首屏那一跳见文件末尾的 onMounted
 const viewState = ref('loading')
@@ -260,8 +262,24 @@ async function load() {
   }
 }
 
+// P4-13 D5：把当前筛选 + 分页回写进 URL（router.replace，不压历史记录）。
+// 只写非空键：空筛选不写入，整份 query 替换即把旧键删掉，URL 保持干净；
+// pageNum/pageSize 是分页态、恒为有效值，按契约固定写入。
+// 不 watch route（见上方 route 注释）：回写不会触发本页二次请求。
+function syncQueryToUrl() {
+  const query = {}
+  if (filters.value.actor) query.actor = filters.value.actor
+  if (filters.value.action) query.action = filters.value.action
+  if (filters.value.targetType) query.targetType = filters.value.targetType
+  if (filters.value.targetId) query.targetId = filters.value.targetId
+  query.pageNum = String(pageNum.value)
+  query.pageSize = String(pageSize.value)
+  router.replace({ query })
+}
+
 function onPageChange() {
   load()
+  syncQueryToUrl()
 }
 
 function onSizeChange() {
@@ -269,6 +287,7 @@ function onSizeChange() {
   // 那会让运营以为「这一档没有数据」）
   pageNum.value = 1
   load()
+  syncQueryToUrl()
 }
 
 function onFilterChange() {
@@ -276,6 +295,7 @@ function onFilterChange() {
   // 后端不回 400 而是回空 list，会被误读成「这一档没数据」）。load() 自带 FE-G6-3 在飞守卫。
   pageNum.value = 1
   load()
+  syncQueryToUrl()
 }
 
 function onReset() {
@@ -287,6 +307,7 @@ function onReset() {
   filters.value.targetId = ''
   pageNum.value = 1
   load()
+  syncQueryToUrl()
 }
 
 // F-45 预设按钮唯一的 handler：只做「把预设值写进既有那四个 filters 键」+ 调既有的 onFilterChange()。
@@ -302,6 +323,7 @@ function applyQuickFilter(preset) {
   filters.value.targetType = preset.targetType || ''
   filters.value.targetId = preset.targetId || ''
   onFilterChange()
+  syncQueryToUrl()
 }
 
 onMounted(() => {
@@ -321,6 +343,13 @@ onMounted(() => {
   filters.value.action = typeof q.action === 'string' ? q.action : ''
   filters.value.targetType = typeof q.targetType === 'string' ? q.targetType : ''
   filters.value.targetId = typeof q.targetId === 'string' ? q.targetId : ''
+  // P4-13 D5：分页也按 query 恢复——pageNum 只认正整数，pageSize 只认 [10,20,50,100]；
+  // 非法值一律保持默认（1 / 20），不因外链脏参数把请求打成 400。
+  // 这两枚写的是既有分页 ref，不新增筛选态（与上方 F-50「不新增第五份筛选态」同一条纪律）。
+  const qPageNum = typeof q.pageNum === 'string' ? q.pageNum : ''
+  if (/^[1-9]\d*$/.test(qPageNum)) pageNum.value = Number(qPageNum)
+  const qPageSize = typeof q.pageSize === 'string' ? q.pageSize : ''
+  if (PAGE_SIZES.indexOf(Number(qPageSize)) !== -1) pageSize.value = Number(qPageSize)
   load()
 })
 </script>

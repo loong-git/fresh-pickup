@@ -27,8 +27,16 @@
 
     <!-- FE-G6-5 的教训：工具条在状态块之外，四态都留着；loading / 写在飞时 disabled 但不消失。 -->
     <div class="toolbar">
-      <el-input v-model="filters.merchantId" size="small" class="filter-input" clearable
-                placeholder="商家 ID（精确等值，如 1）"
+      <!-- P4-13 A15/D1：商家筛选由手输 ID 改为真实商家下拉（GET /api/admin/merchants 分页拉全，照 Settlements.vue）；
+           value 统一字符串（与筛选口径一致），label=名称 (#id)。加载失败退回手输 ID，筛选能力不净减（契约 §2.2/§3）。 -->
+      <el-select v-if="!merchantChoicesError" v-model="filters.merchantId" size="small" class="filter-select" clearable filterable
+                 :loading="merchantChoicesLoading"
+                 placeholder="商家（不选=全部）"
+                 :disabled="viewState === 'loading' || submitting" @change="onFilterChange">
+        <el-option v-for="m in merchantChoices" :key="m.id" :label="merchantLabel(m)" :value="String(m.id)" />
+      </el-select>
+      <el-input v-else v-model="filters.merchantId" size="small" class="filter-input" clearable
+                placeholder="商家 ID（手输，商家列表加载失败时的回退）"
                 :disabled="viewState === 'loading' || submitting" @change="onFilterChange" />
       <el-select v-model="filters.onSale" size="small" class="filter-select" clearable
                  placeholder="在售状态（0/1，精确）"
@@ -47,6 +55,11 @@
       </el-select>
       <el-button size="small" type="primary" :disabled="viewState === 'loading' || submitting" @click="onFilterChange">查询</el-button>
       <el-button size="small" :disabled="viewState === 'loading' || submitting" @click="onReset">重置</el-button>
+      <!-- P4-13 D2：下拉失败不阻断主列表（列表照常读），只在本行尾给可点重试 -->
+      <span v-if="merchantChoicesError" class="muted choices-fallback" :title="merchantChoicesError">
+        <el-button link type="primary" size="small" :disabled="merchantChoicesLoading"
+                   @click="loadMerchantChoices">商家列表加载失败，点击重试</el-button>
+      </span>
     </div>
 
     <div v-if="writeResult" class="result-bar" :class="'result-bar-' + writeResult.kind">
@@ -238,7 +251,7 @@
 // 一期只改不建：Admin 面没有「新建商品」端点（F-20.17 事实 3 附注），本页不提供，也不是漏做。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminDishes, updateAdminDish, auditAdminDish, retryAfterText } from '../api'
+import { getAdminDishes, updateAdminDish, auditAdminDish, getAdminMerchants, retryAfterText } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -252,6 +265,8 @@ const displayOf = (v) => (v == null ? '' : String(v))
 // 审核态（F-116）：库里只有 'ok'/'rejected' 两枚（m26 列口径）；'rejected' 即驳回行。
 // 未知值按「非驳回」渲染正常 tag——脏值原样透传会在服务端 400 白名单处暴露，本页不猜第二真源
 const auditRejected = (row) => row && row.auditStatus === 'rejected'
+// P4-13：商家下拉的 label 与 Settlements.vue 逐字相同（名称 (#id)），两页对同一商家给同一措辞
+const merchantLabel = (m) => m.name + ' (#' + m.id + ')'
 
 const viewState = ref('loading')
 const errorText = ref('')
@@ -266,6 +281,12 @@ const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(20)
 const filters = ref({ merchantId: '', onSale: '', category: '', auditStatus: '' })
+
+// P4-13 A15/D1：商家下拉的数据源（GET /api/admin/merchants 分页拉全，与 Settlements.vue 同一实现）。
+// error 非空即模板退回手输 ID 并在筛选行尾给重试——筛选能力不因下拉失败而净减。
+const merchantChoices = ref([])
+const merchantChoicesLoading = ref(false)
+const merchantChoicesError = ref('')
 
 // 驳回弹窗（F-116 §2.3）：auditTarget 存目标行（只为标题与确认文案，真值以重拉后的列表为准）
 const rejectDialogVisible = ref(false)
@@ -421,6 +442,44 @@ function onReset() {
   filters.value.auditStatus = ''
   pageNum.value = 1
   load()
+}
+
+// P4-13：真实商家选项（GET /api/admin/merchants，分页拉全后本地过滤）。
+// 该端点没有名称过滤，pageSize 上限 100；商家多于 100 时必须按 total 继续翻页，不能只取第一页。
+async function loadMerchantChoices() {
+  if (merchantChoicesLoading.value) return
+  merchantChoicesLoading.value = true
+  merchantChoicesError.value = ''
+  try {
+    const all = []
+    const pageSize = 100
+    let pageNum = 1
+    let total = 0
+    do {
+      const envelope = await getAdminMerchants({ pageNum, pageSize })
+      const data = envelope && envelope.data ? envelope.data : {}
+      if (!Array.isArray(data.list)) {
+        throw new Error('商家列表返回形状异常（list 不是数组）')
+      }
+      const list = data.list
+      all.push(...list)
+      total = Number(data.total) || 0
+      pageNum += 1
+      if (list.length === 0) {
+        // total 与页不一致时防死循环；有 total 却返回 0 行说明数据不完整，不能静默当空
+        if (total > 0) throw new Error('商家列表返回不完整（0 行 / 共 ' + total + '）')
+        break
+      }
+    } while (all.length < total)
+    merchantChoices.value = all
+  } catch (err) {
+    const e = err || {}
+    merchantChoices.value = []
+    merchantChoicesError.value = e.message || '商家列表加载失败'
+    if (e.message) ElMessage.error(e.message)
+  } finally {
+    merchantChoicesLoading.value = false
+  }
 }
 
 function openDialog(row) {
@@ -647,6 +706,8 @@ function handleWriteFailure(err, actionName) {
 onMounted(() => {
   viewState.value = 'idle'
   load()
+  // P4-13：商家下拉独立加载（与商品列表互不阻塞，各自失败各自报）
+  loadMerchantChoices()
 })
 </script>
 
@@ -718,6 +779,11 @@ onMounted(() => {
 }
 .muted {
   color: #909399;
+}
+/* P4-13：商家下拉失败时的行尾重试行——与工具栏同一条 flex 行，垂直居中即可，不另造视觉 */
+.choices-fallback {
+  display: inline-flex;
+  align-items: center;
 }
 .pager {
   display: flex;
