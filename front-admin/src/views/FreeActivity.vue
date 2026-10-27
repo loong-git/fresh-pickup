@@ -178,7 +178,7 @@
 //   3) 错误一律 ElMessage + 请求层透出的后端 message 原文，本页不预置猜原因的提示表；
 //   4) 保存成功后一律重拉（活动→loadActivity，池→loadPool），绝不本地改行。
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getAdminFreeActivity,
   updateAdminFreeActivity,
@@ -433,6 +433,25 @@ async function onSaveActivity() {
     ElMessage.warning('没有需要保存的修改')
     return
   }
+  // P4-12 §2.1：写前确认写清影响面；确认前不置 savingActivity（D3：复用既有标志防重，确认后再置位）。
+  try {
+    await ElMessageBox.confirm(
+      '将更新免费领活动配置（换品 / 日限量 / 门槛 / 上下线）\n'
+      + '· 保存后 C 端活动区立即按新配置展示\n'
+      + '· 日限量改小只影响之后，已领取记录不回滚\n'
+      + '· 提交成功后本页会重拉。',
+      '请确认保存活动配置',
+      {
+        type: 'warning',
+        confirmButtonText: '确认保存',
+        cancelButtonText: '取消（不发出任何请求）',
+        closeOnClickModal: false,
+        customClass: 'admin-write-confirm'
+      })
+  } catch (e) {
+    // 点「取消」/关闭/Esc 一律 reject → 吞掉，不发出任何请求。
+    return
+  }
   savingActivity.value = true
   try {
     const envelope = await updateAdminFreeActivity(patch)
@@ -484,6 +503,25 @@ async function onSavePool() {
   })
   if (ids.length === 0) {
     ElMessage.warning(FREE_POOL_EMPTY_TEXT)
+    return
+  }
+  // P4-12 §2.1：全量替换的代价必须写在确认框里；确认前不置 savingPool，取消路径零请求。
+  try {
+    await ElMessageBox.confirm(
+      '将把候选池全量替换为当前选中的 ' + ids.length + ' 件商品\n'
+      + '· 未选中的商品会立即移出候选池（C 端不再展示其免费领入口）\n'
+      + '· 已领取记录不受影响\n'
+      + '· 本页面无法撤销。',
+      '请确认保存候选池',
+      {
+        type: 'warning',
+        confirmButtonText: '确认保存',
+        cancelButtonText: '取消（不发出任何请求）',
+        closeOnClickModal: false,
+        customClass: 'admin-write-confirm'
+      })
+  } catch (e) {
+    // 点「取消」/关闭/Esc 一律 reject → 吞掉，不发出任何请求。
     return
   }
   savingPool.value = true

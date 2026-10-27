@@ -244,6 +244,25 @@ async function onSubmit() {
   if (submitting.value) return
   const parsed = validateForm()
   if (parsed === null) return
+  // P4-12 §2.3：仅「非 closed → closed」方向拦；原状态取编辑行（openEdit 的基线），其它字段保存不弹。
+  const wasClosed = editingRow.value ? editingRow.value.status === 'closed' : false
+  if (form.value.status === 'closed' && !wasClosed) {
+    try {
+      await ElMessageBox.confirm(
+        '把门店「' + parsed.name + '」置为「暂停营业」后，C 端该店立即不可选、不可下单（已有订单不受影响）。确定？',
+        '请确认暂停营业',
+        {
+          type: 'warning',
+          confirmButtonText: '确认停业',
+          cancelButtonText: '取消（不发出任何请求）',
+          closeOnClickModal: false,
+          customClass: 'admin-write-confirm'
+        })
+    } catch (e) {
+      // 点「取消」/关闭/Esc 一律 reject → 吞掉，不发出任何请求。
+      return
+    }
+  }
   submitting.value = true
   try {
     // 白名单八字段逐列组装：留空的时间/容量键 = 不改动现值（服务端 null=不改），不从不下发

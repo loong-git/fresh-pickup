@@ -56,6 +56,7 @@
 //  且真出现 403 时它不能被当登录失效处理——见 api 层 401/403 严格分流那条）。
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { adminLogin, setStoredToken, waitDurationText } from '../api'
 
 const router = useRouter()
@@ -99,6 +100,13 @@ onUnmounted(() => {
 
 async function onSubmit() {
   if (locked.value || viewState.value === 'loading') return
+  // P4-12 D4：空表单不发请求（白耗 5次/60s 的登录桶），也不改 viewState（保持 ready、不动锁定倒计时）。
+  const nameText = String(username.value == null ? '' : username.value).trim()
+  const passText = String(password.value == null ? '' : password.value).trim()
+  if (!nameText || !passText) {
+    ElMessage.error('请输入用户名和密码')
+    return
+  }
   viewState.value = 'loading'
   errorText.value = ''
   try {

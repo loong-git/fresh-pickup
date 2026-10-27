@@ -271,6 +271,24 @@ function selectGroup(code) {
 async function onToggleGroup(group, checked) {
   if (!group || submitting.value || togglingCode.value) return
   const enabled = checked ? 1 : 0
+  // P4-12 §2.2：只在停用方向拦（启用不弹）；确认前不置 togglingCode，开关受控、取消自动弹回。
+  if (enabled === 0) {
+    try {
+      await ElMessageBox.confirm(
+        '停用字典分组「' + group.name + '」后，C 端读取该组会返空（依赖它的界面会没有选项）。确定停用？',
+        '请确认停用字典分组',
+        {
+          type: 'warning',
+          confirmButtonText: '确认停用',
+          cancelButtonText: '取消（不发出任何请求）',
+          closeOnClickModal: false,
+          customClass: 'admin-write-confirm'
+        })
+    } catch (e) {
+      // 点「取消」/关闭/Esc 一律 reject → 吞掉，不发出任何请求。
+      return
+    }
+  }
   togglingCode.value = group.code
   writeResult.value = null
   try {

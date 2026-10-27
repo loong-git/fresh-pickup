@@ -213,6 +213,30 @@ async function onSubmit() {
   if (submitting.value) return
   const price = validateForm()
   if (price === null) return
+  // P4-12 §2.4：进秒杀/调价是高危写（C 端立即按新价展示、移出不回清），提交前统一确认；取消即零请求。
+  const nameText = editingRow.value && editingRow.value.name
+    ? editingRow.value.name
+    : '#' + (editingRow.value ? editingRow.value.id : '')
+  const offSale = !!(editingRow.value && Number(editingRow.value.onSale) !== 1)
+  const effectLine = offSale
+    ? '把「' + nameText + '」的秒杀价设为 ¥' + price.toFixed(2) + '（该商品已下架，上架时 C 端秒杀位与列表即按该价展示）。\n'
+    : '把「' + nameText + '」的秒杀价设为 ¥' + price.toFixed(2) + ' 后，C 端秒杀位与列表立即按该价展示。\n'
+  try {
+    await ElMessageBox.confirm(
+      effectLine
+      + '· 移出秒杀不会回清本价（历史价保留，重新进秒杀时再设新价）\n'
+      + '· 保存成功后本页会重拉列表，不在本地改行',
+      '请确认设置秒杀价',
+      {
+        type: 'warning',
+        confirmButtonText: '确认设置',
+        cancelButtonText: '取消（不发出任何请求）',
+        customClass: 'admin-write-confirm'
+      })
+  } catch (e) {
+    // 取消确认：不发出任何请求
+    return
+  }
   submitting.value = true
   try {
     const envelope = await updateAdminSeckillDish(editingRow.value.id, { seckill: 1, seckillPrice: price })

@@ -262,6 +262,26 @@ async function onSubmit() {
   if (submitting.value) return
   const parsed = validateForm()
   if (parsed === null) return
+  // P4-12 §2.5：只在编辑分支拦（新增不拦，避免过密）；已发券走快照核销，改面额/门槛只影响新领取。
+  if (editingRow.value) {
+    try {
+      await ElMessageBox.confirm(
+        '编辑并保存模板「' + editingRow.value.couponKey + '」：\n'
+        + '· 修改面额/门槛只影响之后的新领取，C 端领券中心下次请求即按新配置展示\n'
+        + '· 已发券按领取时的快照核销，不受本次修改影响\n'
+        + '· 本页没有撤销入口，改回需再次编辑提交',
+        '请确认修改券模板',
+        {
+          type: 'warning',
+          confirmButtonText: '确认保存',
+          cancelButtonText: '取消（不发出任何请求）',
+          customClass: 'admin-write-confirm'
+        })
+    } catch (e) {
+      // 取消确认：不发出任何请求
+      return
+    }
+  }
   submitting.value = true
   try {
     let envelope

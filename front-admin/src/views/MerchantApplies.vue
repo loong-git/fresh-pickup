@@ -403,6 +403,26 @@ async function onConfirmReject() {
     ElMessage.warning('请填写审核意见（驳回时必填）')
     return
   }
+  // P4-12 §2.6：驳回是高危写（置 rejected + 留痕、不可改为通过），确认前不置 submitting，取消即零请求。
+  try {
+    await ElMessageBox.confirm(
+      '确认驳回申请 #' + rejectRow.value.id + '「' + rejectRow.value.merchantName + '」？\n'
+      + '· 驳回后该申请置为 rejected，并记录上面的审核意见（申请人可见）\n'
+      + '· 申请人重新提交会生成一条新申请，原行保留、不删除\n'
+      + '· 已驳回不可改为通过（再审是幂等成功，不会改变结果）；本页没有撤销入口',
+      '请确认这笔驳回',
+      {
+        type: 'warning',
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消（不发出任何请求）',
+        closeOnClickModal: false,
+        distinguishCancelAndClose: true,
+        customClass: 'admin-write-confirm'
+      })
+  } catch (e) {
+    // 点「取消」/关闭/Esc 一律 reject → 吞掉，不发出任何请求。
+    return
+  }
   const ok = await runAudit(rejectRow.value, 'reject', remark)
   if (ok) rejectVisible.value = false
 }

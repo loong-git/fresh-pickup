@@ -155,7 +155,7 @@ function handleEnvelope(res, resolve, reject, loginRequest) {
  *   函数内**零本地推算**——不兜默认秒数（不许给「猜一个 60」留任何余地）、不按 windowSeconds 估、
  *   不向上取整、不 clamp。
  *   载荷缺失 / 非对象 / 不是 >0 的有限数 → 回空串，页面就退回原有的「请稍候再翻页」文案。
- * 键名逐字 `retryAfterSeconds`，与 AdminAuthServiceImpl:276、Login.vue:125、PartnerOrderServiceImpl:106 同拼写。
+ * 键名逐字 `retryAfterSeconds`，与 AdminAuthServiceImpl:276、Login.vue 的锁定倒计时、PartnerOrderServiceImpl:106 同拼写。
  * X-6（F-28.2 片 4）：返回值**自带前导分隔**（一枚空格的 RETRY_AFTER_TEXT_LEAD），拼接点不必再各自补标点。
  *   病因：后端 429 的整句文案（R.java:26「操作过于频繁，请稍后再试」）**结尾没有句号**，而 Overview.vue 的
  *   load() 把「后端原文 + 本函数返回值」直连成一行，无分隔时就拼成
