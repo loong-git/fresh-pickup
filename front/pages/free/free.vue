@@ -97,6 +97,15 @@
         </button>
       </view>
 
+      <!-- ==================== 领取成功卡（C16：本次领取响应的 pickupCode 直显；刷新后摘要无码，不伪造码只留订单入口） ==================== -->
+      <view v-if="claimSuccess" class="claim-success-card">
+        <text class="claim-success-title">领取成功</text>
+        <text v-if="claimSuccess.pickupCode" class="claim-success-code">取货码 {{ claimSuccess.pickupCode }}</text>
+        <text v-if="claimSuccess.pickupCode" class="claim-success-sub">凭取货码到{{ claimSuccess.storeName || '自提点' }}自提</text>
+        <text v-else class="claim-success-sub">已生成 0 元订单，可在订单中查看</text>
+        <view class="claim-success-btn" @click="goOrderFromClaim">查看订单</view>
+      </view>
+
       <!-- ==================== 商品选购区（分类 tab 前端过滤 + 商品卡列表，加购走 Vuex 共享购物车） ==================== -->
       <view class="goods-section">
         <view class="cat-tab-bar">
@@ -461,6 +470,7 @@ export default {
       activity: null,        // GET /api/free/current data（M8：含 pool/threshold/todayPaid/claimed/claimedOrder）
       claiming: false,       // 领取中防重
       claimedOrder: null,    // 本次会话领取成功的 0 元订单（刷新后以 current.claimedOrder 为准）
+      claimSuccess: null,    // 本次领取成功卡数据 { pickupCode, orderId, storeName }（C16；刷新后摘要无码不伪造）
       selectedDishId: '',    // 当前选中的免费商品 dishId（onLoad 从 storage 恢复，更换时写回）
       heroImgFail: false,    // 大卡图加载失败回退 emoji 色块
       changeImgFail: {},     // 更换弹窗图加载失败记录表（dishId -> true）
@@ -962,7 +972,13 @@ export default {
           confirmText: '去登录',
           cancelText: '再逛逛',
           success: (r) => {
-            if (r.confirm) this.goLogin()
+            if (r.confirm) {
+              // 续走结算标志：登录成功后 login 页读它回首页，首页 onShow 消费打开确认订单（用后即清）
+              try { uni.setStorageSync('openCheckout', '1') } catch (e) {
+                // 存储异常静默：标志缺失时登录成功按既有 redirect 回本页，购物车不丢失
+              }
+              this.goLogin()
+            }
           }
         })
         return
@@ -1164,8 +1180,15 @@ export default {
       try {
         const res = await this.claimRequest({ dishId: dish.dishId, items: this.claimItems() })
         this.claimedOrder = (res && res.data) || {}
+        const ord = (res && res.data) || {}
+        // 成功卡数据源：本次 claim 响应的 Order.pickupCode（契约 D4）；缺字段落空串，模板隐藏码行、绝不编码
+        this.claimSuccess = {
+          pickupCode: ord.pickupCode || '',
+          orderId: ord.id || '',
+          storeName: ord.storeName || ''
+        }
         try { uni.setStorageSync(CLAIM_DATE_KEY, this.localToday()) } catch (e) { /* 存储异常静默，后端 UNIQUE 幂等仍兜底 */ }
-        uni.showToast({ title: '0元领取成功，凭订单到自提点自提', icon: 'none', duration: 2500 })
+        uni.showToast({ title: '领取成功，凭取货码到门店自提', icon: 'none', duration: 2500 })
         this.refreshBroadcast()
         this.loadCurrent()
         this.claimsPageNum = 1
@@ -1183,6 +1206,8 @@ export default {
         this.claiming = false
       }
     },
+    // 领取成功卡「查看订单」：跳订单页（0 元免费单与其它订单同页，与右上「明细」入口同目标）
+    goOrderFromClaim() { uni.navigateTo({ url: '/pages/order/order' }) },
     // ==================== 播报条 ====================
     // 登录态下今日已有 free 领取记录才显示，静态一条「138****xxxx 成功领取 {dishName}」，无则不显示（不做假播报）
     refreshBroadcast() {
@@ -1407,6 +1432,24 @@ export default {
 /* 置灰态（已领/抢完/领取中）：禁用视觉 */
 .btn-claim.btn-claim-disabled { background-color: #CCCCCC; box-shadow: none; }
 .btn-claim[disabled] { color: #FFFFFF; background-color: #CCCCCC; }
+
+/* ==================== 领取成功卡（C16：本次领取可见取货码；无码时只留订单入口） ==================== */
+.claim-success-card {
+  display: flex; flex-direction: column; align-items: center;
+  margin: 20rpx 24rpx 0;
+  padding: 24rpx 24rpx 20rpx;
+  background-color: #FFFFFF;
+  border-radius: 16rpx;
+}
+.claim-success-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.claim-success-code { margin-top: 12rpx; font-size: 40rpx; font-weight: 700; color: #E02020; letter-spacing: 2rpx; }
+.claim-success-sub { margin-top: 10rpx; font-size: 24rpx; color: #999999; }
+.claim-success-btn {
+  margin-top: 16rpx;
+  padding: 0 36rpx; height: 60rpx; line-height: 60rpx;
+  border: 1rpx solid #E02020; border-radius: 30rpx;
+  font-size: 26rpx; color: #E02020;
+}
 
 /* ==================== 商品选购区（分类 tab + 商品卡列表） ==================== */
 .goods-section {

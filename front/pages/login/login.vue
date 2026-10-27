@@ -112,7 +112,10 @@ export default {
       // 密码登录表单
       pwdPhone: '',
       pwdPassword: '',
-      pwdLogging: false
+      pwdLogging: false,
+      // C20：本次登录是否成功（成功路径不清 openCheckout；取消/返回时在 onUnload 清掉标志）。
+      // 下划线开头在 Vue2 里不会被代理成响应式，无需参与渲染
+      _loginOk: false
     }
   },
   onLoad(options) {
@@ -133,6 +136,11 @@ export default {
   onUnload() {
     // 登录验证码倒计时定时器清理（对照首页 onUnload 对内嵌登录区块的处理）
     this.stopSmsCountdown()
+    // C20：未登录成功就离开登录页（取消/直接返回）→ 清掉跳登录前写的 openCheckout 标志，不留残念；
+    // 登录成功路径 _loginOk 已置 true，标志留给首页 onShow 消费并自清
+    if (!this._loginOk) {
+      try { uni.removeStorageSync('openCheckout') } catch (e) {}
+    }
     // #ifdef H5
     // 页面级滚轮兜底监听清理（与下方 onReady 的注册配对）
     if (this._pageWheelHandler) {
@@ -208,6 +216,7 @@ export default {
         this.smsLogging = false
         // 登录成功后一律直接跳转（用户 2026-10-18 定：不要弹去留询问）。
         uni.showToast({ title: '登录成功', icon: 'success' })
+        this._loginOk = true
         this.goAfterLogin()
       } catch (e) {
         this.smsLogging = false
@@ -236,6 +245,7 @@ export default {
         this.pwdLogging = false
         // 密码登录成功即已设密码：直接按 redirect 规则跳转
         uni.showToast({ title: '登录成功', icon: 'success' })
+        this._loginOk = true
         this.goAfterLogin()
       } catch (e) {
         this.pwdLogging = false
@@ -245,6 +255,11 @@ export default {
     // ==================== 登录后跳转（全站约定） ====================
     // 带 redirect 参数则解码回跳（须为 / 开头的页面路径，防脏参数跳坏），否则 reLaunch 回首页
     goAfterLogin() {
+      // C20 续走结算：跳登录前写的 openCheckout=1 存在时一律回首页（首页 onShow 消费标志并自清，这里不清）
+      if (uni.getStorageSync('openCheckout') === '1') {
+        uni.reLaunch({ url: '/pages/index/index' })
+        return
+      }
       let target = '/pages/index/index'
       if (this.redirect) {
         try {

@@ -760,7 +760,11 @@ export default {
           confirmText: '去登录',
           cancelText: '再逛逛',
           success: (r) => {
-            if (r.confirm) uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/search/search') })
+            if (r.confirm) {
+              // C20 续走结算：跳登录前写 openCheckout=1，登录成功后由 login.goAfterLogin 回首页续走（首页 onShow 消费并自清）
+              try { uni.setStorageSync('openCheckout', '1') } catch (e) {}
+              uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/search/search') })
+            }
           }
         })
         return

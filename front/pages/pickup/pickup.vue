@@ -64,28 +64,31 @@
 				class="store-card history-card"
 				v-for="s in stores"
 				:key="s.id"
-				:class="{ 'card-disabled': isClosed(s) }"
+				:class="{ 'card-disabled': isClosed(s) || s.demo }"
 			>
 				<view class="store-icon-box">🏪</view>
 				<view class="store-info">
 					<text class="store-name small">{{ s.name }}</text>
 					<text class="store-address">{{ s.address }}</text>
 					<text v-if="s.openTime" class="store-open-time">营业时间 {{ s.openTime }}</text>
+					<!-- D2：演示店只是请求失败时的结构占位，没有可提交的真实 storeId -->
+					<text v-if="s.demo" class="store-open-time">接口不可用，仅供查看</text>
 					<view class="tag-row">
 						<text class="service-tag plain">{{ s.service || '冷冻/冷藏' }}</text>
 					</view>
 				</view>
-				<!-- 营业中：红色选择按钮；暂停营业：置灰无按钮 -->
+				<!-- 营业中：红色选择按钮；暂停营业/演示数据：置灰无按钮 -->
 				<button
-					v-if="!isClosed(s)"
+					v-if="!isClosed(s) && !s.demo"
 					class="select-btn"
 					@click="chooseStore(s)"
 				>选择</button>
+				<text v-else-if="s.demo" class="closed-text">演示数据</text>
 				<text v-else class="closed-text">暂停营业</text>
 			</view>
-			<!-- 门店列表为空（接口空数据且无兜底异常）：轻提示 -->
+			<!-- 门店列表为空（接口成功但无营业门店）：轻提示，演示店不会走到这里 -->
 			<view v-if="stores.length === 0" class="stores-empty">
-				<text class="stores-empty-text">暂无自提点信息</text>
+				<text class="stores-empty-text">附近暂无营业中的自提点</text>
 			</view>
 		</block>
 
@@ -493,12 +496,15 @@ export default {
 			try {
 				const res = await getStores()
 				const list = Array.isArray(res && res.data) ? res.data : []
-				// 接口成功但为空列表时同样回退兜底，避免整页空白
-				this.stores = list.length > 0 ? list : FALLBACK_STORES
+				// D2 三态：成功即信任接口结论——空列表是真实业务态，落 [] 展示空态；
+				// 不再用演示店顶替（假 storeId 会被当成真店选中，提交到店订单必 400）
+				this.stores = list
 			} catch (e) {
-				this.stores = FALLBACK_STORES
+				// D2 失败降级：演示数据仅用于证明页面结构完好，逐条打 demo 标记，
+				// 卡片置灰且 chooseStore 拒绝写入
+				this.stores = FALLBACK_STORES.map(s => ({ ...s, demo: true }))
 				uni.showToast({
-					title: '门店加载失败，已展示兜底数据',
+					title: '门店加载失败，以下为演示数据，不可选择',
 					icon: 'none',
 					duration: 2000
 				})
@@ -507,6 +513,16 @@ export default {
 		// 选择门店（仅营业门店可点）：按 M4 契约写入 storeId/status 快照，
 		// timeText 保留现有时段文案（setPickupPoint 局部合并不会覆盖）
 		chooseStore(store) {
+			// D2：演示店是请求失败时的假数据，storeId 无真实对应行——选中即写入假快照，
+			// 提交到店订单必 400，故在落库前拦截（本页无 showToast 方法，沿用 uni.showToast 口径）
+			if (store && store.demo) {
+				uni.showToast({
+					title: '演示门店不可选择，请稍后重试',
+					icon: 'none',
+					duration: 2000
+				})
+				return
+			}
 			if (this.isClosed(store)) return
 			this.$store.commit('setPickupPoint', {
 				storeId: store.id,

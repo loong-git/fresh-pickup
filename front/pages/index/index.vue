@@ -50,6 +50,8 @@
                 </view>
               </view>
             </view>
+            <!-- P4-8 C12：券中心多于 3 张时出「更多」，跳独立领券中心页 -->
+            <text v-if="hasMoreCoupons" class="coupon-more" @click="goCouponCenter">更多 ›</text>
             <text class="coupon-tip">全场用券超划算，下单次日即可领取下一张券</text>
           </view>
         </view>
@@ -467,7 +469,7 @@
 
 <script>
 import { mapState, mapGetters } from 'vuex'
-import { submitOrder, mockPay, decorateDish, getSeckillCurrent, getMyCoupons, claimCoupon, freeCurrent } from '@/api/index.js'
+import { submitOrder, mockPay, decorateDish, getSeckillCurrent, getMyCoupons, claimCoupon, getCouponCenter, freeCurrent } from '@/api/index.js'
 import { getDictGroup, parseCoupon } from '@/api/dict.js'
 import { BASE_URL } from '@/api/config.js'
 import { getCutoffInfo, formatCountdown, formatPickupTimeText, monotonicNow, parseServerTimeMs, sessionEndMs } from '@/utils/time.js'
@@ -577,8 +579,13 @@ export default {
       // 本页无地址表单 data：自提地址读 pickupPoint.address 快照，提货人用上方 formPerson* 两键
       // 秒杀锚点滚动位置（scroll-view scroll-top）
       mainScrollTop: 0,
-      // 优惠券三卡（字典 coupon_template 渲染：word 显示、parseCoupon 拆 threshold/amount/state）
+      // 优惠券三卡（游客/失败：字典 coupon_template 渲染，word 显示、parseCoupon 拆 threshold/amount/state；
+      // 登录态：P4-8 C12 改源 /api/coupons/center 前 3 张，claimed 决定置灰，多于 3 张出「更多」）
       coupons: [],
+      // 券卡当前是否由领券中心（/api/coupons/center）供数（成功才置真；游客/失败保留字典券）
+      couponCardsFromCenter: false,
+      // 领券中心多于 3 张（渲染「更多 ›」入口）
+      hasMoreCoupons: false,
       // 金刚区五宫格（字典 kingkong_entry 渲染）
       kingkongs: [],
       // 全部分类弹层网格（字典 dish_category 渲染）
@@ -699,6 +706,8 @@ export default {
       uni.removeStorageSync('openCheckout')
       if (!this.isCartEmpty) this.openAddressPopup()
     }
+    // P4-8 C12：登录态券卡改源领券中心（前 3 张 + 更多入口）；游客不发请求，保留字典券展示
+    if (this.user.token) this.loadCouponCards()
   },
   onReady() {
     // 内容首次渲染后测量"tab 吸顶位"阈值（驱动 catTabStuck 变色 + 弹层滚动目标；券区异步渲染后 loadDicts 内会重测校准）
@@ -909,7 +918,8 @@ export default {
         getDictGroup('service_tags').catch(() => [])
       ])
       this.allCategories = this.mapCategories(cats)
-      this.coupons = this.mapCoupons(cps)
+      // P4-8 C12：券卡已由领券中心接管时不被字典回填覆盖（游客/中心失败仍走字典券）
+      if (!this.couponCardsFromCenter) this.coupons = this.mapCoupons(cps)
       this.kingkongs = this.mapKingkongs(kks)
       // 服务保障标签（购物车弹层服务条用）
       this.serviceTags = (tags || []).map(d => d.word)
@@ -1010,6 +1020,33 @@ export default {
       uni.navigateTo({ url: '/pages/search/search' })
     },
     // ==================== 3. 优惠券三卡 ====================
+    // P4-8 C12：登录态券卡改源领券中心（GET /api/coupons/center，需登录）：只取前 3 张、claimed 置灰，
+    // 多于 3 张出「更多」；游客不发请求（保留字典券）；失败静默保留字典券展示（此时不声称与模板表一致）
+    async loadCouponCards() {
+      if (!this.user.token) return
+      if (this._couponCenterLoading) return
+      this._couponCenterLoading = true
+      try {
+        const res = await getCouponCenter()
+        const list = Array.isArray(res && res.data) ? res.data : []
+        this.hasMoreCoupons = list.length > 3
+        this.coupons = list.slice(0, 3).map(c => ({
+          couponKey: c.couponKey,
+          main: '满' + this.fmtCouponNum(c.threshold) + '减' + this.fmtCouponNum(c.amount),
+          threshold: c.threshold,
+          amount: c.amount,
+          locked: c.claimed === true,
+          status: c.claimed === true ? '已领取' : '立即领取'
+        }))
+        this.couponCardsFromCenter = true
+      } catch (e) {
+        // 失败静默：保留字典券展示（现状）
+      } finally {
+        this._couponCenterLoading = false
+      }
+    },
+    // 「更多」入口：跳独立领券中心页（与金刚区 coupon_center 同目标页）
+    goCouponCenter() { uni.navigateTo({ url: '/pages/coupons/coupons' }) },
     // M4-T-02：点击领券（POST /api/coupons/claim，登录，固定模板 coupon_1/2/3）；
     // 锁定券提示获取条件；未登录引导；重复领取等失败透出后端 message
     async onCouponTap(c) {
@@ -1019,6 +1056,8 @@ export default {
       this._claiming = true
       try {
         await claimCoupon(c.couponKey)
+        // P4-8 C12：领取成功后重拉券中心，已领券置灰「已领取」（不阻塞成功 toast）
+        this.loadCouponCards()
         uni.showToast({ title: '领取成功，下单可抵扣', icon: 'none', duration: 2000 })
       } catch (e) {
         // 重复领取（后端 400"该券已领取"/同 key 仅 1 张可用）等：透出 message
@@ -1341,7 +1380,11 @@ export default {
           confirmText: '去登录',
           cancelText: '再逛逛',
           success: (r) => {
-            if (r.confirm) uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/index/index') })
+            if (r.confirm) {
+              // P4-8 C20：登录回跳首页后续走结算（login.goAfterLogin 一律 reLaunch 首页，onShow 消费该标志）
+              try { uni.setStorageSync('openCheckout', '1') } catch (e) {}
+              uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/index/index') })
+            }
           }
         })
         return
@@ -1629,6 +1672,11 @@ export default {
   padding: 4rpx 18rpx;
 }
 .coupon-lock { font-size: 18rpx; color: rgba(255,255,255,.75); }
+/* P4-8 C12：券卡「更多」入口（登录态券中心多于 3 张时；红底，沿用券区小字口径） */
+.coupon-more {
+  display: block; margin-top: 10rpx;
+  font-size: 22rpx; color: rgba(255,255,255,.85); text-align: right;
+}
 .coupon-tip {
   display: block; margin-top: 14rpx;
   font-size: 20rpx; color: rgba(255,255,255,.75); text-align: center;
