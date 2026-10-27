@@ -162,7 +162,7 @@
 //   那是这家店归属的唯一生产写入点；结论不可翻转、幂等早退，所以<b>本页面无法回滚它</b>，
 //   手册第七节也明写「approve 不可用 SQL 代办」。reject 则只置态 + 留 audit_remark，不建店。
 import { computed, onMounted, ref } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAdminStoreApplies, auditAdminStoreApply, retryAfterText } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
@@ -261,6 +261,9 @@ function writeHintOf(code, data) {
     + '如需核对可点上方「查询」重拉列表再决定下一步。'
 }
 
+// D4：空页回退的待补拉标志。模块级普通布尔而非 ref——它不参与渲染，只是本次 load 与下一次 load 之间的信号
+let pageFixPending = false
+
 async function load() {
   if (viewState.value === 'loading') return
   viewState.value = 'loading'
@@ -275,6 +278,15 @@ async function load() {
     if (Number(data.pageNum) > 0) pageNum.value = Number(data.pageNum)
     if (PAGE_SIZES.indexOf(Number(data.pageSize)) !== -1) pageSize.value = Number(data.pageSize)
     viewState.value = 'ready'
+    // D4：服务端对越界页回「空 list + 定值 total」而不是 400，所以「空页 + total>0 + 页码>1」是唯一可靠判据。
+    // 只回退到 lastPage，且以 pageNum > lastPage 为前提，天然防循环；真正的补拉放在本次 load 结束之后。
+    if (rows.value.length === 0 && total.value > 0 && pageNum.value > 1) {
+      const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+      if (pageNum.value > lastPage) {
+        pageNum.value = lastPage
+        pageFixPending = true
+      }
+    }
   } catch (err) {
     const e = err || {}
     if (e.code === 401) {
@@ -292,6 +304,12 @@ async function load() {
     errorCode.value = Number(e.code) || 0
     errorData.value = e.data || null
     errorText.value = e.message || '入驻申请列表读取失败，请稍后重试'
+  }
+  // D4：补拉必须在 try/catch 全部结束之后——此时 viewState 已落成 ready，在飞守卫才放行；
+  // 若在 try 里 await load()，请求会被自己的 loading 守卫吞掉，页码回退了却没有新数据。
+  if (pageFixPending) {
+    pageFixPending = false
+    return load()
   }
 }
 
@@ -410,6 +428,9 @@ async function onSubmit() {
       serverText: e.message || '（后端未给出 message）',
       hint: writeHintOf(e.code, e.data)
     }
+    // A2（D1）：失败时弹窗保持打开，页面流里的结果条被遮罩挡住，toast 是关框前唯一即时可见的信号；
+    // 结果条不动，关框后仍可回看。401 已在上面 return（请求层清态跳登录，页面马上卸载，弹了也读不到）。
+    ElMessage.error(e.message || '写操作未完成（未生效）')
   } finally {
     submitting.value = false
   }

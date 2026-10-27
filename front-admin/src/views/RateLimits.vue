@@ -18,7 +18,9 @@
 
     <!-- 时间档单选（契约 §3：今天 1 / 近 7 天 / 近 30 天；后端窗口为 hit_time ≥ NOW()-days） -->
     <div class="toolbar">
-      <el-radio-group v-model="days" size="small" @change="loadHits">
+      <!-- A3：切档即触发 loadHits()，而 loadHits 的在飞守卫会吞掉这次请求——days 已是新值、
+           total 卡还是上一档的数。禁用控件才能保证「标签与数字同一窗口」；刷新按钮已有 :loading，不另加。 -->
+      <el-radio-group v-model="days" size="small" :disabled="loading" @change="loadHits">
         <el-radio-button :value="1">今天</el-radio-button>
         <el-radio-button :value="7">近 7 天</el-radio-button>
         <el-radio-button :value="30">近 30 天</el-radio-button>
@@ -27,9 +29,11 @@
       <span class="toolbar-hint">时间档：{{ windowHint }}</span>
     </div>
 
-    <!-- total 卡（契约 §3）：该时间档内命中总次数（全量计数，不受 top-100 截断影响） -->
+    <!-- total 卡（契约 §3）：该时间档内命中总次数（全量计数，不受 top-100 截断影响）。
+         A4：total 的 null = 「未知」（读取失败），不是「零」——卡片照常渲染 0 会被读成「没有异常流量」；
+         total-zero 只在 total === 0 时挂（null !== 0，天然不挂）。 -->
     <section class="total-card" :class="{ 'total-zero': total === 0 }">
-      <div class="total-num">{{ total }}</div>
+      <div class="total-num">{{ total === null ? '—' : total }}</div>
       <div class="total-label">近 {{ days }} 天限流命中总次数</div>
     </section>
 
@@ -86,7 +90,9 @@ import { ElMessage } from 'element-plus'
 import { getAdminRateLimitHits } from '../api'
 
 const days = ref(7)
-const total = ref(0)
+// A4：null = 「未知」，只有成功态才写数。与 Overview.vue 的「未取到数据是 '-'，不是 0」同一条纪律：
+// 0 是「确实没有命中」这句话，失败时白给 0 就是替服务端撒谎。
+const total = ref(null)
 const rows = ref([])
 const loading = ref(false)
 const error = ref('')
@@ -100,6 +106,9 @@ async function loadHits() {
   if (loading.value) return
   loading.value = true
   error.value = ''
+  // A3/A4：在飞即「未知」——切档瞬间 days 已是新档，若卡片还挂着上一档的数字，label 与 total 就不同窗口。
+  // 只禁用控件挡不住这个瞬间（见契约 §3 的实测补充）。
+  total.value = null
   try {
     const envelope = await getAdminRateLimitHits(days.value)
     const data = envelope && envelope.data ? envelope.data : {}
@@ -108,7 +117,8 @@ async function loadHits() {
   } catch (err) {
     const e = err || {}
     rows.value = []
-    total.value = 0
+    // A4：失败写回「未知」，不写 0（0 是「确实没有」这句话，只有成功态能给）
+    total.value = null
     error.value = e.message || ''
     if (e.message) ElMessage.error(e.message)
   } finally {

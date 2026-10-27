@@ -219,6 +219,10 @@ function writeHintOf(code, data) {
     + '如需核对可点上方「查询」重拉列表再决定下一步。'
 }
 
+// A8 空页回退（P4-7 §4 / D4）：模块级布尔，非 ref——它只决定「要不要再拉一次」，不参与渲染。
+// 服务端对越界页回「空 list + 定值 total」而不是 400，所以「空行 + total>0 + 页码>1 且超过末页」是唯一可靠判据。
+let pageFixPending = false
+
 async function load() {
   if (viewState.value === 'loading') return
   viewState.value = 'loading'
@@ -233,6 +237,15 @@ async function load() {
     if (Number(data.pageNum) > 0) pageNum.value = Number(data.pageNum)
     if (PAGE_SIZES.indexOf(Number(data.pageSize)) !== -1) pageSize.value = Number(data.pageSize)
     viewState.value = 'ready'
+    // A8：审走最后一页后停在空页（reject 是物理删行，末条被删时必然落这一幕）→ 记下回退页码，
+    // 等本次 load 收尾后再拉一次。条件 pageNum > lastPage 天然防循环。
+    if (rows.value.length === 0 && total.value > 0 && pageNum.value > 1) {
+      const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+      if (pageNum.value > lastPage) {
+        pageNum.value = lastPage
+        pageFixPending = true
+      }
+    }
   } catch (err) {
     const e = err || {}
     if (e.code === 401) {
@@ -250,6 +263,12 @@ async function load() {
     errorCode.value = Number(e.code) || 0
     errorData.value = e.data || null
     errorText.value = e.message || '评价队列读取失败，请稍后重试'
+  }
+  // 补拉必须放在 try/catch 全部结束之后：此时 viewState 已离开 'loading'，在飞守卫才放行；
+  // 不得在 try 里 await load()。（catch 的 401/403 分支已 return，走到这里时 pageFixPending 必为 false。）
+  if (pageFixPending) {
+    pageFixPending = false
+    return load()
   }
 }
 

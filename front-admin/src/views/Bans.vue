@@ -38,7 +38,9 @@
           </el-radio-group>
           <el-button size="small" type="primary" :disabled="userLoading || userSubmitting" @click="onUserFilterChange">查询</el-button>
           <el-button size="small" :disabled="userLoading || userSubmitting" @click="onUserReset">重置</el-button>
-          <span class="toolbar-hint">共 {{ userTotal }} 条；按 id 倒序。</span>
+          <!-- A4/P4-7 §3：数字只由成功态决定。loading 说「正在统计…」、失败说「统计不可用」，
+               绝不把 catch 里为分页器保留的 0 念成「确实没有」。 -->
+          <span class="toolbar-hint">{{ userTotalText }}</span>
         </div>
 
         <div v-if="userLoading" class="state-box">
@@ -118,7 +120,8 @@
           </el-radio-group>
           <el-button size="small" type="primary" :disabled="merchantLoading || merchantSubmitting" @click="onMerchantFilterChange">查询</el-button>
           <el-button size="small" :disabled="merchantLoading || merchantSubmitting" @click="onMerchantReset">重置</el-button>
-          <span class="toolbar-hint">共 {{ merchantTotal }} 条；按 id 升序。</span>
+          <!-- A4/P4-7 §3：同上，失败时不把 0 当成「确实没有商家」。 -->
+          <span class="toolbar-hint">{{ merchantTotalText }}</span>
         </div>
 
         <div v-if="merchantLoading" class="state-box">
@@ -205,7 +208,7 @@
 //   3) 成功 toast 用后端 message，随后**重拉列表**核对，绝不本地改行；失败只呈现请求层透出的后端 message；
 //   4) 商家 terminated 行不给可点按钮（置灰 + title「已清退商家不可变更封禁状态」）——服务端同样 400 同句；
 //   5) 两域独立、零级联：本页只发状态位，不碰 token/商品/秒杀/免费领池/订单，口径见页头横幅。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getAdminUsers,
@@ -269,10 +272,30 @@ const merchantSubmitting = ref(false)
 const merchantLoaded = ref(false)
 const merchantFilters = ref({ status: '' })
 
+// A4 / P4-7 §3：统计行文案只由状态决定，数字只在成功态出现。
+//   loading → 「正在统计…」；error 非空 → 「统计不可用」；否则 → 原文案（共 N 条；按 id 倒序 / 升序）。
+// 注意：两处 catch 里把 total 置 0 是**刻意保留**的——el-pagination 的 :total 必须是数字，不能沿用上一次的旧数；
+// 而统计行已不渲染这个 0，所以它不是「失败显示 0」的残留。
+const userTotalText = computed(() => {
+  if (userLoading.value) return '正在统计…'
+  if (userError.value) return '统计不可用'
+  return '共 ' + userTotal.value + ' 条；按 id 倒序。'
+})
+const merchantTotalText = computed(() => {
+  if (merchantLoading.value) return '正在统计…'
+  if (merchantError.value) return '统计不可用'
+  return '共 ' + merchantTotal.value + ' 条；按 id 升序。'
+})
+
 // 正整数（与后端「userId 非空必须 > 0」同口径；前端只挡明显填错，不白跑一趟请求）。
 function isPositiveInt(raw) {
   return /^[1-9]\d*$/.test(raw)
 }
+
+// A8 空页回退（P4-7 §4 / D4）：两个 tab 各配一个模块级布尔，非 ref——它只决定「要不要再拉一次」，不参与渲染。
+// 服务端对越界页回「空 list + 定值 total」而不是 400，所以「空行 + total>0 + 页码>1 且超过末页」是唯一可靠判据。
+let userPageFixPending = false
+let merchantPageFixPending = false
 
 async function loadUsers() {
   if (userLoading.value) return
@@ -295,6 +318,15 @@ async function loadUsers() {
     // 服务端会回显真正生效的 pageNum / pageSize（不夹取）；与本地不一致时以服务端为准
     if (Number(data.pageNum) > 0) userPageNum.value = Number(data.pageNum)
     if (PAGE_SIZES.indexOf(Number(data.pageSize)) !== -1) userPageSize.value = Number(data.pageSize)
+    // A8：末页最后一条被处理掉后停在空页 → 记下回退页码，等本次 load 收尾后再拉一次。
+    // 条件 userPageNum > lastPage 天然防循环：回退后的页码不会再满足它。
+    if (userRows.value.length === 0 && userTotal.value > 0 && userPageNum.value > 1) {
+      const lastPage = Math.max(1, Math.ceil(userTotal.value / userPageSize.value))
+      if (userPageNum.value > lastPage) {
+        userPageNum.value = lastPage
+        userPageFixPending = true
+      }
+    }
   } catch (err) {
     const e = err || {}
     userRows.value = []
@@ -303,6 +335,11 @@ async function loadUsers() {
     if (e.message) ElMessage.error(e.message)
   } finally {
     userLoading.value = false
+  }
+  // 补拉必须放在 finally 之后：此时 userLoading 已落，在飞守卫才放行；不得在 try 里 await loadUsers()。
+  if (userPageFixPending) {
+    userPageFixPending = false
+    return loadUsers()
   }
 }
 
@@ -322,6 +359,14 @@ async function loadMerchants() {
     merchantTotal.value = Number(data.total) || 0
     if (Number(data.pageNum) > 0) merchantPageNum.value = Number(data.pageNum)
     if (PAGE_SIZES.indexOf(Number(data.pageSize)) !== -1) merchantPageSize.value = Number(data.pageSize)
+    // A8：商家侧同口径回退（判据见上方 userPageFixPending 注释）。
+    if (merchantRows.value.length === 0 && merchantTotal.value > 0 && merchantPageNum.value > 1) {
+      const lastPage = Math.max(1, Math.ceil(merchantTotal.value / merchantPageSize.value))
+      if (merchantPageNum.value > lastPage) {
+        merchantPageNum.value = lastPage
+        merchantPageFixPending = true
+      }
+    }
   } catch (err) {
     const e = err || {}
     merchantRows.value = []
@@ -330,6 +375,11 @@ async function loadMerchants() {
     if (e.message) ElMessage.error(e.message)
   } finally {
     merchantLoading.value = false
+  }
+  // 同上：finally 之后才补拉（不得在 try 里 await loadMerchants()）。
+  if (merchantPageFixPending) {
+    merchantPageFixPending = false
+    return loadMerchants()
   }
 }
 

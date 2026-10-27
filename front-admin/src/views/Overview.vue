@@ -9,12 +9,17 @@
     <p class="page-note">{{ scopeText }}</p>
 
     <div class="toolbar">
+      <!-- A3：在飞时禁用日期控件本身，不是「请求回来后再 gate」。load() 的 FE-G6-3 在飞守卫会直接吞掉
+           改值触发的这次请求：pickedDate 已变新值、卡片还画着上一窗口的数——标签与数字不同窗口
+           （与 F-54 改动 A 不敢把具体日期写进 label 是同一桩病）。控件禁用是唯一能构造性保证
+           「标签与数字同一窗口」的姿势；查询按钮已有 :loading，不另加。 -->
       <el-date-picker
         v-model="pickedDate"
         type="date"
         value-format="YYYY-MM-DD"
         format="YYYY-MM-DD"
         :clearable="true"
+        :disabled="viewState === 'loading'"
         placeholder="选日期（默认今日）"
         @change="onDateChange"
       />

@@ -76,6 +76,19 @@ function goToLogin() {
   }
 }
 
+// ==================== 403 统一出口的注册器（照 401 注册器同构；P4-7 §6 / D6） ====================
+// 403 是「登录态有效但没权限」：**不清 token、不跳登录页**（与上面 401 的分流严格区分）。
+// 本层只把信封转给上层（上层注册的一次性弹框给出「退出登录 / 留在本页」两个出口），
+// reject 原样照发——页面既有的 forbidden 态与结果条仍按 code 分流，不受这层通知影响。
+// 注册处是 App.vue（同 401 一样，api 层不反向 import 上层组件）。
+let forbiddenHandler = null
+export function setForbiddenHandler(fn) { forbiddenHandler = typeof fn === 'function' ? fn : null }
+
+function notifyForbidden(payload) {
+  if (!forbiddenHandler) return
+  try { forbiddenHandler(payload) } catch (e) { /* 通知异常不影响 reject 语义（调用方仍按 code 分流） */ }
+}
+
 // ==================== 退出登录 ====================
 // 本期后端没有登出端点（JWT 无状态，F-20 只做只读面），故「退出」= 清本地 token + 回登录页。
 export function logout() {
@@ -115,6 +128,9 @@ function handleEnvelope(res, resolve, reject, loginRequest) {
   if (code === 403) {
     // 403 与 401 严格分流：403 是「登录态有效但没权限」，绝不当登录失效处理，
     // 只结构化 reject，后端 message 原样透出给页面渲染引导态（三端同一语义，不另立判例）
+    // P4-7 §6（D6）：先通知全局出口（上层注册的弹框给出「退出登录 / 留在本页」两个选项）；
+    // 通知不清 token、不跳登录，下面这枚 reject 载荷与语义一字不动。
+    notifyForbidden({ code: 403, message: message || MSG_FORBIDDEN, data })
     reject({ code: 403, message: message || MSG_FORBIDDEN, data })
     return
   }

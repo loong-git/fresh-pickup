@@ -66,14 +66,48 @@
 // 又各追加一页，现为十八条业务入口）：右上角标明当前是「运营端」（本仓第四端，与 C 端/商家端/主理人端区分），
 // 并给退出登录——本期后端无登出端点（JWT 无状态），退出 = 清 admin_token + 回 /login，
 // 清态与跳转都走 api 层的 logout()，本组件不各自读 storage（键名真源只有 TOKEN_STORAGE_KEY 一处）。
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { logout } from './api'
+import { ElMessageBox } from 'element-plus'
+import { logout, setForbiddenHandler } from './api'
 
 const route = useRoute()
 const showChrome = computed(() => route.path !== '/login')
 const isActive = (path) => route.path === path
 const onLogout = () => logout()
+
+// P4-7 §6（D6）：403 的全局出口。api 层 handleEnvelope 在 403 分支先把信封通知到这里，
+// 再原样 reject 给页面（页面既有的 forbidden 态 / 结果条不受影响）——本组件只负责这一次性的
+// 「换账号或留在本页」出口。403 不是 401：不清 token、不自动跳登录，只有用户点「退出登录」才走既有 logout()。
+// 两个模块级普通变量（非 ref，不参与渲染）：
+//   forbiddenPrompting —— 弹框在飞期间后续 403 一律忽略（一屏多请求同时 403 只弹一个框）；
+//   forbiddenPromptedPath —— 同一路由只提示一次，换页（下面的 watch）后允许再提示。
+let forbiddenPrompting = false
+let forbiddenPromptedPath = ''
+
+watch(() => route.path, () => {
+  forbiddenPromptedPath = ''
+})
+
+setForbiddenHandler((payload) => {
+  const path = route.path
+  if (forbiddenPrompting || forbiddenPromptedPath === path) return
+  forbiddenPrompting = true
+  forbiddenPromptedPath = path
+  ElMessageBox.confirm(
+    '后端原文：' + ((payload && payload.message) || '无权限访问') + '\n\n'
+      + '当前运营账号没有该功能的访问权限。可以退出登录后换用有权限的账号，或联系管理员确认账号授权。',
+    '没有访问权限',
+    {
+      type: 'warning',
+      confirmButtonText: '退出登录',
+      cancelButtonText: '留在本页',
+      closeOnClickModal: false,
+      distinguishCancelAndClose: true,
+      customClass: 'admin-write-confirm'
+    }
+  ).then(() => { logout() }).catch(() => {}).finally(() => { forbiddenPrompting = false })
+})
 </script>
 
 <style>

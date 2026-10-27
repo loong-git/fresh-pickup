@@ -62,14 +62,14 @@
       <div class="state-title">没有访问权限</div>
       <div class="state-desc">{{ errorText }}</div>
       <div class="state-desc">403 与 401 不同义：登录态是有效的，但服务端判定本账号不能读这一面。请核对运营账号的角色与授权。</div>
-      <el-button size="small" @click="load">重试</el-button>
+      <el-button size="small" @click="load()">重试</el-button>
     </div>
 
     <div v-else-if="viewState === 'error'" class="state-box">
       <div class="state-title">读取失败</div>
       <div class="state-desc">{{ errorText }}</div>
       <div v-if="codeHint" class="state-desc">{{ codeHint }}</div>
-      <el-button size="small" @click="load">重试</el-button>
+      <el-button size="small" @click="load()">重试</el-button>
     </div>
 
     <template v-else>
@@ -146,6 +146,7 @@
           :page-sizes="PAGE_SIZES"
           layout="total, sizes, prev, pager, next"
           background
+          :disabled="submitting"
           @size-change="onSizeChange"
           @current-change="onPageChange"
         />
@@ -261,10 +262,19 @@ function writeHintOf(code, data) {
     + '如需核对可点上方「查询」重拉列表再决定下一步。'
 }
 
-async function load() {
+// A9/D5 排队标志：写成功那一刻列表可能正有一笔读在飞，既有在飞守卫会把这次重拉直接吞掉，
+// 而结果条已经写下「列表已按当前筛选重新拉取」。force=true 的在飞不丢弃，只置这个标志，
+// 由当前请求落地后的 finally 补拉一次——结果条与列表才同源。模块级布尔，不参与渲染。
+let reloadQueued = false
+
+async function load(force) {
   // FE-G6-3 在飞守卫：请求未回时不再发第二条（筛选 @change、分页器、「重试」同守这一条），
   // 否则乱序回包会把上一页的行画在下一页的高亮下。复用本页已有的单值 viewState。
-  if (viewState.value === 'loading') return
+  // A9/D5：写后重拉（force=true）在飞时不静默丢弃，只置排队标志，落地后由 finally 补拉一次。
+  if (viewState.value === 'loading') {
+    if (force) reloadQueued = true
+    return
+  }
   viewState.value = 'loading'
   errorText.value = ''
   errorCode.value = 0
@@ -285,6 +295,8 @@ async function load() {
       viewState.value = 'error'
       errorCode.value = 401
       errorText.value = '登录状态已失效，正在返回登录页…'
+      // A9/D5：请求层已清态跳登录，本页不再补拉（否则会在登录页背后白打一次读请求）
+      reloadQueued = false
       return
     }
     if (e.code === 403) {
@@ -296,6 +308,14 @@ async function load() {
     errorCode.value = Number(e.code) || 0
     errorData.value = e.data || null
     errorText.value = e.message || '订单列表读取失败，请稍后重试'
+  } finally {
+    // A9/D5：补拉放在 finally 里——catch 的 401/403 分支带 return，也必经这里；401 已在分支内清掉标志。
+    // 此刻 viewState 已落定（不再是 'loading'），重入 load(true) 不会被在飞守卫吞掉，也不会自我循环
+    //（第二趟进 finally 时标志已被本块清空）。
+    if (reloadQueued) {
+      reloadQueued = false
+      load(true)
+    }
   }
 }
 
@@ -433,7 +453,8 @@ async function onWrite(row, status) {
       hint: '列表已按当前筛选重新拉取（本页不本地改行）。请以重拉后的行为准。'
     }
     // 纪律 3：写成功后<b>一律</b>重拉列表——这一行就是「不在前端本地改状态」的落点
-    await load()
+    // A9/D5：force=true —— 若列表恰有一笔读在飞，load 会排队并在其落地后补拉，不会被在飞守卫静默吞掉
+    await load(true)
   } catch (err) {
     const e = err || {}
     if (e.code === 401) {

@@ -301,6 +301,10 @@ async function onSubmitCreate() {
   }
 }
 
+// A8 空页回退（P4-7 §4 / D4）：模块级布尔，非 ref——它只决定「要不要再拉一次」，不参与渲染。
+// 服务端对越界页回「空 list + 定值 total」而不是 400，所以「空行 + total>0 + 页码>1 且超过末页」是唯一可靠判据。
+let pageFixPending = false
+
 async function load() {
   if (loading.value) return
   loading.value = true
@@ -313,6 +317,15 @@ async function load() {
     // 服务端会回显真正生效的 pageNum / pageSize（不夹取）；与本地不一致时以服务端为准。
     if (Number(data.pageNum) > 0) pageNum.value = Number(data.pageNum)
     if (PAGE_SIZES.indexOf(Number(data.pageSize)) !== -1) pageSize.value = Number(data.pageSize)
+    // A8：审走最后一页后停在空页（服务端回空 list + 定值 total）→ 记下回退页码，等本次 load 收尾后再拉一次。
+    // 条件 pageNum > lastPage 天然防循环：回退后的页码不会再满足它。
+    if (rows.value.length === 0 && total.value > 0 && pageNum.value > 1) {
+      const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+      if (pageNum.value > lastPage) {
+        pageNum.value = lastPage
+        pageFixPending = true
+      }
+    }
   } catch (err) {
     const e = err || {}
     rows.value = []
@@ -322,6 +335,11 @@ async function load() {
     if (e.message) ElMessage.error(e.message)
   } finally {
     loading.value = false
+  }
+  // 补拉必须放在 finally 之后：此时 loading 已落，在飞守卫才放行；不得在 try 里 await load()。
+  if (pageFixPending) {
+    pageFixPending = false
+    return load()
   }
 }
 
