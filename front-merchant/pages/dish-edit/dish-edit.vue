@@ -294,9 +294,16 @@ export default {
       saving: false,
       // 保存撞 429 的闸门剩余秒数与驱动它的定时器（X-7）：改前这一支只有一条 duration:1500 的 toast，
       // toast 一消失整页就回到「看起来能保存」的原样，而限流桶根本没回满——商家只会连着再点。
-      // 形状照写侧母版 front-partner/pages/store/store.vue 的同名两枚字段（onUnload 成对清）
+      // FE-5：这枚 retryLock 降级为「每秒由锚点现算出来的派生读数」，判据名一个都不改
+      // （模板保存按钮的 btn-disabled、saveFeedbackText、save() 的闸门早退仍读这枚派生值）。
+      // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，
+      // 回到前台时屏上的数比真实剩余少。
       retryLock: 0,
       retryLockTimer: null,
+      // FE-5：保存支闸门的墙上时钟锚点（ms）——闸门真值改存这里，只由 api 层 retrySecondsOf 转述的
+      // 后端秒数换算（形状照同仓已验收的 front-partner/pages/verify/verify.vue 同名字段，不另起抽象）；
+      // stopRetryLock/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      retryLockUntil: 0,
       // 保存结果的常驻反馈行：{tone:'err'|'cooling', text:string}；null = 本次会话还没点过保存
       saveFeedback: null,
       // 另外三条写路径各自的 429 闸门与常驻行（X-7b）。key 就是桶身份（upload / stock / sale），
@@ -448,6 +455,10 @@ export default {
   // 每次回到本页都复查一次商家状态：仍停在 active 早退的话，「停留期间被停业」永远不会反映。
   // 只补快照（写闸门 lockedByStatus 读它），不碰未保存守卫基线（基线仍以 onLoad 为准）、不重拉商品
   onShow() {
+    // FE-5：回前台先按墙上时钟锚点重算一次保存支派生读数（verify.vue onShow 同一口径）：
+    // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+    // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，保存按钮与冷却文案继续撒谎
+    this.retryLock = this.retryLockRemaining()
     this.syncMerchantSnapshot()
   },
   // M3：未保存改动的离开守卫（判据与后果见下面两处放行条件）。
@@ -500,7 +511,8 @@ export default {
       clearTimeout(this._backTimer)
       this._backTimer = null
     }
-    // 保存支 429 闸门（X-7）：setInterval 挂在 window 上，不摘就会在页面卸载后继续每秒写一次已死组件
+    // 保存支 429 闸门（X-7）：setInterval 挂在 window 上，不摘就会在页面卸载后继续每秒写一次已死组件；
+    // 锚点 retryLockUntil 也在这一对 stopRetryLock 里成对归零（FE-5，残值会让下一实例读到上一实例的数字）
     this.stopRetryLock()
     // 另外三条写路径的闸门（X-7b）：这一枚 tick 同时驱动 upload/stock/sale 三把锁，摘一次三把全停表
     // （与 startWriteGate 里那句「没有表就起一张」成对）；残留的锚点值一并清掉，
@@ -563,21 +575,36 @@ export default {
       this.saveFeedback = { tone, text }
       this.showToast(text)
     },
-    // 秒级自减闸门，形状照本页族内已有的列表页 dishes.vue 与写侧母版 store.vue（onUnload 成对清）
+    // FE-5：保存支闸门由「秒级自减」改为「墙上时钟锚点 + 派生读数」，形状逐字照同仓已验收的
+    // front-partner/pages/verify/verify.vue startRetryLock（不另起第三套闸门抽象）；
+    // 至此本页三把写闸门 + 类目锁 + 保存锁全族锚点化，同一形状。
     // 只由保存这一支起/停：读侧（loadDish 重拉详情）绝不碰这把锁——那正是 X-1 点名的病，
     // 读一次失败把写侧的限流闸门清成 0，等于「等待」这件事整个被取消
     startRetryLock(err) {
       this.stopRetryLock()
       // 秒数唯一出处＝api 层 retrySecondsOf 转述的后端 data.retryAfterSeconds；后端没给数才回落到第二参
-      //（那枚由窗口长度换算的保守上限 SAVE_RETRY_GATE_FALLBACK_SECONDS），页内不做任何加减推算
-      this.retryLock = retrySecondsOf(err, SAVE_RETRY_GATE_FALLBACK_SECONDS)
+      //（那枚由窗口长度换算的保守上限 SAVE_RETRY_GATE_FALLBACK_SECONDS），页内不做任何加减推算。
+      // 闸门真值改存墙上时钟锚点（ms），retryLock 只由它派生：自减版在 H5 后台标签页会被浏览器
+      // 把 interval 压到远慢于 1 秒，回到前台屏上的数比真实剩余少
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, SAVE_RETRY_GATE_FALLBACK_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 保存支锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板与各处闸门隐掉冷却态的判据）。
+    // 屏上的数、点击时的判据、toast 里那句用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // ==================== 另外三条写路径的 429 闸门与常驻行（X-7b） ====================
@@ -588,8 +615,9 @@ export default {
     // MerchantDishController#create / #update（保存支）各计各的配额。共用一枚就会反向误锁：
     // 上传被限流时「调整库存」明明还有额度却按不动，反过来库存的 429 会把保存按钮一起冻住——
     // 那与 X-1 拆读写锁要修的正是同一个病（一把锁管多桶 = 报出来的时长不是用户等的那把）。
-    // 为什么这里用「墙上时钟锚点 + 派生秒数」而不是保存支的「每秒自减」：一屏最多三把独立闸门在跑，
-    // 三对 setInterval 既难成对清也白耗；而自减在 H5 后台标签页会被浏览器把 interval 压到远慢于 1 秒，
+    // 为什么用「墙上时钟锚点 + 派生秒数」（FE-5 起保存支 retryLock 也已锚点化，本页三把写闸门 +
+    // 类目锁 + 保存锁全族同一形状，不再有「写侧锚点 vs 保存支自减」之分）：一屏最多三把独立写闸门在跑，
+    // 三对 setInterval 既难成对清也白耗；自减在 H5 后台标签页会被浏览器把 interval 压到远慢于 1 秒，
     // 屏上的数与点击时的判据会越跑越偏。锚点仍只由 retrySecondsOf 转述的后端真值换算，页内零推算时长。
     startWriteGate(key, err) {
       const g = this.writeGates[key]

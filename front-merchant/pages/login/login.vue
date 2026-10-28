@@ -132,6 +132,14 @@ export default {
       codeSending: false,
       smsCountdown: 0,
       smsTimer: null,
+      // FE-5 锚点化：发码闸门的墙上时钟到期锚点（ms）——闸门真值改存这里，smsCountdown 降级为
+      // 「每秒由锚点现算出来的读数」，判据名一个都不改（发码按钮判定、smsResendPillText 仍读这枚派生值）。
+      // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时屏上的数
+      // 比真实剩余少。形状照 front-partner/pages/verify/verify.vue 已验收版（FE-5 契约的形状唯一真源），
+      // 本页不另起第三套闸门抽象；锚点秒数仍只来自调用方——成功支本端 1 分钟 1 码的节奏（缺省 60）、
+      // 429 支 api 层 retrySecondsOf 转述的后端真值（下方 D2/M6 纪律一字未动），页内零推算时长。
+      // stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      smsCountdownUntil: 0,
       // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl.java:101-116），
       // 输入框换号时据此判定是否该收掉上一个号码的冷却
       smsCooldownPhone: '',
@@ -139,6 +147,13 @@ export default {
       // 登录按钮 60s 冷却（429 是 IP 维度限流，AuthController.java:45/:53，两个 tab 的登录按钮共用这一计时）
       loginLock: 0,
       loginLockTimer: null,
+      // FE-5 锚点化：上面这枚闸门的墙上时钟到期锚点（ms）——闸门真值改存这里，loginLock 降级为
+      // 「每秒由锚点现算出来的读数」，判据名一个都不改（两支登录按钮判定、loginLockPillText 仍读这枚派生值）。
+      // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时屏上的数
+      // 比真实剩余少。形状照 front-partner/pages/verify/verify.vue 已验收版（FE-5 契约的形状唯一真源），
+      // 本页不另起第三套闸门抽象；锚点秒数仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长。
+      // stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      loginLockUntil: 0,
       // 密码登录表单
       pwdPhone: '',
       pwdPassword: '',
@@ -178,6 +193,14 @@ export default {
     // 商家端无游客态：本地已有 token 时先静默复查（能进工作台就直接进，403 就渲染引导态），
     // 否则用户每次冷启都要重新收验证码
     if (this.$store.state.token) this.restoreSession()
+  },
+  onShow() {
+    // FE-5：回前台先按墙上时钟重算一次派生读数，再让下面各处闸门判它（verify.vue 的 onShow 首行口径）。
+    // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+    // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」。本页 onShow 不发请求，
+    // 重算只服务两枚按钮的判定与屏上读数
+    this.loginLock = this.loginLockRemaining()
+    this.smsCountdown = this.smsCountdownRemaining()
   },
   onUnload() {
     // 验证码倒计时定时器清理（照用户端登录页同款处理）
@@ -237,14 +260,27 @@ export default {
     // 429 走 retrySecondsOf 转述的后端真值（发码锁 600 就倒 600），非正数/漏传一律回落 60
     startSmsCountdown(seconds) {
       this.stopSmsCountdown()
-      this.smsCountdown = (Number(seconds) > 0 ? Number(seconds) : 60)
+      // FE-5 锚点化：闸门真值写墙上时钟锚点，smsCountdown 只是立刻取一次的派生读数
+      // （形状照 verify.vue 的 startRetryLock；成功支缺省 60 与 429 支 retrySecondsOf 的来源纪律原样保留）
+      this.smsCountdownUntil = Date.now() + (Number(seconds) > 0 ? Number(seconds) : 60) * 1000
+      this.smsCountdown = this.smsCountdownRemaining()
       this.smsTimer = setInterval(() => {
-        this.smsCountdown--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.smsCountdown = this.smsCountdownRemaining()
         if (this.smsCountdown <= 0) this.stopSmsCountdown()
       }, 1000)
     },
+    // 发码锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是发码按钮与胶囊文案隐掉冷却态的判据）。
+    // 屏上的数、按钮的判定、smsResendPillText 用的是同一个来源，不存在「两处数互相矛盾」
+    smsCountdownRemaining() {
+      if (!(this.smsCountdownUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.smsCountdownUntil - Date.now()) / 1000))
+    },
     stopSmsCountdown() {
       if (this.smsTimer) { clearInterval(this.smsTimer); this.smsTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.smsCountdownUntil = 0
       this.smsCountdown = 0
       this.smsCooldownPhone = ''
     },
@@ -253,14 +289,27 @@ export default {
     // 429 data.retryAfterSeconds，取不到才回落 60；闸门判定 loginLock > 0 未动
     startLoginLock(err) {
       this.stopLoginLock()
-      this.loginLock = retrySecondsOf(err, LOGIN_LOCK_SECONDS)
+      // FE-5 锚点化：闸门真值写墙上时钟锚点（形状照 verify.vue 的 startRetryLock），loginLock 只是
+      // 立刻取一次的派生读数；秒数唯一出处仍是 api 层 retrySecondsOf（上面 F-23-fix/FF-5 那条纪律一字未动），页内零推算时长
+      this.loginLockUntil = Date.now() + retrySecondsOf(err, LOGIN_LOCK_SECONDS) * 1000
+      this.loginLock = this.loginLockRemaining()
       this.loginLockTimer = setInterval(() => {
-        this.loginLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.loginLock = this.loginLockRemaining()
         if (this.loginLock <= 0) this.stopLoginLock()
       }, 1000)
     },
+    // 登录锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是两支登录按钮与胶囊文案隐掉冷却态的判据）。
+    // 屏上的数、按钮的判定、loginLockPillText 用的是同一个来源，不存在「两处数互相矛盾」
+    loginLockRemaining() {
+      if (!(this.loginLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.loginLockUntil - Date.now()) / 1000))
+    },
     stopLoginLock() {
       if (this.loginLockTimer) { clearInterval(this.loginLockTimer); this.loginLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.loginLockUntil = 0
       this.loginLock = 0
     },
     // 验证码登录：POST /api/auth/login 只负责拿 token，角色判定交 afterToken 里的 me（三分支见那处注释）

@@ -164,6 +164,14 @@ export default {
       // 登录按钮 60s 冷却（429 是 IP 维度限流，AuthController.java:35/:45，两个 tab 的登录按钮共用这一计时）
       loginLock: 0,
       loginLockTimer: null,
+      // FE-5（docs/四期前端交互规划/FE-5-移动端倒计时锚点化契约）：loginLockUntil 是上面这把闸门的
+      // 墙上时钟锚点（ms）——闸门真值改存这里，loginLock 降级为「每秒由锚点现算出来的读数」，判据名一个
+      // 都不改（模板禁用态与 loginLockPillText 仍读派生值）。改前是 setInterval 里 -- 自减：H5 后台标签页
+      // 会把 interval 压到远慢于 1 秒，回到前台时屏上的数比真实剩余少。形状照 front-partner/pages/verify/verify.vue
+      // 的 retryLockUntil + retryLockRemaining（P4-5 S2 已验收的那份设计），本页不另起第三套闸门抽象；
+      // 锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长；stop*/onUnload 成对归零：
+      // 残留值会让下一实例读到上一实例的数字。
+      loginLockUntil: 0,
       // 密码登录表单
       pwdPhone: '',
       pwdPassword: '',
@@ -181,7 +189,16 @@ export default {
       // 现值按 front-merchant/pages/dishes/dishes.vue 当前实况逐条重测：retryLock 在 data 的 187-188、
       // errorCode===429 才起锁在 448、startRetryLock 方法在 521。
       retryLock: 0,
-      retryLockTimer: null
+      retryLockTimer: null,
+      // FE-5（docs/四期前端交互规划/FE-5-移动端倒计时锚点化契约）：retryLockUntil 是上面这把闸门的
+      // 墙上时钟锚点（ms）——口径与 loginLockUntil 同款：闸门真值改存这里，retryLock 降级为「每秒由锚点
+      // 现算出来的读数」，判据名一个都不改（引导态闸门行「Ns后可重新检查」与 restoreSession 的早退判定
+      // 仍读派生值）。改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时
+      // 屏上的数比真实剩余少。形状照 front-partner/pages/verify/verify.vue 的 retryLockUntil +
+      // retryLockRemaining（P4-5 S2 已验收的那份设计），本页不另起第三套闸门抽象；锚点仍只由 api 层
+      // retrySecondsOf 转述的后端秒数换算，页内零推算时长；两把锁的锚点各自独立（上面「与 loginLock
+      // 分表计时」的边界不变），stop*/onUnload/switchAccount 成对归零：残留值会让下一实例读到上一实例的数字。
+      retryLockUntil: 0
     }
   },
   watch: {
@@ -197,6 +214,15 @@ export default {
     // 主理人端无游客态：本地已有 token 时先静默复查（能进工作台就直接进，403 就渲染引导态），
     // 否则用户每次冷启都要重新收验证码
     if (this.$store.state.token) this.restoreSession()
+  },
+  onShow() {
+    // FE-5（docs/四期前端交互规划/FE-5-移动端倒计时锚点化契约）：回前台先按墙上时钟锚点重算两把锁的
+    // 派生读数，再让后面任何闸门判它（口径照 verify.vue:330-335 那段 onShow 首行重算）。隐藏标签页里
+    // setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次 tick 算出的旧值——
+    // 不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以点的登录/重新检查无谓地挡住。
+    // 这里刻意只做重算：本页 onShow 不发请求、无其他闸门判定，避免和 onLoad 的 restoreSession 重复。
+    this.loginLock = this.loginLockRemaining()
+    this.retryLock = this.retryLockRemaining()
   },
   onUnload() {
     // 三个计时器全部清理：验证码倒计时、登录按钮冷却、身份复查冷却
@@ -274,28 +300,58 @@ export default {
     // 入参 err 由两个 429 分支透传，闸门判定仍是 loginLock > 0（未动）。
     startLoginLock(err) {
       this.stopLoginLock()
-      this.loginLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // FE-5：闸门真值改存墙上时钟锚点 loginLockUntil，秒数只由它派生（形状照 verify.vue 的
+      // 「retryLockUntil = Date.now() + retrySecondsOf(...) * 1000」+ 立刻取一次派生值）。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf（上面 F-23-fix/FF-5 那条纪律一字未动），页内零推算时长。
+      this.loginLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.loginLock = this.loginLockRemaining()
       this.loginLockTimer = setInterval(() => {
-        this.loginLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.loginLock = this.loginLockRemaining()
         if (this.loginLock <= 0) this.stopLoginLock()
       }, 1000)
     },
+    // 登录闸门锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板禁用态与两个 429 分支
+    // 之外所有闸门隐掉冷却态的判据）。屏上的数、按钮的判定、loginLockPillText 用的是同一个来源，
+    // 不存在「两处数互相矛盾」
+    loginLockRemaining() {
+      if (!(this.loginLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.loginLockUntil - Date.now()) / 1000))
+    },
     stopLoginLock() {
       if (this.loginLockTimer) { clearInterval(this.loginLockTimer); this.loginLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.loginLockUntil = 0
       this.loginLock = 0
     },
     // 「重新检查」的 429 冷却（照 login.vue 母版 loginLock 的秒级禁用范式 + dishes.vue 的 startRetryLock 命名）
     // F-23/FP-1：入参改为 catch 到的错误对象，起锁秒数由 retrySecondsOf 转述后端真值，取不到才回落本地 60
     startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // FE-5：与 loginLock 同一形状——闸门真值改存墙上时钟锚点 retryLockUntil，retryLock 只是派生读数，
+      // 两把锁各挂各的桶（上面「与 loginLock 分表计时」的边界一字未动：这里只改「数是怎么算出来的」，
+      // 不改「谁起谁停谁归零」）。秒数唯一出处仍是 api 层 retrySecondsOf（上面 F-23/FP-1 那条纪律一字未动），
+      // 页内零推算时长。
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 「重新检查」闸门锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是引导态闸门行与
+    // restoreSession 早退判定隐掉冷却态的判据）。屏上的数与两处判定用同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // 验证码登录：POST /api/auth/login 只负责拿 token，身份判定交 afterToken → resolveIdentity

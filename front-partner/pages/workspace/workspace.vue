@@ -169,6 +169,14 @@ export default {
       // F-25/P-4：原指针 177-178/385/432 已被商家端加行打断，上面三个是按 dishes.vue 现况逐条重测的读数）
       retryLock: 0,
       retryLockTimer: null,
+      // FE-5（docs/四期前端交互规划/FE-5-移动端倒计时锚点化契约.md）：上面这把闸门的墙上时钟锚点（ms）——
+      // 闸门真值改存这里，retryLock 降级为「每秒由锚点现算出来的读数」，判据名一个都不改
+      // （模板三处 !retryLock 判定与 load() 首行的 retryLock > 0 早退仍读这枚派生值）。
+      // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时屏上的数
+      // 比真实剩余少。形状照 front-partner/pages/verify/verify.vue:794-845 已验收的那份（P4-5 S2/D5），
+      // 本页不另起第三套闸门抽象；锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长；
+      // stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      retryLockUntil: 0,
       // 四入口（静态列表放 data，与母版 entries 同款）：可点与否由 ENTRY_ROUTES[entry.key] 决定，
       // F-18.19 补齐 store / apply 后四行全部在册，hint 里不再挂「某 Step 交付」的占位话术；
       // F-119 追加 commission 一行（我的佣金，只读展示类），入口共五行
@@ -252,6 +260,11 @@ export default {
     }
   },
   onShow() {
+    // FE-5：回前台先按墙上时钟重算一次派生读数，再让下面 load() 的那道冷却闸门判它。
+    // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+    // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
+    // onShow 请求无谓地挡掉（verify.vue:330-335 同款口径）
+    this.retryLock = this.retryLockRemaining()
     // 每次进入重拉（对齐母版 front-merchant/pages/workspace/workspace.vue 的 onShow 惯例，F-25/P-4 重测）：
     // 换绑门店、改了营业时间都能第一时间反映
     this.load()
@@ -413,14 +426,29 @@ export default {
     // （load() 首行的 retryLock > 0 早退 + 模板三处 !retryLock 判定均未动）。
     startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // FE-5：闸门真值改存墙上时钟锚点，秒数只由它派生（形状照 verify.vue 的 startRetryLock：
+      // 「锚点 = Date.now() + retrySecondsOf(...) * 1000」+ 立刻取一次派生值）。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf（上方 F-23.2 那条「起锁秒数由 retrySecondsOf 转述」
+      // 的纪律一字未动），页内零推算。
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板三处 !retryLock 与 load() 首行闸门
+    // 隐掉冷却态的判据）。屏上的数、按钮的判定用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // 时间戳 -> HH:mm:ss（脏值返回空串，模板随之隐藏这一行）

@@ -117,9 +117,19 @@ export default {
       // 加载更多单飞锁与降级提示（追加失败不清已有列表，只给一行如实提示）
       loadingMore: false,
       loadMoreFailed: false,
-      // 429 冷却剩余秒数与定时器（onUnload 成对清；口径同 workspace.vue）
+      // 429 冷却剩余秒数读数与定时器（onUnload 成对清；口径同 workspace.vue）
+      // FE-5（契约 docs/四期前端交互规划/FE-5-移动端倒计时锚点化契约.md）：retryLock 降级为
+      // 「每秒由下方锚点现算出来的读数」，判据名一个不改——模板错误卡的「Ns后可重试」、
+      // 「加载更多」的置灰与文案、load/loadMore 首行闸门仍读这枚派生值（主 load 与 loadMore
+      // 共用这一把的口径不变）。改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval
+      // 压到远慢于 1 秒，回到前台时屏上的数比真实剩余少。形状照 verify.vue 已验收版
+      // （FE-5 指定的形状唯一真源），本页不另起第三套闸门抽象；锚点仍只由 api 层
+      // retrySecondsOf 转述的后端秒数换算，页内零推算时长。
       retryLock: 0,
-      retryLockTimer: null
+      retryLockTimer: null,
+      // 这把闸门的墙上时钟锚点（ms）——闸门真值改存这里；stop*/onUnload 成对归零：
+      // 残留值会让下一实例读到上一实例的数字
+      retryLockUntil: 0
     }
   },
   computed: {
@@ -138,6 +148,11 @@ export default {
     }
   },
   onShow() {
+    // FE-5 收尾：回前台先按墙上时钟锚点重算一次派生读数，再让下面 load 里那道闸门判它。
+    // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+    // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
+    // onShow 请求无谓地挡掉（verify.vue onShow 首行同款口径）
+    this.retryLock = this.retryLockRemaining()
     // 每次进入整体重拉（回到第一页）：佣金余额是跑批写入的活跃数值，回页就该看最新值
     this.load(true)
   },
@@ -272,14 +287,28 @@ export default {
     },
     startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // 秒数唯一出处仍是 api 层 retrySecondsOf(err, RETRY_FALLBACK_SECONDS)（后端 data.retryAfterSeconds
+      // 优先，取不到回落本地 60——回落常量与判据名都不动，页内零推算时长）。
+      // FE-5：闸门真值改存墙上时钟锚点（形状照 verify.vue 已验收版：锚点写真值 + 立刻取一次派生值）
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板与 load/loadMore 闸门隐掉冷却态的判据）。
+    // 错误卡那行秒数、「加载更多」置灰、两个首行闸门用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // ==================== H5 页面滚轮兜底 ====================

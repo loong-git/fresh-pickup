@@ -182,6 +182,14 @@ export default {
       // 类目重试冷却剩余秒数（>0 时点提示行不发请求）：限流态下的「重试」必须有秒级闸门，同 login.vue 的 loginLock 范式
       catRetryLock: 0,
       catRetryLockTimer: null,
+      // FE-5（移动端倒计时锚点化，全族收口）：上面这枚判据的真值改存「墙上时钟到期时刻（ms）」——
+      // catRetryLock 降级为「每秒由锚点现算出来的读数」，判据名一个不改（categoriesHint、retryCategories
+      // 仍读这枚派生值）。改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，
+      // 自减次数少于真实流逝秒数，屏上的数停在最后一次 tick 算出的旧值上，把已到期的锁继续显示成
+      // 「还在冷却」。形状照 front-partner/pages/verify/verify.vue 已验收版（xxxLockUntil + xxxLockRemaining），
+      // 本页不另起第三套闸门抽象；锚点仍只由后端 retryAfterSeconds（api 层 degradedRetryAfterSeconds 透出）
+      // 或回落常量换算，页内零推算时长；stopCatRetryLock/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      catRetryLockUntil: 0,
       // 本枚闸门起点是否真的来自后端 data.retryAfterSeconds（>0 = 是，并记下那一个数）：
       // categoriesHint 只在它为真时才把秒数写进那一句——闸门本身（catRetryLock）两种来源都要起，
       // 但「等待时长」这个读数只能转述后端给的，不能把本地窗口长度冒充成它（F-24.0 裁定 B-1a）
@@ -196,6 +204,11 @@ export default {
       // 列表重试冷却剩余秒数（429 用）：限流窗口是 1 分钟，窗口内再点只会续桶并把 USER 30 次/分打满
       retryLock: 0,
       retryLockTimer: null,
+      // FE-5（移动端倒计时锚点化，全族收口）：同 catRetryLockUntil——retryLock 降级为「每秒由锚点现算出来的
+      // 读数」，判据名一个不改（错误卡重试行、retryCoolingBlocked、retryPillText 仍读这枚派生值）；
+      // 锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长；
+      // stopRetryLock/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
+      retryLockUntil: 0,
       // 图片加载失败标记（按 dish.id）：与 C 端 index.vue 的 imgFail / onImgFail 同款——失败才回退 emoji，
       // 成功过的一次性标记在每次重拉后清掉，否则商家换了好图仍显示 emoji
       imgFail: {}
@@ -286,6 +299,12 @@ export default {
     this.loadCategories()
   },
   onShow() {
+    // FE-5（锚点化收尾，照 verify.vue onShow 首行口径）：回前台先按墙上时钟重算两把锁的派生读数，
+    // 再让下面那道列表闸门判它。隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，
+    // 但屏上的数会停在最后一次 tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，
+    // 也就会把本可以发的 onShow 重拉无谓地挡掉（下方 retryLock <= 0 判定与类目提示行的 catRetryLock 读数都受益）
+    this.retryLock = this.retryLockRemaining()
+    this.catRetryLock = this.catRetryLockRemaining()
     // 从编辑页新增返回：把筛选退回「无筛选」再拉（FEA-7）。
     // 后端 orderByAsc(id) 新行在最末，若退回时仍带「已下架」tab 或关键字，新行既看不见、
     // 空态还会说「还没有商品」，诱导商家再建一条同名 SKU。
@@ -332,7 +351,9 @@ export default {
     }
     // #endif
     // 两个限流冷却计时器随页销毁一起清：setInterval 挂在 window 上，不摘就会在页面卸载后
-    // 继续每秒写一次已死组件的状态
+    // 继续每秒写一次已死组件的状态。FE-5 锚点化后这两行同时是「摘表」与「抹平真值」两件事——
+    // 锚点字段 retryLockUntil / catRetryLockUntil 也在这一对 stop* 里成对归零，
+    // 残值会让下一实例的闸门从上一实例那里读数
     this.stopRetryLock()
     this.stopCatRetryLock()
   },
@@ -390,16 +411,31 @@ export default {
       // 回落值 60 ＝保守上限＝窗口长度（DictController.java:28 字典档是 IP 10 次/60 秒），
       // 不是回速：同一档配 Refill.greedy，实测回速 6 秒 —— 回落时这一闸门会多白拦 54 秒，
       // 但拿不到后端真值时宁可保守，也不能报一个假的短数让商家连点续桶
-      this.catRetryLock = fromBackend ? secs : CATEGORY_RETRY_FALLBACK_SECONDS
+      // FE-5：闸门真值改存墙上时钟锚点，catRetryLock 只是每秒由锚点现算的派生读数
+      //（形状照 verify.vue 的「retryLockUntil = Date.now() + 秒数 * 1000」+ 立刻取一次派生值）。
+      // 秒数唯一出处不变：后端真值走 api 层 degradedRetryAfterSeconds，取不到回落 CATEGORY_RETRY_FALLBACK_SECONDS，页内零推算时长。
+      this.catRetryLockUntil = Date.now() + (fromBackend ? secs : CATEGORY_RETRY_FALLBACK_SECONDS) * 1000
+      this.catRetryLock = this.catRetryLockRemaining()
       // 只有这一枚起点来自后端，categoriesHint 才允许把它渲染成带时长的那一句（F-28.5 路 B 后是 FULL 形「类目请求太频繁，Ns后可重试」，括号制已消灭）
       this.catRetryBackendSeconds = secs
       this.catRetryLockTimer = setInterval(() => {
-        this.catRetryLock--
+        // FE-5：tick 只换算派生值，不再有 -- 自减——后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.catRetryLock = this.catRetryLockRemaining()
         if (this.catRetryLock <= 0) this.stopCatRetryLock()
       }, 1000)
     },
+    // FE-5：类目锁锚点 → 剩余秒数，只从墙上时钟现算，到期回 0（0 同时是 retryCategories 与
+    // categoriesHint 隐掉冷却态的判据）。屏上的数、点击的判定、文案里那句用的是同一个来源，
+    // 不存在「两处数互相矛盾」
+    catRetryLockRemaining() {
+      if (!(this.catRetryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.catRetryLockUntil - Date.now()) / 1000))
+    },
     stopCatRetryLock() {
       if (this.catRetryLockTimer) { clearInterval(this.catRetryLockTimer); this.catRetryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.catRetryLockUntil = 0
       this.catRetryLock = 0
       this.catRetryBackendSeconds = 0
     },
@@ -527,14 +563,30 @@ export default {
     // ==================== 429 冷却（照 login.vue 的 startLoginLock 那套秒级禁用范式） ====================
     startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
+      // FE-5：闸门真值改存墙上时钟锚点，retryLock 只是每秒由锚点现算的派生读数
+      //（形状照 verify.vue 的「retryLockUntil = Date.now() + 秒数 * 1000」+ 立刻取一次派生值）。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf（后端 data.retryAfterSeconds 优先，回落 RETRY_COOLING_SECONDS），
+      // 这条 F-25/P-3 纪律一字未动，页内零推算时长。
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_COOLING_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // FE-5：tick 只换算派生值，不再有 -- 自减——后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // FE-5：列表锁锚点 → 剩余秒数，只从墙上时钟现算，到期回 0（0 同时是错误卡重试行、
+    // retryCoolingBlocked、retryPillText 隐掉冷却态的判据）。屏上的数、点击的判定、toast 里那句
+    // 用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // ==================== 渲染辅助 ====================

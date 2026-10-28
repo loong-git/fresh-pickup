@@ -289,10 +289,19 @@ export default {
       // X-1 拆锁（母版 dishes.vue catRetryLock）：retryLock = 读侧闸门（load 撞 GET /store 读桶），
       // writeRetryLock = 写侧闸门（save 撞 PUT /store 写桶）。两把独立 @RateLimit 桶各计各的：
       // 共用一枚时保存的 429 闸门会去锁死资料刷新、刷新的失败又会 stopRetryLock 清掉保存闸门（互相污染）。
+      // FE-5（移动端倒计时锚点化契约）：上面两把闸门各自的墙上时钟锚点（ms）——闸门真值改存下面两枚 Until，
+      // retryLock / writeRetryLock 降级为「每秒由锚点现算出来的读数」，判据名一个都不改
+      // （模板、canSubmit、feedbackText 仍读这两枚派生值）。改前是 setInterval 里 -- 自减：
+      // H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时屏上的数比真实剩余少。形状照
+      // front-partner/pages/verify/verify.vue 的 retryLockUntil + retryLockRemaining（同仓已验收的那份设计），
+      // 本页不另起第三套闸门抽象；锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长。
+      // 两把锁的锚点各自独立（X-1 拆锁语义不变），stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
       retryLock: 0,
       retryLockTimer: null,
       writeRetryLock: 0,
-      writeRetryLockTimer: null
+      writeRetryLockTimer: null,
+      retryLockUntil: 0,
+      writeRetryLockUntil: 0
     }
   },
   computed: {
@@ -410,6 +419,15 @@ export default {
     }
     this.load(true)
   },
+  // FE-5（锚点化）：本页原先没有 onShow，按契约补一个只做重算的——回前台先按墙上时钟重算一次派生读数。
+  // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+  // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以点的
+  // 「点击重试 / 已开通，重新检查」无谓地挡掉（verify.vue:330-335 同款口径，形状照抄不另起抽象）。
+  // 注意：这里不重拉资料（FE-11 编辑态纪律，刻意不在 onShow 重拉，见下方 onBackPress 一带的注释），只重算读数。
+  onShow() {
+    this.retryLock = this.retryLockRemaining()
+    this.writeRetryLock = this.writeRetryLockRemaining()
+  },
   // FE-11：本页是长表单且刻意不在 onShow 重拉，改了直接返回就是静默丢弃（回页也看不出丢了什么）。
   // 总闸写法照母版 dish-edit.vue 的 leaving（一枚布尔，不另造状态机）：
   // ① 没改动 / 人已决定离开 → return false 走系统默认返回；
@@ -449,7 +467,10 @@ export default {
   // #endif
   onUnload() {
     // 定时器清理：X-1 拆锁后有两枚 setInterval（读侧 retryLockTimer / 写侧 writeRetryLockTimer），必须都成对摘掉（页面销毁后仍在跑的话，
-    // 回到本页会显示一个不属于本页的秒数，且每秒写一次已死组件的状态）
+    // 回到本页会显示一个不属于本页的秒数，且每秒写一次已死组件的状态）。
+    // FE-5（锚点化）：锚点字段 retryLockUntil / writeRetryLockUntil 也在这一对 stop* 里成对归零，
+    // 所以下面两行同时是「摘表」与「抹平真值」两件事——残值会让下一实例的闸门从上一实例那里读数；
+    // 锚点改造没有新增第二枚定时器，tick 里也只剩换算（clearInterval 同步，卸载后不会再有一次落点）
     this.stopRetryLock()
     this.stopWriteRetryLock()
     // #ifdef H5
@@ -761,28 +782,55 @@ export default {
       // `Number(seconds) > 0 ? seconds : RETRY_FALLBACK_SECONDS` 二次兜底已删：回落只能有一个出处。
       // 回落 60 与读侧 @RateLimit 的 60s 窗口同档；冷却结束再点仍可能吃一次 429，
       // 那一支会把常驻反馈行重新写上，反馈不会说谎
-      this.retryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // FE-5（锚点化）：闸门真值改存墙上时钟锚点，秒数只由它派生（形状照 verify.vue 的
+      // 「retryLockUntil = Date.now() + retrySecondsOf(...) * 1000」+ 立刻取一次派生值）。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf（上面 F-25/P-3 那条纪律一字未动），页内零推算。
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 读侧锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板与各处闸门隐掉冷却态的判据）。
+    // 屏上的数、按钮的判定、闸门行里那句用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5（锚点化）：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // X-1：写侧闸门专用一对——handleSaveError 撞 PUT /store 的 429 只动这两枚变量，
     // 读侧任何路径（含 load 非 429 失败的 stopRetryLock）都清不掉它。秒数仍只来自 retrySecondsOf。
     startWriteRetryLock(err) {
       this.stopWriteRetryLock()
-      this.writeRetryLock = retrySecondsOf(err, RETRY_FALLBACK_SECONDS)
+      // FE-5（锚点化）：与读侧同一形状——锚点写真值、writeRetryLock 只是派生读数，两把锁各挂各的桶
+      // （X-1 拆锁语义一字未动：这里只改「数是怎么算出来的」，不改「谁归零谁」）。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf（上面 X-1 那条「秒数仍只来自 retrySecondsOf」一字未动），页内零推算时长。
+      this.writeRetryLockUntil = Date.now() + retrySecondsOf(err, RETRY_FALLBACK_SECONDS) * 1000
+      this.writeRetryLock = this.writeRetryLockRemaining()
       this.writeRetryLockTimer = setInterval(() => {
-        this.writeRetryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.writeRetryLock = this.writeRetryLockRemaining()
         if (this.writeRetryLock <= 0) this.stopWriteRetryLock()
       }, 1000)
     },
+    // 写侧锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是保存按钮判定与 feedbackText 带数支的判据）。
+    writeRetryLockRemaining() {
+      if (!(this.writeRetryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.writeRetryLockUntil - Date.now()) / 1000))
+    },
     stopWriteRetryLock() {
       if (this.writeRetryLockTimer) { clearInterval(this.writeRetryLockTimer); this.writeRetryLockTimer = null }
+      // FE-5（锚点化）：同上，锚点与读数成对归零
+      this.writeRetryLockUntil = 0
       this.writeRetryLock = 0
     },
     // ==================== H5 页面滚轮兜底 ====================

@@ -189,11 +189,22 @@ export default {
       // 与 dishes.vue 同口径，否则每次点/每滚一次都在给这个限流桶续命
       retryLock: 0,
       retryLockTimer: null,
+      // FE-5 锚点化：上面这把闸门的真值改存「墙上时钟到期时刻（ms）」，retryLock 降级为
+      // 「每秒由锚点现算出来的读数」，判据名一个不改（模板置灰、retryCoolingBlocked、
+      // retryPillText 仍读这枚派生值）。改前是 setInterval 里 -- 自减：H5 后台标签页会把
+      // interval 压到远慢于 1 秒，回到前台时屏上的数比真实剩余少。形状照本仓已验收的
+      // front-partner/pages/verify/verify.vue 的 retryLockUntil + retryLockRemaining
+      // （不另起第三套闸门抽象）；锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长
+      retryLockUntil: 0,
       // F-69：登记缺货那把**写侧桶**自己的闸门（与上方读侧 retryLock 各管一枚桶，互不清对方的锁——
       // 理由见 SHORTAGE_RETRY_COOLING_SECONDS 那段：一把锁管两桶会反向误锁，且报出的时长不是用户等的那把。
       // 本页族里同形的先例是 dishes.vue 的 catRetryLock、dish-edit.vue 的 writeGates）
       shortageRetryLock: 0,
       shortageRetryLockTimer: null,
+      // FE-5：写侧这把锁同款锚点（真值在墙上时钟，shortageRetryLock 只是每秒现算的派生读数）。
+      // 两把锁的锚点各自独立（X-1 拆锁语义不变：谁起谁停谁归零的边界不动，只改「数是怎么算出来的」），
+      // stop*/onUnload 成对归零——残值会让下一实例读到上一实例的数字
+      shortageRetryLockUntil: 0,
       // 一次只允许一条登记请求在途（连点在确认框到回包之间会把 PUT 打出第二条）：
       // 后端幂等，多打只是白烧写侧配额；这条守卫同时驱动按钮的「提交中」文案
       shortageSubmitting: false
@@ -262,6 +273,12 @@ export default {
     this.date = this.isValidDateStr(raw) ? raw : ''
   },
   onShow() {
+    // FE-5：回前台先按墙上时钟锚点重算两把锁的派生读数，再让下面那道读侧闸门判它。
+    // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+    // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
+    // onShow 请求无谓地挡掉（形状真源 verify.vue 的 onShow 首行同款）
+    this.retryLock = this.retryLockRemaining()
+    this.shortageRetryLock = this.shortageRetryLockRemaining()
     // X-4：429 冷却期内这一路静默跳过（判据逐字照 marketing.vue / dashboard.vue 的 onShow；
     // 回页不是用户的点击，且这一路的错误卡在手时倒计时行本来就在屏上）。
     // 闸门放在最前面，_resetScrollTop 也一并别置——不重拉就不该有「拉到第一页后回顶」的待办
@@ -540,14 +557,27 @@ export default {
     // ==================== 429 冷却（照 dishes.vue 的「429 冷却」一节，同 login.vue 的 loginLock 秒级禁用范式） ====================
     startRetryLock(err) {
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
+      // FE-5 锚点化：闸门真值改存墙上时钟锚点（ms），retryLock 只由它派生；tick 只换算派生值不再自减——
+      // 后台标签页把 interval 压慢时，回来那一次 tick 直接从墙上时钟重算，读数与真实剩余一致。
+      // 秒数唯一出处仍是 api 层 retrySecondsOf 转述的后端 data.retryAfterSeconds（F-22/F-23），
+      // 取不到才回落本页既有档 RETRY_COOLING_SECONDS，页内零推算时长
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_COOLING_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板置灰与各处闸门隐掉冷却态的判据）。
+    // 屏上的数、按钮判定、toast 里那句用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // ==================== F-69 缺货登记：入口 → 二次确认 → PUT（无 body）→ 只改这一行 ====================
@@ -647,18 +677,27 @@ export default {
       next[idx] = Object.assign({}, next[idx], { fulfillStatus: FULFILL_STATUS_SHORTAGE })
       this.list = next
     },
-    // 写侧闸门的形状与上面读侧那把逐字同构（同一个 retrySecondsOf 取值口径、同样每秒自减、
+    // 写侧闸门的形状与上面读侧那把逐字同构（同一个 retrySecondsOf 取值口径、同款锚点 + 派生读数、
     // 同样在 onUnload 成对摘掉），只有回落档换成写侧桶的窗口长度
     startShortageRetryLock(err) {
       this.stopShortageRetryLock()
-      this.shortageRetryLock = retrySecondsOf(err, SHORTAGE_RETRY_COOLING_SECONDS)
+      // FE-5：与读侧同一形状——锚点写真值、shortageRetryLock 只是派生读数，两把锁各挂各的桶
+      // （X-1 拆锁语义一字未动：这里只改「数是怎么算出来的」，不改「谁归零谁」）
+      this.shortageRetryLockUntil = Date.now() + retrySecondsOf(err, SHORTAGE_RETRY_COOLING_SECONDS) * 1000
+      this.shortageRetryLock = this.shortageRetryLockRemaining()
       this.shortageRetryLockTimer = setInterval(() => {
-        this.shortageRetryLock--
+        this.shortageRetryLock = this.shortageRetryLockRemaining()
         if (this.shortageRetryLock <= 0) this.stopShortageRetryLock()
       }, 1000)
     },
+    shortageRetryLockRemaining() {
+      if (!(this.shortageRetryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.shortageRetryLockUntil - Date.now()) / 1000))
+    },
     stopShortageRetryLock() {
       if (this.shortageRetryLockTimer) { clearInterval(this.shortageRetryLockTimer); this.shortageRetryLockTimer = null }
+      // FE-5：同读侧，锚点与读数成对归零
+      this.shortageRetryLockUntil = 0
       this.shortageRetryLock = 0
     },
     // ==================== 跳转 ====================

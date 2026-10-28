@@ -168,7 +168,16 @@ export default {
       forbiddenMessage: '',
       // 429 冷却剩余秒数与定时器（口径照母版 dashboard.vue：限流态下的重试必须有秒级闸门）
       retryLock: 0,
-      retryLockTimer: null
+      retryLockTimer: null,
+      // FE-5（契约 docs/四期前端交互规划/FE-5-移动端倒计时锚点化契约）：上面这把闸门的墙上时钟锚点（ms）——
+      // 闸门真值改存这里，retryLock 降级为「每秒由锚点现算出来的读数」，判据名一个都不改
+      // （模板重试入口、retryPillText、onShow 闸门仍读这枚派生值）。
+      // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒（可低到 1 次/分），
+      // 回到前台时屏上的数比真实剩余少。形状照 front-partner/pages/verify/verify.vue 的已验收版
+      // （startRetryLock/retryLockRemaining/stopRetryLock 那一族），本页不另起第三套闸门抽象；
+      // 锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长。
+      // stop* 与之成对归零：残留值会让下一实例读到上一实例的数字。
+      retryLockUntil: 0
     }
   },
   computed: {
@@ -189,6 +198,11 @@ export default {
     }
   },
   onShow() {
+    // FE-5：回前台先按墙上时钟锚点重算一次派生读数，再让下面那道 429 闸门判它。
+    // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
+    // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
+    // onShow 请求无谓地挡掉（形状照 front-partner/pages/verify/verify.vue:330-335 的已验收版）
+    this.retryLock = this.retryLockRemaining()
     // 429 冷却闸门（判据逐字照母版 dashboard.vue 的 onShow）：限流态下回页静默重拉是在给桶续命
     if (this.retryLock > 0) return
     this.loadSettlements()
@@ -341,17 +355,32 @@ export default {
       uni.reLaunch({ url: '/pages/workspace/workspace' })
     },
     // ==================== 429 冷却（照母版 dashboard.vue 同款秒级禁用范式） ====================
+    // 只在 code===429 起（调用点在 loadSettlements 的 catch 里判过码）：入参是错误对象，
+    // 秒数一律由 api 层 retrySecondsOf 取值（F-25/P-3 纪律：回落只能有 RETRY_COOLING_SECONDS 一个出处，页内零推算时长）
     startRetryLock(err) {
       if (this._unloaded) return
       this.stopRetryLock()
-      this.retryLock = retrySecondsOf(err, RETRY_COOLING_SECONDS)
+      // FE-5：闸门真值改存墙上时钟锚点，秒数只由它派生（形状照 front-partner/pages/verify/verify.vue 的已验收版：
+      // 「锚点 = Date.now() + retrySecondsOf(...) * 1000」+ 立刻取一次派生值）。
+      this.retryLockUntil = Date.now() + retrySecondsOf(err, RETRY_COOLING_SECONDS) * 1000
+      this.retryLock = this.retryLockRemaining()
       this.retryLockTimer = setInterval(() => {
-        this.retryLock--
+        // tick 只换算派生值，不再有 -- 自减：后台标签页把 interval 压慢时，回来那一次 tick
+        // 直接从墙上时钟重算，读数与真实剩余一致（改前是「少了几十秒」的那一类偏差）
+        this.retryLock = this.retryLockRemaining()
         if (this.retryLock <= 0) this.stopRetryLock()
       }, 1000)
     },
+    // 锚点 → 剩余秒数：只从墙上时钟现算，到期回 0（0 同时是模板重试入口与 onShow 闸门隐掉冷却态的判据）。
+    // 屏上的数、重试入口的显隐用的是同一个来源，不存在「两处数互相矛盾」
+    retryLockRemaining() {
+      if (!(this.retryLockUntil > 0)) return 0
+      return Math.max(0, Math.ceil((this.retryLockUntil - Date.now()) / 1000))
+    },
     stopRetryLock() {
       if (this.retryLockTimer) { clearInterval(this.retryLockTimer); this.retryLockTimer = null }
+      // FE-5：锚点与读数成对归零（残值会让下一实例的闸门/读数从上一实例那里读出来）
+      this.retryLockUntil = 0
       this.retryLock = 0
     },
     // ==================== H5 页面滚轮兜底（照母版 dashboard.vue 的 onPageWheel 两道守卫） ====================
