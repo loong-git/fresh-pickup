@@ -112,6 +112,11 @@ export default {
   },
   async onLoad(options) {
     this.dishId = parseInt(options.dishId)
+    // F-124 §1.3：客户端幂等键（≤64 字符，格式 r-{dishId}-{毫秒时间戳}-{4位随机}）——
+    // 页面加载生成一次；提交失败弹窗保留原键，同图重试复用同一键，服务端按 clientRequestId
+    // 幂等返回首次评价（断网/超时重试不重复落库）；提交成功后作废，下一条评价换新键。
+    // 存实例级 this._clientRequestId（非 data）：不参与模板渲染，不引入第二套提交状态
+    this._clientRequestId = this.genClientRequestId()
     // M3-T-05 部分：加载失败兜底（错误态 + 重试），不再整页白屏
     await this.loadAll()
   },
@@ -162,9 +167,20 @@ export default {
     toggleExpand(id) {
       this.expandedReviews[id] = !this.expandedReviews[id]
     },
+    // F-124 §1.3：客户端幂等键生成（家族命名照 index.vue genClientRequestId；格式 r-{dishId}-{毫秒}-{4位随机}，
+    // 长约 22 字符 ≤64 与后端列/DTO 对齐）。一处定义，onLoad 与 openWrite 两处调用，防格式漂移
+    genClientRequestId() {
+      return 'r-' + this.dishId + '-' + Date.now() + '-' +
+        String(Math.floor(Math.random() * 10000)).padStart(4, '0')
+    },
     openWrite() {
       this.newRating = 5
       this.reviewContent = ''
+      // F-124 §1.3 配套：每次新开弹窗即备新键（新弹窗会话 = 新提交意图 = 新键）。提交失败弹窗保留、
+      // 不经 openWrite 直接重试 → 仍复用同键（同意图重试幂等才有效）；成功作废后的下一条评价
+      // 也经此处拿到新键，不会带着 null 提交。无条件换新另防一类边缘：失败实为响应丢失（服务端
+      // 已落库）时，旧键若被「关弹窗重开的新内容」复用会被误判幂等吞掉新输入
+      this._clientRequestId = this.genClientRequestId()
       this.showPopup = true
     },
     async submitReview() {
@@ -188,15 +204,21 @@ export default {
       try {
         // P4-2（D4）reviewer 随机昵称已删：后端 M6 起按登录手机号脱敏生成昵称，DTO 已废弃不读该字段，
         // 前端随机昵称是「昵称由前端生成」的误导源死代码，只传 rating/content
+        // F-124 §1.3：body 带客户端幂等键——失败保留原值（同图重试复用同键，服务端幂等返回首次评价）；
+        // 成功在下方置 null 作废（下一条评价换新键），DTO 可空不强制、向后兼容
         await submitReview(this.dishId, {
           rating: this.newRating,
-          content: this.reviewContent.trim()
+          content: this.reviewContent.trim(),
+          clientRequestId: this._clientRequestId
         })
         // P4-2（D4）request 层业务失败必 reject（api/index.js 封装），resolve 到手即业务已成功，
         // 上一版恒真的业务码等值判断已删，直接使用 resolve 值不再判
         // P4-2（D5）成功 → 关弹窗 → toast → 重拉列表；重拉包 catch 置 loadError 走既有错误态+重试
         // （loadAll），成功 toast 不撤回——评价已成功的事实不被列表刷新失败抹掉
         this.showPopup = false
+        // F-124 §1.3：提交成功即作废幂等键（置 null）——本条评价已落库，该键使命终结；
+        // 下一条评价换新键。置 null 只在成功支：失败保留原值，同图重试必须复用同键幂等才有效
+        this._clientRequestId = null
         uni.showToast({ title: '评价成功', icon: 'success' })
         try {
           const reviewRes = await getReviews(this.dishId)

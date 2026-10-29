@@ -15,7 +15,9 @@ public interface ReviewService {
 
     /**
      * 提交评价（M6）：userId 由登录态注入，须存在本人订单明细（任意订单状态）方可评价；
-     * reviewer 由服务端按登录手机号脱敏生成，前端直传昵称废弃
+     * reviewer 由服务端按登录手机号脱敏生成，前端直传昵称废弃。
+     * F-124 幂等：入参实体带 clientRequestId 时先按其快查，命中即返回首次评价行（不再落库、不再回写好评率）；
+     * 未带键或未命中则正常插入并返回落库后的同一实体
      */
-    void addReview(Review review, Long userId);
+    Review addReview(Review review, Long userId);
 }

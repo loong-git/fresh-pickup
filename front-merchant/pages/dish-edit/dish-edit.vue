@@ -34,9 +34,13 @@
         </view>
         <view class="field-row de-field-price" :class="{ 'field-error': errorKey === 'price' }">
           <text class="field-label">价格</text>
-          <input class="field-input" v-model="form.price" type="digit" placeholder="必填，单位元" placeholder-style="color:#BBBBBB;" />
+          <!-- F-124/M19：秒杀件挂牌价前端只读——置灰（保留现值展示，placeholder 只在空值时顶替）+ 旁加说明行；
+               不禁保存：只读只落在 payload 不发 price 键上（见 buildPayload），其余字段照常可改 -->
+          <input class="field-input" v-model="form.price" type="digit" :disabled="isSeckill" :placeholder="isSeckill ? '秒杀商品挂牌价由运营维护' : '必填，单位元'" placeholder-style="color:#BBBBBB;" />
           <text class="field-suffix">元</text>
         </view>
+        <!-- F-124/M19：秒杀件才出的说明行，样式复用本页既有 field-hint -->
+        <text v-if="isSeckill" class="field-hint de-price-seckill-hint">该商品参与平台秒杀，成交价按秒杀价结算；调价请联系运营</text>
         <view class="field-row de-field-unit" :class="{ 'field-error': errorKey === 'unit' }">
           <text class="field-label">单位</text>
           <input class="field-input" v-model="form.unit" maxlength="20" placeholder="必填，如 斤 / 盒 / 份" placeholder-style="color:#BBBBBB;" />
@@ -340,6 +344,10 @@ export default {
       stockSign: 'plus',
       adjusting: false,
       onSale: 1,
+      // F-124/M19（秒杀挂牌价前端只读）：编辑态由 detail 回填（商家端详情直出实体，seckill 字段天然下发，
+      // 脏值按非 1 即非秒杀，与 onSale 同口径）；新增态无 detail 恒 false、行为不变。
+      // 它只驱动两处：价格行置灰 + buildPayload 不发 price 键（见各处注释）
+      isSeckill: false,
       // 审核态（F-116 §2.4 展示类，编辑态详情回填）：rejected 时页面顶部横幅醒目提示；仅展示不提交
       auditStatus: '',
       auditReason: '',
@@ -821,6 +829,9 @@ export default {
       this.imgFail = false
       // on_sale 是 TINYINT 直出（1/0），脏值一律按「非 1 即下架」显示，与列表页同一口径
       this.onSale = Number(d.onSale) === 1 ? 1 : 0
+      // F-124/M19：秒杀件回填（detail 直出实体，seckill 字段天然下发）；脏值按非 1 即非秒杀，与 onSale 同口径。
+      // 基线快照 _originalSnapshot 不受影响——isSeckill 不进 buildPayload，比较口径与改前一字不差
+      this.isSeckill = Number(d.seckill) === 1
       // 审核态回填（F-116 §2.4 展示类）：只为驳回横幅服务；提交 payload 不含这两个键，
       // 后端白名单也不收——改品绝不改变审核态（防"随手保存洗白"）
       this.auditStatus = d.auditStatus || ''
@@ -1125,6 +1136,10 @@ export default {
         limitBuy: Number(this.form.limitBuy),
         tags: this.tags.slice()
       }
+      // F-124/M19：秒杀件不发 price 键——F-91（后端 MerchantDishServiceImpl update）只拦非 null 的 price，
+      // 不发键 = 不触碰挂牌价、其余字段照常可改，这正是「前端只读」的准确落法（不是禁保存）。
+      // isSeckill 不在本表里：快照基线比较的键集与改前一致，未保存守卫口径不变
+      if (this.isSeckill) delete p.price
       // 编辑态刻意不带 stock：后端见 stock 非 null 即 400（R7' 商家端只开增量，api 层白名单也已排除）
       if (!this.isEdit) p.stock = Number(this.form.stock)
       return p

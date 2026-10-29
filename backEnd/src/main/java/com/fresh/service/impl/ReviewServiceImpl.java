@@ -1,6 +1,7 @@
 package com.fresh.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fresh.common.BizException;
 import com.fresh.common.WordFilter;
 import com.fresh.entity.Dish;
@@ -11,6 +12,7 @@ import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.ReviewMapper;
 import com.fresh.mapper.UserMapper;
 import com.fresh.service.ReviewService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class ReviewServiceImpl implements ReviewService {
 
@@ -81,7 +84,26 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     @Transactional // 评价落库与好评率回写同事务：任一失败整体回滚，good_rate 不滞留旧值
-    public void addReview(Review review, Long userId) {
+    public Review addReview(Review review, Long userId) {
+        // F-124 幂等快查：入参带 clientRequestId 时先按其查同键评价，命中即返回首次评价行——
+        // 不再 insert、不再回写好评率（同键重复提交零写库）；快查形状照 OrderServiceImpl#selectByClientRequestId
+        // 先例（借鉴不改它）。键可空不强制：null/纯空白视为不带键（空白归一为 null，不占唯一索引），
+        // 走原插入路径，旧前端行为不变
+        String clientRequestId = review.getClientRequestId();
+        if (clientRequestId != null) {
+            String trimmed = clientRequestId.trim();
+            if (trimmed.isEmpty()) {
+                review.setClientRequestId(null);
+            } else {
+                review.setClientRequestId(trimmed);
+                Review existing = selectByClientRequestId(trimmed);
+                if (existing != null) {
+                    log.info("评价幂等命中，重复提交已忽略: clientRequestId={}, firstReviewId={}",
+                            trimmed, existing.getId());
+                    return existing;
+                }
+            }
+        }
         // M6 购买归属校验：本人订单（任意状态）须含该菜品明细，防登录后对任意商品刷评
         if (orderItemMapper.countByUserIdAndDishId(userId, review.getDishId()) <= 0) {
             throw new BizException("请先购买该商品后再评价");
@@ -109,6 +131,14 @@ public class ReviewServiceImpl implements ReviewService {
         // 落库后按该 dish 真实评价聚合（rating>=4 占比）回写好评率，替代 init.sql 种子公式静态假值；
         // 无有效评价时回写影响行数 0，good_rate 保留种子兜底文案，详见 DishMapper.refreshGoodRate
         dishMapper.refreshGoodRate(review.getDishId());
+        return review;
+    }
+
+    /** F-124 同键评价快查：uk_review_client_request_id 唯一约束保证至多一行 */
+    private Review selectByClientRequestId(String clientRequestId) {
+        QueryWrapper<Review> wrapper = new QueryWrapper<>();
+        wrapper.eq("client_request_id", clientRequestId);
+        return reviewMapper.selectOne(wrapper);
     }
 
     /** 138****1234（与 OrderServiceImpl 脱敏口径一致；登录手机号已按 1[3-9]\d{9} 强校验，无需长度防御） */

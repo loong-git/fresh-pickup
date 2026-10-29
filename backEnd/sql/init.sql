@@ -64,6 +64,8 @@
 --       PREPARE 幂等骨架（照 m26 写法），本建表体逐字一致、列序照迁移后物理序（表尾）；
 --       存量行由 DEFAULT 'active' 兜底零 UPDATE（active 正常 / banned 封禁）；
 --       商家封禁复用既有 merchant.status='suspended'，本片对 merchant 表零 DDL、零注释改动
+--   m31 review.client_request_id（F-124 评价强幂等）：加列走 m31-migration.sql（可空 UNIQUE，
+--       与 orders.uk_client_request_id 同型），本建表体已同步该列与索引；存量行零 UPDATE 零回填
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -336,12 +338,14 @@ CREATE TABLE review (
     user_id      BIGINT       NULL                        COMMENT '评价用户ID（M6）：服务端按登录用户落库；NULL=历史/种子数据（归属不可考）',
     rating       TINYINT      NOT NULL    DEFAULT 5       COMMENT '评分1-5',
     content      VARCHAR(500) NOT NULL                    COMMENT '评价内容',
+    client_request_id VARCHAR(64) NULL                    COMMENT '客户端幂等标识（M31/F-124）：同值重复提交返回首次评价；NULL=历史/种子/不带键的旧前端',
     reviewer     VARCHAR(50)  NOT NULL    DEFAULT '匿名用户' COMMENT '评价人',
     audit_status VARCHAR(20)  NULL                        COMMENT '审核状态（T-M4-05）：NULL 正常展示 / pending 命中软词待人工复核（默认不展示）',
     create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP    COMMENT '评价时间',
     PRIMARY KEY (id),
     INDEX idx_dish_id (dish_id),
-    INDEX idx_user_id (user_id)
+    INDEX idx_user_id (user_id),
+    UNIQUE INDEX uk_review_client_request_id (client_request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价表';
 
 -- ----------------------------

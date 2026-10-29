@@ -187,6 +187,9 @@ class WriteEnvelopeContractTest {
     @Test
     void successBranchCarriesThreeKeysAndPreservesCodeAndMessageLiterals() throws Exception {
         ReviewService svc = mock(ReviewService.class);
+        // F-124：addReview 改为返回落库/幂等命中的评价行、控制器照实回传——桩按同参回传入参实体，
+        // 维持本类「data 即 service 收到的实体」原判据（旧 void 语义下控制器本地实体就是那份实体）
+        doAnswer(inv -> inv.getArgument(0)).when(svc).addReview(any(), eq(9L));
         ReviewCreateDTO in = dto(5, "很好");
 
         R<Review> body = controllerWith(svc).addReview(1L, in, validateInto(in), 9L);
@@ -271,6 +274,8 @@ class WriteEnvelopeContractTest {
     @Test
     void nullEntityFieldsStayExplicitNullKeysInsideData() throws Exception {
         ReviewService svc = mock(ReviewService.class);
+        // F-124：桩按同参回传入参实体，见 successBranchCarriesThreeKeysAndPreservesCodeAndMessageLiterals 处说明
+        doAnswer(inv -> inv.getArgument(0)).when(svc).addReview(any(), eq(9L));
         ReviewCreateDTO in = dto(5, "很好");
         // 控制器手上这只实体的 id/userId/reviewer/auditStatus/createTime 全是 null（service 未真落库），
         // 断言这些 null 不会把 data 键本身挤掉——收信封最怕的就是载荷里某个 null 变成整键消失
@@ -288,7 +293,8 @@ class WriteEnvelopeContractTest {
     void successBranchDataSubtreeEqualsTheEntityTheServiceGot() throws Exception {
         ReviewService svc = mock(ReviewService.class);
         ReviewCreateDTO in = dto(5, "很好");
-        // 让 mock 像真 service 那样把 id/脱敏昵称/时间回填进传入实体（M6 的时间线），再验信封没动载荷
+        // 让 mock 像真 service 那样把 id/脱敏昵称/时间回填进传入实体（M6 的时间线），再验信封没动载荷；
+        // F-124 起 addReview 返回该实体、控制器照实回传，故这里同参回传（旧 void 语义下返回 null）
         ArgumentCaptor<Review> captor = ArgumentCaptor.forClass(Review.class);
         doAnswer(invocation -> {
             Review target = invocation.getArgument(0);
@@ -296,7 +302,7 @@ class WriteEnvelopeContractTest {
             target.setUserId(9L);
             target.setReviewer("王**");
             target.setCreateTime(LocalDateTime.of(2026, 10, 12, 8, 0, 0));
-            return null;
+            return target;
         }).when(svc).addReview(captor.capture(), eq(9L));
 
         R<Review> body = controllerWith(svc).addReview(1L, in, validateInto(in), 9L);

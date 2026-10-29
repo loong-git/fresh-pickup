@@ -59,9 +59,12 @@ public class ReviewController {
         review.setDishId(dishId);
         review.setRating(dto.getRating());
         review.setContent(dto.getContent());
+        // F-124 幂等键透传（可空不强制，旧前端不带照常提交）：service 层按键快查，
+        // 命中即返回首次评价行（不落重复行），此处统一回首次行——message 维持原句，前端无感知
+        review.setClientRequestId(dto.getClientRequestId());
         // M6：reviewer/userId 均由服务端落（登录手机号脱敏/token 用户），不再取 dto.getReviewer()
-        reviewService.addReview(review, userId);
-        return R.ok(review, "评价成功");
+        Review saved = reviewService.addReview(review, userId);
+        return R.ok(saved, "评价成功");
     }
 
     /** 我的评价（M7）：/api/reviews/mine 需登录（AuthInterceptor 权限矩阵），userId 同 @RequestAttribute 口径 */
