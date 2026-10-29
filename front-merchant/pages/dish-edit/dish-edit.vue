@@ -204,7 +204,7 @@ import '@/styles/common.css'
 const BACK_DELAY = 900
 // 类目字典重试冷却（FEB-9）：/api/dict 是 IP 维度 10 次/分，连点「点击重试」正是 429 的成因。
 // F-24-B/FB-3：闸门时长优先转述后端 data.retryAfterSeconds（api 层降级出参的
-// degradedRetryAfterSeconds，源头 RateLimitInterceptor.java:79），取不到才回落到下面这枚保守上限。
+// degradedRetryAfterSeconds，源头 RateLimitInterceptor 429 data 组装处，具名后不挂行号），取不到才回落到下面这枚保守上限。
 // 回落值 60 秒 ＝ 字典档 @RateLimit 的 windowSeconds（DictController.java:28 是 IP 10 次/60 秒），
 // 不是回速：同一档配 Refill.greedy，实测回速 6 秒 —— 回落时这一闸门会多白拦 54 秒。
 const CATEGORY_RETRY_GAP_FALLBACK_MS = 60 * 1000

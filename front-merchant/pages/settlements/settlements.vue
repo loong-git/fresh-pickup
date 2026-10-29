@@ -201,7 +201,7 @@ export default {
     // FE-5：回前台先按墙上时钟锚点重算一次派生读数，再让下面那道 429 闸门判它。
     // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
     // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
-    // onShow 请求无谓地挡掉（形状照 front-partner/pages/verify/verify.vue:330-335 的已验收版）
+    // onShow 请求无谓地挡掉（形状照 front-partner/pages/verify/verify.vue 的已验收版（具名后不挂行号））
     this.retryLock = this.retryLockRemaining()
     // 429 冷却闸门（判据逐字照母版 dashboard.vue 的 onShow）：限流态下回页静默重拉是在给桶续命
     if (this.retryLock > 0) return

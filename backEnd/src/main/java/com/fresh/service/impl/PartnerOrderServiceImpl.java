@@ -40,8 +40,13 @@ import java.util.regex.Pattern;
  * cancelled 或未支付 → 400；UPDATE 回 0 行时按码再读定性（BE-4）——并发已被他人核销成 completed = 幂等成功且不计数，
  * 其余维持 404（见方法内注释）。锁定期 429 的 data 带 retryAfterSeconds（BE-5）。
  *
- * <p><b>防枚举（D-14）</b>：按<b>主理人 userId</b> 计失败次数，5 次/10 分钟上锁；锁定期内
+ * <p><b>防枚举（D-14，F-123 收窄计数口径）</b>：按<b>主理人 userId</b> 计失败次数，5 次/10 分钟上锁；锁定期内
  * <b>连正确码也拒</b>（否则枚举可以搭「偶尔猜中」的车续命）；一次成功核销（含幂等成功）即清零。
+ * 收窄后只罚「猜码」类失败——{@code code_not_found} / {@code code_not_in_owned_stores} /
+ * {@code state_changed_after_read} 三支计数；{@code order_cancelled} / {@code order_unpaid} 是
+ * 合法码 + 明确业务状态、正常主理人会连着遇到，不再计数，但 400 经 data 带
+ * {@code remainingAttempts}（阈值-当前计数）；404 两支 data 恒 null（回剩余次数=给攻击方报数，红线不回）；
+ * 429 锁定信封 data 带 {@code remainingAttempts: 0} 与 {@code retryAfterSeconds} 并列。
  * 计数存内存（Caffeine，写法照 {@code RateLimitInterceptor:40} 的 {@code Cache.newBuilder()}，不引新表）——
  * <b>单实例有效是已登记的边界</b>，多实例部署要换 Redis（G-07/部署批次）。
  */
@@ -112,6 +117,12 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
 
     /** BE-5 兜底常量：剩余 TTL 取不到（读取与计算之间的竞态）时按锁的全长 600s 回，宁可多等不可反复撞墙 */
     private static final long LOCK_RETRY_FALLBACK_SECONDS = 600L;
+
+    /**
+     * 400 分支 data 里剩余可尝试次数的键名（F-123）。只在「合法码 + 明确业务拒绝」的两支 400 上带；
+     * 404 面向「码不存在」，回剩余次数等于告诉攻击方还剩几发——防枚举红线，不回。
+     */
+    private static final String REMAINING_ATTEMPTS_KEY = "remainingAttempts";
 
     @Autowired
     private PartnerOrderMapper partnerOrderMapper;
@@ -214,8 +225,10 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
                     ? (long) Math.ceil(remainingMs / 1000.0)
                     : LOCK_RETRY_FALLBACK_SECONDS;
             log.warn("核销锁定期内被拒: operatorUserId={}, 剩余锁定时长={}s", userId, retryAfterSeconds);
+            // F-123：锁定中 remainingAttempts 恒 0（与 retryAfterSeconds 并列）——前端可读「已无可再错次数」；
+            // message 恒 MSG_TOO_MANY_REQUESTS 逐字不动。
             throw new BizException(R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS,
-                    Map.of("retryAfterSeconds", retryAfterSeconds));
+                    Map.of("retryAfterSeconds", retryAfterSeconds, REMAINING_ATTEMPTS_KEY, 0));
         }
 
         // 2) 码形状：非 6 位数字 = 参数不对 → 400，且**不计入**枚举失败次数（否则用户口误一次就记一笔）
@@ -227,7 +240,8 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
         // 3) 定性预读（只回 id/store_id/status/pay_status 四列）
         Map<String, Object> row = partnerOrderMapper.selectForVerify(code);
         if (row == null) {
-            return failAs(userId, R.CODE_NOT_FOUND, NOT_FOUND_MSG, "code_not_found");
+            // F-123 收窄后仍计数：码不存在=可能枚举；404 不带 remainingAttempts（防枚举红线，见 failCountedAs）
+            return failCountedAs(userId, R.CODE_NOT_FOUND, NOT_FOUND_MSG, "code_not_found");
         }
         String orderId = asString(row.get("orderId"));
         Object storeId = row.get("storeId");
@@ -236,7 +250,9 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
 
         // 归属不在名下（含 store_id 为 NULL 的单）→ 404：他店码不得泄漏「码本身是对的」
         if (storeId == null || !storeIds.contains(storeId)) {
-            return failAs(userId, R.CODE_NOT_FOUND, NOT_FOUND_MSG, "code_not_in_owned_stores");
+            // F-123 收窄裁定：连打别家码同样是枚举行为，「码不存在/不属于你门店」两类都算猜码 → 保留计数；
+            // 同样是 404，不带 remainingAttempts
+            return failCountedAs(userId, R.CODE_NOT_FOUND, NOT_FOUND_MSG, "code_not_in_owned_stores");
         }
         // 已核销 → 幂等成功、不写 ops_log（D-6/G4），并清失败计数（一次成功即清零）
         if (STATUS_COMPLETED.equals(status)) {
@@ -244,12 +260,14 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
             log.info("核销幂等命中: orderId={}, operatorUserId={}", orderId, userId);
             return result(orderId, true);
         }
-        // 已取消 或 未支付 → 400（文案共用 BAD_REQUEST_MSG，见常量注释）
+        // 已取消 或 未支付 → 400（文案共用 BAD_REQUEST_MSG，见常量注释）。
+        // F-123 收窄：合法码 + 明确业务状态 = 正常主理人会连着遇到的场景，不再计入防枚举失败；
+        // 但 400 带 remainingAttempts（=阈值-当前计数），主理人需要知道「再错几次会锁」。
         if (STATUS_CANCELLED.equals(status)) {
-            return failAs(userId, R.CODE_BAD_REQUEST, BAD_REQUEST_MSG, "order_cancelled");
+            return failWithoutCounting(userId, R.CODE_BAD_REQUEST, BAD_REQUEST_MSG, "order_cancelled");
         }
         if (payStatus == null || payStatus != PAY_STATUS_PAID) {
-            return failAs(userId, R.CODE_BAD_REQUEST, BAD_REQUEST_MSG, "order_unpaid");
+            return failWithoutCounting(userId, R.CODE_BAD_REQUEST, BAD_REQUEST_MSG, "order_unpaid");
         }
 
         // 4) 四条件 UPDATE（D-6 逐字）：归属集合 + 码 + pending_pickup + 已支付
@@ -258,14 +276,15 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
             // BE-4（F-18.20 D 行，🟠）：预读说该翻、UPDATE 却回 0 行 = 并发窗口内已被他人核销或状态被改。
             // 码在核销成功后不清空（D-4），按码再读一次即可拿到终态定性：
             // 已 completed → 幂等成功（回 idempotent:true），**不计入枚举失败、不写 ops_log**（两台设备连点不再把自己锁 10 分钟）；
-            // 其余（读不到/被改成别的态）维持原 404 定性并计一次失败。
+            // 其余（读不到/被改成别的态）维持原 404 定性并计一次失败（并发改态=预读与 UPDATE 间被抢先，
+            // 同属「码对但没成」的模糊带，F-123 收窄后仍算猜码一类；404 不带 remainingAttempts）。
             Map<String, Object> reread = partnerOrderMapper.selectForVerify(code);
             if (reread != null && STATUS_COMPLETED.equals(asString(reread.get("status")))) {
                 clearVerifyState(userId);
                 log.info("核销幂等命中（并发抢先）: orderId={}, operatorUserId={}", orderId, userId);
                 return result(orderId, true);
             }
-            return failAs(userId, R.CODE_NOT_FOUND, NOT_FOUND_MSG, "state_changed_after_read");
+            return failCountedAs(userId, R.CODE_NOT_FOUND, NOT_FOUND_MSG, "state_changed_after_read");
         }
 
         // 5) 成功：写现场动作审计（detail 只放状态迁移与 storeId，无手机号/地址/码本身）+ 清零计数
@@ -310,14 +329,43 @@ public class PartnerOrderServiceImpl implements PartnerOrderService {
     }
 
     /**
-     * 现场失败统一收口：记一笔 D-14 失败计数后抛原定性的码。
-     * 400/404 两类都算失败（契约 F-18.8 第 4 条「失败（400/404 两类都算现场失败）」），
+     * 计数失败收口（F-123 收窄后仅两处调用点：{@code code_not_found} 与 {@code state_changed_after_read}，
+     * 外加 {@code code_not_in_owned_stores}——「码不存在/不属于你门店」两类都算猜码，收窄裁定口径）：
+     * 记一笔 D-14 失败计数后抛原定性的码。404/400 都可能是这一类；**data 恒 null**——404 面向
+     * 「码不存在」，回剩余次数等于告诉攻击方还剩几发（防枚举红线，契约 §3 明文不回）。
      * 码形状错不走这里（在 step 2 直接抛，不计数）。
      */
-    private Map<String, Object> failAs(Long userId, int code, String message, String reason) {
+    private Map<String, Object> failCountedAs(Long userId, int code, String message, String reason) {
         log.warn("核销失败: reason={}, operatorUserId={}, code={}", reason, userId, code);
         recordVerifyFailure(userId);
         throw new BizException(code, message);
+    }
+
+    /**
+     * 不计数失败收口（F-123 收窄新增，调用点 {@code order_cancelled} / {@code order_unpaid}）：
+     * 合法码 + 明确业务状态，正常主理人会连着遇到，不再计入防枚举失败；但 400 经 data 带
+     * {@code remainingAttempts = 阈值 - 当前计数}，主理人需要知道「再错几次会锁」。
+     * message 恒 BAD_REQUEST_MSG 逐字不动（不给持码者支付/取消状态的二分信号）。
+     */
+    private Map<String, Object> failWithoutCounting(Long userId, int code, String message, String reason) {
+        log.warn("核销失败（不计数）: reason={}, operatorUserId={}, code={}", reason, userId, code);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put(REMAINING_ATTEMPTS_KEY, remainingAttemptsOf(userId));
+        throw new BizException(code, message, data);
+    }
+
+    /**
+     * 剩余可尝试次数（F-123）= 阈值 - 当前失败计数；计数已含本次？不含——两个调用点都不计数，
+     * 这里的「当前计数」是该主理人此前累计的猜测类失败数。userId 为 null（理论不可达的自守卫路径）
+     * 或无记录时按满额阈值回。竞态下多算/少算一次均无害：前端只拿它拼「再错 N 次将锁定」的提示文案。
+     */
+    private int remainingAttemptsOf(Long userId) {
+        if (userId == null) {
+            return VERIFY_FAIL_LOCK_THRESHOLD;
+        }
+        Integer current = verifyFailCounts.getIfPresent(userId);
+        int remaining = VERIFY_FAIL_LOCK_THRESHOLD - (current == null ? 0 : current);
+        return Math.max(remaining, 0);
     }
 
     /** 达阈值即上锁：计数 +1，≥{@link #VERIFY_FAIL_LOCK_THRESHOLD} 写入锁定期并清计数（解锁后从 0 开始） */

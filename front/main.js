@@ -330,15 +330,23 @@ setUnauthorizedHandler(() => {
 })
 
 // 403 统一提示：request 层命中 403 时回调（不清 token、不跳登录，仍由调用方 toast 后端 message）。
-// 后端无法区分 403 具体原因，文案只说「可能受限」不断言封禁；确认退出与 mine 页 onLogout 同款动作。
-// forbiddenModalOpen 防抖：并发多个 403 请求只弹一次，complete 后复位
+// F-123：payload.data.reason 机读认句——user_banned/user_missing 命中时认句替换尾句前缀段
+// 「当前账号可能受限」（后缀段「可退出登录后换账号，或联系客服。」恒保留，TAIL 单源）；
+// 其余 reason/取不到 data（老后端无 data.reason）走现状整句逐字兜底（向后兼容，文案一字不差）。
+// 确认退出与 mine 页 onLogout 同款动作。forbiddenModalOpen 防抖：并发多个 403 请求只弹一次，complete 后复位
+const FORBIDDEN_TAIL = '，可退出登录后换账号，或联系客服。'
 let forbiddenModalOpen = false
 setForbiddenHandler((payload) => {
 	if (forbiddenModalOpen) return
 	forbiddenModalOpen = true
+	const reason = payload && payload.data ? payload.data.reason : null
+	let reasonText = null
+	if (reason === 'user_banned') reasonText = '该账号已被封禁，如有疑问请联系客服'
+	else if (reason === 'user_missing') reasonText = '账号状态异常，请重新登录'
 	uni.showModal({
 		title: '访问受限',
-		content: (payload && payload.message ? payload.message + '\n\n' : '') + '当前账号可能受限，可退出登录后换账号，或联系客服。',
+		content: (payload && payload.message ? payload.message + '\n\n' : '')
+			+ (reasonText !== null ? reasonText + FORBIDDEN_TAIL : '当前账号可能受限，可退出登录后换账号，或联系客服。'),
 		confirmText: '退出登录',
 		cancelText: '知道了',
 		confirmColor: '#E02020',

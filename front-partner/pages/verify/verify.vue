@@ -183,7 +183,7 @@ const PAGE_SIZE = 20
 const BATCH_CONFIRMED = 'confirmed'
 
 // FE-5：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先（BE-5：D-14 枚举锁
-// 把自己的剩余 TTL 如实回传，见 PartnerOrderServiceImpl.java:105 与 :210-215），取不到才回落本地 60
+// 把自己的剩余 TTL 如实回传，见 PartnerOrderServiceImpl 的核销锁分支与 failAs 一族（具名后不挂行号）），取不到才回落本地 60
 // （与写侧 @RateLimit 的 60s 窗口同档）。600s 的锁只冷却 60s 就是「锁未解而人反复撞墙」（F-18.20 E 行）。
 const RETRY_FALLBACK_SECONDS = 60
 
@@ -464,8 +464,17 @@ export default {
           return
         }
         if (code === 400) {
-          // 后端原文（码形状不符/已取消/未支付共用「请求参数有误，请检查后重试」，常量 :79、三处出口 :224/:249/:252）
-          this.setFeedback('err', message || '请求参数有误，请检查后重试')
+          // 后端原文（码形状不符/已取消/未支付共用「请求参数有误，请检查后重试」，常量 :79）
+          // F-123：已取消/未支付两支经 data 带 remainingAttempts（阈值-当前计数，PartnerOrderServiceImpl 的
+          // failWithoutCounting），拼「再错 N 次将锁定 10 分钟」让主理人知道还剩几发；码形状不符那支与
+          // 老信封（data 取不到/非正整数）不猜，维持既有文案逐字。仍走 setFeedback 一处生成（常驻行+toast 同串），不新造第二套
+          const remaining = (e.data && Number(e.data.remainingAttempts)) || 0
+          this.setFeedback(
+            'err',
+            remaining > 0
+              ? '取货码不适用（该单未支付或已取消），再错 ' + remaining + ' 次将锁定 10 分钟'
+              : (message || '请求参数有误，请检查后重试')
+          )
           // P4-5 S1（D1）：400 同样是已结论的出口（这个码按规则就是不可核销），清码+聚焦。
           // 至于这一支到底是「状态不符 / 已取消 / 未支付」哪一种，后端只把 reason 写进日志、
           // 抛出的是共用常量，前端拿不到可区分的字段——这里只补清码，不替后端猜原因

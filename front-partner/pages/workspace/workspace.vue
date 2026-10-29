@@ -24,10 +24,14 @@
              与账号本身受限（未开通 / 已停业 / 被限制）回的是同一枚码，故文案只列举可能、不断言原因（D1）；
              ② 200 但数组为空（后端走不到，纯防契约漂移的兜底闸，绝不因此放行渲染工作台内容）。
              这不是错误态：在归属/账号状态被平台变更前，重试不会改变结果，故给的两条去向是「申请入驻」与「换个账号」，
-             另留一条「重新检查」——平台刚把门店绑定到这个手机号或刚恢复账号时，点它只重发一次请求，不必重收验证码。 ==================== -->
+             另留一条「重新检查」——平台刚把门店绑定到这个手机号或刚恢复账号时，点它只重发一次请求，不必重收验证码。
+             F-123 起信封 data.reason 带机读原因，命中白名单时引导句换成认句（forbiddenGuideText），
+             取不到维持列举式逐字。 ==================== -->
     <view v-else-if="viewState === 'empty'" class="card guide-card">
       <text class="guide-title">访问受限</text>
-      <text class="guide-text">当前账号可能没有门店归属或账号受限（未开通 / 已停业 / 被限制），工作台不对其开放</text>
+      <!-- F-123：403 带 data.reason 机读原因且命中白名单时整句换成认句（forbiddenGuideText），
+           取不到/未知 reason 维持 D1 列举式文案逐字；后端原文仍由下方 emptyMessage 行透出 -->
+      <text class="guide-text">{{ forbiddenGuideText }}</text>
       <text v-if="emptyMessage" class="guide-tip">{{ emptyMessage }}</text>
       <button class="btn-main" @click="goStoreApply"><text>去申请入驻</text></button>
       <text v-if="!retryLock" class="guide-link" @click="load(true)">我已绑定，重新检查</text>
@@ -158,6 +162,8 @@ export default {
       errorCode: 0,
       // empty 态透出后端原文（403 的 R.MSG_FORBIDDEN 是「无权限访问」，人话主文案由本页给，原文降为第二行小字）
       emptyMessage: '',
+      // F-123：403 的 data.reason 机读原因快照（'' = 后端没带/不是字符串，文案维持 D1 列举式逐字）
+      forbiddenReason: '',
       // 本次成功刷新时刻（ms），仅驱动「资料刷新于」一行
       refreshAt: 0,
       // 已有列表快照时重拉失败（含明细那一次失败）的降级标记：卡片照常展示，只在卡底追加一行重试提示
@@ -173,7 +179,7 @@ export default {
       // 闸门真值改存这里，retryLock 降级为「每秒由锚点现算出来的读数」，判据名一个都不改
       // （模板三处 !retryLock 判定与 load() 首行的 retryLock > 0 早退仍读这枚派生值）。
       // 改前是 setInterval 里 -- 自减：H5 后台标签页会把 interval 压到远慢于 1 秒，回到前台时屏上的数
-      // 比真实剩余少。形状照 front-partner/pages/verify/verify.vue:794-845 已验收的那份（P4-5 S2/D5），
+      // 比真实剩余少。形状照 front-partner/pages/verify/verify.vue 的 startRetryLock 一族已验收版（具名后不挂行号）（P4-5 S2/D5），
       // 本页不另起第三套闸门抽象；锚点仍只由 api 层 retrySecondsOf 转述的后端秒数换算，页内零推算时长；
       // stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
       retryLockUntil: 0,
@@ -257,13 +263,22 @@ export default {
       // 其余服务端业务码（400 一类）：不猜成因，报「加载失败」＋第二行透出后端 message 原文。
       // 403 走不到这里——它被 load() 归进 empty 态（归属集合为空或账号受限，两种原因同一枚码）
       return '门店资料加载失败，请稍后重试'
+    },
+    // F-123：empty 态引导句的唯一裁决处。data.reason 命中白名单（no_store / user_banned）时整句换成认句；
+    // 取不到 reason（老信封兜底）或 reason 不在白名单（not_merchant 等按契约不可能出现在主理人端，
+    // 未知枚举也不猜）一律维持 D1 列举式文案逐字——只在确认时指认，不在未知时编原因
+    forbiddenGuideText() {
+      const r = this.forbiddenReason
+      if (r === 'no_store') return '该账号名下没有门店，工作台不对其开放'
+      if (r === 'user_banned') return '该账号已被封禁，工作台不对其开放'
+      return '当前账号可能没有门店归属或账号受限（未开通 / 已停业 / 被限制），工作台不对其开放'
     }
   },
   onShow() {
     // FE-5：回前台先按墙上时钟重算一次派生读数，再让下面 load() 的那道冷却闸门判它。
     // 隐藏标签页里 setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次
     // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
-    // onShow 请求无谓地挡掉（verify.vue:330-335 同款口径）
+    // onShow 请求无谓地挡掉（verify.vue 的 onShow 重算同款口径——具名后不挂行号）
     this.retryLock = this.retryLockRemaining()
     // 每次进入重拉（对齐母版 front-merchant/pages/workspace/workspace.vue 的 onShow 惯例，F-25/P-4 重测）：
     // 换绑门店、改了营业时间都能第一时间反映
@@ -309,10 +324,13 @@ export default {
           // 「已有 token 却拿到空数据」绝不当成正常态放行（母版 front-merchant/pages/workspace/workspace.vue 的 loadMe
           // 那道闸管的是「有 token 但 me 没返回角色时也不放水成 ready」，同口径，F-25/P-4 重测）
           this.showEmpty('未返回可用的自提点')
+          this.forbiddenReason = ''
           return
         }
         this.stores = list
         this.emptyMessage = ''
+        // F-123：成功支清掉上一轮 403 留下的 reason 快照，避免旧认句残留在新引导态里（同 emptyMessage 的成对复位）
+        this.forbiddenReason = ''
         this.refreshAt = Date.now()
         this.viewState = 'ready'
         // 明细失败不改四态：列表已经足够证明「这家店存在」，六新列读不到就在卡里如实写「未返回」
@@ -327,6 +345,9 @@ export default {
         if (code === 403) {
           // 403 的两个来源（AuthInterceptor 只回 MSG_FORBIDDEN）：归属集合为空（/api/partner/ 归属分支），
           // 或账号被限制（F-122 banned 在同一拦截器里也回 403）；不是登录失效、也不是「加载失败」，落 empty 给去向
+          // F-123：data.reason 机读原因原样快照进页面状态（不在此判文案，映射在 forbiddenGuideText）；
+          // 老信封/取不到时赋 ''，forbiddenGuideText 回落到 D1 列举式逐字（向后兼容）
+          this.forbiddenReason = (e.data && typeof e.data.reason === 'string') ? e.data.reason : ''
           this.showEmpty((e && e.message) || '')
           return
         }

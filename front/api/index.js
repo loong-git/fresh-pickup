@@ -94,16 +94,19 @@ const request = (options) => {
         // 403（HTTP 状态码或信封 code 命中）：只通知统一提示（不清 token、不跳登录），
         // 不 return、不新增第二处 reject，继续落下方 else 的通用结构化 reject 透出后端 code/message
         if (res.statusCode === 403 || (body && body.code === 403)) {
-          notifyForbidden({ code: 403, message: (body && body.message) || '无权限访问' })
+          // F-123：payload 增传 data（403 信封的机读 reason 由 main.js 认句消费；无 data 时 null，向后兼容）
+          notifyForbidden({ code: 403, message: (body && body.message) || '无权限访问', data: (body && body.data) || null })
         }
         if (res.statusCode === 200 && body && body.code === 200) {
           resolve(body)
         } else {
-          // 业务校验失败(400)/资源不存在(404)/系统异常(500)/HTTP 状态码异常：
-          // 统一结构化 reject，message 优先透出后端人话，调用方 toast 且保留现场可重试
+          // 业务校验失败(400)/资源不存在(404)/限流(429)/系统异常(500)/HTTP 状态码异常：
+          // 统一结构化 reject，message 优先透出后端人话，调用方 toast 且保留现场可重试；
+          // F-123：增传 data 原样透传（发码 429 的 reason=sms_send_daily_limit 由调用页判读），无 data 时 null
           reject({
             code: body && body.code != null ? body.code : res.statusCode,
-            message: (body && body.message) || '服务开小差了，请稍后重试'
+            message: (body && body.message) || '服务开小差了，请稍后重试',
+            data: (body && body.data) || null
           })
         }
       },

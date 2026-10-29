@@ -13,12 +13,16 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 认证拦截器（T-M2-02，契约 M2-2/M2-3）：
  * - 解析 Authorization: Bearer &lt;token&gt; → userId 注入 request attribute（控制器 @RequestAttribute 读取）；
  * - 权限矩阵：需登录白名单之外一律匿名可读（游客模式浏览/加购不受影响）；
  * - 无/伪造/过期 token 访问需登录接口 → 统一信封 401（写 response JSON，不抛裸异常）；
+ * - 已登录但角色/归属/状态不符 → 统一信封 403，message 恒 MSG_FORBIDDEN；
+ *   F-123：403 的 data 带 {@code reason} 机读原因（五枚举，见 {@link #forbiddenReasonOf}），
+ *   人话由三端按 reason 拼，后端不泄内部措辞，信封 code/message 逐字不变；
  * - OPTIONS 预检直通（Spring 会为 preflight 保留用户拦截器链，必须显式放行）；
  * - 前缀判定的输入路径统一取「Spring 映射 handler 用的那条已解码路径」（BE-1，见 mappedPath），
  *   绝不用未解码的 request.getRequestURI()，否则 /api/%6derchant/** 之类的百分号编码可绕过全部鉴权。
@@ -38,6 +42,24 @@ public class AuthInterceptor implements HandlerInterceptor {
      * 集合为空时在 preHandle 内直接收口 403，绝不 setAttribute(null)（理由见 merchant 块的同款注释）。
      */
     public static final String ATTR_PARTNER_STORE_IDS = "partnerStoreIds";
+
+    /**
+     * 403 机读原因键（F-123）：五处 403 信封的 {@code data.reason} 均取本类的枚举值，
+     * 供三端把「可能受限」升级为按原因指认的文案（人话只在前端拼，后端 message 恒 MSG_FORBIDDEN）。
+     * 枚举值是机读键，camelCase 稳定不动；五处 403 分支与枚举一一对应，方法见 {@link #forbiddenReasonOf}。
+     */
+    public static final String ATTR_FORBIDDEN_REASON = "reason";
+
+    /** 403 原因枚举之一：运营面 token（typ=admin）打用户面（F-12/G-01 typ 隔离） */
+    public static final String FORBIDDEN_ADMIN_TOKEN_REJECTED = "admin_token_rejected";
+    /** 403 原因枚举之一：用户行状态为 banned（F-122 已签发旧 token 即时失效） */
+    public static final String FORBIDDEN_USER_BANNED = "user_banned";
+    /** 403 原因枚举之一：token 有效但用户行已删（fail-closed） */
+    public static final String FORBIDDEN_USER_MISSING = "user_missing";
+    /** 403 原因枚举之一：非 merchant 角色或 merchant_id 为空（F-12/G-01 查库定角色） */
+    public static final String FORBIDDEN_NOT_MERCHANT = "not_merchant";
+    /** 403 原因枚举之一：/api/partner/** 名下无门店（F-18.8 归属集合为空） */
+    public static final String FORBIDDEN_NO_STORE = "no_store";
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -80,7 +102,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (userId != null) {
             io.jsonwebtoken.Claims claims = resolveClaims(request);
             if (claims != null && "admin".equals(claims.get("typ"))) {
-                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN,
+                        Map.of(ATTR_FORBIDDEN_REASON, FORBIDDEN_ADMIN_TOKEN_REJECTED));
                 return false;
             }
         }
@@ -100,8 +123,15 @@ public class AuthInterceptor implements HandlerInterceptor {
         // u == null 同拒（fail-closed：token 有效但用户行已删，旧行为会放行需登录面）。
         // 同一次查询复用到下方 /api/merchant/** 角色判定，不重复查库。
         com.fresh.entity.User u = userMapper.selectById(userId);
-        if (u == null || com.fresh.entity.User.STATUS_BANNED.equals(u.getStatus())) {
-            ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+        if (u == null) {
+            // token 有效但用户行已删（fail-closed）与 banned 是两个可区分原因，机读键分开（F-123）
+            ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN,
+                    Map.of(ATTR_FORBIDDEN_REASON, FORBIDDEN_USER_MISSING));
+            return false;
+        }
+        if (com.fresh.entity.User.STATUS_BANNED.equals(u.getStatus())) {
+            ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN,
+                    Map.of(ATTR_FORBIDDEN_REASON, FORBIDDEN_USER_BANNED));
             return false;
         }
         request.setAttribute(ATTR_USER_ID, userId);
@@ -112,7 +142,8 @@ public class AuthInterceptor implements HandlerInterceptor {
             // @RequestAttribute(merchantId)（required 默认 true）会先抛 ServletRequestBindingException 被兜底转 500
             // → Service 层那两行判空 403 不可达（此判空勿删）
             if (u == null || !"merchant".equals(u.getRole()) || u.getMerchantId() == null) {
-                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN,
+                        Map.of(ATTR_FORBIDDEN_REASON, FORBIDDEN_NOT_MERCHANT));
                 return false;
             }
             request.setAttribute(ATTR_MERCHANT_ID, u.getMerchantId());
@@ -132,7 +163,8 @@ public class AuthInterceptor implements HandlerInterceptor {
                     .map(Store::getId)
                     .toList();
             if (storeIds.isEmpty()) {
-                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
+                ResponseUtil.writeJson(response, R.CODE_FORBIDDEN, R.MSG_FORBIDDEN,
+                        Map.of(ATTR_FORBIDDEN_REASON, FORBIDDEN_NO_STORE));
                 return false;
             }
             request.setAttribute(ATTR_PARTNER_STORE_IDS, storeIds);
@@ -286,5 +318,32 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
         // 仅评价提交需登录；GET /api/dishes/{dishId}/reviews 列表保持匿名可读
         return "POST".equalsIgnoreCase(method) && path.matches("^/api/dishes/\\d+/reviews$");
+    }
+
+    /**
+     * 403 机读原因（F-123）：按拦截器的判定事实给出 {@code data.reason} 枚举。
+     * 静态纯函数——参数就是各分支拿到的全部事实（用户行有无/状态/角色/归属集合），不起容器不 mock servlet
+     * 即可离线单测（姿势照 {@code RateLimitInterceptor#retryAfterSeconds}）。null 一律回
+     * {@link #FORBIDDEN_USER_MISSING}：凡走到 403 的 u==null 分支都是「token 有效但用户行已删」的 fail-closed。
+     * reason 是机读键，五枚举值稳定不动的纪律见常量注释；message 恒 MSG_FORBIDDEN 不随它变。
+     */
+    static String forbiddenReasonOf(com.fresh.entity.User user, boolean adminTyp, boolean merchantPrefix, List<Long> storeIds) {
+        if (adminTyp) {
+            return FORBIDDEN_ADMIN_TOKEN_REJECTED;
+        }
+        if (user == null) {
+            return FORBIDDEN_USER_MISSING;
+        }
+        if (com.fresh.entity.User.STATUS_BANNED.equals(user.getStatus())) {
+            return FORBIDDEN_USER_BANNED;
+        }
+        if (merchantPrefix) {
+            return FORBIDDEN_NOT_MERCHANT;
+        }
+        if (storeIds == null || storeIds.isEmpty()) {
+            return FORBIDDEN_NO_STORE;
+        }
+        // 走到这里说明没有可判定为 403 的事实组合，调用点不该发生；给兜底值保证返回非 null
+        return FORBIDDEN_NOT_MERCHANT;
     }
 }

@@ -350,7 +350,8 @@ export default {
     // F-28.5 路 A（X-8）：句式收进 coolingText 无参整句——「点得太快了」这一支第三种说法并入全端统一族
     errorLeadText() {
       if (this.errorCode === 429) return coolingText()
-      // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed）：500 是服务端
+      // X-2b（四路分流，母版 front-merchant/pages/dashboard/dashboard.vue 的同名 computed——具名后不挂行号）：
+      // 500 是服务端
       // 承认自己处理出错，同屏第二行透出的正是那句原文，第一行却叫申请人去查网络——因果方向相反
       if (this.errorCode === 500) return '申请进度读取失败，服务端处理出错，稍后重试'
       // 只有网络层失败才许出现「网络」字样：front-partner/api/index.js 的 request fail 支回 code:-1 /

@@ -231,13 +231,13 @@ function handleEnvelope(res, resolve, reject) {
  * login 各一处、plan-orders 读侧与缺货写侧各一处、dish-edit 保存与三把写锁共用一处）都显式传了数字常量 60，改动对它们是逐字等价的。
  *
  * data.retryAfterSeconds 全仓有四个产出点、两种语义，本函数只取数值不认语义，四处都能喂进来但含义不同：
- * - backEnd/src/main/java/com/fresh/interceptor/RateLimitInterceptor.java:79 —— 桶的回速
+ * - backEnd/src/main/java/com/fresh/interceptor/RateLimitInterceptor 的 retryAfterSeconds 换算（retryAfterSecondsOf 静态纯函数，具名后不挂行号）—— 桶的回速
  *   （NanosToWaitForRefill 向上取整、下限 1，实测个位秒），绝大多数 429 出自这里，也是 fallbackSeconds 要对标的档位；
  * - backEnd/src/main/java/com/fresh/service/impl/AdminAuthServiceImpl.java:276 —— **401**（不是 429）
  *   运营登录防枚举锁定的剩余 TTL，上限 600 秒（LOGIN_FAIL_LOCK_TTL=10 分钟）；
  * - backEnd/src/main/java/com/fresh/service/impl/AuthServiceImpl.java 的 assertCodeNotLocked —— 429（F-65 验证码失败锁），
  *   同一手机号连错 5 次的剩余锁定期，同为 600 秒封顶；
- * - backEnd/src/main/java/com/fresh/service/impl/PartnerOrderServiceImpl.java:218 —— 核销枚举锁的剩余 TTL，同为 600 秒封顶。
+ * - backEnd/src/main/java/com/fresh/service/impl/PartnerOrderServiceImpl.java 的核销锁 429 分支（D-14）—— 核销枚举锁的剩余 TTL，同为 600 秒封顶。
  * 为什么不能与 front-admin/src/api/index.js 的 retryAfterText 互换（两者只是长得像）：
  * retryAfterText 是纯文案转述，函数内零本地推算、拿不到就回空串闭嘴，服务的是「服务端约 N 秒后可再试」
  * 那一句；本函数服务的是闸门，必须永远交出一个能起闸的正数。两个方向拿错都会出事——
@@ -574,7 +574,7 @@ export function uploadMerchantImage(filePath) {
  *   文案须引导「稍后再点重试」，否则会误导商家去查上游、并在用户对着错误文案反复点时把 IP 桶续满
  * - 'unreachable'：其余失败（网络异常/5xx/403）与「200 但空列表」
  * degradedRetryAfterSeconds（同为契约字段名，列表页与编辑页消费侧同名，不可改名）：
- * 429 降级支恒带这一键，值是后端 data.retryAfterSeconds 的原样转述（RateLimitInterceptor.java:79，
+ * 429 降级支恒带这一键，值是后端 data.retryAfterSeconds 的原样转述（RateLimitInterceptor 的 429 data 组装处，具名后不挂行号，
  * 桶的回速而非窗口）；后端没给读数就是 null，刻意不填默认值——编一个数出去下游就再也分不出
  * 「后端说的」与「我们猜的」。'unreachable' 两支里「200 但空列表」不带这一键（undefined），
  * 消费侧一律按 Number.isFinite && > 0 判定后才用它起闸门 / 印秒数。
@@ -612,7 +612,7 @@ export function getDishCategories() {
       const reason = (e && Number(e.code) === 429) ? 'rate-limited' : 'unreachable'
       // F-24-B/FB-1 通道：这一路 reject→resolve 原本会把 429 的 e.data 整个丢掉，
       // 下游页面（dishes / dish-edit）手里只剩常量可写，于是各自把窗口长度 60 当成了等待时长。
-      // 这里只多带一个键，把后端真值原样转述出去（源头：RateLimitInterceptor.java:79 的
+      // 这里只多带一个键，把后端真值原样转述出去（源头：RateLimitInterceptor 的 429 data 组装处（具名后不挂行号）的
       // data.retryAfterSeconds，即桶的回速而非窗口）。
       // 取不到就是 null，刻意不给默认值：编一个数出去下游就无法再区分「后端说的」与「我们猜的」，
       // 回落口径由各页面自己带注释声明（retrySecondsOf 那条有回落的通道只服务闸门，不服务文案）。

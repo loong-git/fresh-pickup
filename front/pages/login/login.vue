@@ -182,7 +182,12 @@ export default {
         uni.showToast({ title: '验证码已发送', icon: 'none' })
         this.startSmsCountdown()
       } catch (e) {
-        this.showToast((e && e.message) || '网络异常')
+        // F-123：日上限 429（reason=sms_send_daily_limit）换人话；其余照旧透后端 message
+        if (e && e.code === 429 && e.data && e.data.reason === 'sms_send_daily_limit') {
+          this.showToast('今日发送次数已达上限，明日再试')
+        } else {
+          this.showToast((e && e.message) || '网络异常')
+        }
       } finally {
         this.codeSending = false
       }

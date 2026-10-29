@@ -152,7 +152,7 @@ const BATCH_SHORT = 'short'
 const STATUS_TEXT = { planned: '计划到货', arriving: '到货中', confirmed: '已确认', short: '已登记短少' }
 const STATUS_TONE = { planned: 'info', arriving: 'warn', confirmed: 'ok', short: 'err' }
 
-// 入参日期形状：与后端 DATE_PATTERN 同一口径（PartnerOrderServiceImpl.java:56），只用来洗深链带进来的 ?date=
+// 入参日期形状：与后端 PartnerOrderServiceImpl 的 DATE_PATTERN 同一口径，只用来洗深链带进来的 ?date=
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 // FE-5：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先（BE-5），

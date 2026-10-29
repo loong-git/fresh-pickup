@@ -273,7 +273,12 @@ export default {
         this.pcOldCodeSent = true
         this.startPcCountdown(1, phone)
       } catch (e) {
-        uni.showToast({ title: (e && e.message) || '网络异常', icon: 'none', duration: 2000 })
+        // F-123：日上限 429（reason=sms_send_daily_limit）换人话；其余照旧透后端 message
+        if (e && e.code === 429 && e.data && e.data.reason === 'sms_send_daily_limit') {
+          uni.showToast({ title: '今日发送次数已达上限，明日再试', icon: 'none', duration: 2000 })
+        } else {
+          uni.showToast({ title: (e && e.message) || '网络异常', icon: 'none', duration: 2000 })
+        }
       } finally {
         this.pcCodeSending = false
       }
@@ -315,7 +320,12 @@ export default {
         uni.showToast({ title: '验证码已发送', icon: 'none' })
         this.startPcCountdown(2, phone)
       } catch (e) {
-        uni.showToast({ title: (e && e.message) || '网络异常', icon: 'none', duration: 2000 })
+        // F-123：日上限 429（reason=sms_send_daily_limit）换人话；其余照旧透后端 message
+        if (e && e.code === 429 && e.data && e.data.reason === 'sms_send_daily_limit') {
+          uni.showToast({ title: '今日发送次数已达上限，明日再试', icon: 'none', duration: 2000 })
+        } else {
+          uni.showToast({ title: (e && e.message) || '网络异常', icon: 'none', duration: 2000 })
+        }
       } finally {
         this.pcCodeSending = false
       }

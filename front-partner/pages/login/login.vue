@@ -18,12 +18,18 @@
              门店已停业、账号被限制（F-122 封禁也回同一枚 403——AuthInterceptor 只回 MSG_FORBIDDEN，
              只有登录接口才开始区分封禁）都落这一态，故文案只列举可能，把判定交回用户与平台。
              主理人身份不占 user.role，而是 store.owner_user_id 的归属集合（AuthInterceptor.java 的 ATTR_PARTNER_STORE_IDS）。
+             F-123 起信封 data.reason 带机读原因（no_store / user_banned），命中白名单时说明行换成认句（forbiddenReasonText），
+             取不到维持列举式逐字。
              账号本身是登录成功的，故不清登录态、不跳工作台，给两条明确去向：
              ①「去申请入驻」（pages/apply/apply 已注册于 pages.json:34，真 navigateTo 过去）
              ②「重新检查」（平台刚给这个账号绑店/恢复状态后自救，不用重收验证码）——它带 429 秒级冷却 ==================== -->
     <view v-else-if="forbidden" class="card guide-card">
       <text class="guide-title">访问受限</text>
-      <text class="guide-text">
+      <!-- F-123：说明行按 data.reason 分支——命中认句时整句换成认句（showForbidden 判好的 forbiddenReasonText，
+           主语即认句自带的「该账号」，不再拼「当前账号{{phone}}」前缀以免主语重复），并保留原句尾缀；
+           未命中时维持 D1 列举式整句逐字（含号码行内 v-if 的原形状）；两支互斥不同现 -->
+      <text v-if="forbiddenReasonText" class="guide-text">{{ forbiddenReasonText }}，请核对账号状态或联系平台</text>
+      <text v-else class="guide-text">
         当前账号<text v-if="forbiddenPhone" class="guide-strong"> {{ forbiddenPhone }} </text>可能没有门店归属或账号受限（未开通 / 已停业 / 被限制），请核对账号状态或联系平台
       </text>
       <!-- 老状态 storage 无 partner_login_phone 时 forbiddenPhone 为空：这一行不能出现「该手机号」空指代，故按有无号码分两个表述 -->
@@ -157,7 +163,7 @@ export default {
       codeSending: false,
       smsCountdown: 0,
       smsTimer: null,
-      // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl.java:106-113），
+      // 启动本轮倒计时的手机号：后端发码限流按号码维度（AuthServiceImpl 的 sendCode 限流段，具名后不挂行号），
       // 输入框换号时据此判定是否该收掉上一个号码的冷却
       smsCooldownPhone: '',
       smsLogging: false,
@@ -182,6 +188,8 @@ export default {
       forbidden: false,
       forbiddenPhone: '',
       forbiddenMessage: '',
+      // F-123：forbiddenReasonText 是 showForbidden 按 data.reason 判好的认句（'' = 未命中，列举式照旧）
+      forbiddenReasonText: '',
       // 「重新检查」的 429 冷却剩余秒数（GET /api/partner/stores 是 USER 30 次/分，RateLimit 默认 KeyType.USER）
       // 与 loginLock 分表计时：一个跟登录接口的 IP 维度限流走（与账号无关），一个跟身份判定的用户维度限流走
       // （换账号就换桶）——合并成一个会把两件事的冷却互相污染。落点与写法照 dishes.vue:187-188（data）/448（429 才起锁）/521（startRetryLock）。
@@ -217,7 +225,7 @@ export default {
   },
   onShow() {
     // FE-5（docs/四期前端交互规划/FE-5-移动端倒计时锚点化契约）：回前台先按墙上时钟锚点重算两把锁的
-    // 派生读数，再让后面任何闸门判它（口径照 verify.vue:330-335 那段 onShow 首行重算）。隐藏标签页里
+    // 派生读数，再让后面任何闸门判它（口径照 verify.vue 那段 onShow 首行重算（具名后不挂行号））。隐藏标签页里
     // setInterval 被节流（可低到 1 次/分），锚点一直是准的，但屏上的数会停在最后一次 tick 算出的旧值——
     // 不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以点的登录/重新检查无谓地挡住。
     // 这里刻意只做重算：本页 onShow 不发请求、无其他闸门判定，避免和 onLoad 的 restoreSession 重复。
@@ -265,11 +273,20 @@ export default {
         this.startSmsCountdown()
         this.smsCooldownPhone = phone
       } catch (e) {
-        this.showToast((e && e.message) || '网络异常')
+        // F-123：429 且 data.reason=sms_send_daily_limit（发码日上限，AuthServiceImpl 两支 429 的机读键）时
+        // 文案换成日上限认句；60s 频控（sms_send_interval）与 IP 桶（ip_rate_limit）照旧透后端 message。
+        // 秒数不走这里：统一由下方发码倒计时那一支取——api 层 retrySecondsOf 取值路径是 data.retryAfterSeconds
+        //（不看 reason），日上限支后端已把真值放进该键（AuthServiceImpl 的 dailyLimitRetryAfterSeconds），
+        // 故无需页内按 reason 直取
+        this.showToast(
+          (e && e.code === 429 && e.data && e.data.reason === 'sms_send_daily_limit')
+            ? '今日发送次数已达上限，明日再试'
+            : (e && e.message) || '网络异常'
+        )
         // 429（IP 或手机号维度限流，后端提示原文已 toast 透出）：前端同步进入倒计时，
         // 否则按钮立刻可再点，用户只会连续撞限流；非 429 分支维持原行为（不启动倒计时）。
-        // D2（M6）：秒数不再写死——后端 600s 锁的信封带 data.retryAfterSeconds，转述它让屏上倒计时显示真实等待；
-        // 取不到真值（60s 频控/日上限不带 data）才回落 60，与成功支同一个缺省。
+        // D2（M6）：秒数不再写死——后端 429 信封带 data.retryAfterSeconds（F-123 起 60s 频控与日上限两支也带真值），
+        // 转述它让屏上倒计时显示真实等待；取不到真值（网络异常/老信封不带 data）才回落 60，与成功支同一个缺省。
         if (e && e.code === 429) {
           this.startSmsCountdown(retrySecondsOf(e, 60))
           this.smsCooldownPhone = phone
@@ -434,7 +451,8 @@ export default {
       } catch (e) {
         const code = Number((e && e.code) || 0)
         if (code === 403) {
-          this.showForbidden(phone, e.message)
+          // F-123：第三个实参透传 403 data.reason 机读原因，showForbidden 内按白名单换认句
+          this.showForbidden(phone, e.message, e.data && e.data.reason)
           return
         }
         if (code === 401) {
@@ -457,11 +475,21 @@ export default {
       }
     },
     // 403 引导态渲染（token 保留：这是「账号能登但当前受限」，不是登录失效）
-    showForbidden(phone, message) {
+    // F-123：判据仍只有 showForbidden 一处（不新造第二套 403 状态），认句在此按 data.reason 一次性判好——
+    // reason 命中白名单（no_store / user_banned）时说明行整句换成认句（主语自带「该账号」，
+    // 不再拼 forbiddenPhone 前缀，避免「当前账号…该账号…」主语重复），取不到/未知 reason 时
+    // forbiddenReasonText 为空串、模板回落 D1 列举式整句逐字（向后兼容老信封）；
+    // 后端 message 原文仍由 guide-tip 行原样透出
+    showForbidden(phone, message, forbiddenReason) {
+      const r = (forbiddenReason && typeof forbiddenReason === 'string') ? forbiddenReason : ''
+      let reasonText = ''
+      if (r === 'no_store') reasonText = '该账号名下没有门店'
+      else if (r === 'user_banned') reasonText = '该账号已被封禁'
       this.checking = false
       this.forbidden = true
       this.forbiddenPhone = phone || ''
       this.forbiddenMessage = (typeof message === 'string' ? message : '').trim()
+      this.forbiddenReasonText = reasonText
     },
     // 「去申请入驻」：pages/apply/apply 已在 pages.json:34 注册（F-18.19 交付），这里是真跳转。
     // 引导态其余分支（保留 token、换账号）一律不动——本页 403 的语义是「登录成功、但工作台还不对其开放」，
@@ -472,7 +500,7 @@ export default {
     // 换个账号：清登录态 + 复位表单（403 保留的 token 在这里才清，避免下一个账号串上一账号的态）
     switchAccount() {
       this.$store.commit('clearToken')
-      // 发码倒计时按手机号维度计时（AuthServiceImpl.java:106-113），换号本可立即发码，不能拿上一个号码的计时拦新号；
+      // 发码倒计时按手机号维度计时（AuthServiceImpl 的 sendCode 限流段，具名后不挂行号），换号本可立即发码，不能拿上一个号码的计时拦新号；
       // retryLock 是 stores 接口的 USER 维度限流（RateLimit KeyType.USER 默认），换账号即换桶，同样收起；
       // loginLock 是 IP 维度限流、与账号无关，故保留不清（清了也只是让用户再撞一次 429）
       this.stopSmsCountdown()
@@ -480,6 +508,7 @@ export default {
       this.forbidden = false
       this.forbiddenPhone = ''
       this.forbiddenMessage = ''
+      this.forbiddenReasonText = ''
       this.smsPhone = ''
       this.smsCode = ''
       this.pwdPhone = ''

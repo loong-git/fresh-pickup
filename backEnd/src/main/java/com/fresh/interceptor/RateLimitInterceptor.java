@@ -37,11 +37,20 @@ import java.util.Map;
  *   页面/运营若按「要等一分钟」理解就是错的，照实转述这个数字即可。
  * - F-121：命中分支（现有 log.warn 同点）同步旁路 INSERT 一行到 rate_limit_hit（观测轻表，见 recordHitSafely）——
  *   落库失败只 warn，拦截判定/令牌桶零改动。
+ * - F-123：429 的 data 增补 {@code reason=ip_rate_limit}（纯增键，全站所有 @RateLimit 生效，可接受），
+ *   供三端把「写侧限流」与「防枚举锁」区分开；retryAfterSeconds 语义与取值一字未动，
+ *   F-121 观测旁路（recordHitSafely）不受影响。
  */
 @Slf4j
 @Component
 public class RateLimitInterceptor implements HandlerInterceptor {
 
+    /**
+     * 429 data 的机读原因值（F-123）：令牌桶写侧限流统一给 {@code ip_rate_limit}，
+     * 与 AuthServiceImpl/PartnerOrderServiceImpl 那类防枚举锁 429（各自带锁语义 reason/字段）相区分。
+     * key 名 {@code reason} 与 AuthInterceptor 的 403 机读键同名词，三端消费侧按 (code, reason) 二元组分流。
+     */
+    static final String REASON_IP_RATE_LIMIT = "ip_rate_limit";
     /** 限流桶缓存：key → 令牌桶；10 分钟无访问回收，总量上限 10w 条 */
     private final Cache<String, Bucket> buckets = Caffeine.newBuilder()
             .expireAfterAccess(Duration.ofMinutes(10))
@@ -87,8 +96,11 @@ public class RateLimitInterceptor implements HandlerInterceptor {
                         request.getMethod(), request.getRequestURI(), key, seconds);
                 // F-121 落库旁路（现有 log.warn 同点）：观测写失败绝不影响拦截语义（见 recordHitSafely）
                 recordHitSafely(request, key, (int) seconds);
+                // F-123：data 增补 reason=ip_rate_limit 机读键（纯增键，前端不读时行为不变）；
+                // 本拦截器管全站 @RateLimit 的 429，此处即「写侧限流」与「防枚举锁」的区分位（P4-5 登记③）。
+                // F-121 落库旁路不受影响：recordHitSafely 在本行之前照旧执行，只吃同一个 seconds。
                 ResponseUtil.writeJson(response, R.CODE_TOO_MANY_REQUESTS, R.MSG_TOO_MANY_REQUESTS,
-                        Map.of("retryAfterSeconds", seconds));
+                        Map.of("retryAfterSeconds", seconds, "reason", REASON_IP_RATE_LIMIT));
                 return false;
             }
         }

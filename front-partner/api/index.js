@@ -199,7 +199,7 @@ function handleEnvelope(res, resolve, reject) {
  *
  * 【为什么本函数必须有回落、且绝不能与 front-admin 的 retryAfterText 互换】（B-3）
  * retryAfterSeconds 全仓有**三个产出点、两种语义**，但它们共用 data 里同一个键名：
- * ① RateLimitInterceptor.java:79 —— 令牌桶**回速**（NanosToWaitForRefill 向上取整，个位秒，远小于窗口）；
+ * ① RateLimitInterceptor 的 retryAfterSeconds 换算（具名后不挂行号）—— 令牌桶**回速**（NanosToWaitForRefill 向上取整，个位秒，远小于窗口）；
  * ② AdminAuthServiceImpl.java:276 —— **401**（不是 429）运营登录锁定的剩余 TTL，上限 600 秒
  *    （LOGIN_FAIL_LOCK_TTL=10 分钟在 :112，取不到剩余时按 LOCK_RETRY_FALLBACK_SECONDS=600 兜底在 :140）；
  * ③ PartnerOrderServiceImpl.java:211-218 —— D-14 核销枚举锁的剩余 TTL（VERIFY_FAIL_LOCK_TTL=10 分钟在 :95，

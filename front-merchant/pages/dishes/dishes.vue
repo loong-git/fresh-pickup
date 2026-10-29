@@ -60,7 +60,7 @@
     </view>
 
     <!-- ==================== 3. 错误态（≠ 空态：空态是服务端确认「一条都没有」，错误态是根本没拿到数据） ====================
-             两层式照 workspace.vue:6-12 的 .guide-tip 口径：主文案是人话（商家看得懂的下一步），
+             两层式照 workspace.vue 顶部 .guide-tip 的口径（具名后不挂行号）：主文案是人话（商家看得懂的下一步），
              后端原文降为第二行小字（排查用，不顶在人话前面）——api 层 handleEnvelope 保证 message 恒非空，
              此前 errorText 为空才回退的写法让那句人话成了死代码，屏幕只剩「服务开小差了」这类码表串。
              出口按「重试有没有可能成功」分流：403（角色/写闸门）与 404（行不存在）是确定性失败，
@@ -395,7 +395,7 @@ export default {
       this.loadCategories()
     },
     // F-24-B/FB-2（原 F-23-fix/FF-3 的登记项，本批收口）：闸门秒数改为转述 api 层透出的
-    // degradedRetryAfterSeconds，源头是 RateLimitInterceptor.java:79 的 data.retryAfterSeconds
+    // degradedRetryAfterSeconds，源头是 RateLimitInterceptor 429 data 组装处的 data.retryAfterSeconds（具名后不挂行号）
     //（取的是 Refill.greedy 下的 NanosToWaitForRefill，不是窗口）。
     // 此前这里裸写 60 是「第 6 枚锁」：触发源读的是 getDishCategories() 的降级 resolve
     //（degradedReason==='rate-limited'），reject 已被 api 层转成 resolve，页面手里没有带 data 的

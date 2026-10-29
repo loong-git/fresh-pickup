@@ -1,12 +1,16 @@
 <template>
   <view class="page-container">
     <!-- ==================== 1. 「访问受限」引导态（me 回 403）
-             与登录页同源语义（D1/M1）：403 只说明「可能受限」（未开通 / 已停业 / 被封禁），
-             未开通、停业、被 F-122 封禁回的都是同一枚 403，页面无从分辨，故不断言具体原因；
-             不清登录态也不报「未登录」，只透出后端 message 并给「换个账号」出口（401 不在本页处理，请求层已统一回登录页） ==================== -->
+             与登录页同源语义（D1/M1）：403 本身只说明「可能受限」（未开通 / 已停业 / 被封禁），
+             未开通、停业、被 F-122 封禁回的都是同一枚 403；
+             F-123 起信封 data.reason 带机读原因，命中白名单时引导句换成认句（forbiddenGuideText），
+             取不到维持列举式逐字；不清登录态也不报「未登录」，只透出后端 message 并给「换个账号」出口
+             （401 不在本页处理，请求层已统一回登录页） ==================== -->
     <view v-if="viewState === 'forbidden'" class="card guide-card">
       <text class="guide-title">访问受限</text>
-      <text class="guide-text">当前账号可能没有商家权限（未开通 / 已停业 / 被限制），工作台不对其开放</text>
+      <!-- F-123：403 带 data.reason 机读原因且命中白名单时整句换成认句（forbiddenGuideText），
+           取不到/未知 reason 维持 P4-10 D1 列举式文案逐字；后端原文仍由下方 forbiddenMessage 行透出 -->
+      <text class="guide-text">{{ forbiddenGuideText }}</text>
       <text v-if="forbiddenMessage" class="guide-tip">{{ forbiddenMessage }}</text>
       <button class="btn-main" @click="switchAccount"><text>换个账号</text></button>
       <!-- token 还在，刚被平台开通的商家点「重新检查」只重发一次 me 即可 200，不必清态重收验证码（换账号是重路径） -->
@@ -139,6 +143,8 @@ export default {
       errorText: '',
       // 403 引导态透出后端原文
       forbiddenMessage: '',
+      // F-123：403 的 data.reason 机读原因快照（'' = 后端没带/不是字符串，文案维持 P4-10 D1 列举式逐字）
+      forbiddenReason: '',
       // 本次 me 成功时刻（ms），仅驱动「资料刷新于」一行
       refreshAt: 0,
       // onShow 重拉失败但会话已有商家快照时的降级标记：卡片照常展示，只在卡底追加一行重试提示
@@ -205,6 +211,15 @@ export default {
     // 正常态卡底的降级行：冷却时换成带秒数的整句（该行就本屏唯一带数处），否则仍是可点的重试提示
     refreshFailText() {
       return this.retryLock > 0 ? this.retryFullText : '资料刷新失败，点击重试'
+    },
+    // F-123：403 引导句的唯一裁决处。data.reason 命中白名单（not_merchant / user_banned）时整句换成认句；
+    // 取不到 reason（老信封兜底）或 reason 不在白名单（no_store 等按契约不可能出现在商家端，
+    // 未知枚举也不猜）一律维持 P4-10 D1 列举式文案逐字——只在确认时指认，不在未知时编原因
+    forbiddenGuideText() {
+      const r = this.forbiddenReason
+      if (r === 'not_merchant') return '该账号未开通商家权限，工作台不对其开放'
+      if (r === 'user_banned') return '该账号已被封禁，工作台不对其开放'
+      return '当前账号可能没有商家权限（未开通 / 已停业 / 被限制），工作台不对其开放'
     }
   },
   onShow() {
@@ -260,6 +275,8 @@ export default {
         // 已有 token 却拿到没有角色的空响应：按「非商家」处理，绝不渲染工作台内容（不放水）
         this.viewState = (me && me.role === 'merchant') ? 'ready' : 'forbidden'
         this.forbiddenMessage = (me && me.role === 'merchant') ? '' : '未返回商家主体信息'
+        // F-123：成功支清掉上一轮 403 留下的 reason 快照，避免旧认句残留在新引导态里（同 forbiddenMessage 的成对复位）
+        this.forbiddenReason = ''
         if (this.viewState === 'ready') this.$store.commit('setMerchant', me)
       } catch (e) {
         const code = Number((e && e.code) || 0)
@@ -269,6 +286,9 @@ export default {
         else this.stopRetryLock()
         if (e && e.code === 403) {
           this.forbiddenMessage = (typeof e.message === 'string' ? e.message : '').trim()
+          // F-123：后端 403 的 data.reason 机读原因原样快照进页面状态（不在此判文案，映射在 forbiddenGuideText）；
+          // 老信封/取不到时赋 ''，forbiddenGuideText 回落到 P4-10 D1 列举式逐字（向后兼容）
+          this.forbiddenReason = (e.data && typeof e.data.reason === 'string') ? e.data.reason : ''
           this.viewState = 'forbidden'
           return
         }

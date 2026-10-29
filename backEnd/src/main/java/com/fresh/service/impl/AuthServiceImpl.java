@@ -60,6 +60,21 @@ public class AuthServiceImpl implements AuthService {
     /** 每日上限滑动窗 24h */
     private static final long DAILY_WINDOW_MILLIS = 24 * 60 * 60 * 1000L;
 
+    // ---------------------------------------------------------------
+    // F-123 发码 429 机读原因（reason 为机读键，稳定不动；message 逐字不变）
+    // ---------------------------------------------------------------
+
+    /** 发码 429 data 里机读原因的键名 */
+    static final String SMS_429_REASON_KEY = "reason";
+    /** 60s 频控 reason：同号两次发送间隔不足 */
+    static final String SMS_REASON_SEND_INTERVAL = "sms_send_interval";
+    /** 日上限 reason：24h 滑动窗发送次数达 SEND_DAILY_LIMIT */
+    static final String SMS_REASON_SEND_DAILY_LIMIT = "sms_send_daily_limit";
+    /** 60s 频控的 retryAfterSeconds 真值（与 SEND_INTERVAL_MILLIS 同源同值） */
+    private static final long SEND_INTERVAL_SECONDS = SEND_INTERVAL_MILLIS / 1000L;
+    /** 日上限下 retryAfterSeconds 的兜底值：滑动窗内最早一次发送时间戳被并发清走算不出时回 1 小时 */
+    private static final long DAILY_LIMIT_FALLBACK_SECONDS = 3600L;
+
     /**
      * 验证码失败锁（F-65）：同一手机号连续答错 5 次即锁 10 分钟并作废当前码。
      *
@@ -99,7 +114,9 @@ public class AuthServiceImpl implements AuthService {
             throw new BizException("短信通道未接入，请联系管理员");
         }
         // F-04.2 前置安全项（同手机号自限，防配合固定验证码无限造号刷邀请冻结现金）：
-        // 60s 内重复发送拒绝（429）；24h 滑动窗内超 SEND_DAILY_LIMIT 次拒绝（429）
+        // 60s 内重复发送拒绝（429）；24h 滑动窗内超 SEND_DAILY_LIMIT 次拒绝（429）。
+        // F-123：两支 429 经 data 带 reason 区分 60s 频控与日上限，前端据此换文案与倒计时秒数；
+        // message 逐字不动（向后兼容：不读 data 的旧前端照旧）。
         long now = System.currentTimeMillis();
         // 锁定期内连发码也拒：否则被锁的人会以为"重发一张新码就能接着试"，那道锁等于没锁
         assertCodeNotLocked(phone, now);
@@ -107,10 +124,12 @@ public class AuthServiceImpl implements AuthService {
         synchronized (stamps) {
             stamps.removeIf(t -> now - t > DAILY_WINDOW_MILLIS);
             if (!stamps.isEmpty() && now - stamps.get(stamps.size() - 1) < SEND_INTERVAL_MILLIS) {
-                throw new BizException(429, "发送太频繁，请 1 分钟后再试");
+                throw new BizException(429, "发送太频繁，请 1 分钟后再试",
+                        Map.of(SMS_429_REASON_KEY, SMS_REASON_SEND_INTERVAL, "retryAfterSeconds", SEND_INTERVAL_SECONDS));
             }
             if (stamps.size() >= SEND_DAILY_LIMIT) {
-                throw new BizException(429, "今日发送次数已达上限，请明日再试");
+                throw new BizException(429, "今日发送次数已达上限，请明日再试",
+                        Map.of(SMS_429_REASON_KEY, SMS_REASON_SEND_DAILY_LIMIT, "retryAfterSeconds", dailyLimitRetryAfterSeconds(stamps)));
             }
             stamps.add(now);
         }
@@ -285,6 +304,22 @@ public class AuthServiceImpl implements AuthService {
             throw new BizException("验证码错误");
         }
         codeStore.remove(phone);
+    }
+
+    /**
+     * 日上限 429 的 {@code retryAfterSeconds} 现算（F-123）：按滑动窗内最早一次发送时间
+     * + 1s 起算到 24h 窗放行（粗算口径，契约 §2 允许）。窗口清理后列表不会为空——调用点
+     * 恰是 {@code stamps.size() >= SEND_DAILY_LIMIT} 分支；理论竞态（读与算之间被并发清空）
+     * 或值算不出时回兜底 3600，宁可多报也不虚报提前可试。
+     * 持有方已同步 {@code stamps}，本方法不做二次同步。
+     */
+    private static long dailyLimitRetryAfterSeconds(List<Long> stamps) {
+        if (stamps == null || stamps.isEmpty()) {
+            return DAILY_LIMIT_FALLBACK_SECONDS;
+        }
+        long earliest = stamps.stream().min(Long::compare).orElse(Long.MAX_VALUE);
+        long seconds = (earliest + DAILY_WINDOW_MILLIS + 1000L - System.currentTimeMillis()) / 1000L;
+        return seconds > 0 ? seconds : DAILY_LIMIT_FALLBACK_SECONDS;
     }
 
     /** 日志脱敏 138****1234 */
