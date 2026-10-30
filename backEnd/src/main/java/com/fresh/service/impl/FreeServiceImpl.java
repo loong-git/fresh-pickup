@@ -156,7 +156,11 @@ public class FreeServiceImpl implements FreeService {
             throw new BizException("无效的免费商品");
         }
         Dish dish = dishMapper.selectById(dishId);
-        if (dish == null || dish.getOnSale() == null || dish.getOnSale() != 1) {
+        // F-126：on_sale 非 1 或运营驳回同支同句——驳回品对用户表现即下架品，复用本链路既有下架句
+        // 不透出「被驳回」语义（驳回理由只下发商家端，F-116 原则）；判据常量 Dish.AUDIT_REJECTED
+        // 同 OrderServiceImpl#createOrder 的 F-116 拦截分支
+        if (dish == null || dish.getOnSale() == null || dish.getOnSale() != 1
+                || Dish.AUDIT_REJECTED.equals(dish.getAuditStatus())) {
             throw new BizException("活动商品已下架，明天再来");
         }
         // M9 满额门槛：按 items（用户当前购物车内容）以 dish 表价格重算合计判定（绝不信任前端金额），
@@ -319,7 +323,11 @@ public class FreeServiceImpl implements FreeService {
                 .collect(Collectors.toMap(Dish::getId, Function.identity()));
         return pool.stream()
                 .map(p -> dishes.get(p.getDishId()))
-                .filter(d -> d != null && d.getOnSale() != null && d.getOnSale() == 1)
+                // F-126 驳回拦截：与 on_sale 同支加 audit 判断——驳回品对用户表现即下架品，不进 C 端
+                // 免费页下发列表（服务端兜底，运营是否移池照旧自主）；判据常量 Dish.AUDIT_REJECTED
+                // 同 OrderServiceImpl#createOrder 的 F-116 拦截分支（null 安全，存量为空不误伤）
+                .filter(d -> d != null && d.getOnSale() != null && d.getOnSale() == 1
+                        && !Dish.AUDIT_REJECTED.equals(d.getAuditStatus()))
                 .collect(Collectors.toList());
     }
 
