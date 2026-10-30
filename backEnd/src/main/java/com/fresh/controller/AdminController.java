@@ -846,22 +846,29 @@ public class AdminController {
     }
 
     /**
-     * 账期列表（F-118 §1.2）：{@code GET /api/admin/settlements?merchantId=}，全量或按商家筛。
-     * 行内含实时对账标志 reconcileOk 与 paidChannelAbsent:true（记账态明示），
-     * 判定与键序钉在 {@code AdminService#listSettlements}。只读端点不写审计（RF 只约束写动作）。
+     * 账期列表（F-118 §1.2 + F-125 §1.2 分页/账期筛选）：{@code GET /api/admin/settlements}
+     * query {@code merchantId, pageNum, pageSize, dateStart, dateEnd}（均可空，controller 只透传，
+     * 判定集中在 service——照 merchants 族分工）。账期窗口为闭区间交叠语义（dateStart/dateEnd 与
+     * 账期起止有交叠即命中）。行内含实时对账标志 reconcileOk 与 paidChannelAbsent:true（记账态明示），
+     * 判定、出参形状 {@code {list,total,pageNum,pageSize,filters}} 与闸门钉在
+     * {@code AdminService#listSettlements}。只读端点不写审计（RF 只约束写动作）。
      */
     @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（F-118 §1.2，照 F-110）
     @GetMapping("/settlements")
-    public R<List<Map<String, Object>>> settlements(@RequestHeader(value = "X-Admin-Key", required = false) String key,
-                                                    @RequestHeader(value = "Authorization", required = false) String authz,
-                                                    @RequestParam(value = "merchantId", required = false) Long merchantId) {
+    public R<Map<String, Object>> settlements(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                              @RequestHeader(value = "Authorization", required = false) String authz,
+                                              @RequestParam(value = "merchantId", required = false) Long merchantId,
+                                              @RequestParam(value = "pageNum", required = false) Integer pageNum,
+                                              @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                              @RequestParam(value = "dateStart", required = false) String dateStart,
+                                              @RequestParam(value = "dateEnd", required = false) String dateEnd) {
         AdminGrant grant = checkKeyOrOperator(key, authz);
         R<Void> denied = grant.denied();
         if (denied != null) {
             // 信封内容不变，只重铺泛型参数（同 couponTemplates/listStores 的既有处置）
             return R.fail(denied.getCode(), denied.getMessage());
         }
-        return R.ok(adminService.listSettlements(merchantId));
+        return R.ok(adminService.listSettlements(merchantId, pageNum, pageSize, dateStart, dateEnd));
     }
 
     /**

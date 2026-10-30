@@ -1159,17 +1159,25 @@ export function updateAdminStore(id, body) {
 //   生成账期页用 pageSize=100 分页拉全后本地过滤，已去掉 allow-create 手输，避免错 merchantId 生成不可逆账单。
 
 /**
- * 账期列表：GET /api/admin/settlements?merchantId=
- * 出参 data 是数组，行内键序（F-118 契约 §1.2 逐字十四键，F-119 §3 在 net 后追加 commission 成十五键）：
+ * 账期列表（F-125 §1/§2 分页化 + 账期窗口筛选）：GET /api/admin/settlements
+ * 出参 data 是分页对象：{ list:[行…], total, pageNum, pageSize, filters:{ merchantId, dateStart, dateEnd } }；
+ * 行内键序（F-118 契约 §1.2 逐字十四键，F-119 §3 在 net 后追加 commission 成十五键）不变：
  * id,settleNo,merchantId,merchantName,periodStart,periodEnd,gross,refund,retain,net,commission,
  * itemCount,status,reconcileOk,paidChannelAbsent。
  * reconcileOk 是实时对账标志（金额+计数双对账，false=数据事故，页面必须标红不得静默）；
- * paidChannelAbsent 恒 true（记账态明示）；merchantId 可空=全量。只读档限流 IP 30/60s。
- * @param {number|string} [merchantId] 空值由 withQuery 挡下不下发（服务端把缺省当「全量」）
+ * paidChannelAbsent 恒 true（记账态明示）。只读档限流 IP 30/60s。
+ * 参数（全部可空，空值由 withQuery 挡下不下发，服务端把缺省当「全量 / 第 1 页 / 每页 20」）：
+ *   - merchantId：按商家过滤；
+ *   - pageNum/pageSize：页码从 1 起、每页 1~100（越界/非法服务端 400 兜底，越界页回空 list + 真值 total）；
+ *   - dateStart/dateEnd：账期窗口 YYYY-MM-DD，闭区间 [dateStart, dateEnd]——账单是区间实体，服务端对
+ *     period_start 起点与 period_end 终点做交叠比较（period_start<=dateEnd AND period_end>=dateStart），
+ *     即命中与窗口有交叠的账单；dateStart>dateEnd 服务端 400「账期起止无效（start 须早于 end）」。
+ * 唯一调用方是 Settlements.vue（F-125 §2.1 实证）。
+ * @param {{merchantId?:number|string, pageNum?:number, pageSize?:number, dateStart?:string, dateEnd?:string}} [params]
  */
-export function getAdminSettlements(merchantId) {
+export function getAdminSettlements(params) {
   return request({
-    url: withQuery('/api/admin/settlements', { merchantId }),
+    url: withQuery('/api/admin/settlements', params),
     method: 'GET'
   })
 }

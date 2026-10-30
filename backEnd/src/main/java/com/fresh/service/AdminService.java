@@ -485,22 +485,33 @@ public interface AdminService {
     Map<String, Object> generateSettlement(AdminSettlementGenerateDTO dto, String actor);
 
     /**
-     * 账期列表（{@code GET /api/admin/settlements?merchantId=}，F-118 §1.2）：全量或按商家筛
-     * （merchantId 可空，空=全量；非空只做过滤不校验存在——照 listStores 全量先例，查无即空列表），
-     * 按 id DESC（新账期在前）。每单键序固定
+     * 账期列表（{@code GET /api/admin/settlements}，F-118 §1.2 初版 + F-125 §1.2 分页/账期筛选）：
+     * 按 id DESC（新账期在前）返回一页。每单键序固定
      * {@code id,settleNo,merchantId,merchantName,periodStart,periodEnd,gross,refund,retain,net,
      * commission,itemCount,status,reconcileOk,paidChannelAbsent}（F-118 契约逐字十四键，F-119 §3
      * 在 net 后追加 commission 一键成十五键——佣金列显值，F-118 时代恒 0；仍不加 orderCount）。
      *
+     * <p><b>分页与筛选（F-125 §1.2，闸门照 merchants 族）</b>：pageNum 缺省 1、pageSize 缺省 20，
+     * 值域 [1,100]，越界 400「请求参数有误，请检查后重试」不夹取；merchantId 可空（空=全量，非空只做
+     * 过滤不校验存在——照 listStores 全量先例）；dateStart/dateEnd 可空、空串归 null，非空须
+     * YYYY-MM-DD 可解析（非法 400「账期日期格式应为 YYYY-MM-DD」），两值都非空且 start &gt; end
+     * 400「账期起止无效（start 须早于 end）」（start==end 是合法单日窗口，与生成端 start&lt;end
+     * 判据刻意不同）。日期窗口为<b>闭区间交叠</b>语义：筛选与 [dateStart,dateEnd] 有交叠的账单
+     * （{@code period_start <= dateEnd AND period_end >= dateStart}）。越界页（offset ≥ total）
+     * 回空 list、total 仍真值。
+     *
      * <p><b>reconcileOk 实时算</b>（不落列）：① 账面 gross==该单挂锚明细 Σ(supply_price×qty)
      * <b>且</b> ② 账面计数==实时挂锚计数 <b>且</b> ③ 挂锚明细无孤儿（orders 行被删即数据事故，
      * 2026-10-25 主会话验收裁决第三条件），三者皆真才 true（{@code OrderItemMapper#selectAnchoredAggregates}
-     * 一次批量聚合，无 N+1）。settlement 表（06 册 §4.5 定稿）无 item_count 列，明细行数账面无落点——
-     * 计数对账以表内唯一计数列 order_count 对实时去重订单数承载；出参 {@code itemCount} 取实时挂锚行数
-     * （明细弹窗行数与它天然一致）。
+     * 只对本页 settleIds 一次批量聚合，无 N+1）。settlement 表（06 册 §4.5 定稿）无 item_count 列，明细行数
+     * 账面无落点——计数对账以表内唯一计数列 order_count 对实时去重订单数承载；出参 {@code itemCount}
+     * 取实时挂锚行数（明细弹窗行数与它天然一致）。
      * <b>paidChannelAbsent 恒 true</b>：「打款通道未接」是 UI 恒显语义，接口层带出防前端漏显。
+     *
+     * @return {@code {list:[行…], total, pageNum, pageSize, filters:{merchantId, dateStart, dateEnd}}}
+     *         （filters 内 merchantId 与入参同，dateStart/dateEnd 为归一后 null 或 YYYY-MM-DD 字符串）
      */
-    List<Map<String, Object>> listSettlements(Long merchantId);
+    Map<String, Object> listSettlements(Long merchantId, Integer pageNum, Integer pageSize, String dateStart, String dateEnd);
 
     /**
      * 账单明细（{@code GET /api/admin/settlements/{id}/items}，F-118 §1.3）：

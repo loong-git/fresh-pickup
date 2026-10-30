@@ -56,7 +56,9 @@ import static org.mockito.Mockito.when;
  */
 class F124ReviewIdempotencyTest {
 
-    private static final String KEY = "r-1-1769600000000-ab12";
+    // ts 段用 10 位秒级值：13 位毫秒串的任意 11 位连续子段恒命中 f28 §10c 的手机号形态判据
+    // （1[3-9]\d{9}），秒级打断连续数字段——mock 断言对键值本身无依赖，仅作任意幂等键样本。
+    private static final String KEY = "r-1-1769600000-ab12";
     private static final String SUCCESS_MESSAGE = "评价成功";
 
     private final ReviewMapper reviewMapper = mock(ReviewMapper.class);

@@ -31,15 +31,19 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -408,12 +412,20 @@ class SettlementGenerateTest {
         return row;
     }
 
+    /**
+     * 一行账单过列表路径，返回渲染后的行列表（F-125 分页后：出参变 {@code {list,total,…}} 分页对象，
+     * 这里取 {@code list} 键，判据零改动——照 F-124 修桩先例语义等价迁移）。
+     */
+    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> listOne(Settlement row) {
-        when(settlementMapper.selectList(any())).thenReturn(List.of(row));
+        when(settlementMapper.countSettlements(any(), any(), any())).thenReturn(1L);
+        when(settlementMapper.selectSettlementsPage(any(), any(), any(), anyLong(), anyInt()))
+                .thenReturn(List.of(row));
         when(merchantMapper.selectBatchIds(any())).thenReturn(List.of(merchant()));
-        List<Map<String, Object>> out = adminService.listSettlements(null);
-        assertEquals(1, out.size());
-        return out;
+        Map<String, Object> out = adminService.listSettlements(null, null, null, null, null);
+        List<Map<String, Object>> list = (List<Map<String, Object>>) out.get("list");
+        assertEquals(1, list.size());
+        return list;
     }
 
     @Test
@@ -505,16 +517,96 @@ class SettlementGenerateTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void 商家筛_listSettlements按merchantId过滤() {
         Settlement row = storedSettlement();
-        when(settlementMapper.selectList(any())).thenReturn(List.of(row));
+        // merchantId 下沉 mapper 后由桩的 eq 匹配器钉住透传（传 null/别值则桩不命中、list 落空）
+        when(settlementMapper.countSettlements(eq(MERCHANT_ID), any(), any())).thenReturn(1L);
+        when(settlementMapper.selectSettlementsPage(eq(MERCHANT_ID), any(), any(), anyLong(), anyInt()))
+                .thenReturn(List.of(row));
         when(merchantMapper.selectBatchIds(any())).thenReturn(List.of(merchant()));
         when(orderItemMapper.selectAnchoredAggregates(anyList())).thenReturn(List.of());
 
-        // merchantId 非空时传给 mapper 的 wrapper 带等值过滤（mock 层断言调用发生、出参照行渲染）
-        List<Map<String, Object>> out = adminService.listSettlements(MERCHANT_ID);
-        assertEquals(1, out.size());
-        assertEquals(MERCHANT_ID, out.get(0).get("merchantId"));
+        // merchantId 非空时透传给 mapper 过滤（mock 层断言调用发生、出参照行渲染）；filters 回显与入参同
+        Map<String, Object> out = adminService.listSettlements(MERCHANT_ID, null, null, null, null);
+        List<Map<String, Object>> list = (List<Map<String, Object>>) out.get("list");
+        assertEquals(1, list.size());
+        assertEquals(MERCHANT_ID, list.get(0).get("merchantId"));
+        assertEquals(MERCHANT_ID, ((Map<String, Object>) out.get("filters")).get("merchantId"));
+    }
+
+    // ================================================================
+    // ⑥ 分页与账期筛选（F-125 §1.2/§1.3）
+    // ================================================================
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 全缺省_出参五键_缺省页码1页容20() {
+        when(settlementMapper.countSettlements(any(), any(), any())).thenReturn(1L);
+        when(settlementMapper.selectSettlementsPage(any(), any(), any(), anyLong(), anyInt()))
+                .thenReturn(List.of(storedSettlement()));
+        when(merchantMapper.selectBatchIds(any())).thenReturn(List.of(merchant()));
+
+        Map<String, Object> out = adminService.listSettlements(null, null, null, null, null);
+        assertEquals(Set.of("list", "total", "pageNum", "pageSize", "filters"), out.keySet(),
+                "出参封口照 merchants 族五键");
+        assertEquals(1, out.get("pageNum"), "pageNum 缺省 1");
+        assertEquals(20, out.get("pageSize"), "pageSize 缺省 20");
+        assertEquals(1L, out.get("total"));
+        assertEquals(1, ((List<Map<String, Object>>) out.get("list")).size());
+        Map<String, Object> filters = (Map<String, Object>) out.get("filters");
+        assertEquals(Set.of("merchantId", "dateStart", "dateEnd"), filters.keySet());
+        assertNull(filters.get("merchantId"), "全缺省 filters 三值归 null");
+        assertNull(filters.get("dateStart"));
+        assertNull(filters.get("dateEnd"));
+    }
+
+    @Test
+    void 账期筛选闸门_start晚于end与形状非法皆400_闸门先于查库() {
+        // dateStart > dateEnd → 400（与生成端同句 SETTLE_PERIOD_ORDER_MSG 文案）
+        BizException reversed = assertThrows(BizException.class,
+                () -> adminService.listSettlements(null, 1, 20, END, START));
+        assertEquals(400, reversed.getCode());
+        assertEquals("账期起止无效（start 须早于 end）", reversed.getMessage());
+
+        // 形状 / 真日期非法 → 400 SETTLE_DATE_SHAPE_MSG（照 parseSettleDate 两道闸）
+        assertEquals("账期日期格式应为 YYYY-MM-DD", assertThrows(BizException.class,
+                () -> adminService.listSettlements(null, 1, 20, "2026/10/01", null)).getMessage());
+        assertEquals("账期日期格式应为 YYYY-MM-DD", assertThrows(BizException.class,
+                () -> adminService.listSettlements(null, 1, 20, "2026-02-30", null)).getMessage());
+
+        // 闸门先于一切查库（400 的四种输入都不触 mapper）
+        verify(settlementMapper, never()).countSettlements(any(), any(), any());
+        verify(settlementMapper, never()).selectSettlementsPage(any(), any(), any(), anyLong(), anyInt());
+
+        // start == end 是合法单日窗口（与生成端 start<end 判据刻意不同）：不抛、照常走到查询
+        assertDoesNotThrow(() -> adminService.listSettlements(null, 1, 20, START, START));
+    }
+
+    @Test
+    void 分页闸门_pageNum0与pageSize出界皆400() {
+        assertEquals(400, assertThrows(BizException.class,
+                () -> adminService.listSettlements(null, 0, 20, null, null)).getCode());
+        assertEquals(400, assertThrows(BizException.class,
+                () -> adminService.listSettlements(null, 1, 0, null, null)).getCode());
+        assertEquals(400, assertThrows(BizException.class,
+                () -> adminService.listSettlements(null, 1, 101, null, null)).getCode());
+        verify(settlementMapper, never()).countSettlements(any(), any(), any());
+        verify(settlementMapper, never()).selectSettlementsPage(any(), any(), any(), anyLong(), anyInt());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 越界页_offset不小于total_空list且total真值_不查页() {
+        // offset=(2-1)*20=20 >= total=1 → List.of() 短路（照 merchants 族），total 仍真值
+        when(settlementMapper.countSettlements(any(), any(), any())).thenReturn(1L);
+
+        Map<String, Object> out = adminService.listSettlements(null, 2, 20, null, null);
+        List<Map<String, Object>> list = (List<Map<String, Object>>) out.get("list");
+        assertTrue(list.isEmpty(), "offset ≥ total 短路回空 list");
+        assertEquals(1L, out.get("total"), "total 仍真值");
+        assertEquals(2, out.get("pageNum"));
+        verify(settlementMapper, never()).selectSettlementsPage(any(), any(), any(), anyLong(), anyInt());
     }
 
     // ---------------------------------------------------------------- 文本级断言辅助

@@ -23,8 +23,16 @@
       <el-select v-model="filterMerchantId" clearable filterable placeholder="按商家筛（可空=全部）" style="width: 220px" @change="onFilterChange">
         <el-option v-for="m in merchantOptions" :key="m.value" :label="m.label" :value="m.value" />
       </el-select>
+      <!-- F-125 §2：账期窗口筛选（YYYY-MM-DD，闭区间 [dateStart, dateEnd]，服务端对 period_start/period_end
+           交叠比较）。日期控件在飞禁用照 P4-7 A3 口径：loading 中禁改，防「改了条件却被在飞守卫吞掉」的假筛选。 -->
+      <el-date-picker v-model="filterDateStart" type="date" value-format="YYYY-MM-DD" placeholder="账期起"
+                      style="width: 150px" :disabled="loading" />
+      <el-date-picker v-model="filterDateEnd" type="date" value-format="YYYY-MM-DD" placeholder="账期止"
+                      style="width: 150px" :disabled="loading" />
+      <el-button size="small" type="primary" plain :loading="loading" :disabled="submitting" @click="applyFilters">筛选</el-button>
+      <el-button link size="small" :disabled="loading" @click="clearDateFilter">清空</el-button>
       <el-button size="small" :loading="loading" :disabled="submitting" @click="loadSettlements">刷新</el-button>
-      <span class="toolbar-hint">共 {{ settlements.length }} 单；按 id 倒序（新账期在前）。</span>
+      <span class="toolbar-hint">共 {{ total }} 单；按 id 倒序（新账期在前）。</span>
     </div>
 
     <!-- P4-6：生成成功提示。若当前筛选不是该商家，给一键切筛选，避免「生成了但列表里看不见」。 -->
@@ -94,6 +102,22 @@
             </template>
           </el-table-column>
         </el-table>
+
+        <!-- F-125 §2：分页器（形状照 Orders.vue 同款）：total 用后端独立 COUNT 的真值；
+             在飞读由表格上方 state-box 覆盖，分页器只让位给写在飞（submitting），对齐 Orders 口径。 -->
+        <div class="pager">
+          <el-pagination
+            v-model:current-page="pageNum"
+            v-model:page-size="pageSize"
+            :total="total"
+            :page-sizes="PAGE_SIZES"
+            layout="total, sizes, prev, pager, next"
+            background
+            :disabled="submitting"
+            @size-change="onSizeChange"
+            @current-change="onPageChange"
+          />
+        </div>
       </template>
     </section>
 
@@ -207,7 +231,8 @@
 
 <script setup>
 // 结算中心（F-118 §2）：结构与错误处理照 Stores.vue / CouponTemplates.vue（同组菜单 F-113/F-114 模式）。
-//   读   = GET /api/admin/settlements（F-118 十四键行 + F-119 §3 追加 commission，id 倒序；reconcileOk 实时对账标志）
+//   读   = GET /api/admin/settlements（F-118 十四键行 + F-119 §3 追加 commission，id 倒序；reconcileOk 实时对账标志；
+//          F-125 §2 起分页出参 {list,total,pageNum,pageSize,filters} + 账期窗口闭区间筛选）
 //   写   = POST /api/admin/settlements/generate（商家+起止日期；二次确认含聚合口径）
 //   明细 = GET /api/admin/settlements/{id}/items（挂锚明细快照，只读）
 // 纪律（契约 §2/§3）：
@@ -225,6 +250,14 @@ const loading = ref(false)
 const error = ref('')
 const submitting = ref(false)
 const filterMerchantId = ref(null)
+// F-125 §2：分页 + 账期窗口筛选态。dateStart/dateEnd 为 null=不筛（withQuery 对空值不下发，服务端走缺省）；
+// pageNum/pageSize/total 三态由服务端分页出参驱动，total 绝不用本页行数推算。
+const filterDateStart = ref(null)
+const filterDateEnd = ref(null)
+const pageNum = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
+const PAGE_SIZES = [10, 20, 50, 100]
 
 const generateVisible = ref(false)
 const form = ref({ merchantId: null, periodStart: '', periodEnd: '' })
@@ -308,12 +341,35 @@ async function fetchSettlements(force) {
   }
   loading.value = true
   error.value = ''
+  // F-125 §2 空页回退（P4-7 A8）的局部 flag：本趟只补拉一次。回退目标是真末页（pageNum==lastPage），
+  // 配合下方「越过末页才回退」判据，补拉趟不可能再置位——双保险防「补拉趟又空页」成环。
+  let pageFixPending = false
   try {
-    const envelope = await getAdminSettlements(filterMerchantId.value)
-    settlements.value = envelope && Array.isArray(envelope.data) ? envelope.data : []
+    const envelope = await getAdminSettlements({
+      merchantId: filterMerchantId.value,
+      pageNum: pageNum.value,
+      pageSize: pageSize.value,
+      dateStart: filterDateStart.value,
+      dateEnd: filterDateEnd.value
+    })
+    const data = envelope && envelope.data ? envelope.data : {}
+    settlements.value = Array.isArray(data.list) ? data.list : []
+    // total 用后端独立 COUNT 的值，绝不拿本页行数推算（那会把「这一页几条」说成「一共几条」）
+    total.value = Number(data.total) || 0
+    // A8 空页回退：服务端对越界页回「空 list + 定值 total」而不是 400，所以
+    // 「空行 + total>0 + 页码>1」是唯一可靠判据；回退到真末页（补拉在 finally 之后，只补一次）。
+    if (settlements.value.length === 0 && total.value > 0 && pageNum.value > 1) {
+      const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+      if (pageNum.value > lastPage) {
+        pageNum.value = lastPage
+        pageFixPending = true
+      }
+    }
   } catch (err) {
     const e = err || {}
     settlements.value = []
+    // 出错时 total 一并归零：toolbar-hint「共 N 单」不许在列表已空时还念上一轮的旧数（照 MerchantApplies 口径）
+    total.value = 0
     error.value = e.message || ''
     if (e.message) ElMessage.error(e.message)
   } finally {
@@ -322,6 +378,10 @@ async function fetchSettlements(force) {
       reloadQueued = false
       fetchSettlements(true)
     }
+  }
+  // A8 补拉必须放在 finally 之后：此刻 loading 已落，在飞守卫才放行；不得在 try 里 await fetchSettlements()。
+  if (pageFixPending) {
+    return fetchSettlements(false)
   }
 }
 
@@ -352,14 +412,50 @@ function openGenerate() {
 // 列表筛选变化：清掉上一次生成提示，避免旧提示与新筛选并存
 function onFilterChange() {
   generatedHint.value = null
+  applyFilters()
+}
+
+// F-125 §2：任一筛选（商家下拉 / 日期「筛选」按钮）生效都回第 1 页再拉
+// （照 P4-1 tab 收口纪律：原页码在新筛选下很可能已越界，会被误读成「这批没有数据」）。
+function applyFilters() {
+  // F-125 §3 验收 3：dateStart > dateEnd 前端拦截，不发请求、不改任何状态
+  // （YYYY-MM-DD 定长字符串字典序即日期序，比较合法）。后端 400 仍是最后防线，前端不重复后端文案。
+  // clearDateFilter 两值同清归 null，不会触发本判据。
+  if (filterDateStart.value && filterDateEnd.value && filterDateStart.value > filterDateEnd.value) {
+    ElMessage.warning('账期起须不晚于账期止，请调整后再筛选')
+    return
+  }
+  pageNum.value = 1
+  loadSettlements()
+}
+
+// F-125 §2：一键清空账期窗口（归 null=不筛），同样回第 1 页重拉。
+function clearDateFilter() {
+  filterDateStart.value = null
+  filterDateEnd.value = null
+  pageNum.value = 1
+  loadSettlements()
+}
+
+function onSizeChange() {
+  // 换每页条数回第 1 页：原页码在新页大小下很可能已越界，而服务端越界页回的是「空 list + 定值 total」（不是 400），
+  // 那会被误读成「这一档没有数据」（照 Orders.vue 同款口径）
+  pageNum.value = 1
+  loadSettlements()
+}
+
+function onPageChange() {
+  // v-model:current-page 已先把 pageNum 改到位，这里直接拉
   loadSettlements()
 }
 
 // 生成成功后若当前筛选看不到该商家，一键切到该商家（不偷偷改筛选）；
 // 保留提示条，切完由 reloadSettlements 补拉（在飞时排队，不静默丢）。
+// F-125 §2：生成的新账单 id 最大、必在第 1 页——切筛选后 pageNum 归 1，否则可能停在空页看不到它。
 function showGeneratedMerchant() {
   if (!generatedHint.value) return
   filterMerchantId.value = String(generatedHint.value.merchantId)
+  pageNum.value = 1
   reloadSettlements()
 }
 
@@ -487,6 +583,12 @@ onMounted(() => {
 .toolbar-hint {
   font-size: 12px;
   color: #909399;
+}
+/* F-125 §2：分页器行（照 Orders.vue 同款右对齐） */
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 .panel {
   margin-top: 14px;

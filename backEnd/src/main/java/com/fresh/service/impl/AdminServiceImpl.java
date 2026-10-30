@@ -2869,7 +2869,16 @@ public class AdminServiceImpl implements AdminService {
     }
 
     /**
-     * 账期列表（F-118 §1.2）：全量或按商家筛（merchantId 可空，空=全量），id DESC 新账期在前。
+     * 账期列表（F-118 §1.2 + F-125 §1.2 分页/账期筛选）：按 id DESC 新账期在前返回一页。
+     * 参数闸门逐字照 {@link #merchants} 族（pageNum/pageSize 缺省 1/20、值域 [1,100]、越界 400 不夹取）；
+     * dateStart/dateEnd 空串归 null、非空过 {@link #parseSettleDate}（形状+真日期两道闸，非法 400），
+     * 两值都非空且 start &gt; end 抛 400（start==end 是合法单日窗口，与生成端 start&lt;end 判据刻意不同）；
+     * merchantId 可空，空=全量，非空只做过滤不校验存在（照 listStores 全量先例）。
+     * merchantId/账期窗口过滤全部下沉 SettlementMapper#countSettlements/#selectSettlementsPage
+     * （闭区间交叠语义见该 WHERE 常量注释）；offset 用 long 防 int 溢出，offset &gt;= total 短路回空列表
+     * （照 merchants 族），total 仍真值。出参封口照 merchants 族：
+     * {@code {list,total,pageNum,pageSize,filters:{merchantId,dateStart,dateEnd}}}，
+     * filters 回显归一后的三值（date 为 null 或 YYYY-MM-DD 字符串）。
      * reconcileOk 实时算：一次批量聚合（selectAnchoredAggregates）拿各单挂锚行数 / 去重订单数 /
      * Σ(supply_price×qty) / 孤儿行数——三条件皆真才 true，不落列、每请求现算：
      * 明细金额被改（①打穿）、行被删（②打穿）、挂锚明细的 orders 行被删即孤儿（③打穿，
@@ -2878,10 +2887,29 @@ public class AdminServiceImpl implements AdminService {
      * 商家名批量查（selectBatchIds）不逐行查。periodStart/periodEnd 落 String（服务端定形，照 D-18）。
      */
     @Override
-    public List<Map<String, Object>> listSettlements(Long merchantId) {
-        List<Settlement> rows = settlementMapper.selectList(new LambdaQueryWrapper<Settlement>()
-                .eq(merchantId != null, Settlement::getMerchantId, merchantId)
-                .orderByDesc(Settlement::getId));
+    public Map<String, Object> listSettlements(Long merchantId, Integer pageNum, Integer pageSize, String dateStart, String dateEnd) {
+        int pageNo = pageNum == null ? LIST_DEFAULT_PAGE_NUM : pageNum;
+        if (pageNo < LIST_DEFAULT_PAGE_NUM) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        int size = pageSize == null ? LIST_DEFAULT_PAGE_SIZE : pageSize;
+        if (size < LIST_MIN_PAGE_SIZE || size > LIST_MAX_PAGE_SIZE) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        // 账期窗口归一：空串（含纯空白）归 null；非空过 parseSettleDate 的两道闸（形状正则 + LocalDate 真日期）
+        LocalDate startDate = dateStart == null || dateStart.trim().isEmpty() ? null : parseSettleDate(dateStart);
+        LocalDate endDate = dateEnd == null || dateEnd.trim().isEmpty() ? null : parseSettleDate(dateEnd);
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new BizException(SETTLE_PERIOD_ORDER_MSG);
+        }
+        String fStart = startDate == null ? null : startDate.toString();
+        String fEnd = endDate == null ? null : endDate.toString();
+
+        long total = settlementMapper.countSettlements(merchantId, fStart, fEnd);
+        long offset = (long) (pageNo - 1) * size;
+        List<Settlement> rows = offset >= total
+                ? List.of()
+                : settlementMapper.selectSettlementsPage(merchantId, fStart, fEnd, offset, size);
         // 商家名映射（一次批量，无 N+1）
         Map<Long, String> merchantNames = new LinkedHashMap<>();
         Set<Long> merchantIds = new LinkedHashSet<>();
@@ -2895,7 +2923,7 @@ public class AdminServiceImpl implements AdminService {
                 merchantNames.put(m.getId(), m.getName());
             }
         }
-        // 对账聚合（一次批量；无账单时短路不下发空 IN）
+        // 对账聚合（一次批量，只对本页 settleIds；无账单时短路不下发空 IN）
         Map<Long, Map<String, Object>> anchored = new LinkedHashMap<>();
         if (!settleIds.isEmpty()) {
             for (Map<String, Object> agg : orderItemMapper.selectAnchoredAggregates(new ArrayList<>(settleIds))) {
@@ -2903,7 +2931,7 @@ public class AdminServiceImpl implements AdminService {
             }
         }
 
-        List<Map<String, Object>> out = new ArrayList<>(rows.size());
+        List<Map<String, Object>> list = new ArrayList<>(rows.size());
         for (Settlement row : rows) {
             Map<String, Object> agg = anchored.get(row.getId());
             // reconcileOk 实时算（契约 §1.2，账面 vs 实时三条件皆真才 true）：
@@ -2942,9 +2970,22 @@ public class AdminServiceImpl implements AdminService {
             line.put("status", row.getStatus());
             line.put("reconcileOk", reconcileOk);
             line.put("paidChannelAbsent", Boolean.TRUE);   // 记账态明示：打款通道未接（轨道 B）
-            out.add(line);
+            list.add(line);
         }
-        return out;
+
+        Map<String, Object> filters = new LinkedHashMap<>();
+        filters.put("merchantId", merchantId);
+        filters.put("dateStart", fStart);
+        filters.put("dateEnd", fEnd);
+
+        // 键名与键序逐字照 merchants 族的分页封口（不新造形状）
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("list", list);
+        data.put("total", total);
+        data.put("pageNum", pageNo);
+        data.put("pageSize", size);
+        data.put("filters", filters);
+        return data;
     }
 
     /**
