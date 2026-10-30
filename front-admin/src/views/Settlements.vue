@@ -58,7 +58,10 @@
         <el-table :data="settlements" border stripe size="small" max-height="calc(100vh - 380px)"
                   :row-class-name="reconcileRowClass">
           <template #empty>
-            <span class="muted">暂无账期（首次生成前此列表为空，属正常态）</span>
+            <!-- F-125 契约 §2.2 增补：空态文案两支（UI 文案必须诚实）——有生效筛选时账单可能存在、
+                 只是窗口没圈到，不能再说「首次生成前此列表为空，属正常态」；无筛选支原文案逐字保留。 -->
+            <span v-if="hasActiveFilter" class="muted">当前筛选条件下暂无账期，可调整或清空筛选后重试</span>
+            <span v-else class="muted">暂无账期（首次生成前此列表为空，属正常态）</span>
           </template>
           <el-table-column label="账期" width="200">
             <template #default="{ row }">{{ row.periodStart }} ~ {{ row.periodEnd }}</template>
@@ -258,6 +261,11 @@ const pageNum = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const PAGE_SIZES = [10, 20, 50, 100]
+
+// F-125 契约 §2.2 增补：是否有生效筛选——商家下拉或账期起/止任一非空。
+// merchantId 是 String 或 null，clearable 清除后可能落 ''，null 与 '' 都算「无筛选」；
+// 供空态文案两支使用：有筛选空=窗口没圈到（账单可能存在），无筛选空=首次生成前的正常态。
+const hasActiveFilter = computed(() => (filterMerchantId.value != null && filterMerchantId.value !== '') || !!filterDateStart.value || !!filterDateEnd.value)
 
 const generateVisible = ref(false)
 const form = ref({ merchantId: null, periodStart: '', periodEnd: '' })
