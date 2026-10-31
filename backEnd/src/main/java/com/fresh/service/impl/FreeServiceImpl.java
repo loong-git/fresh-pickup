@@ -9,6 +9,7 @@ import com.fresh.entity.Dish;
 import com.fresh.entity.FreeActivity;
 import com.fresh.entity.FreeClaim;
 import com.fresh.entity.FreeGoodsPool;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Order;
 import com.fresh.entity.OrderItem;
 import com.fresh.entity.Store;
@@ -17,6 +18,7 @@ import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.FreeActivityMapper;
 import com.fresh.mapper.FreeClaimMapper;
 import com.fresh.mapper.FreeGoodsPoolMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -37,6 +39,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -76,6 +79,8 @@ public class FreeServiceImpl implements FreeService {
     private OrderItemMapper orderItemMapper;
     @Autowired
     private DishMapper dishMapper;
+    @Autowired
+    private MerchantMapper merchantMapper;
     @Autowired
     private StoreMapper storeMapper;
     @Autowired
@@ -162,6 +167,14 @@ public class FreeServiceImpl implements FreeService {
         if (dish == null || dish.getOnSale() == null || dish.getOnSale() != 1
                 || Dish.AUDIT_REJECTED.equals(dish.getAuditStatus())) {
             throw new BizException("活动商品已下架，明天再来");
+        }
+        // P5-1/F-127 封禁商家拦截：判据与文案逐字同 OrderServiceImpl#createOrder 的 F-122 拦截分支
+        // （「「X」所属商家暂停营业，请重新选择」，跨链路同一教育口径不新造文案）；单 dish 无需下单侧
+        // 的请求内 computeIfAbsent 缓存。位置在 F-126 audit 支之后、门槛重算之前——前置于一切写操作
+        // （建单/扣库存/settle 均在其后），拦截零副作用；商家行缺失/null 一律拒
+        Merchant merchant = merchantMapper.selectById(dish.getMerchantId());
+        if (merchant == null || !"active".equals(merchant.getStatus())) {
+            throw new BizException("「" + dish.getName() + "」所属商家暂停营业，请重新选择");
         }
         // M9 满额门槛：按 items（用户当前购物车内容）以 dish 表价格重算合计判定（绝不信任前端金额），
         // 未满 threshold 拒绝，差额保留两位小数引导凑单；免费单走独立 0 元链路不进购物车，
@@ -321,13 +334,28 @@ public class FreeServiceImpl implements FreeService {
         List<Long> dishIds = pool.stream().map(FreeGoodsPool::getDishId).collect(Collectors.toList());
         Map<Long, Dish> dishes = dishMapper.selectBatchIds(dishIds).stream()
                 .collect(Collectors.toMap(Dish::getId, Function.identity()));
+        // P5-1/F-127 封禁商家拦截：merchant 维度与 F-126 的 audit 过滤同位、两维度同构——池内商品的
+        // 非空 merchantId 去重后一次批量查商家（消 N+1），仅 active（F-122 值域白名单）商家的商品进
+        // 下发列表；商家行缺失/merchantId null 一律不下发（宁缺勿错，同 OrderServiceImpl#createOrder
+        // 的 F-122「缺失/null 一律拒」口径），封禁件不顶占池首默认免费商品位；运营是否移池照旧自主
+        List<Long> merchantIds = dishes.values().stream()
+                .map(Dish::getMerchantId)
+                .filter(id -> id != null)
+                .distinct()
+                .collect(Collectors.toList());
+        Set<Long> activeMerchantIds = merchantIds.isEmpty() ? Set.of()
+                : merchantMapper.selectBatchIds(merchantIds).stream()
+                        .filter(m -> m != null && "active".equals(m.getStatus()))
+                        .map(Merchant::getId)
+                        .collect(Collectors.toSet());
         return pool.stream()
                 .map(p -> dishes.get(p.getDishId()))
                 // F-126 驳回拦截：与 on_sale 同支加 audit 判断——驳回品对用户表现即下架品，不进 C 端
                 // 免费页下发列表（服务端兜底，运营是否移池照旧自主）；判据常量 Dish.AUDIT_REJECTED
                 // 同 OrderServiceImpl#createOrder 的 F-116 拦截分支（null 安全，存量为空不误伤）
                 .filter(d -> d != null && d.getOnSale() != null && d.getOnSale() == 1
-                        && !Dish.AUDIT_REJECTED.equals(d.getAuditStatus()))
+                        && !Dish.AUDIT_REJECTED.equals(d.getAuditStatus())
+                        && d.getMerchantId() != null && activeMerchantIds.contains(d.getMerchantId()))
                 .collect(Collectors.toList());
     }
 

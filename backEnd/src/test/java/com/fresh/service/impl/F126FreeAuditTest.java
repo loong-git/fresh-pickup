@@ -9,6 +9,7 @@ import com.fresh.entity.Dish;
 import com.fresh.entity.FreeActivity;
 import com.fresh.entity.FreeClaim;
 import com.fresh.entity.FreeGoodsPool;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Order;
 import com.fresh.entity.Store;
 import com.fresh.entity.User;
@@ -16,6 +17,7 @@ import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.FreeActivityMapper;
 import com.fresh.mapper.FreeClaimMapper;
 import com.fresh.mapper.FreeGoodsPoolMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -76,6 +78,7 @@ class F126FreeAuditTest {
     private final OrderMapper orderMapper = mock(OrderMapper.class);
     private final OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
     private final DishMapper dishMapper = mock(DishMapper.class);
+    private final MerchantMapper merchantMapper = mock(MerchantMapper.class);
     private final StoreMapper storeMapper = mock(StoreMapper.class);
     private final UserMapper userMapper = mock(UserMapper.class);
     private final PaymentSettlement settlement = mock(PaymentSettlement.class);
@@ -108,6 +111,7 @@ class F126FreeAuditTest {
         ReflectionTestUtils.setField(freeService, "orderMapper", orderMapper);
         ReflectionTestUtils.setField(freeService, "orderItemMapper", orderItemMapper);
         ReflectionTestUtils.setField(freeService, "dishMapper", dishMapper);
+        ReflectionTestUtils.setField(freeService, "merchantMapper", merchantMapper);
         ReflectionTestUtils.setField(freeService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(freeService, "userMapper", userMapper);
         ReflectionTestUtils.setField(freeService, "settlement", settlement);
@@ -134,7 +138,17 @@ class F126FreeAuditTest {
         d.setStock(5);
         d.setOnSale(1);
         d.setAuditStatus(auditStatus);
+        d.setMerchantId(1L); // F-127 起下发/领取须过 merchant 维度：归属平台自营（全库 dish 挂 merchant 1 的生产现状）
         return d;
+    }
+
+    /** 平台自营商家行（active）：F-127 免费领封禁商家拦截的通过态桩（封禁态反向用例归 F127FreeMerchantBanTest） */
+    private static Merchant activeMerchant() {
+        Merchant m = new Merchant();
+        m.setId(1L);
+        m.setName("平台自营");
+        m.setStatus("active");
+        return m;
     }
 
     /** 购物车商品行：只进门槛重算（recalcCartTotal），价格与库存独立于免费件构造 */
@@ -195,6 +209,7 @@ class F126FreeAuditTest {
         when(dishMapper.selectBatchIds(anyCollection())).thenReturn(List.of(
                 dish(REJECTED_DISH_ID, "驳回免费件", Dish.AUDIT_REJECTED),
                 dish(OK_DISH_ID, "正常免费件", Dish.AUDIT_OK)));
+        when(merchantMapper.selectBatchIds(anyCollection())).thenReturn(List.of(activeMerchant()));
 
         Map<String, Object> out = freeService.current(null);
 
@@ -240,6 +255,7 @@ class F126FreeAuditTest {
         when(freeGoodsPoolMapper.selectCount(any())).thenReturn(1L);
         when(freeClaimMapper.selectCount(any())).thenReturn(0L);          // 今日未领
         when(dishMapper.selectById(OK_DISH_ID)).thenReturn(dish(OK_DISH_ID, "正常免费件", Dish.AUDIT_OK));
+        when(merchantMapper.selectById(1L)).thenReturn(activeMerchant());   // F-127 商家维度通过态桩
         when(dishMapper.selectBatchIds(anyCollection()))
                 .thenReturn(List.of(cartDish("25.00")));
         when(dishMapper.decreaseStock(eq(OK_DISH_ID), eq(1))).thenReturn(1);

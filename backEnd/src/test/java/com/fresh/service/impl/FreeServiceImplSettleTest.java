@@ -3,6 +3,7 @@ package com.fresh.service.impl;
 import com.fresh.dto.FreeClaimDTO;
 import com.fresh.entity.Dish;
 import com.fresh.entity.FreeActivity;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Order;
 import com.fresh.entity.Store;
 import com.fresh.entity.User;
@@ -10,6 +11,7 @@ import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.FreeActivityMapper;
 import com.fresh.mapper.FreeClaimMapper;
 import com.fresh.mapper.FreeGoodsPoolMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
@@ -45,7 +47,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 免费领 0 元单的结算走向单测（F-21.5 Step 2a）：Mockito mock 掉八个 Mapper + {@link PaymentSettlement}，
+ * 免费领 0 元单的结算走向单测（F-21.5 Step 2a）：Mockito mock 掉九个 Mapper + {@link PaymentSettlement}，
  * 直接 new FreeServiceImpl 并按字段名灌进 @Autowired 槽位，**不连库、不起 Spring 容器**
  * （形态照 {@code PaymentSettlementTest} / {@code RecommendServiceTest}：纯内存断言，期望值手工可推）。
  *
@@ -77,6 +79,7 @@ class FreeServiceImplSettleTest {
     private final OrderMapper orderMapper = mock(OrderMapper.class);
     private final OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
     private final DishMapper dishMapper = mock(DishMapper.class);
+    private final MerchantMapper merchantMapper = mock(MerchantMapper.class);
     private final StoreMapper storeMapper = mock(StoreMapper.class);
     private final UserMapper userMapper = mock(UserMapper.class);
     private final PaymentSettlement settlement = mock(PaymentSettlement.class);
@@ -94,6 +97,7 @@ class FreeServiceImplSettleTest {
         ReflectionTestUtils.setField(freeService, "orderMapper", orderMapper);
         ReflectionTestUtils.setField(freeService, "orderItemMapper", orderItemMapper);
         ReflectionTestUtils.setField(freeService, "dishMapper", dishMapper);
+        ReflectionTestUtils.setField(freeService, "merchantMapper", merchantMapper);
         ReflectionTestUtils.setField(freeService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(freeService, "userMapper", userMapper);
         ReflectionTestUtils.setField(freeService, "settlement", settlement);
@@ -115,6 +119,7 @@ class FreeServiceImplSettleTest {
         when(freeGoodsPoolMapper.selectCount(any())).thenReturn(1L);      // dishId 在候选池白名单内
         when(freeClaimMapper.selectCount(any())).thenReturn(0L);          // 今日未领（uk_user_date 未占）
         when(dishMapper.selectById(FREE_DISH_ID)).thenReturn(dish(FREE_DISH_ID, "9.90", 5));
+        when(merchantMapper.selectById(1L)).thenReturn(activeMerchant());   // F-127 免费领封禁商家拦截的通过态桩（dish fixture 挂 merchant 1）
         when(dishMapper.selectBatchIds(anyCollection()))
                 .thenReturn(List.of(dish(CART_DISH_ID, cartDishPrice, 99)));
         when(dishMapper.decreaseStock(eq(FREE_DISH_ID), eq(1))).thenReturn(1);
@@ -150,6 +155,15 @@ class FreeServiceImplSettleTest {
         d.setOnSale(1);
         d.setMerchantId(1L);
         return d;
+    }
+
+    /** 平台自营商家行（active）：F-127 免费领封禁商家拦截的通过态桩 */
+    private Merchant activeMerchant() {
+        Merchant m = new Merchant();
+        m.setId(1L);
+        m.setName("平台自营");
+        m.setStatus("active");
+        return m;
     }
 
     /** 模拟库里那一行：单号取入参，其余按 FreeServiceImpl 刚写入的 0 元待支付态 */
