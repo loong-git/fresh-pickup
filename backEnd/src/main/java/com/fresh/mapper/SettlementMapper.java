@@ -71,13 +71,17 @@ public interface SettlementMapper extends BaseMapper<Settlement> {
      * {@code WHERE merchant_id = #{merchantId}} 归属恒等值；{@code ORDER BY id ASC}——商家端 F-120 §1
      * 刻意差异（旧账期在前照商家页既有顺序），与运营端 {@link #selectSettlementsPage} 的
      * {@code ORDER BY id DESC} 刻意不同，两方法互不复用、各自成行防漂移；
-     * 白名单十二列与别名照 {@link #selectSettlementsPage} 逐字（商家行渲染只消费这十二列）。
-     * 只读方法（本类「无 UPDATE/DELETE 方法」红线不变）。
+     * 白名单<b>十三列</b>：别名照 {@link #selectSettlementsPage} 逐字、多 {@code created_at}——
+     * 商家端行键含 createdAt（F-120 §1，MerchantSettlementServiceImpl#merchantLine 消费
+     * row.getCreatedAt()），与运营端 DESC 页方法的十二列<b>刻意不同</b>（运营端行不输出 createdAt，
+     * 见其 javadoc「created_at 不查询」）；P5-3 双跑实锤：十二列照抄致出参 createdAt=null、
+     * verify 脚本「createdAt 服务端定形串在」红。只读方法（本类「无 UPDATE/DELETE 方法」红线不变）。
      */
     @Select("SELECT id AS id, settle_no AS settleNo, merchant_id AS merchantId, "
             + "period_start AS periodStart, period_end AS periodEnd, order_count AS orderCount, "
             + "gmv_amount AS gmvAmount, refund_amount AS refundAmount, retain_amount AS retainAmount, "
-            + "payable AS payable, commission AS commission, status AS status "
+            + "payable AS payable, commission AS commission, status AS status, "
+            + "created_at AS createdAt "
             + "FROM settlement WHERE merchant_id = #{merchantId} "
             + "ORDER BY id ASC LIMIT #{offset}, #{size}")
     List<Settlement> selectSettlementsPageAsc(@Param("merchantId") Long merchantId,

@@ -30,6 +30,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -305,6 +306,12 @@ class MerchantSettlementViewTest {
         assertEquals(2, rows.size());
         assertEquals(1L, rows.get(0).get("id"), "首行 id=1：商家端 id 升序（F-120 §1 刻意差异）");
         assertEquals(2L, rows.get(1).get("id"));
+        // P5-3 回归锚：商家行键含 createdAt（F-120 §1，merchantLine 消费 row.getCreatedAt()），
+        // ASC 页白名单必须含 created_at（与运营端 DESC 十二列刻意不同）——漏列即 live 出参
+        // createdAt=null、verify 脚本「createdAt 服务端定形串在」红；mock 层锚「键在且非 null」
+        assertTrue(rows.get(0).containsKey("createdAt"), "出参行 createdAt 键在（商家行键清单）");
+        assertNotNull(rows.get(0).get("createdAt"), "createdAt 非 null（ASC 白名单十三列出参锚）");
+        assertNotNull(rows.get(1).get("createdAt"));
         verify(settlementMapper).selectSettlementsPageAsc(eq(MERCHANT_ID), anyLong(), anyInt());
         verify(settlementMapper, never()).selectSettlementsPage(any(), any(), any(), anyLong(), anyInt());
     }
