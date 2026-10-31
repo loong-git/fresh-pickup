@@ -60,6 +60,22 @@
           </view>
         </view>
 
+        <!-- P6-1 进展时间线：按 status 分支渲染（节点组装见 timelineNodes），每个时间戳节点都有字段真值护栏，
+             无数据的节点不渲染（不造假时间）；pending_pickup 态取货日节点高亮「可取货」；cancelled 只显已取消行不显后续 -->
+        <view v-if="timelineNodes(order).length" class="order-timeline">
+          <view
+            class="tl-node"
+            v-for="node in timelineNodes(order)"
+            :key="node.key"
+            :class="{ 'tl-active': node.active }"
+          >
+            <view class="tl-dot"></view>
+            <text class="tl-label">{{ node.label }}</text>
+            <text v-if="node.time" class="tl-time">{{ node.time }}</text>
+            <text v-if="node.tag" class="tl-tag">{{ node.tag }}</text>
+          </view>
+        </view>
+
         <view class="order-info">
           <!-- F-59 取货码：此前这一行在整个 C 端不存在（全仓零 pickupCode 引用），码只落在库与主理人端，
                提货人到店无从报码。数据本就在 GET /api/orders 出参里（Order#pickupCode），故零新接口、零新 SQL。
@@ -108,6 +124,14 @@
             :disabled="payingId === order.id"
             @click="onPay(order)"
           >{{ payingId === order.id ? '支付中…' : '去支付' }}</button>
+          <!-- P6-1 再来一单：复购不限状态（cancelled/completed 也显示）；历史脏数据无 items 的单隐藏入口。
+               点击把该单快照 items 映射成购物车形状整批 commit('reorder')（合并语义在 mutation），
+               页面侧单发一次 toast「已按原单加入购物车」 -->
+          <button
+            v-if="order.items && order.items.length"
+            class="btn-reorder"
+            @click="onReorder(order)"
+          >再来一单</button>
         </view>
       </view>
 
@@ -395,6 +419,62 @@ export default {
     hideCode() {
       this.codeOrder = null
     },
+    // ==================== P6-1 再来一单 + 进展时间线 ====================
+    // 再来一单：取该单快照 items（列表出参 OrderItem 只带 dishId/dishName/price/quantity）映射成购物车形状
+    // 整批 commit('reorder')，同 id 只加数量的合并语义收口在 mutation（页面不做算术）；toast 整批单发一次
+    // （uni.showToast 全局单例惯例，不加锁）。字段缺口如实填空值不编造：items 无 unit/emoji/stock 快照 →
+    // unit/emoji 空串、stock 上限未知填 999 占位；秒杀差额不编造 → originalPrice null / unitSave 0 / seckill false。
+    // 快照价仅购物车展示、结账服务端按 dish 表重算（M9 既有口径）：不校验在售/审核态，结账闸门（已下架/
+    // 驳回 400、封禁商家 400）是最后防线，契约明定「再来一单不保证可用性，文案不承诺」
+    onReorder(order) {
+      const items = order && Array.isArray(order.items) ? order.items : []
+      const mapped = items
+        .map(it => ({
+          id: it.dishId,
+          name: it.dishName,
+          price: Number(it.price) || 0,
+          unit: it.unit || '',
+          emoji: '',
+          stock: 999,
+          quantity: Number(it.quantity) || 0,
+          checked: true,
+          originalPrice: null,
+          unitSave: 0,
+          seckill: false
+        }))
+        // id 缺失/数量非正的脏明细直接剔除：不编造数量；mapped 空则整单静默早退（不弹假 toast）
+        .filter(it => it.id != null && it.quantity > 0)
+      if (!mapped.length) return
+      this.$store.commit('reorder', mapped)
+      uni.showToast({ title: '已按原单加入购物车', icon: 'success', duration: 1500 })
+    },
+    // 进展时间线节点（P6-1）：按 status 分支组装，无数据的节点不渲染（不造假时间戳）——
+    // 每个时间戳节点（createTime/payTime/pickupDate）都先判字段真值；已完成/已取消无对应时间字段，
+    // 仅显状态行（契约明定不编造）。cancelled 只显「已取消」行不显后续；
+    // pending_pickup 态取货日节点高亮并带「可取货」tag，completed 态各节点普通灰、已完成行高亮
+    timelineNodes(order) {
+      if (!order) return []
+      if (order.status === 'cancelled') {
+        return [{ key: 'cancelled', label: '已取消', time: '', tag: '', active: false }]
+      }
+      const nodes = []
+      if (order.createTime) {
+        nodes.push({ key: 'create', label: '已下单', time: this.formatTime(order.createTime), tag: '', active: false })
+      }
+      // payTime 有值才渲染（未支付单该字段为空 → 已支付节点不出现）
+      if (order.payTime) {
+        nodes.push({ key: 'pay', label: '已支付', time: this.formatTime(order.payTime), tag: '', active: false })
+      }
+      if (order.pickupDate) {
+        const canPickup = order.status === 'pending_pickup'
+        nodes.push({ key: 'pickup', label: '取货日', time: order.pickupDate, tag: canPickup ? '可取货' : '', active: canPickup })
+      }
+      if (order.status === 'completed') {
+        // 已完成：无完成时间字段，仅显状态行不编造时间戳
+        nodes.push({ key: 'done', label: '已完成', time: '', tag: '', active: true })
+      }
+      return nodes
+    },
     // 手机号脱敏兜底展示（后端已脱敏则原样显示）：138****1234
     maskPhone(p) {
       const s = String(p || '')
@@ -536,4 +616,23 @@ export default {
 /* 错误态（M3-T-05 部分）：白底红字描边重试按钮 */
 .error-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 240rpx; }
 .btn-retry { min-width: 240rpx; font-size: 26rpx; font-weight: 600; color: #E02020; background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 0; padding: 16rpx 56rpx; line-height: 1.4; }
+
+/* ==================== P6-1 再来一单 + 进展时间线 ==================== */
+/* 时间线区：节点行沿用本页既有色板（#E02020 主红高亮、#07C160 到货/已支付绿系 tag、既有灰阶），零新色系 */
+.order-timeline { padding: 4rpx 24rpx 12rpx; border-top: 1rpx solid #F5F5F5; }
+.tl-node { display: flex; align-items: center; gap: 12rpx; padding: 8rpx 0; }
+.tl-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background-color: #DDDDDD; flex-shrink: 0; }
+.tl-label { font-size: 24rpx; color: #999999; }
+.tl-time { font-size: 22rpx; color: #BBBBBB; }
+.tl-active .tl-dot { background-color: #E02020; }
+.tl-active .tl-label { color: #333333; font-weight: 600; }
+.tl-tag { font-size: 20rpx; font-weight: 700; color: #07C160; background-color: #E8F8EF; padding: 2rpx 12rpx; border-radius: 16rpx; }
+/* 再来一单按钮：白底红字描边（btn-cancel 同族色系，但不带 margin-right:auto——常驻右侧操作区） */
+.btn-reorder {
+  margin-left: 12rpx;
+  font-size: 24rpx; font-weight: 600; color: #E02020;
+  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 28rpx;
+  padding: 8rpx 28rpx; line-height: 1.4;
+}
+.btn-reorder::after { border: none; }
 </style>

@@ -195,6 +195,28 @@ const store = createStore({
 				duration: 1500
 			})
 		},
+		// 再来一单整批并入（P6-1）：入参为订单页已映射成购物车形状的快照列表（dishId/dishName/price/quantity），
+		// 同 id 只加数量、不重复条目——items.quantity 与购物车现存量的合并语义收口在本 mutation，页面不做算术；
+		// 脏项（id 缺失/数量非正）跳过不编造。整批只落盘一次 safeSetStorage；
+		// toast 不在此发（区别于上方 addToCart 逐次弹）：由页面侧整批 commit 完成后单发一次「已按原单加入购物车」。
+		// 快照价仅购物车展示、结账服务端按 dish 表重算（M9 既有口径）：不校验在售/审核态，
+		// 结账闸门（已下架/驳回 400、封禁商家 400）是最后防线，契约明定「再来一单不保证可用性，文案不承诺」
+		reorder(state, items) {
+			const list = Array.isArray(items) ? items : []
+			list.forEach((item) => {
+				const qty = Number(item && item.quantity)
+				if (!item || item.id == null || !(qty > 0)) return
+				const existItem = state.cart.find(i => i.id === item.id)
+				if (existItem) {
+					// 已有同 id 商品只加数量（照 addToCart 合并先例），条目形状维持购物车现状不覆盖
+					existItem.quantity += Math.floor(qty)
+				} else {
+					state.cart.push(item)
+				}
+			})
+			// 同步到本地存储，刷新后购物车不丢失（整批只写一次）
+			safeSetStorage('cart', state.cart)
+		},
 		// 从购物车移除
 		removeFromCart(state, dishId) {
 			const index = state.cart.findIndex(item => item.id === dishId)
