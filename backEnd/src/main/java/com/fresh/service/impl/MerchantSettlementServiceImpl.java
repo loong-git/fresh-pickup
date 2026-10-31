@@ -1,6 +1,5 @@
 package com.fresh.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fresh.common.BizException;
 import com.fresh.common.R;
 import com.fresh.entity.Settlement;
@@ -17,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 商家端结算单只读服务实现（F-120 §1）。
+ * 商家端结算单只读服务实现（F-120 §1，P5-2 §1 列表分页化）。
  * <p>口径纪律：本类不发明第二套结算口径——对账三条件与 orphan 语义逐行照运营端
  * AdminServiceImpl#listSettlements / #settlementItems（F-118 定稿 + 2026-10-25 验收裁决的孤儿第三条件），
  * 两端读同一批 SQL（OrderItemMapper#selectAnchoredAggregates / #selectAnchoredItems），
@@ -26,21 +25,48 @@ import java.util.Map;
 @Service
 public class MerchantSettlementServiceImpl implements MerchantSettlementService {
 
+    /**
+     * 分页闸门参数与文案（P5-2 §1，逐字照 AdminServiceImpl#listSettlements 同名常量语义：
+     * 缺省 1/20、pageNum≥1、1≤pageSize≤100、越界 400 不夹取；400 文案同句照抄，不新造串）。
+     */
+    private static final int LIST_DEFAULT_PAGE_NUM = 1;
+    private static final int LIST_DEFAULT_PAGE_SIZE = 20;
+    private static final int LIST_MIN_PAGE_SIZE = 1;
+    private static final int LIST_MAX_PAGE_SIZE = 100;
+    private static final String BAD_REQUEST_MSG = "请求参数有误，请检查后重试";
+
     @Autowired
     private SettlementMapper settlementMapper;
     @Autowired
     private OrderItemMapper orderItemMapper;
 
+    /**
+     * 分页化后的本人账单列表（P5-2 §1，键集/归属口径零改动）：
+     * 归属恒等值下沉 SettlementMapper（total 复用 countSettlements——商家侧无筛选维度，账期两参恒 null；
+     * 页走 selectSettlementsPageAsc，id 升序是 F-120 §1 刻意差异，与运营端 selectSettlementsPage 的 DESC
+     * 刻意不同互不复用）；闸门/offset 用 long 防溢出/offset ≥ total 短路空 list 且 total 仍真值，
+     * 逐字照 AdminServiceImpl#listSettlements（F-125）；出参封口 {list,total,pageNum,pageSize}，无 filters 键。
+     */
     @Override
-    public List<Map<String, Object>> list(Long merchantId) {
+    public Map<String, Object> list(Long merchantId, Integer pageNum, Integer pageSize) {
         if (merchantId == null) {
             // 纵深防御：拦截器已保证 /api/merchant/** 进来的 merchantId 非 null（照 MerchantDishServiceImpl.list 首行）
             throw new BizException(R.CODE_FORBIDDEN, R.MSG_FORBIDDEN);
         }
-        List<Settlement> rows = settlementMapper.selectList(new LambdaQueryWrapper<Settlement>()
-                .eq(Settlement::getMerchantId, merchantId)   // R3'：归属恒为 wrapper 第一个条件，任何分支都摘不掉
-                .orderByAsc(Settlement::getId));             // F-120 §1：商家端 id 升序（运营端 DESC 是管理视角）
-        // 对账聚合一次批量（无账单时短路不下发空 IN，照 AdminServiceImpl#listSettlements 同款短路）
+        int pageNo = pageNum == null ? LIST_DEFAULT_PAGE_NUM : pageNum;
+        if (pageNo < LIST_DEFAULT_PAGE_NUM) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        int size = pageSize == null ? LIST_DEFAULT_PAGE_SIZE : pageSize;
+        if (size < LIST_MIN_PAGE_SIZE || size > LIST_MAX_PAGE_SIZE) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        long total = settlementMapper.countSettlements(merchantId, null, null);
+        long offset = (long) (pageNo - 1) * size;
+        List<Settlement> rows = offset >= total
+                ? List.of()
+                : settlementMapper.selectSettlementsPageAsc(merchantId, offset, size);
+        // 对账聚合一次批量、只喂当页 settleIds（无账单时短路不下发空 IN，照 AdminServiceImpl#listSettlements 同款短路）
         Map<Long, Map<String, Object>> anchored = new LinkedHashMap<>();
         if (!rows.isEmpty()) {
             List<Long> settleIds = new ArrayList<>(rows.size());
@@ -55,7 +81,12 @@ public class MerchantSettlementServiceImpl implements MerchantSettlementService 
         for (Settlement row : rows) {
             out.add(merchantLine(row, anchored.get(row.getId())));
         }
-        return out;
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("list", out);
+        data.put("total", total);
+        data.put("pageNum", pageNo);
+        data.put("pageSize", size);
+        return data;
     }
 
     @Override

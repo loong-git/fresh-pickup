@@ -34,23 +34,28 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * F-120 商家端结算单只读视图 + 供货价展示单测（不起 Spring 容器、不落库；契约 §4 三组逐条）：
- * ① 列表归属：wrapper 恒带本人 merchant_id 等值、出参恰为商家自见十三键子集（运营管理字段不下发），
- *    netAmount==payable、paidChannelAbsent 恒 true、reconcileOk 三条件照运营端口径
- *    （正常 true / 金额改 false / 孤儿 false / 聚合缺失 false）；
+ * F-120 商家端结算单只读视图 + 供货价展示单测（不起 Spring 容器、不落库；F-120 §4 三组逐条 + P5-2 §1 分页）：
+ * ① 列表归属与分页：merchant_id 等值恒透传 mapper（桩的 eq 匹配器钉住，照 F-125 商家筛修桩先例）、
+ *    出参恰为商家自见十三键子集（运营管理字段不下发），netAmount==payable、paidChannelAbsent 恒 true、
+ *    reconcileOk 三条件照运营端口径（正常 true / 金额改 false / 孤儿 false / 聚合缺失 false）；
+ *    分页闸门 400 族 / 全缺省封口四键无 filters / 越界页空 list 真值 total / ASC 页方法防误复用 DESC。
  * ② 明细归属：他人账单与不存在同 404「账单不存在」（不泄露存在性、不发明细查询）；
  *    本人账单明细行键与库一致、orphan 归一 Boolean、孤儿行 payStatus 显 null；
  * ③ 商品列表出参补 supplyPrice（NULL 与设值两态；@JsonIgnore 的 merchantId 仍封）。
  *
- * <p><b>本类测不成什么（免得留假收据）</b>：真库归属过滤（mock 只能钉 wrapper 条件在位，真库语义
- * 归 verify 脚本）、Controller 限流/401/403（拦截器层，照 SettlementGenerateTest 先例不在本类）、
+ * <p><b>本类测不成什么（免得留假收据）</b>：真库归属过滤与 ASC/DESC 排序（mock 只能钉透传与页方法
+ * 接线在位，真库语义归 verify 脚本）、Controller 限流/401/403（拦截器层，照 SettlementGenerateTest 先例不在本类）、
  * Spring 全局 ObjectMapper 的日期定形（测试注入 findAndRegisterModules 的裸 mapper，只断键不断时间形态）。
  */
 class MerchantSettlementViewTest {
@@ -151,80 +156,157 @@ class MerchantSettlementViewTest {
     }
 
     // ================================================================
-    // ① 列表归属（契约 §4-1）
+    // ① 列表归属与分页（F-120 §4-1 + P5-2 §1）
     // ================================================================
+
+    /**
+     * 分页化后取列表行的等价辅助（{@code list(merchantId)} 旧签名调用的判据等价迁移）：
+     * 即 {@code (List) list(merchantId, null, null).get("list")}，对账四用例共用。
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> listRows(Long merchantId) {
+        return (List<Map<String, Object>>) settlementService.list(merchantId, null, null).get("list");
+    }
+
+    /** 列表页的通用桩：total=1（countSettlements 复用）+ ASC 页方法一行（eq 匹配器钉住 merchantId 透传） */
+    private void stubListPageOneRow() {
+        when(settlementMapper.countSettlements(eq(MERCHANT_ID), any(), any())).thenReturn(1L);
+        when(settlementMapper.selectSettlementsPageAsc(eq(MERCHANT_ID), anyLong(), anyInt()))
+                .thenReturn(List.of(storedSettlement(100L, MERCHANT_ID)));
+    }
 
     @Test
     @SuppressWarnings("unchecked")
-    void 列表归属_wrapper带本人merchantId_出参恰为商家自见十三键() {
-        when(settlementMapper.selectList(any())).thenReturn(List.of(storedSettlement(100L, MERCHANT_ID)));
+    void 列表归属_merchantId恒透传mapper_出参恰为商家自见十三键() {
+        stubListPageOneRow();
         when(orderItemMapper.selectAnchoredAggregates(anyList()))
                 .thenReturn(List.of(agg(100L, 2, 2, "20.00", 0)));
 
-        List<Map<String, Object>> out = settlementService.list(MERCHANT_ID);
-
-        // 归属条件在位（mock 层可钉的一半）：wrapper SQL 段含 merchant_id 等值、绑定参数值=本人
-        ArgumentCaptor<LambdaQueryWrapper<Settlement>> captor =
-                ArgumentCaptor.forClass((Class) LambdaQueryWrapper.class);
-        verify(settlementMapper).selectList(captor.capture());
-        LambdaQueryWrapper<Settlement> wrapper = captor.getValue();
-        assertTrue(wrapper.getSqlSegment().contains("merchant_id"), "归属恒为 wrapper 条件：" + wrapper.getSqlSegment());
-        assertTrue(wrapper.getParamNameValuePairs().containsValue(MERCHANT_ID), "等值参数=本人 merchant_id");
+        Map<String, Object> out = settlementService.list(MERCHANT_ID, null, null);
+        // 归属透传在位（mock 层可钉的一半）：total 与页查询都以本人 merchantId 命中桩（传 null/别值则桩不命中、list 落空）；
+        // 且 total 复用 countSettlements、账期两参恒 null（商家侧无筛选维度）
+        verify(settlementMapper).countSettlements(eq(MERCHANT_ID), isNull(), isNull());
+        verify(settlementMapper).selectSettlementsPageAsc(eq(MERCHANT_ID), anyLong(), anyInt());
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) out.get("list");
 
         // 出参=商家自见子集（F-120 §1 键清单），运营管理字段（merchantId/merchantName/gross/refund/net/retain/itemCount）不下发
         assertEquals(Set.of("id", "settleNo", "periodStart", "periodEnd", "gmvAmount", "refundAmount",
                         "netAmount", "orderCount", "commission", "status", "createdAt",
                         "reconcileOk", "paidChannelAbsent"),
-                out.get(0).keySet());
-        assertEquals(100L, out.get(0).get("id"));
-        assertEquals("SET100", out.get(0).get("settleNo"));
-        assertEquals("2026-10-01", out.get(0).get("periodStart"), "日期串服务端定形（D-18 同手势）");
-        assertEquals("2026-10-15", out.get(0).get("periodEnd"));
-        assertEquals(0, new BigDecimal("20.00").compareTo((BigDecimal) out.get(0).get("gmvAmount")));
-        assertEquals(0, new BigDecimal("20.00").compareTo((BigDecimal) out.get(0).get("netAmount")),
+                rows.get(0).keySet());
+        assertEquals(100L, rows.get(0).get("id"));
+        assertEquals("SET100", rows.get(0).get("settleNo"));
+        assertEquals("2026-10-01", rows.get(0).get("periodStart"), "日期串服务端定形（D-18 同手势）");
+        assertEquals("2026-10-15", rows.get(0).get("periodEnd"));
+        assertEquals(0, new BigDecimal("20.00").compareTo((BigDecimal) rows.get(0).get("gmvAmount")));
+        assertEquals(0, new BigDecimal("20.00").compareTo((BigDecimal) rows.get(0).get("netAmount")),
                 "netAmount==payable（契约口径）");
-        assertEquals("accounted", out.get(0).get("status"));
-        assertEquals("2026-10-16T09:30", out.get(0).get("createdAt"), "createdAt 出参为服务端定形串");
-        assertEquals(Boolean.TRUE, out.get(0).get("paidChannelAbsent"), "记账态明示：打款通道未接恒 true");
+        assertEquals("accounted", rows.get(0).get("status"));
+        assertEquals("2026-10-16T09:30", rows.get(0).get("createdAt"), "createdAt 出参为服务端定形串");
+        assertEquals(Boolean.TRUE, rows.get(0).get("paidChannelAbsent"), "记账态明示：打款通道未接恒 true");
     }
 
     @Test
     void 对账标志_正常单true() {
-        when(settlementMapper.selectList(any())).thenReturn(List.of(storedSettlement(100L, MERCHANT_ID)));
+        stubListPageOneRow();
         when(orderItemMapper.selectAnchoredAggregates(anyList()))
                 .thenReturn(List.of(agg(100L, 2, 2, "20.00", 0)));
 
-        assertEquals(Boolean.TRUE, settlementService.list(MERCHANT_ID).get(0).get("reconcileOk"),
+        assertEquals(Boolean.TRUE, listRows(MERCHANT_ID).get(0).get("reconcileOk"),
                 "gross 与 Σ 一致且计数一致且无孤儿 → true（三条件照运营端口径）");
     }
 
     @Test
     void 对账标志_账面金额被改false() {
-        when(settlementMapper.selectList(any())).thenReturn(List.of(storedSettlement(100L, MERCHANT_ID)));
+        stubListPageOneRow();
         when(orderItemMapper.selectAnchoredAggregates(anyList()))
                 .thenReturn(List.of(agg(100L, 2, 2, "15.00", 0)));
 
-        assertEquals(Boolean.FALSE, settlementService.list(MERCHANT_ID).get(0).get("reconcileOk"),
+        assertEquals(Boolean.FALSE, listRows(MERCHANT_ID).get(0).get("reconcileOk"),
                 "①打穿：账面 gross ≠ 实时挂锚 Σ");
     }
 
     @Test
     void 对账标志_孤儿明细false_金额订单数皆对仍打穿() {
         // 2026-10-25 运营端验收裁决的第三条件平行进商家端：孤儿态即数据事故，宁可错杀不可漏报
-        when(settlementMapper.selectList(any())).thenReturn(List.of(storedSettlement(100L, MERCHANT_ID)));
+        stubListPageOneRow();
         when(orderItemMapper.selectAnchoredAggregates(anyList()))
                 .thenReturn(List.of(agg(100L, 2, 2, "20.00", 1)));
 
-        assertEquals(Boolean.FALSE, settlementService.list(MERCHANT_ID).get(0).get("reconcileOk"),
+        assertEquals(Boolean.FALSE, listRows(MERCHANT_ID).get(0).get("reconcileOk"),
                 "③打穿：挂锚明细存在孤儿（orders 行被删）");
     }
 
     @Test
     void 对账标志_聚合行缺失false_照运营端宁可错杀() {
-        when(settlementMapper.selectList(any())).thenReturn(List.of(storedSettlement(100L, MERCHANT_ID)));
+        stubListPageOneRow();
         when(orderItemMapper.selectAnchoredAggregates(anyList())).thenReturn(List.of());
 
-        assertEquals(Boolean.FALSE, settlementService.list(MERCHANT_ID).get(0).get("reconcileOk"));
+        assertEquals(Boolean.FALSE, listRows(MERCHANT_ID).get(0).get("reconcileOk"));
+    }
+
+    // ================================================================
+    // ①' 列表分页（P5-2 §1）：闸门 / 封口四键无 filters / 越界短路 / ASC 页方法
+    // ================================================================
+
+    @Test
+    void 分页闸门_pageNum0与pageSize出界皆400_闸门先于查库() {
+        assertEquals("请求参数有误，请检查后重试", assertThrows(BizException.class,
+                () -> settlementService.list(MERCHANT_ID, 0, 20)).getMessage());
+        assertEquals(400, assertThrows(BizException.class,
+                () -> settlementService.list(MERCHANT_ID, 1, 0)).getCode());
+        assertEquals(400, assertThrows(BizException.class,
+                () -> settlementService.list(MERCHANT_ID, 1, 101)).getCode());
+        // 闸门先于一切查库（400 的三种输入都不触 mapper）
+        verify(settlementMapper, never()).countSettlements(any(), any(), any());
+        verify(settlementMapper, never()).selectSettlementsPageAsc(any(), anyLong(), anyInt());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 全缺省_出参四键无filters_缺省页码1页容20() {
+        stubListPageOneRow();
+        when(orderItemMapper.selectAnchoredAggregates(anyList())).thenReturn(List.of());
+
+        Map<String, Object> out = settlementService.list(MERCHANT_ID, null, null);
+        assertEquals(Set.of("list", "total", "pageNum", "pageSize"), out.keySet(),
+                "出参封口四键，无 filters（商家侧无筛选维度，契约 §1-4 明定）");
+        assertEquals(1, out.get("pageNum"), "pageNum 缺省 1");
+        assertEquals(20, out.get("pageSize"), "pageSize 缺省 20");
+        assertEquals(1L, out.get("total"));
+        assertEquals(1, ((List<Map<String, Object>>) out.get("list")).size());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 越界页_offset不小于total_空list且total真值_不查页() {
+        // offset=(2-1)*20=20 >= total=1 → List.of() 短路（照 F-125 运营端同款），total 仍真值
+        when(settlementMapper.countSettlements(eq(MERCHANT_ID), any(), any())).thenReturn(1L);
+
+        Map<String, Object> out = settlementService.list(MERCHANT_ID, 2, 20);
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) out.get("list");
+        assertTrue(rows.isEmpty(), "offset ≥ total 短路回空 list");
+        assertEquals(1L, out.get("total"), "total 仍真值");
+        assertEquals(2, out.get("pageNum"));
+        verify(settlementMapper, never()).selectSettlementsPageAsc(any(), anyLong(), anyInt());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 列表页走ASC页方法_两行首id为1_不复用运营端DESC页方法() {
+        // 两行 mock 按 id 1,2 返回（ASC 页方法的返回序）：出参 list 首行 id=1 防误接 selectSettlementsPage 的 DESC 序
+        when(settlementMapper.countSettlements(eq(MERCHANT_ID), any(), any())).thenReturn(2L);
+        when(settlementMapper.selectSettlementsPageAsc(eq(MERCHANT_ID), anyLong(), anyInt()))
+                .thenReturn(List.of(storedSettlement(1L, MERCHANT_ID), storedSettlement(2L, MERCHANT_ID)));
+        when(orderItemMapper.selectAnchoredAggregates(anyList())).thenReturn(List.of());
+
+        Map<String, Object> out = settlementService.list(MERCHANT_ID, 1, 20);
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) out.get("list");
+        assertEquals(2, rows.size());
+        assertEquals(1L, rows.get(0).get("id"), "首行 id=1：商家端 id 升序（F-120 §1 刻意差异）");
+        assertEquals(2L, rows.get(1).get("id"));
+        verify(settlementMapper).selectSettlementsPageAsc(eq(MERCHANT_ID), anyLong(), anyInt());
+        verify(settlementMapper, never()).selectSettlementsPage(any(), any(), any(), anyLong(), anyInt());
     }
 
     // ================================================================

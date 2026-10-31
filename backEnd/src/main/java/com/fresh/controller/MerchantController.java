@@ -141,12 +141,18 @@ public class MerchantController {
     // 限流照商家端既有 GET 读档 30 次/分（USER 维度注解默认，同 /me）。
     // ------------------------------------------------------------------
 
-    /** 本人账单列表（F-120 §1）：商家自见子集 + reconcileOk/paidChannelAbsent，id 升序 */
+    /**
+     * 本人账单列表（F-120 §1，P5-2 §1 分页化）：商家自见子集 + reconcileOk/paidChannelAbsent，id 升序；
+     * pageNum/pageSize 可缺省（缺省 1/20，越界 400 由 Service 闸门裁决），出参封口 {list,total,pageNum,pageSize}。
+     * 归属恒 @RequestAttribute 服务端定，不收 merchantId 归属入参（R3 铁律不变）。
+     */
     @RateLimit(limit = 30, windowSeconds = 60)
     @GetMapping("/settlements")
-    public R<List<Map<String, Object>>> settlements(
-            @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId) {
-        return R.ok(merchantSettlementService.list(merchantId));
+    public R<Map<String, Object>> settlements(
+            @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
+            @RequestParam(required = false) Integer pageNum,
+            @RequestParam(required = false) Integer pageSize) {
+        return R.ok(merchantSettlementService.list(merchantId, pageNum, pageSize));
     }
 
     /** 本人某账单的挂锚明细（F-120 §1）：不存在/他商家同 404「账单不存在」，orphan 语义照运营端口径 */

@@ -65,4 +65,22 @@ public interface SettlementMapper extends BaseMapper<Settlement> {
                                            @Param("dateEnd") String dateEnd,
                                            @Param("offset") long offset,
                                            @Param("size") int size);
+
+    /**
+     * 商家端结算列表的一页（P5-2 §1，{@code GET /api/merchant/settlements}）：
+     * {@code WHERE merchant_id = #{merchantId}} 归属恒等值；{@code ORDER BY id ASC}——商家端 F-120 §1
+     * 刻意差异（旧账期在前照商家页既有顺序），与运营端 {@link #selectSettlementsPage} 的
+     * {@code ORDER BY id DESC} 刻意不同，两方法互不复用、各自成行防漂移；
+     * 白名单十二列与别名照 {@link #selectSettlementsPage} 逐字（商家行渲染只消费这十二列）。
+     * 只读方法（本类「无 UPDATE/DELETE 方法」红线不变）。
+     */
+    @Select("SELECT id AS id, settle_no AS settleNo, merchant_id AS merchantId, "
+            + "period_start AS periodStart, period_end AS periodEnd, order_count AS orderCount, "
+            + "gmv_amount AS gmvAmount, refund_amount AS refundAmount, retain_amount AS retainAmount, "
+            + "payable AS payable, commission AS commission, status AS status "
+            + "FROM settlement WHERE merchant_id = #{merchantId} "
+            + "ORDER BY id ASC LIMIT #{offset}, #{size}")
+    List<Settlement> selectSettlementsPageAsc(@Param("merchantId") Long merchantId,
+                                              @Param("offset") long offset,
+                                              @Param("size") int size);
 }

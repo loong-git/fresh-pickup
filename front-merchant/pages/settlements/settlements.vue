@@ -121,6 +121,39 @@
           <text class="empty-text">还没有结算账单；账期由平台按期生成后展示在这里</text>
         </view>
       </view>
+
+      <!-- ==================== 5. 轻分页条（P5-2，只读列表分页） ====================
+           uni-app 没有 el-pagination；工程内唯一分页先例 plan-orders 的「加载更多」是触底追加式翻页，
+           与这里的「换页整列表重拉 + 页大小档位」语义不同（契约 §1-6 照 F-125 的换页口径），
+           故按无先例分支做「上一页/下一页 + 页码」轻分页条，按钮件照本页 error-retry 的胶囊风格。
+           「共 N 单」直接读后端 total（页内不推算）；置于 ready 块尾部是因为 v-else 与上面的
+           空态卡 v-if 必须紧邻，插进中间会拆散这对条件渲染。无筛选维度、settlement 只增不改，
+           越界页不可达（契约明定不做 A8 空页回退），故换页只做边界钳制不做回退 -->
+      <view v-if="total > 0" class="card pager-card">
+        <text class="pager-total">共 {{ total }} 单</text>
+        <view class="pager-actions">
+          <text
+            class="pager-btn"
+            :class="{ 'pager-btn-disabled': pageNum <= 1 || retryLock > 0 }"
+            @click="goPrevPage"
+          >上一页</text>
+          <text class="pager-page">{{ pageNum }} / {{ totalPages }}</text>
+          <text
+            class="pager-btn"
+            :class="{ 'pager-btn-disabled': pageNum >= totalPages || retryLock > 0 }"
+            @click="goNextPage"
+          >下一页</text>
+        </view>
+        <picker
+          class="pager-picker"
+          mode="selector"
+          :range="PAGE_SIZES"
+          :value="pageSizeIndex"
+          @change="onPageSizeChange"
+        >
+          <text class="pager-btn">每页 {{ pageSize }} 条</text>
+        </picker>
+      </view>
     </template>
 
     <view class="page-bottom-space"></view>
@@ -154,6 +187,12 @@ export default {
   data() {
     return {
       settlements: [],
+      // 分页态（P5-2）：pageNum/pageSize 是换页时下发的参数，total 只从后端回包转述（页内零推算总数）；
+      // 初值对齐后端闸门缺省 1/20，PAGE_SIZES 是页大小档位（后端合法域 [1,100] 内的四档）
+      pageNum: 1,
+      pageSize: 20,
+      total: 0,
+      PAGE_SIZES: [10, 20, 50, 100],
       // 展开态单值：同一时刻只展开一张账单（再点已展开的行收起）
       expandedId: null,
       itemsBySettle: {},   // 结算单 id -> 明细行数组（懒加载缓存）
@@ -195,6 +234,17 @@ export default {
     },
     retryPillText() {
       return cooldownPillText(this.retryLock)
+    },
+    // 总页数只是「上一页/下一页」的边界读数，不参与任何金额/对账口径（照 ① 逐键纪律不碰业务数）；
+    // total≤0 时归 1：让页码显示为「1 / 1」而不是「1 / 0」这种负读数
+    totalPages() {
+      if (!(this.total > 0)) return 1
+      return Math.ceil(this.total / this.pageSize)
+    },
+    // 页大小档位在 PAGE_SIZES 里的下标（picker 的 :value 要的是下标不是值；脏值兜回首档）
+    pageSizeIndex() {
+      const idx = this.PAGE_SIZES.indexOf(this.pageSize)
+      return idx >= 0 ? idx : 0
     }
   },
   onShow() {
@@ -235,14 +285,22 @@ export default {
       this._loadingList = true
       if (resetView || this.viewState !== 'ready') this.viewState = 'loading'
       try {
-        const res = await getMerchantSettlements()
-        this.settlements = (res && Array.isArray(res.data)) ? res.data : []
+        const res = await getMerchantSettlements({ pageNum: this.pageNum, pageSize: this.pageSize })
+        // P5-2：出参由数组改为分页对象 {list,total,pageNum,pageSize}（无 filters 键），旧数组形状不再兼容；
+        // list/total 都只从回包转述，total 取数失败兜 0（0 同时是分页条的显隐判据）
+        const payload = (res && res.data) || {}
+        this.settlements = Array.isArray(payload.list) ? payload.list : []
+        this.total = Number(payload.total) || 0
         this.errorText = ''
         this.errorCode = 0
         this.forbiddenMessage = ''
         this.stopRetryLock()
         this.viewState = 'ready'
       } catch (e) {
+        // 失败清空列表与总数（P5-2）：本页四态互斥，错误/引导卡整屏替换 ready 态，
+        // 残留旧页数据会构成「屏上没有但状态里还在」的死数据
+        this.settlements = []
+        this.total = 0
         const code = Number((e && e.code) || 0)
         if (code === 401) {
           // 跳转与清态都由请求层做完，这里只停在加载态（照母版纪律不闪错误卡）
@@ -270,6 +328,32 @@ export default {
           this.loadSettlements(true)
         }
       }
+    },
+    // ==================== 分页（P5-2：换页整列表重拉，不是追加） ====================
+    goPrevPage() {
+      this.turnPage(this.pageNum - 1)
+    },
+    goNextPage() {
+      this.turnPage(this.pageNum + 1)
+    },
+    turnPage(target) {
+      const page = Number(target)
+      // 越界与原地不动都不发请求；冷却中也不发（口径照 plan-orders 的 loadMore：限流态下任何续拉都在给桶续命）
+      if (!Number.isFinite(page) || page < 1 || page > this.totalPages || page === this.pageNum) return
+      if (this.retryLock > 0) return
+      this.pageNum = page
+      // 不传 resetView：留在 ready 态原地换数据（旧列表保留到新页到达，换页不闪整页 loading）；
+      // 失败走上面 catch 的清空+错误卡，重试按钮重拉的也是当前页码
+      this.loadSettlements()
+    },
+    onPageSizeChange(e) {
+      const idx = Number(e && e.detail && e.detail.value)
+      const size = this.PAGE_SIZES[Number.isFinite(idx) ? idx : -1]
+      if (!size || size === this.pageSize) return
+      this.pageSize = size
+      // 换档位回第 1 页：当前页码在新档位下可能越界，且换档位语义上就是换一批查询
+      this.pageNum = 1
+      this.loadSettlements()
     },
     // ==================== 展开/收起与明细懒加载 ====================
     toggleExpand(s) {
@@ -484,6 +568,21 @@ export default {
 
 /* ==================== 空态卡 ==================== */
 .empty-card { margin-top: 24rpx; display: flex; flex-direction: column; align-items: center; }
+
+/* ==================== 5. 轻分页条（P5-2） ==================== */
+/* 胶囊按钮件照 common.css .error-retry 的形状（本页既有按钮风格），色值全取本页已出现的（不引新色）；
+   禁用态照 .error-retry-cooling 的「浅字 + 浅描边」配对 */
+.pager-card { margin-top: 24rpx; display: flex; flex-direction: column; align-items: center; gap: 16rpx; }
+.pager-total { font-size: 24rpx; color: #666666; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.pager-actions { display: flex; align-items: center; gap: 24rpx; }
+.pager-btn {
+  font-size: 24rpx; font-weight: 600; color: #333333;
+  border: 1rpx solid #CCCCCC; border-radius: 28rpx;
+  padding: 8rpx 36rpx; line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.pager-btn-disabled { color: #BBBBBB; border-color: #EEEEEE; }
+.pager-page { font-size: 24rpx; color: #333333; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 .page-bottom-space { height: 60rpx; }
 </style>
