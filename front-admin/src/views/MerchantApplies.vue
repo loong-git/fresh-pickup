@@ -468,11 +468,11 @@ onMounted(() => {
   margin-top: 16px;
 }
 .empty {
-  color: #909399;
+  color: #57534E;
   font-size: 13px;
 }
 .muted {
-  color: #909399;
+  color: #57534E;
 }
 .pager {
   display: flex;
@@ -482,11 +482,11 @@ onMounted(() => {
 .dialog-target {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #f5f6f8;
+  background: #F7F6F3;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #606266;
+  color: #57534E;
 }
 .dialog-form :deep(.el-form-item) {
   margin-bottom: 8px;
@@ -495,7 +495,7 @@ onMounted(() => {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #909399;
+  color: #57534E;
 }
 /* F-107 多证照：明细弹窗与驳回弹窗共用同一套缩略图网格 */
 .license-grid {
@@ -513,7 +513,7 @@ onMounted(() => {
   width: 148px;
   height: 104px;
   border-radius: 6px;
-  background: #f5f6f8;
+  background: #F7F6F3;
   cursor: zoom-in;
 }
 .license-img-fallback {
@@ -523,25 +523,25 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  color: #909399;
-  background: #f5f6f8;
+  color: #57534E;
+  background: #F7F6F3;
 }
 .license-type {
   font-size: 12px;
   line-height: 1.4;
-  color: #606266;
+  color: #57534E;
   text-align: center;
 }
 .license-review {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #f5f6f8;
+  background: #F7F6F3;
   border-radius: 6px;
 }
 .license-review-title {
   margin-bottom: 8px;
   font-size: 12px;
-  color: #606266;
+  color: #57534E;
 }
 .license-empty {
   font-size: 12px;

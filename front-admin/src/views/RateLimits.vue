@@ -155,10 +155,10 @@ onMounted(() => {
 .accounting-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #f0f9eb;
-  border: 1px solid #e1f3d8;
+  background: #E8F5EE;
+  border: 1px solid #D6F0E0;
   border-radius: 6px;
-  color: #529b2e;
+  color: #0B5C36;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -171,45 +171,48 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #909399;
+  color: #57534E;
 }
 .total-card {
   display: inline-block;
   min-width: 200px;
   margin-top: 14px;
   padding: 14px 20px;
-  background: #fdf6ec;
-  border: 1px solid #faecd8;
-  border-radius: 8px;
+  background: #FBF1E6;
+  border: 1px solid #F7E4CD;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  border-radius: 10px;
   text-align: center;
 }
 .total-card.total-zero {
-  background: #f4f4f5;
-  border-color: #e9e9eb;
+  background: #F1F0EF;
+  border-color: #E7E5E0;
 }
 .total-num {
   font-size: 26px;
   font-weight: 700;
-  color: #e6a23c;
+  font-variant-numeric: tabular-nums;
+  color: #D97706;
   line-height: 1.2;
 }
 .total-card.total-zero .total-num {
-  color: #909399;
+  color: #57534E;
 }
 .total-label {
   margin-top: 4px;
   font-size: 12px;
-  color: #909399;
+  color: #57534E;
 }
 .panel {
   margin-top: 14px;
   padding: 16px;
   background: #fff;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
 }
 .muted {
-  color: #909399;
+  color: #57534E;
   font-size: 12px;
 }
 .mono {

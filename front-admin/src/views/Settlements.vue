@@ -613,10 +613,10 @@ onMounted(() => {
 .accounting-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #fdf6ec;
-  border: 1px solid #faecd8;
+  background: #FBF1E6;
+  border: 1px solid #F7E4CD;
   border-radius: 6px;
-  color: #b88230;
+  color: #B45309;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -629,7 +629,7 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #909399;
+  color: #57534E;
 }
 /* F-125 §2：分页器行（照 Orders.vue 同款右对齐） */
 .pager {
@@ -642,74 +642,75 @@ onMounted(() => {
   padding: 16px;
   background: #fff;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
 }
 .muted {
-  color: #909399;
+  color: #57534E;
   font-size: 12px;
 }
 .reconcile-ok {
-  color: #67c23a;
+  color: #0F7B4A;
   font-weight: 600;
 }
 .reconcile-bad {
-  color: #f56c6c;
+  color: #DC2626;
   font-weight: 700;
 }
 .field-warn {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #e6a23c;
+  color: #B45309;
 }
 .field-hint {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #909399;
+  color: #57534E;
 }
 .field-error {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #f56c6c;
+  color: #DC2626;
 }
 .option-meta {
   margin-left: 12px;
-  color: #909399;
+  color: #57534E;
   font-size: 12px;
 }
 .generated-hint {
   margin-top: 10px;
   padding: 8px 12px;
-  background: #f0f9eb;
-  border: 1px solid #e1f3d8;
+  background: #E8F5EE;
+  border: 1px solid #D6F0E0;
   border-radius: 6px;
-  color: #529b2e;
+  color: #0B5C36;
   font-size: 13px;
 }
 .dialog-note {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #909399;
+  color: #57534E;
 }
 /* 对账 ✗ 数据事故行：整行标红（全局样式作用点，scoped 对 row-class-name 生成的行类不可达，
    故走 :deep 穿透——与表格行内 el-tag 的既有用法同一机制） */
 :deep(.el-table .settle-broken),
 :deep(.el-table .settle-broken td.el-table__cell) {
-  background: #fef0f0 !important;
+  background: #FCE9E9 !important;
 }
 /* 明细弹窗孤儿行（orders 已删）同款标红警示 */
 :deep(.el-table .item-orphan),
 :deep(.el-table .item-orphan td.el-table__cell) {
-  background: #fef0f0 !important;
+  background: #FCE9E9 !important;
 }
 .orphan-tag {
   margin-left: 6px;
 }
 .orphan-cell {
-  color: #f56c6c;
+  color: #DC2626;
   font-size: 12px;
 }
 </style>

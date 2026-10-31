@@ -371,17 +371,18 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #909399;
+  color: #57534E;
 }
 .panel {
   margin-top: 14px;
   padding: 16px;
   background: #fff;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
 }
 .muted {
-  color: #909399;
+  color: #57534E;
   font-size: 12px;
 }
 .quick-switch {
@@ -392,23 +393,23 @@ onMounted(() => {
   font-size: 12px;
 }
 .switch-label.off {
-  color: #909399;
+  color: #57534E;
 }
 .dialog-target {
   margin-bottom: 12px;
   font-size: 12px;
-  color: #909399;
+  color: #57534E;
 }
 .field-warn {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #e6a23c;
+  color: #B45309;
 }
 .dialog-note {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #909399;
+  color: #57534E;
 }
 </style>

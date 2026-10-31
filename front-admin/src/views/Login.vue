@@ -142,27 +142,60 @@ async function onSubmit() {
 </script>
 
 <style scoped>
+/* 「鲜蔬集市」登录页：深绿渐变整幅 + 白卡浮起（§0 记忆点）。
+   .app-main 固定 24px 内边距，负外边距把渐变拉成满幅；多背景一层暖光晕、一层橙色微光点题。 */
 .login-wrap {
+  margin: -24px;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
+  background:
+    radial-gradient(880px 460px at 78% 16%, rgba(123, 196, 163, 0.16), transparent 62%),
+    radial-gradient(640px 380px at 12% 88%, rgba(217, 119, 6, 0.1), transparent 58%),
+    linear-gradient(150deg, #06281A 0%, #0B3D26 38%, #0F7B4A 100%);
 }
 .login-card {
-  width: 360px;
-  padding: 32px 28px 20px;
+  position: relative;
+  width: 380px;
+  padding: 36px 32px 24px;
   background: #fff;
-  border: 1px solid var(--admin-border);
-  border-radius: 10px;
+  border: 1px solid #E7E5E0;
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(4, 26, 16, 0.35), 0 2px 8px rgba(4, 26, 16, 0.18);
+  overflow: hidden;
+}
+/* 卡顶一道品牌色条（纯装饰） */
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #0F7B4A, #7BC4A3);
 }
 .login-title {
-  font-size: 18px;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1C1917;
   margin: 0 0 4px;
+}
+/* 标题后的绿色圆点：呼应品牌「·鲜」字缀（纯装饰，无文字内容） */
+.login-title::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: #0F7B4A;
+  box-shadow: 0 0 0 3px #E8F5EE;
 }
 .login-sub {
   font-size: 13px;
-  color: #909399;
+  color: #57534E;
   margin: 0 0 20px;
 }
 .login-form :deep(.el-form-item) {
@@ -170,14 +203,17 @@ async function onSubmit() {
 }
 .submit {
   width: 100%;
+  height: 40px;
+  font-weight: 600;
+  letter-spacing: 4px;
 }
 .error {
-  color: #f56c6c;
+  color: #DC2626;
   font-size: 13px;
   margin: 0;
 }
 .lock-tip {
-  color: #e6a23c;
+  color: #B45309;
   font-size: 12px;
   margin: 6px 0 0;
 }

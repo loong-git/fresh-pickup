@@ -3,7 +3,7 @@
     <!-- 顶栏只在登录后出现：登录页自己已有标题，未登录时挂一个「退出登录」是死路 -->
     <header v-if="showChrome" class="app-header">
       <div class="brand">
-        <span class="brand-name">生鲜运营端</span>
+        <span class="brand-name">生鲜运营端</span><span class="brand-fresh">·鲜</span>
         <el-tag type="warning" effect="dark" size="small">运营端</el-tag>
       </div>
       <nav class="nav">
@@ -111,9 +111,77 @@ setForbiddenHandler((payload) => {
 </script>
 
 <style>
+/* ===== 七期 P7-1「鲜蔬集市」主题层（docs/七期规划/00-总纲.md §0 tokens） =====
+   Element Plus 变量只在 :root 覆盖一次：EP 组件与全 19 页自动生效，各页 scoped 不再逐页碰 EP 变量。 */
 :root {
-  --admin-bg: #f5f6f8;
-  --admin-border: #e6e7eb;
+  /* 主色：深鲜绿 + light 梯度 */
+  --el-color-primary: #0F7B4A;
+  --el-color-primary-light-3: #4CA377;
+  --el-color-primary-light-5: #7BC4A3;
+  --el-color-primary-light-7: #ADE0C6;
+  --el-color-primary-light-8: #D6F0E0;
+  --el-color-primary-light-9: #E8F5EE;
+  --el-color-primary-dark-2: #0B5C36;
+  /* success 对齐主色（tokens 未单设成功色，语义色随主色系） */
+  --el-color-success: #0F7B4A;
+  --el-color-success-light-3: #4CA377;
+  --el-color-success-light-5: #7BC4A3;
+  --el-color-success-light-7: #ADE0C6;
+  --el-color-success-light-8: #D6F0E0;
+  --el-color-success-light-9: #E8F5EE;
+  --el-color-success-dark-2: #0B5C36;
+  /* warning：强调橙 */
+  --el-color-warning: #D97706;
+  --el-color-warning-light-3: #E4A051;
+  --el-color-warning-light-5: #ECBB83;
+  --el-color-warning-light-7: #F4D6B4;
+  --el-color-warning-light-8: #F7E4CD;
+  --el-color-warning-light-9: #FBF1E6;
+  --el-color-warning-dark-2: #B45309;
+  /* danger：危险红 */
+  --el-color-danger: #DC2626;
+  --el-color-danger-light-3: #E76767;
+  --el-color-danger-light-5: #EE9393;
+  --el-color-danger-light-7: #F4BFBF;
+  --el-color-danger-light-8: #F8D4D4;
+  --el-color-danger-light-9: #FCE9E9;
+  --el-color-danger-dark-2: #B91C1C;
+  /* info：暖石灰（中性态去冷蓝灰） */
+  --el-color-info: #78716C;
+  --el-color-info-light-3: #A19C98;
+  --el-color-info-light-5: #BCB8B6;
+  --el-color-info-light-7: #D6D2CF;
+  --el-color-info-light-8: #E3E1DF;
+  --el-color-info-light-9: #F1F0EF;
+  --el-color-info-dark-2: #57534E;
+  /* 边框 / 圆角 / 三级文字 / 填充（§0） */
+  --el-border-color: #E7E5E0;
+  --el-border-color-light: #E2DFD8;
+  --el-border-color-lighter: #ECE9E3;
+  --el-border-color-extra-light: #F5F3EE;
+  --el-border-color-dark: #D8D4CD;
+  --el-border-color-darker: #C8C4BC;
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: 4px;
+  --el-text-color-primary: #1C1917;
+  --el-text-color-regular: #57534E;
+  --el-text-color-secondary: #A8A29E;
+  --el-text-color-placeholder: #A8A29E;
+  --el-text-color-disabled: #C0BBB4;
+  --el-fill-color: #F5F3EE;
+  --el-fill-color-light: #FAFAF9;
+  --el-fill-color-lighter: #FAFAF9;
+  --el-fill-color-extra-light: #FCFBFA;
+  --el-fill-color-dark: #EDEBE6;
+  --el-fill-color-blank: #FFFFFF;
+  /* 表格面：表头暖底 / 行 hover 淡绿，EP 变量全局生效 */
+  --el-table-header-bg-color: #FAFAF9;
+  --el-table-header-text-color: #57534E;
+  --el-table-border-color: #E7E5E0;
+  --el-table-row-hover-bg-color: #F2F7F4;
+  /* 壳层两枚旧变量原位重定值：各页 scoped 的 var(--admin-*) 引用零改动即换肤 */
+  --admin-bg: #F7F6F3;
+  --admin-border: #E7E5E0;
 }
 * {
   box-sizing: border-box;
@@ -122,22 +190,24 @@ body {
   margin: 0;
   background: var(--admin-bg);
   font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: #303133;
+  color: #1C1917;
 }
 .app-shell {
   min-height: 100vh;
+  background: var(--admin-bg);
 }
+/* ---- 顶栏：深绿横条（§0 记忆点；布局结构不动，只重定样式） ---- */
 .app-header {
   display: flex;
   align-items: center;
-  gap: 24px;
-  /* F-20.22 顶栏从两条变六条：定高 56px 会在窄屏把导航挤出去，改成 min-height + 可换行，
-     宽屏读数与改动前一致（单行 56px），窄屏则整条 header 自然加高。 */
+  gap: 20px;
+  /* 沿用既有布局行为：宽屏单行 56px，窄屏可换行自然加高 */
   min-height: 56px;
   padding: 8px 24px;
   flex-wrap: wrap;
-  background: #fff;
-  border-bottom: 1px solid var(--admin-border);
+  background: #0B3D26;
+  border-bottom: 1px solid #07301D;
+  box-shadow: 0 2px 10px rgba(11, 61, 38, 0.16);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -149,29 +219,78 @@ body {
 }
 .brand-name {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+/* 「·鲜」品牌字缀（纯装饰） */
+.brand-fresh {
+  font-size: 15px;
+  font-weight: 800;
+  color: #7BC4A3;
+  letter-spacing: 1px;
+}
+.brand .el-tag {
+  border: none;
 }
 .nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  align-items: center;
+  gap: 8px 6px;
   flex: 1;
   min-width: 0;
 }
 .nav-link {
-  color: #606266;
+  color: rgba(255, 255, 255, 0.75);
   text-decoration: none;
-  font-size: 14px;
-  padding: 4px 2px;
-  border-bottom: 2px solid transparent;
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 12px;
+  border-radius: 999px;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
+.nav-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+/* active = 白底深绿字胶囊（壳的记忆点），橙点在白底上依旧醒目 */
 .nav-link.active {
-  color: #303133;
+  color: #0B3D26;
   font-weight: 600;
-  border-bottom-color: #e6a23c;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(4, 26, 16, 0.28);
+}
+/* 会改数据橙点（语义原样）：强调橙 + 一圈淡橙晕 */
+.nav-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #D97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.22);
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.nav-legend {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  margin-left: 6px;
 }
 .actions {
   margin-left: auto;
+}
+/* 退出登录改幽灵按钮融入深绿顶栏 */
+.app-header .actions .el-button {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: rgba(255, 255, 255, 0.38);
+  --el-button-text-color: rgba(255, 255, 255, 0.92);
+  --el-button-hover-bg-color: rgba(255, 255, 255, 0.14);
+  --el-button-hover-border-color: rgba(255, 255, 255, 0.75);
+  --el-button-hover-text-color: #fff;
+  --el-button-active-bg-color: rgba(255, 255, 255, 0.22);
+  --el-button-active-border-color: rgba(255, 255, 255, 0.85);
 }
 .app-main {
   padding: 24px;
@@ -183,62 +302,66 @@ body {
   max-width: 1280px;
   margin: 0 auto;
 }
+/* 页标题 20px/700 与 12px 说明文字拉开层级 */
 .page-title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1C1917;
   margin: 0 0 4px;
+  letter-spacing: 0.2px;
 }
-/* FE-G6-10（读写可辨）：页眉行（标题 + 读/写徽标）。徽标本体是 el-tag，这里只管排布；
-   写页挂 danger「本页会改数据」、只读页挂 info「本页只读」，常驻 ready 态（原先这类话只在出错态出现）。 */
 .page-head {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-/* 写侧入口的橙点与图例：入口平铺到第十二个（F-106 加「商家入驻」、F-108 加「字典管理」、
-   F-109 加「免费领活动」、F-110 加「搜索别名」、F-112 加「秒杀商品」）后，
-   运营不看说明文更读不出「点了就改库」，写侧链接挂橙点 + 一条常驻图例，与各页页眉的「本页会改数据」互相印证。 */
-.nav-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #e6a23c;
-  margin-right: 4px;
-  vertical-align: middle;
-}
-.nav-legend {
-  font-size: 11px;
-  color: #909399;
-  white-space: nowrap;
-  margin-left: 4px;
-}
 .page-note {
   font-size: 12px;
-  color: #909399;
-  line-height: 1.6;
+  color: #57534E;
+  line-height: 1.7;
+}
+/* ---- 表格面：圆角裁切容器 + 行高 +4px + 金额/数字列等宽（§0 密度） ---- */
+.el-table {
+  border-radius: 10px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.el-table .el-table__inner-wrapper {
+  border-radius: 10px;
+}
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+.el-table .el-table__cell {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+/* 弹层圆角随 tokens */
+.el-dialog {
+  border-radius: 10px;
+}
+.el-message-box {
+  border-radius: 10px;
 }
 .state-box {
   padding: 40px;
   text-align: center;
   background: #fff;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
 }
 .state-title {
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 6px;
+  color: #1C1917;
 }
 .state-desc {
   font-size: 13px;
-  color: #606266;
+  color: #57534E;
 }
-/* F-20.22 四个 P0 页写动作的二次确认框（ElMessageBox 挂在 body 下，页面 scoped 样式作用不到，
-   所以这一条只有全局一份；四个页面 customClass 传的是同一个串 'admin-write-confirm'）。
-   为什么要改 white-space：确认文案是「把后果写全」的多行清单（核销/取消/删除/发布门店各自的副作用），
-   默认渲染会把 \n 折成空格、糊成一小块 420px 的单行——运营读不到重点，纪律 2 就只剩形式。
-   这里让换行真的换行、并把框加宽到能读完一行。 */
+/* 写动作二次确认框：多行后果清单要真的换行、加宽到能读完一行 */
 .admin-write-confirm {
   width: 640px;
   max-width: 92vw;
@@ -247,6 +370,7 @@ body {
   white-space: pre-line;
   line-height: 1.75;
   font-size: 13px;
-  color: #303133;
+  color: #1C1917;
 }
+
 </style>

@@ -288,18 +288,42 @@ onMounted(() => {
 .card {
   background: #fff;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+/* 卡片 hover 轻浮起：transform 不参与网格布局，正常态与告警态盒子尺寸零变化 */
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(28, 25, 23, 0.1);
+}
+/* 主色图标位：标签前一枚 8px 圆角色块，告警卡转红（纯 CSS 装饰位） */
 .card-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
-  color: #909399;
+  color: #57534E;
   margin-bottom: 8px;
+}
+.card-label::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #0F7B4A;
+  flex-shrink: 0;
+}
+.card--alert .card-label::before {
+  background: #DC2626;
 }
 .card-value {
   font-size: 26px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.2;
+  color: #1C1917;
+  font-variant-numeric: tabular-nums;
 }
 /* F-50：那一格整格可点，但只用 cursor 与副行提示它是个入口——不改尺寸、不改网格，
    五张卡片仍是同一张 grid 里的同一种盒子（第四列之后的第五格自然换行到下一行第一格）。 */
@@ -310,34 +334,35 @@ onMounted(() => {
    不加任何 position、不改 padding/尺寸，因此不可能压到相邻元素或口径说明块。
    正常态与告警态的盒子高度逐字相同，切换时网格不跳动。 */
 .card--alert {
-  border-color: #f56c6c;
-  background: #fef0f0;
+  border-color: #DC2626;
+  background: #FCE9E9;
 }
 .card--alert .card-value {
-  color: #c45656;
+  color: #B91C1C;
 }
 .card-sub {
   margin-top: 6px;
   font-size: 12px;
-  color: #909399;
+  color: #57534E;
 }
 .card--alert .card-sub {
-  color: #c45656;
+  color: #B91C1C;
 }
 .caliber {
   grid-column: 1 / -1;
   background: #fff;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
   font-size: 12px;
-  color: #606266;
+  color: #57534E;
 }
 .caliber-title {
   font-size: 13px;
   font-weight: 600;
   margin: 0 0 8px;
-  color: #303133;
+  color: #1C1917;
 }
 .caliber ul {
   margin: 0;

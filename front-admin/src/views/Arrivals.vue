@@ -485,29 +485,29 @@ onMounted(async () => {
   background: #fff;
   border: 1px solid var(--admin-border);
   border-radius: 6px;
-  border-left: 3px solid #909399;
+  border-left: 3px solid #57534E;
 }
 .result-bar-success {
-  border-left-color: #67c23a;
+  border-left-color: #0F7B4A;
 }
 .result-bar-error {
-  border-left-color: #f56c6c;
+  border-left-color: #DC2626;
 }
 .result-bar-info {
-  border-left-color: #e6a23c;
+  border-left-color: #D97706;
 }
 .result-bar-warning {
-  border-left-color: #e6a23c;
+  border-left-color: #D97706;
 }
 .result-title {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: #1C1917;
 }
 .result-line {
   font-size: 12px;
   line-height: 1.7;
-  color: #606266;
+  color: #57534E;
 }
 .toolbar {
   display: flex;
@@ -527,7 +527,8 @@ onMounted(async () => {
   padding: 12px 14px;
   background: #fff;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
   display: flex;
   flex-wrap: wrap;
   gap: 8px 28px;
@@ -540,16 +541,16 @@ onMounted(async () => {
   gap: 8px;
 }
 .summary-label {
-  color: #909399;
+  color: #57534E;
 }
 .summary-sub {
-  color: #606266;
+  color: #57534E;
   font-size: 12px;
 }
 .plan-head {
   margin-top: 16px;
   font-size: 12px;
-  color: #909399;
+  color: #57534E;
 }
 .table {
   background: #fff;
@@ -558,7 +559,7 @@ onMounted(async () => {
 .plan-total {
   margin-top: 8px;
   font-size: 12px;
-  color: #606266;
+  color: #57534E;
   text-align: right;
 }
 .depart-bar {
@@ -575,13 +576,13 @@ onMounted(async () => {
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.7;
-  color: #e6a23c;
+  color: #B45309;
 }
 .empty {
-  color: #909399;
+  color: #57534E;
   font-size: 13px;
 }
 .muted {
-  color: #909399;
+  color: #57534E;
 }
 </style>

@@ -376,29 +376,29 @@ onMounted(() => {
   gap: 8px;
   margin-top: 10px;
   padding-left: 10px;
-  border-left: 2px solid #ebeef5;
+  border-left: 2px solid #E7E5E0;
 }
 .quick-filters__label {
-  color: #909399;
+  color: #57534E;
   font-size: 12px;
   letter-spacing: 1px;
 }
 /* F-45 系统事件那一句说明：短、普通文档流一到两行，靠左侧一道 warning 色竖线归到预设那一排。
-   颜色比正文低一档但刻意不淡（#7a5a12 配 #e6a23c 那道线）——这句话是防误读的，
+   颜色比正文低一档但刻意不淡（#92400E 配 #D97706 那道线）——这句话是防误读的，
    淡到看不见就等于没写，而「有人做了这件事」的误读正是本条要挡住的。 */
 .quick-filters__note {
   margin: 8px 0 0;
   padding-left: 10px;
-  border-left: 2px solid #e6a23c;
-  color: #7a5a12;
+  border-left: 2px solid #D97706;
+  color: #92400E;
   font-size: 12px;
   line-height: 1.6;
 }
 .quick-filters__note code {
   padding: 0 4px;
-  background: #f5f7fa;
+  background: #F5F3EE;
   border-radius: 2px;
-  color: #606266;
+  color: #57534E;
   font-size: 12px;
 }
 .table {
@@ -406,7 +406,7 @@ onMounted(() => {
   margin-top: 16px;
 }
 .empty {
-  color: #909399;
+  color: #57534E;
   font-size: 13px;
 }
 .pager {
