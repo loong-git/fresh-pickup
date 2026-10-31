@@ -52,6 +52,10 @@
                       :disabled="viewState === 'loading' || submitting" @change="onFilterChange" />
       <el-button size="small" type="primary" :disabled="viewState === 'loading' || submitting" @click="onFilterChange">查询</el-button>
       <el-button size="small" :disabled="viewState === 'loading' || submitting" @click="onReset">重置</el-button>
+      <!-- P6-3 §2：订单 CSV 导出（只读，全量上限 5000 行）。在飞禁用照本页既有口径
+           （:loading 表导出自身在飞 + disabled 照查询/重置同一组页面状态）；
+           不加确认框——只读导出，与本页写动作的 ElMessageBox 确认体系无关（契约 §2 明定）。 -->
+      <el-button size="small" :loading="exporting" :disabled="viewState === 'loading' || submitting" @click="onExportCsv">导出 CSV</el-button>
       <!-- P4-13 D2：下拉失败不阻断主列表（列表照常读），只在本行尾给可点重试；
            文案与全部筛选控件同一行，运营不必离开筛选区就能自救。 -->
       <span v-if="storeChoicesError" class="muted choices-fallback" :title="storeChoicesError">
@@ -182,7 +186,7 @@
 //      幂等早退、并发翻态这些只有服务端状态机知道，本地改行就是说谎。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminOrders, updateAdminOrderStatus, getStores, retryAfterText } from '../api'
+import { getAdminOrders, updateAdminOrderStatus, getStores, retryAfterText, exportAdminOrders } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -363,6 +367,34 @@ function onReset() {
   filters.value.date = ''
   pageNum.value = 1
   load()
+}
+
+// P6-3 §2：订单 CSV 导出（GET /api/admin/orders/export，只读；导出端点无筛选参数，全量拉全上限 5000 行）。
+// 不加确认框（只读导出与写动作确认体系无关，契约 §2 明定）；成功不弹 toast——浏览器自带下载提示，
+// 再弹一条就是重复告知；失败只 ElMessage（不进 writeResult 结果条：它不是写动作，没有「写后重拉」的后续）。
+const exporting = ref(false)
+async function onExportCsv() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const r = await exportAdminOrders()
+    // blob → a.download：anchor 先挂进文档再 click（Firefox 要求节点在文档内）；
+    // revokeObjectURL 推迟到下一轮宏任务（setTimeout 0）——click 同步启动下载，但个别浏览器
+    // 在同任务内 revoke 仍有竞态隐患，延后一拍零成本换稳。
+    const url = URL.createObjectURL(r.blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = r.filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+  } catch (err) {
+    const e = err || {}
+    ElMessage.error(e.message || '导出失败，请稍后重试')
+  } finally {
+    exporting.value = false
+  }
 }
 
 // P4-13 D2：门店下拉的加载/失败态照 Arrivals 的姿势——失败只弹 toast + 记下原因（模板据此退回手输 ID

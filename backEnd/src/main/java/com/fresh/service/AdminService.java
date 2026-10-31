@@ -574,4 +574,43 @@ public interface AdminService {
      * @return 本次结果文案：实际迁移为「商家已封禁/已解封」；幂等 no-op 为「商家已处于封禁状态/正常营业状态」
      */
     String updateMerchantStatus(Long merchantId, String action, String actor);
+
+    // ==================================================================
+    // P6-3 §1 运营端 CSV 导出（两个导出方法，追加到本接口文件末尾）。
+    // 【审计偏离登记】（契约 §1 逐字要求写明的显式偏离）：两只读端点各写一条审计
+    // （action = order.export / bill.export）——这是对「只读端点不写审计」惯例
+    // （F-108/F-109/F-110/F-112~F-118/F-122 各组读端点的既有口径）的显式偏离，
+    // 理由：批量数据出库问责——列表是分页浏览、一次至多 100 行留在库边，导出是一次性把
+    // 至多 5000 行明细级数据（含脱敏手机号）送出库；出库无痕则「谁在何时以什么筛选拉走了
+    // 多少行」无从追责，审计面只盯写入不看流出是缺口。detail 记导出行数与筛选条件。
+    // 红线：不改既有列表端点；orders 导出手机号必过 PhoneMask（PII 面不扩大）。
+    // ==================================================================
+
+    /**
+     * 订单 CSV 导出（{@code GET /api/admin/orders/export}，P6-3 §1）：复用 F-20.18 订单列表
+     * 同一组 SQL（{@code OrderMapper#countOrders} + {@link OrderMapper#selectOrdersPage}，
+     * 无筛选全量），分页循环拉全，上限 5000 行，超出截断并在 CSV 尾注一行。
+     * CSV：{@code \uFEFF} BOM 头 + 中文表头；列集 订单号,下单时间,状态,自提日期,自提点,手机号,
+     * 商品明细,合计金额；手机号必过 {@link com.fresh.common.PhoneMask#mask}（明文零出现）；
+     * 商品明细为品名×数量以 / 连接；手写 StringBuilder 拼 CSV（RFC 4180 最小转义），不用第三方库。
+     * 成功后写审计 {@code order.export}（detail 记导出行数；偏离理由见上段登记）。
+     *
+     * @param actor 本次调用者身份（null = 静态密钥轨），见类注释
+     * @return UTF-8 CSV 字节（含 BOM；Content-Type 与文件名由 Controller 定形）
+     */
+    byte[] exportOrdersCsv(String actor);
+
+    /**
+     * 账单 CSV 导出（{@code GET /api/admin/settlements/export}，P6-3 §1）：筛选参数
+     * merchantId/dateStart/dateEnd 照 F-125 列表同参透传，逐页复用 {@link #listSettlements}
+     * 拉全（页大小取其值域上限 100，上限 5000 行，超出截断并在 CSV 尾注一行）——对账三条件、
+     * 商家名映射与日期闸门全部与列表同源，零新增 SQL。CSV：BOM + 中文表头；列集
+     * 账单号,商家,账期起,账期止,gross,refund,net,佣金,明细数,状态,对账；对账列出 ✓/✗ 文本
+     * （Boolean→可读符号的导出层定形，照 Settlements.vue 页面同款）。
+     * 成功后写审计 {@code bill.export}（detail 记行数与三个筛选条件；偏离理由见上段登记）。
+     *
+     * @param actor 本次调用者身份（null = 静态密钥轨），见类注释
+     * @return UTF-8 CSV 字节（含 BOM；Content-Type 与文件名由 Controller 定形）
+     */
+    byte[] exportSettlementsCsv(Long merchantId, String dateStart, String dateEnd, String actor);
 }

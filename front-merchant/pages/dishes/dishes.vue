@@ -101,7 +101,10 @@
               <text v-if="isRejected(d)" class="dish-badge badge-audit-rejected">已驳回</text>
               <text class="dish-badge" :class="isOnSale(d) ? 'badge-on' : 'badge-off'">{{ isOnSale(d) ? '在售' : '已下架' }}</text>
             </view>
-            <text class="dish-meta">{{ categoryText(d.category) }} · 库存 {{ d.stock }} · 限购 {{ d.limitBuy }}{{ d.unit }}</text>
+            <!-- 库存三态（P6-2 契约 §1）：stock=0 与 stock>阈值 都走 v-else 分支原样渲染（文案一个字不动）；
+                 0<stock≤阈值（isStockLow）数字套警示色 .dish-stock-low + 尾缀小字「库存偏低」。
+                 纯展示分流：类目/库存读数/限购/单位各段的文案与顺序零改动，相邻标签刻意不留空白节点 -->
+            <text class="dish-meta">{{ categoryText(d.category) }} · 库存 <text v-if="isStockLow(d)" class="dish-stock-low">{{ d.stock }}</text><text v-else>{{ d.stock }}</text><text v-if="isStockLow(d)" class="dish-stock-low-hint">库存偏低</text> · 限购 {{ d.limitBuy }}{{ d.unit }}</text>
             <text v-if="isRejected(d)" class="dish-audit-reason">驳回理由：{{ d.auditReason || '（运营未留理由）' }}</text>
             <view class="dish-price-row">
               <text class="price-symbol">¥</text>
@@ -154,6 +157,12 @@ const RETRY_COOLING_SECONDS = 60
 // 同样是「后端不给数时的保守上限」而不是回速——同一档配 Refill.greedy，实测回速只有 6 秒。
 // 刻意不与上面那枚合并：两个端点限流档位不同（30 次/分 vs 10 次/分），共用一个常量必有一边口径错。
 const CATEGORY_RETRY_FALLBACK_SECONDS = 60
+
+// 库存低位阈值（P6-2 商家端库存低位标红，docs/六期规划/P6-2-商家库存低位标红契约.md §1）：
+// 列表行库存展示三态口径的唯一判据 —— stock=0 照旧文案不动；0<stock≤阈值 数字套警示样式
+// + 尾缀小字「库存偏低」；stock>阈值 原样。纯展示定形（照 fmtPrice/fmtSupply 同口径），
+// 不参与任何页内算术、不触碰增删改/上下架/秒杀只读任何写路径。
+const STOCK_LOW_THRESHOLD = 5
 
 export default {
   data() {
@@ -607,6 +616,14 @@ export default {
     isRejected(d) {
       return !!(d && d.auditStatus === 'rejected')
     },
+    // 库存三态的低位判据（P6-2）：true = 0<stock≤STOCK_LOW_THRESHOLD，模板据此给数字套警示样式
+    // 并挂「库存偏低」尾缀；stock=0 与 stock>阈值都回 false，走 v-else 原样分支。
+    // 纯展示谓词（与 isOnSale/isRejected 同族），只读不出任何写路径；stock 脏值（空/非数）一律按原样渲染，
+    // 不替后端定形。Number 转换口径照 fmtPrice（同一份读数两端定形一致）
+    isStockLow(d) {
+      const n = Number(d && d.stock)
+      return Number.isFinite(n) && n > 0 && n <= STOCK_LOW_THRESHOLD
+    },
     categoryText(code) {
       const hit = this.categories.filter((c) => c.code === code)[0]
       // 字典里查不到的 code（脏值/历史分类）原样展示，不替后端猜中文名
@@ -773,6 +790,10 @@ export default {
 .badge-audit-rejected { color: #FFFFFF; background-color: #B45309; }
 .dish-audit-reason { font-size: 22rpx; color: #E02020; line-height: 1.5; }
 .dish-meta { font-size: 22rpx; color: #999999; line-height: 1.5; }
+/* 库存三态（P6-2）：警示色照本页既有警示色系 #E02020（.dish-audit-reason/.status-tip 同源），
+   数字沿用 .dish-meta 的 22rpx 字号只换色加粗；尾缀小字与 .dish-audit-reason 同档（22rpx 警示色） */
+.dish-stock-low { color: #E02020; font-weight: 600; }
+.dish-stock-low-hint { margin-left: 8rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
 .dish-price-row { display: flex; align-items: baseline; }
 .price-symbol { font-size: 22rpx; font-weight: 700; color: #E02020; }
 .price-num { font-size: 34rpx; font-weight: 700; color: #E02020; line-height: 1; }

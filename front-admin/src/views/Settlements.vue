@@ -32,6 +32,11 @@
       <el-button size="small" type="primary" plain :loading="loading" :disabled="submitting" @click="applyFilters">筛选</el-button>
       <el-button link size="small" :disabled="loading" @click="clearDateFilter">清空</el-button>
       <el-button size="small" :loading="loading" :disabled="submitting" @click="loadSettlements">刷新</el-button>
+      <!-- P6-3 §2：账单 CSV 导出（只读，上限 5000 行，merchantId/dateStart/dateEnd 同参透传）。
+           在飞禁用照本页既有口径：:loading 表导出自身在飞，disabled 照日期控件/清空/刷新同一组
+           （列表读取 loading 中禁点 + 生成弹窗 submitting 在飞禁点）；不加确认框（只读导出，
+           与「生成账期」的二次确认体系无关，契约 §2 明定）。 -->
+      <el-button size="small" :loading="exporting" :disabled="loading || submitting" @click="onExportCsv">导出 CSV</el-button>
       <span class="toolbar-hint">共 {{ total }} 单；按 id 倒序（新账期在前）。</span>
     </div>
 
@@ -246,7 +251,7 @@
 //   5) 生成成功后重拉列表，绝不本地改行；错误一律 ElMessage + 后端 message 原文。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminSettlements, generateAdminSettlement, getAdminSettlementItems, getAdminMerchants } from '../api'
+import { getAdminSettlements, generateAdminSettlement, getAdminSettlementItems, getAdminMerchants, exportAdminSettlements } from '../api'
 
 const settlements = ref([])
 const loading = ref(false)
@@ -399,6 +404,40 @@ function loadSettlements() {
 
 function reloadSettlements() {
   return fetchSettlements(true)
+}
+
+// P6-3 §2：账单 CSV 导出（GET /api/admin/settlements/export，只读；分页循环拉全上限 5000 行）。
+// 筛选同参透传：merchantId/dateStart/dateEnd 与列表查询同源（filterDateStart/End 为 null=不筛，
+// filterMerchantId 为 null 或 ''=不筛，空值由请求层 withQuery 挡下不下发）——导出照当前生效筛选出数，
+// 不带 pageNum/pageSize（导出端点没有分页参数，带了是死参数）。
+// 不加确认框（只读导出与「生成账期」写确认体系无关，契约 §2 明定）；成功不弹 toast——
+// 浏览器自带下载提示，再弹就是重复告知；失败只 ElMessage（照本页既有错误呈现口径）。
+const exporting = ref(false)
+async function onExportCsv() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const r = await exportAdminSettlements({
+      merchantId: filterMerchantId.value,
+      dateStart: filterDateStart.value,
+      dateEnd: filterDateEnd.value
+    })
+    // blob → a.download：anchor 先挂进文档再 click（Firefox 要求节点在文档内）；
+    // revokeObjectURL 推迟到下一轮宏任务（setTimeout 0）——click 同步启动下载，延后一拍零成本换稳。
+    const url = URL.createObjectURL(r.blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = r.filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+  } catch (err) {
+    const e = err || {}
+    ElMessage.error(e.message || '导出失败，请稍后重试')
+  } finally {
+    exporting.value = false
+  }
 }
 
 // 对账 ✗ 行整行标红（row-class-name）；✓ 行不额外着色

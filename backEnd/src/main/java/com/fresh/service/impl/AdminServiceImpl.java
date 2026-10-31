@@ -3254,4 +3254,200 @@ public class AdminServiceImpl implements AdminService {
                 "merchant", String.valueOf(merchantId), old, target);
         return ACTION_BAN.equals(act) ? "商家已封禁" : "商家已解封";
     }
+
+    // ==================================================================
+    // P6-3 §1 运营端 CSV 导出（两个导出方法与配套私有件，全部追加到文件末尾——
+    // 本文件被仓内多条「AdminServiceImpl:行号」指针引用，只追加不插行，理由同 F-122 段注释）。
+    // 【审计偏离登记】（契约 §1 逐字要求写明）：order.export / bill.export 两只读端点各写一条
+    // 审计——这是对「只读端点不写审计」惯例的显式偏离。理由：批量数据出库问责，出库无痕则
+    // 「谁在何时以什么筛选拉走了多少行」无从追责，审计面只盯写入不看流出是缺口
+    // （完整表述见 AdminService 接口同段登记）。
+    // 红线：既有列表端点一行不改（orders 取数走 F-20.18 同一组 SQL、settlements 逐页复用
+    // listSettlements 本方法）；orders 导出手机号必过 PhoneMask（PII 面不扩大）；
+    // 手写 StringBuilder 拼 CSV、不用第三方库；无 DDL 无 yml。
+    // ==================================================================
+
+    /** 单次导出行数上限（契约 §1 逐字 5000）：分页循环拉全的硬顶，超出截断并在 CSV 尾注一行 */
+    private static final int EXPORT_MAX_ROWS = 5000;
+
+    /** 导出分页步长：取列表族 pageSize 值域上限（{@link #LIST_MAX_PAGE_SIZE}，settlements 侧闸门允许的最大页容） */
+    private static final int EXPORT_PAGE_SIZE = LIST_MAX_PAGE_SIZE;
+
+    /** 审计动作与订单目标类型（契约 §1「order.export / bill.export」逐字；action 列宽 VARCHAR(50)） */
+    private static final String AUDIT_ORDER_EXPORT = "order.export";
+    private static final String AUDIT_BILL_EXPORT = "bill.export";
+    private static final String AUDIT_TARGET_ORDER = "order";
+    // 账单导出的目标类型复用本类既有的 AUDIT_TARGET_SETTLEMENT（"settlement"，与 settlement.create 同一真源）
+
+    /** 导出审计 target_id 的占位符：批量出库无单一目标行，列 NOT NULL 落 "-"（同 recordNotifyReject 口径） */
+    private static final String AUDIT_EXPORT_TARGET_ID_PLACEHOLDER = "-";
+
+    /** orders 导出无筛选参数：审计 filters 恒空对象（detail 恒定三键形状，兜底同形状） */
+    private static final String EXPORT_FILTERS_EMPTY = "{}";
+
+    /** CSV 首字符 BOM（契约 §1 \uFEFF）：Excel 打开 UTF-8 中文不乱码 */
+    private static final char CSV_BOM = '\uFEFF';
+
+    /** CSV 行分隔符照 RFC 4180 用 CRLF */
+    private static final String CSV_EOL = "\r\n";
+
+    @Override
+    public byte[] exportOrdersCsv(String actor) {
+        // 复用 F-20.18 订单列表同一组 SQL（countOrders + selectOrdersPage），无筛选全量：
+        // WHERE/ORDER BY/列别名与 AdminV2ServiceImpl#orders 逐字同源，本批零新增 SQL
+        long total = orderMapper.countOrders(null, null, null);
+        long limit = Math.min(total, EXPORT_MAX_ROWS);
+        StringBuilder csv = new StringBuilder().append(CSV_BOM)
+                .append("订单号,下单时间,状态,自提日期,自提点,手机号,商品明细,合计金额").append(CSV_EOL);
+        long exported = 0;
+        while (exported < limit) {
+            List<Map<String, Object>> rows = orderMapper.selectOrdersPage(
+                    null, null, null, exported, EXPORT_PAGE_SIZE);
+            if (rows.isEmpty()) {
+                break;   // 并发删空兜底：COUNT 与页之间数据消失即止，不再空转
+            }
+            for (Map<String, Object> row : rows) {
+                if (exported >= limit) {
+                    break;
+                }
+                csv.append(csvCell(row.get("id"))).append(',')
+                        .append(csvCell(row.get("createTime"))).append(',')
+                        .append(csvCell(orderStatusText((String) row.get("status")))).append(',')
+                        .append(csvCell(row.get("pickupDate"))).append(',')
+                        .append(csvCell(row.get("storeName"))).append(',')
+                        // PII 红线：手机号出库前必过 PhoneMask，明文零出现（同 v2 orders 面）
+                        .append(csvCell(PhoneMask.mask((String) row.get("phone")))).append(',')
+                        .append(csvCell(orderItemsText((String) row.get("id")))).append(',')
+                        .append(csvCell(row.get("totalPrice"))).append(CSV_EOL);
+                exported++;
+            }
+        }
+        appendTruncationNote(csv, total, exported);
+        writeExportAudit(AUDIT_ORDER_EXPORT, AUDIT_TARGET_ORDER, actor, exported, total, EXPORT_FILTERS_EMPTY);
+        return csv.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public byte[] exportSettlementsCsv(Long merchantId, String dateStart, String dateEnd, String actor) {
+        // 筛选归一只做空白归 null（与 listSettlements 第一道归一同款）；非法日期/起止倒挂由
+        // listSettlements 的闸门 400——导出失败即不写审计（只有成功出库才留痕）
+        String fStart = dateStart == null || dateStart.trim().isEmpty() ? null : dateStart.trim();
+        String fEnd = dateEnd == null || dateEnd.trim().isEmpty() ? null : dateEnd.trim();
+        StringBuilder csv = new StringBuilder().append(CSV_BOM)
+                .append("账单号,商家,账期起,账期止,gross,refund,net,佣金,明细数,状态,对账").append(CSV_EOL);
+        long exported = 0;
+        long total = 0;
+        // 逐页复用 listSettlements 拉全：对账三条件/商家名映射/日期闸门与列表同源，防口径漂移
+        for (int pageNo = 1; exported < EXPORT_MAX_ROWS; pageNo++) {
+            Map<String, Object> page = listSettlements(merchantId, pageNo, EXPORT_PAGE_SIZE, fStart, fEnd);
+            total = ((Number) page.get("total")).longValue();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) page.get("list");
+            if (rows.isEmpty()) {
+                break;
+            }
+            for (Map<String, Object> row : rows) {
+                if (exported >= EXPORT_MAX_ROWS) {
+                    break;
+                }
+                csv.append(csvCell(row.get("settleNo"))).append(',')
+                        .append(csvCell(row.get("merchantName"))).append(',')
+                        .append(csvCell(row.get("periodStart"))).append(',')
+                        .append(csvCell(row.get("periodEnd"))).append(',')
+                        .append(csvCell(row.get("gross"))).append(',')
+                        .append(csvCell(row.get("refund"))).append(',')
+                        .append(csvCell(row.get("net"))).append(',')
+                        .append(csvCell(row.get("commission"))).append(',')
+                        .append(csvCell(row.get("itemCount"))).append(',')
+                        .append(csvCell(settlementStatusText((String) row.get("status")))).append(',')
+                        // 对账列（契约 §1）：Boolean→✓/✗ 的导出层定形，照 Settlements.vue 页面同款
+                        .append(Boolean.TRUE.equals(row.get("reconcileOk")) ? "✓" : "✗").append(CSV_EOL);
+                exported++;
+            }
+            if (exported >= EXPORT_MAX_ROWS || (long) pageNo * EXPORT_PAGE_SIZE >= total) {
+                break;
+            }
+        }
+        appendTruncationNote(csv, total, exported);
+        String filtersJson = "{\"merchantId\":" + (merchantId == null ? "null" : merchantId)
+                + ",\"dateStart\":" + jsonValue(fStart) + ",\"dateEnd\":" + jsonValue(fEnd) + "}";
+        writeExportAudit(AUDIT_BILL_EXPORT, AUDIT_TARGET_SETTLEMENT, actor, exported, total, filtersJson);
+        return csv.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 截断尾注（契约 §1「超限截断并在 CSV 尾注一行」）：仅超限时追加一行，注明数据源总行数与
+     * 实际导出行数；尾注不含英文逗号/引号/换行，无需引号包裹（RFC 4180 最小转义集内零特殊字符）。
+     */
+    private static void appendTruncationNote(StringBuilder csv, long total, long exported) {
+        if (total > EXPORT_MAX_ROWS) {
+            csv.append("注：数据源共 ").append(total).append(" 行，超出单次导出上限 ")
+                    .append(EXPORT_MAX_ROWS).append(" 行，本文件仅含前 ").append(exported).append(" 行").append(CSV_EOL);
+        }
+    }
+
+    /**
+     * 导出审计（本面唯一给只读端点写审计的地方，偏离理由见本段登记）：走本类唯一那份七参
+     * writeAudit 旁路（写失败不打断导出主流程），detail 恒定三键
+     * {@code {"rows":N,"truncated":b,"filters":…}}，兜底同形状三键（rows=-1 表未知，不虚构截断事实）；
+     * truncated 与尾注同一判据（total &gt; 上限），恰达上限不误报截断。
+     */
+    private void writeExportAudit(String action, String targetType, String actor,
+                                  long rows, long total, String filtersJson) {
+        String detail = "{\"rows\":" + rows + ",\"truncated\":" + (total > EXPORT_MAX_ROWS)
+                + ",\"filters\":" + filtersJson + "}";
+        writeAudit(auditActor(actor), action, targetType, AUDIT_EXPORT_TARGET_ID_PLACEHOLDER,
+                detail, "{\"rows\":-1,\"truncated\":false,\"filters\":{}}", currentIp());
+    }
+
+    /** 单元格定形（RFC 4180 最小转义）：null 出空串；BigDecimal 出两位小数（金额列同 moneyText 口径）；值含 " , CR LF 才整体加引号且 " 双写 */
+    private static String csvCell(Object value) {
+        if (value == null) {
+            return "";
+        }
+        String text = value instanceof BigDecimal decimal
+                ? decimal.setScale(2, RoundingMode.HALF_UP).toPlainString()
+                : String.valueOf(value);
+        boolean needQuote = text.indexOf('"') >= 0 || text.indexOf(',') >= 0
+                || text.indexOf('\r') >= 0 || text.indexOf('\n') >= 0;
+        return needQuote ? '"' + text.replace("\"", "\"\"") + '"' : text;
+    }
+
+    /** 某单的商品明细定形：order_item 行的「品名×数量」以 / 连接（契约 §1；空明细出空串） */
+    private String orderItemsText(String orderId) {
+        List<OrderItem> items = orderItemMapper.selectList(
+                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, orderId));
+        StringBuilder text = new StringBuilder();
+        for (OrderItem item : items) {
+            if (text.length() > 0) {
+                text.append('/');
+            }
+            text.append(item.getDishName()).append('×').append(item.getQuantity());
+        }
+        return text.toString();
+    }
+
+    /**
+     * 订单状态文案（导出层定形，照运营页 Orders.vue 的 STATUS_TEXT 同款三态；未知值原样透传不编词——
+     * 状态机的唯一真源仍是 orders.status 列，本方法只做「人读」符号映射，照对账列 ✓/✗ 同一性质）
+     */
+    private static String orderStatusText(String status) {
+        if (status == null) {
+            return "";
+        }
+        return switch (status) {
+            case "pending_pickup" -> "待自提";
+            case "completed" -> "已完成";
+            case "cancelled" -> "已取消";
+            default -> status;
+        };
+    }
+
+    /** 账单状态文案（导出层定形，照 Settlements.vue 的 accounted→记账态同款；其余值原样透传） */
+    private static String settlementStatusText(String status) {
+        if (status == null) {
+            return "";
+        }
+        return "accounted".equals(status) ? "记账态" : status;
+    }
 }

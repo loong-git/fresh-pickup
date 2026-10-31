@@ -1,6 +1,7 @@
 package com.fresh.controller;
 
 import com.fresh.annotation.RateLimit;
+import com.fresh.common.BizException;
 import com.fresh.common.JwtUtil;
 import com.fresh.common.R;
 import com.fresh.dto.AdminAliasCreateDTO;
@@ -32,6 +33,10 @@ import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,6 +50,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
@@ -1159,5 +1166,79 @@ public class AdminController {
         String action = dto == null ? null : dto.getAction();
         String message = adminService.updateMerchantStatus(id, action, grant.actor());
         return R.ok(null, message);
+    }
+
+    // ==================================================================
+    // P6-3 §1 运营端 CSV 导出（两只读端点，追加到文件末尾）。
+    // 闸门照本面既有双轨 {@link #checkKeyOrOperator}；限流照既有 GET 读档 30/60s、按 IP 维度
+    // （Admin 面无 JWT userId，§2.10a）。返回类型 ResponseEntity<byte[]>：仓内既有先例是
+    // PayController#wxNotify（ResponseEntity 面），CSV 文件下载用 byte[] + 显式 text/csv 头，
+    // 不再包 R 信封——成功面是文件、失败面走 BizException 由 GlobalExceptionHandler 出同款信封。
+    // 【审计偏离登记】（契约 §1）：两只读端点各写一条审计——这是对「只读端点不写审计」惯例的
+    // 显式偏离，理由：批量数据出库问责（一次性至多 5000 行明细级数据离开库，出库无痕则
+    // 无从追责）。审计写在 AdminServiceImpl 内与业务同源（order.export / bill.export）。
+    // 红线：既有列表端点一行不改；无 DDL 无 yml。
+    // ==================================================================
+
+    /** 导出文件名的日期段（yyyyMMdd；线程安全可静态复用，仅命名用途、不参与任何业务判定） */
+    private static final DateTimeFormatter EXPORT_FILE_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * 订单 CSV 导出（P6-3 §1）：{@code GET /api/admin/orders/export} →
+     * {@code text/csv;charset=UTF-8} + BOM，文件名 {@code orders-YYYYMMDD.csv}。
+     * 取数（复用 F-20.18 订单列表同一组 SQL、分页循环拉全、上限 5000 行）、脱敏
+     * （手机号必过 PhoneMask）、CSV 拼装与审计全部在 {@code AdminService#exportOrdersCsv}。
+     * <p>闸门拒绝的出口：本端点返回面是 CSV 字节而非 {@code R<T>} 信封，{@code grant.denied()}
+     * 没法直接 return，故把它的 code/message <b>原样</b>抛成 {@link BizException} 交
+     * GlobalExceptionHandler 转出同款 JSON 信封——401 文案逐字同源（「管理密钥缺失或错误」）、
+     * HTTP 恒 200 惯例不变，不另立第二份拒绝信封。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // GET 读档 30/60s（照 v2 列表族）
+    @GetMapping("/orders/export")
+    public ResponseEntity<byte[]> exportOrdersCsv(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                  @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        requireExportGrant(grant);
+        return csvDownload("orders-" + EXPORT_FILE_DATE.format(LocalDate.now()) + ".csv",
+                adminService.exportOrdersCsv(grant.actor()));
+    }
+
+    /**
+     * 账单 CSV 导出（P6-3 §1）：{@code GET /api/admin/settlements/export}，筛选
+     * merchantId/dateStart/dateEnd 三个 {@code @RequestParam} 照 F-125 列表同参透传
+     * （均可空，controller 只透传，判定集中在 service——照 settlements 列表族分工），
+     * 文件名 {@code settlements-YYYYMMDD.csv}。其余同 {@link #exportOrdersCsv}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // GET 读档 30/60s（照 v2 列表族）
+    @GetMapping("/settlements/export")
+    public ResponseEntity<byte[]> exportSettlementsCsv(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                       @RequestHeader(value = "Authorization", required = false) String authz,
+                                                       @RequestParam(value = "merchantId", required = false) Long merchantId,
+                                                       @RequestParam(value = "dateStart", required = false) String dateStart,
+                                                       @RequestParam(value = "dateEnd", required = false) String dateEnd) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        requireExportGrant(grant);
+        return csvDownload("settlements-" + EXPORT_FILE_DATE.format(LocalDate.now()) + ".csv",
+                adminService.exportSettlementsCsv(merchantId, dateStart, dateEnd, grant.actor()));
+    }
+
+    /**
+     * 导出端点闸门的拒绝出口：{@code grant.denied()} 的 code/message 原样上抛成 BizException，
+     * 经 GlobalExceptionHandler 转出与 {@code R.fail(code, message)} 同一结构的 JSON 信封
+     * （见 {@link #exportOrdersCsv} 的注释，拒绝信封只有一份真源、这里不复制内容）。
+     */
+    private void requireExportGrant(AdminGrant grant) {
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            throw new BizException(denied.getCode(), denied.getMessage());
+        }
+    }
+
+    /** CSV 下载响应定形：{@code text/csv;charset=UTF-8} + attachment 文件名（纯 ASCII，无需 RFC 5987 扩展） */
+    private static ResponseEntity<byte[]> csvDownload(String filename, byte[] body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType("text", "csv", StandardCharsets.UTF_8));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename);
+        return new ResponseEntity<>(body, headers, HttpStatus.OK);
     }
 }

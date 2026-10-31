@@ -1345,3 +1345,103 @@ export function updateAdminMerchantStatus(id, action) {
   })
 }
 
+// ==================== P6-3 运营 CSV 导出（两只读端点，blob 通道） ====================
+// 契约真源：docs/六期规划/P6-3-运营CSV导出契约.md §1/§2。后端（AdminController.java:1196/1212，
+// 2026-10-31 现场核）：
+//   GET /api/admin/orders/export          → 无 query 参数，全量导出（上限 5000 行）；
+//   GET /api/admin/settlements/export     → merchantId/dateStart/dateEnd 三个可选 @RequestParam 同参透传；
+// 成功面是 text/csv;charset=UTF-8 字节流 + Content-Disposition（csvDownload 直发，不包 R 信封）；
+// 失败面是 HTTP 恒 200 + JSON 信封（闸门拒绝原样抛 BizException 交 GlobalExceptionHandler）。
+//
+// 【为什么走 window.fetch 而不是上面的 request()】（P6-3 §2 预授权的两支，现场核取后一支）：
+// request() 在 .then 里硬编码 res.json()（本文件 request 的首个 then），CSV 字节流会被当 JSON parse
+// 成 null 再走 handleEnvelope 挂掉——它没有任何 responseType/blob 通道。所以导出走裸 fetch，
+// 但三条纪律原样继承，不另立判例：
+//   ① Authorization 只在 getStoredToken() 非空时挂 Bearer（token 唯一真源，不裸读 'admin_token'）；
+//   ② 失败面复用 handleEnvelope（信封判定唯一真源，见文件头纪律）——401 清态跳登录、403 通知全局
+//     出口、429 带 retryAfterSeconds，与 request() 三语义一字不差；成功面（content-type 不是 JSON）
+//     才直接 resolve Blob，handleEnvelope 的 resolve 臂在导出通道天然不会走到；
+//   ③ 超时照旧用 AbortController。导出按 5000 行上限拉全+拼装，比 10s 查询档吃时间，
+//     复用提交档 20s（TIMEOUT_SUBMIT），不新增第三档（照文件头「分层超时只两档」的纪律）。
+const TIMEOUT_EXPORT = TIMEOUT_SUBMIT
+
+/**
+ * 内部通道：拉一只读 CSV 为 Blob（两个导出函数共用；页面零裸 fetch、零自拼 BASE_URL，照文件头分层纪律）。
+ * @param {string} url 已含 query 的路径（BASE_URL 在本函数拼）
+ * @returns {Promise<Blob>} text/csv 字节流（BOM 由后端加，Excel 中文兼容是后端口径）
+ */
+function fetchCsvBlob(url) {
+  const headers = { Accept: 'text/csv' }
+  const token = getStoredToken()
+  if (token) headers.Authorization = 'Bearer ' + token
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_EXPORT)
+  return new Promise((resolve, reject) => {
+    fetch(BASE_URL + url, { method: 'GET', headers, signal: controller.signal })
+      .then((res) => {
+        const contentType = res.headers.get('content-type') || ''
+        if (contentType.indexOf('application/json') !== -1) {
+          // 失败面：JSON 信封（HTTP 恒 200，业务码在 body.code）——与 request() 同一判定函数分流
+          res.json().then(
+            (json) => { clearTimeout(timer); handleEnvelope({ statusCode: res.status, data: json }, resolve, reject, false) },
+            () => { clearTimeout(timer); handleEnvelope({ statusCode: res.status, data: null }, resolve, reject, false) }
+          )
+          return
+        }
+        if (!res.ok) {
+          // 非 JSON 且非 2xx（网关/代理的 HTML 错误页等）：不是 CSV 也不是信封，按网络失败诚实 reject
+          clearTimeout(timer)
+          reject({ code: -1, message: MSG_NETWORK, data: null })
+          return
+        }
+        res.blob().then(
+          (blob) => { clearTimeout(timer); resolve(blob) },
+          () => { clearTimeout(timer); reject({ code: -1, message: MSG_NETWORK, data: null }) }
+        )
+      })
+      .catch((err) => {
+        clearTimeout(timer)
+        const aborted = err && err.name === 'AbortError'
+        reject({ code: -1, message: aborted ? MSG_TIMEOUT : MSG_NETWORK, data: null })
+      })
+  })
+}
+
+/** 导出文件名的本地日期段 YYYYMMDD（本地时区，与运营看到的「今天」一致；仅命名用途） */
+function csvDateStamp() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return String(d.getFullYear()) + p(d.getMonth() + 1) + p(d.getDate())
+}
+
+/**
+ * 订单 CSV 导出（P6-3 §2）：GET /api/admin/orders/export，无筛选参数（后端全量导出）。
+ * resolve { blob, filename }——filename 按本仓前端定名 orders-YYYYMMDD.csv，页面直接交给 a.download
+ * （a.download 的文件名优先于响应头 Content-Disposition，后端同日同名，两边不冲突）。
+ * @returns {Promise<{blob:Blob, filename:string}>}
+ */
+export function exportAdminOrders() {
+  return fetchCsvBlob('/api/admin/orders/export')
+    .then((blob) => ({ blob, filename: 'orders-' + csvDateStamp() + '.csv' }))
+}
+
+/**
+ * 账单 CSV 导出（P6-3 §2）：GET /api/admin/settlements/export，merchantId/dateStart/dateEnd
+ * 同参数透传（契约 §1「照 F-125 列表同参透传」）；空值由 withQuery 挡下不下发，服务端把缺省当「不筛」。
+ * 不带 pageNum/pageSize——导出端点没有分页参数（后端分页循环拉全，上限 5000 行），带了也是死参数。
+ * filename 按本仓前端定名 bills-YYYYMMDD.csv（ask 定的前端口径；后端 Content-Disposition 是
+ * settlements-*，a.download 优先于响应头，列内容不受影响，注释留痕防止将来对不上名时误判为后端回归）。
+ * @param {{merchantId?:number|string, dateStart?:string, dateEnd?:string}} [params]
+ * @returns {Promise<{blob:Blob, filename:string}>}
+ */
+export function exportAdminSettlements(params) {
+  const p = params || {}
+  const url = withQuery('/api/admin/settlements/export', {
+    merchantId: p.merchantId,
+    dateStart: p.dateStart,
+    dateEnd: p.dateEnd
+  })
+  return fetchCsvBlob(url)
+    .then((blob) => ({ blob, filename: 'bills-' + csvDateStamp() + '.csv' }))
+}
+
