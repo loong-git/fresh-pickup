@@ -560,7 +560,8 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：白底登录页 + 主红 #E02020（表单手感照母版，红值与 common.css 同源，不改主题变量） */
+/* 鲜蔬集市绿单色板：白底登录页 + 主绿 #0F7B4A（表单手感照母版，绿值与 common.css 同源，不改主题变量；
+   旧多多红口径退役，见 docs/七期规划/00-总纲.md §0） */
 .login-page {
   min-height: 100vh;
   background-color: #FFFFFF;
@@ -583,15 +584,15 @@ export default {
 
 /* ==================== 3. 引导态卡（.guide-card/.guide-title/.guide-text/.btn-main 均来自 common.css） ==================== */
 .guide-card { margin-top: 56rpx; }
-/* 后端 403 原文透出的一行：小字灰红，与本页自撰文案区分开（避免用户以为是前端编的原因） */
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+/* 后端 403 原文透出的一行：小字弱化红（危险语义 #DC2626），与本页自撰文案区分开（避免用户以为是前端编的原因） */
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 .guide-card .btn-main { margin-top: 16rpx; }
 /* 429 冷却中的「重新检查」：同形状置灰不可点（点击已在模板里按 retryLock 分流） */
 .guide-link-cooling { color: #CCCCCC; }
 /* 换个账号是次级出口：不与「重新检查」抢视觉权重 */
 .guide-link-plain { color: #999999; }
 
-/* ==================== 4. tab 切换（红色下划线激活态） ==================== */
+/* ==================== 4. tab 切换（主绿下划线激活态） ==================== */
 .tabs {
   display: flex; justify-content: center; gap: 96rpx;
   margin-top: 64rpx;
@@ -602,11 +603,11 @@ export default {
   min-width: 160rpx; padding-bottom: 18rpx;
 }
 .tab-text { font-size: 30rpx; color: #666666; line-height: 1; }
-.tab-text-active { color: #E02020; font-weight: 700; }
+.tab-text-active { color: #0F7B4A; font-weight: 700; }
 .tab-underline {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
   width: 48rpx; height: 6rpx; border-radius: 6rpx;
-  background-color: #E02020;
+  background-color: #0F7B4A;
 }
 
 /* ==================== 5. 登录表单（圆角胶囊输入框） ==================== */
@@ -625,7 +626,7 @@ export default {
 .btn-send-code {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
   height: 68rpx; line-height: 68rpx;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: #0F7B4A; color: #FFFFFF;
   font-size: 24rpx; font-weight: 600;
   border: none; border-radius: 999rpx;
 }

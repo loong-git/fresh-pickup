@@ -692,8 +692,9 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.btn-main 取自 common.css，
-   本页只补间距与专属的字，不动主题变量、不改公共类语义） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.btn-main 取自 common.css，
+   本页只补间距与专属的字，不动主题变量、不改公共类语义；旧多多红口径退役，
+   品牌绿 #0F7B4A / 危险语义红 #DC2626 / 警示橙 #B45309 分轨，见 docs/七期规划/00-总纲.md §0） */
 
 /* ==================== 1. 日期条 ==================== */
 .date-card { display: flex; flex-direction: column; gap: 12rpx; }
@@ -703,8 +704,8 @@ export default {
 .date-default-hint { margin-left: 8rpx; }
 .date-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .date-step {
-  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx; padding: 12rpx 24rpx;
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx; padding: 12rpx 24rpx;
 }
 .date-current {
   flex: 1; min-width: 0; text-align: center;
@@ -728,7 +729,7 @@ export default {
 .loading-card { display: flex; justify-content: center; }
 .loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 .empty-card { display: flex; flex-direction: column; align-items: center; }
 .empty-actions { display: flex; gap: 24rpx; }
@@ -751,24 +752,29 @@ export default {
 }
 .item-qty { flex-shrink: 0; font-size: 24rpx; color: #666666; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .item-empty { font-size: 24rpx; color: #CCCCCC; line-height: 1.5; }
-.item-short { flex-basis: 100%; font-size: 22rpx; color: #E02020; opacity: .8; line-height: 1.4; }
+/* 缺货说明行：危险语义红 #DC2626（缺货是错误事实，不是待办警示；照商家端 plan-orders 缺货族的危险红口径） */
+.item-short { flex-basis: 100%; font-size: 22rpx; color: #DC2626; opacity: .8; line-height: 1.4; }
 .item-tag {
   flex-shrink: 0; font-size: 20rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
 .batch-tag-info { color: #666666; background-color: #F5F5F5; }
-.batch-tag-warn { color: #E02020; background-color: #FFF7F0; }
-.batch-tag-ok { color: #FFFFFF; background-color: #E02020; }
-.batch-tag-err { color: #FFFFFF; background-color: #B01818; }
+/* 未确认=待办警示：警示橙软底（#B45309 保 AA），照商家端 plan-orders .item-tag-unpaid 口径 */
+.batch-tag-warn { color: #B45309; background-color: #FFF7E6; }
+/* 已确认=成功态：品牌绿实底白字（照商家端 .badge-on/.audit-approved 口径） */
+.batch-tag-ok { color: #FFFFFF; background-color: #0F7B4A; }
+/* 异常=危险语义：#DC2626 实底白字（原深红同位替换） */
+.batch-tag-err { color: #FFFFFF; background-color: #DC2626; }
 
 /* ==================== 6. 确认按钮与反馈行 ==================== */
 .batch-confirm { margin-top: 8rpx; }
 .form-hint { font-size: 22rpx; color: #999999; line-height: 1.5; }
+/* 常驻反馈四支：成功=品牌绿底白字，中性=灰，失败=危险语义红 #DC2626（浅红底 #FEF2F2 照商家端危险软底档），冷却=警示橙 #B45309（软底 #FFF7E6） */
 .batch-feedback { font-size: 26rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
-.batch-feedback-ok { color: #FFFFFF; background-color: #E02020; }
+.batch-feedback-ok { color: #FFFFFF; background-color: #0F7B4A; }
 .batch-feedback-neutral { color: #666666; background-color: #F5F5F5; }
-.batch-feedback-err { color: #E02020; background-color: #FFF1F0; }
-.batch-feedback-cooling { color: #E02020; background-color: #FFF7F0; }
+.batch-feedback-err { color: #DC2626; background-color: #FEF2F2; }
+.batch-feedback-cooling { color: #B45309; background-color: #FFF7E6; }
 
 /* 空态改两行式：主句只说事实（哪一天没有批次记录），副句说「这事该找谁」。
    common.css 的 .empty-row 是横向居中，两个 text 并排会把长句挤成竖条，这里按本页需要改纵向。 */

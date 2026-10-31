@@ -330,13 +330,14 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底页面 + 白卡（.card/.error-row/.btn-main 等公共类在 styles/common.css，
-   本页只补间距与专属字，不动主题变量） */
+/* 鲜蔬集市绿单色板：暖灰底页面 + 白卡（.card/.error-row/.btn-main 等公共类在 styles/common.css，
+   本页只补间距与专属字，不动主题变量；旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨，
+   见 docs/七期规划/00-总纲.md §0） */
 
 /* ==================== 1/2. 单卡承载的三态 ==================== */
 .loading-card { margin-top: 56rpx; display: flex; justify-content: center; }
 .loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
 .error-retry-cooling { color: #CCCCCC; }
 
@@ -347,7 +348,8 @@ export default {
   padding: 40rpx 24rpx;
 }
 .balance-label { font-size: 24rpx; color: #999999; }
-.balance-value { font-size: 64rpx; font-weight: 700; color: #E02020; line-height: 1.2; }
+/* 佣金余额是本页最核心的正向读数：品牌绿大数字（照商家端 plan-orders .item-price / dashboard .top-amount 的金额绿口径） */
+.balance-value { font-size: 64rpx; font-weight: 700; color: #0F7B4A; line-height: 1.2; }
 .balance-tag-row { display: flex; }
 .balance-tag {
   font-size: 22rpx; color: #B88230; background-color: #FDF6EC;
@@ -371,9 +373,11 @@ export default {
   font-size: 22rpx; border-radius: 8rpx; padding: 4rpx 12rpx; line-height: 1.5;
   color: #666666; background-color: #F5F5F5;
 }
-.flow-type-grant { color: #E02020; background-color: #FFF1F0; }
+/* 入账=正向收益（好消息）：品牌绿字 + 品牌浅绿底（照商家端 count-tag/top-rank 的 #0F7B4A+#E8F5EE 组合）；
+   冲销（reversal）保持中性灰不动——负向冲销不穿危险红也不穿绿，避免与失败反馈混读 */
+.flow-type-grant { color: #0F7B4A; background-color: #E8F5EE; }
 .flow-amount { font-size: 32rpx; font-weight: 700; color: #333333; }
-.flow-amount-grant { color: #E02020; }
+.flow-amount-grant { color: #0F7B4A; }
 .flow-amount-reversal { color: #999999; }
 .flow-row { font-size: 24rpx; color: #666666; line-height: 1.6; word-break: break-all; }
 .flow-time { color: #BBBBBB; }
@@ -389,7 +393,7 @@ export default {
 .load-more-disabled { background-color: #FAFAFA; border-color: #F5F5F5; }
 .load-more-disabled .load-more-text { color: #CCCCCC; }
 .flow-end { font-size: 22rpx; color: #CCCCCC; text-align: center; padding: 8rpx 0; }
-.flow-refresh-fail { font-size: 22rpx; color: #E02020; opacity: .8; text-align: center; }
+.flow-refresh-fail { font-size: 22rpx; color: #DC2626; opacity: .8; text-align: center; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

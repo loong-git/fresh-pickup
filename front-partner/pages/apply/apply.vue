@@ -904,27 +904,29 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.guide-card/.btn-main 取自 common.css，
-   本页只补间距与专属字，不动主题变量、不加新公共类） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.guide-card/.btn-main 取自 common.css，
+   本页只补间距与专属字，不动主题变量、不加新公共类；旧多多红口径退役，
+   品牌绿 #0F7B4A / 危险语义红 #DC2626 / 警示橙 #B45309 分轨，见 docs/七期规划/00-总纲.md §0） */
 
 /* ==================== 1/2/3. 单卡承载的三态 ==================== */
 .loading-card { margin-top: 56rpx; display: flex; justify-content: center; }
 .loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
 .guide-card .btn-main { margin-top: 16rpx; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 .guide-link-cooling { color: #BBBBBB; }
 
-/* ==================== 4. 状态卡（pending 中性、rejected 主红） ==================== */
+/* ==================== 4. 状态卡（pending 中性、rejected 警示橙卡：照商家端 dish-edit 审核驳回横幅
+   同族 #FFF7E6/#FFD591/#B45309，驳回原因一行用危险语义红 #DC2626 保证一眼可见） ==================== */
 .status-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 10rpx; }
 .status-card-neutral { background-color: #F7F7F7; border: 1rpx solid #EEEEEE; }
-.status-card-err { background-color: #FFF7F0; border: 1rpx solid #FFE3E0; }
+.status-card-err { background-color: #FFF7E6; border: 1rpx solid #FFD591; }
 .status-title { font-size: 32rpx; font-weight: 700; color: #333333; line-height: 1.4; }
-.status-card-err .status-title { color: #E02020; }
+.status-card-err .status-title { color: #B45309; }
 .status-line { font-size: 24rpx; color: #666666; line-height: 1.6; word-break: break-all; }
-/* 平台意见（驳回原因）：主红小字，这是本页唯一需要用户据以行动的一句话 */
-.status-remark { font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.6; word-break: break-all; }
+/* 平台意见（驳回原因）：危险语义红小字（#DC2626），这是本页唯一需要用户据以行动的一句话 */
+.status-remark { font-size: 24rpx; font-weight: 600; color: #DC2626; line-height: 1.6; word-break: break-all; }
 .status-note { font-size: 20rpx; color: #BBBBBB; line-height: 1.5; }
 
 /* 审核中的告知卡：没有输入口，就把「为什么没有」写在最显眼处 */
@@ -934,7 +936,8 @@ export default {
 /* ==================== 4.1 表单行（形状取自母版 dish-edit.vue 的「2. 表单行」样式段，类名换 ap- 前缀） ==================== */
 .form-card { margin-top: 24rpx; padding: 8rpx 24rpx 24rpx; display: flex; flex-direction: column; }
 .block-title { font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1.4; }
-.form-lead { font-size: 22rpx; color: #E02020; line-height: 1.5; }
+/* 驳回后重填的两行说明（只在该态出现）：危险语义红 #DC2626（照商家端 dish-edit .field-hint-warn 口径） */
+.form-lead { font-size: 22rpx; color: #DC2626; line-height: 1.5; }
 .field-row {
   display: flex; align-items: center; gap: 16rpx;
   padding: 22rpx 0; border-bottom: 1rpx solid #F5F5F5;
@@ -954,17 +957,19 @@ export default {
   padding: 16rpx 20rpx; font-size: 26rpx; color: #333333; line-height: 1.6;
 }
 .field-hint { font-size: 22rpx; color: #BBBBBB; line-height: 1.5; }
+/* 校验命中栏的描红：校验失败是错误语义，描边/底色都走 #DC2626 危险红族（#FEF2F2 浅红底），
+   照商家端母版 dish-edit.vue 同名类口径，不落品牌浅绿 */
 .field-error {
-  box-shadow: inset 0 0 0 2rpx #E02020;
+  box-shadow: inset 0 0 0 2rpx #DC2626;
   border-radius: 12rpx;
-  background-color: #FFF7F0;
+  background-color: #FEF2F2;
 }
 /* 坐标行头：定位按钮与「坐标」标签同排，按下态与禁用态都在 pill 自己身上 */
 .coord-head { display: flex; align-items: center; gap: 16rpx; padding-top: 22rpx; }
 .coord-label { width: auto; font-weight: 600; }
 .pill {
-  font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  font-size: 24rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
   padding: 10rpx 24rpx;
 }
 .pill-hover { opacity: .82; }
@@ -972,12 +977,12 @@ export default {
 
 /* ==================== 4.2 提交卡 ==================== */
 .submit-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
-/* 常驻反馈四支：成功=主红底白字，失败=主红底，冷却=橙红（母版 verify.vue 的 verify-feedback 那一族同一档，F-25/P-4 重测） */
+/* 常驻反馈四支：成功=品牌绿底白字，中性=灰，失败=危险语义红 #DC2626（浅红底 #FEF2F2），冷却=警示橙 #B45309（软底 #FFF7E6）（母版 verify.vue 的 verify-feedback 那一族同一档，F-25/P-4 重测） */
 .apply-feedback { font-size: 28rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
-.apply-feedback-ok { color: #FFFFFF; background-color: #E02020; }
+.apply-feedback-ok { color: #FFFFFF; background-color: #0F7B4A; }
 .apply-feedback-neutral { color: #666666; background-color: #F5F5F5; }
-.apply-feedback-err { color: #E02020; background-color: #FFF1F0; }
-.apply-feedback-cooling { color: #E02020; background-color: #FFF7F0; }
+.apply-feedback-err { color: #DC2626; background-color: #FEF2F2; }
+.apply-feedback-cooling { color: #B45309; background-color: #FFF7E6; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

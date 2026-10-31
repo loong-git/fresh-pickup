@@ -626,7 +626,7 @@ export default {
           + '只改这一行的缺货标记，不改变订单本身的状态（待自提 / 已完成 / 已取消不受影响），本页也没有撤销入口。',
         confirmText: '确认登记',
         cancelText: '再想想',
-        confirmColor: '#E02020',
+        confirmColor: '#DC2626',
         success: (r) => {
           if (r && r.confirm) this.registerShortageRow(orderItemId)
         }
@@ -742,11 +742,12 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.cell-arrow 取自 common.css） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.cell-arrow 取自 common.css；
+   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨） */
 
 /* ==================== 1. 筛选卡 ==================== */
 .filter-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
-/* 三 tab：视觉照 front/pages/order/order.vue 的 .status-tab 规则，配色用商家端主红（与 dishes.vue .dish-tab 同一档）。
+/* 三 tab：视觉照 front/pages/order/order.vue 的 .status-tab 规则，配色用商家端主绿（与 dishes.vue .dish-tab 同一档）。
    刻意不写行号：F-59 在 C 端那一页插了取货码行，把原先的 :321-328 顶到了别处——能按选择器具名的指针就别挂行号，
    否则每次改 C 端都要来修一次这里。 */
 .order-tabs { display: flex; gap: 12rpx; }
@@ -756,7 +757,7 @@ export default {
   background-color: #F5F5F5; border-radius: 24rpx;
   padding: 12rpx 0; border: 1rpx solid #EEEEEE;
 }
-.order-tab.active { color: #FFFFFF; font-weight: 700; background-color: #E02020; border-color: #E02020; }
+.order-tab.active { color: #FFFFFF; font-weight: 700; background-color: #0F7B4A; border-color: #0F7B4A; }
 /* 日期下拉（picker 是原生组件，显式占满整行才有整行点击区，同 dishes.vue .cate-picker） */
 .date-picker { display: block; width: 100%; }
 .picker-row {
@@ -774,12 +775,12 @@ export default {
 /* 「清除日期」收成胶囊 + 按下态：与备货单页日期条的按钮同一档，内边距不小于 12rpx 24rpx */
 .date-clear {
   display: inline-block; margin-top: 12rpx; text-align: center;
-  font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  font-size: 24rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
   padding: 12rpx 24rpx;
 }
 /* 按下反馈（hover-class 目标）：移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
-.pill-hover { color: #B01818; background-color: #FFF7F0; border-color: #B01818; }
+.pill-hover { color: #0B3D26; background-color: #E8F5EE; border-color: #0B3D26; }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
@@ -787,7 +788,7 @@ export default {
 
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 
@@ -826,7 +827,7 @@ export default {
 }
 .item-price {
   flex-shrink: 0; margin-left: 8rpx;
-  font-size: 28rpx; font-weight: 700; color: #E02020; line-height: 1.5;
+  font-size: 28rpx; font-weight: 700; color: #0F7B4A; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 /* 「小计」两字的小标签：金额语义的唯一说明，缺了它 ×2 与 ¥6.60 并排就会被读成两种数 */
@@ -842,21 +843,21 @@ export default {
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
 .item-tag-status { color: #999999; background-color: #F5F5F5; }
-.item-tag-unpaid { color: #FFFFFF; background-color: #E02020; }
+/* 「未支付」= 待办警示（非危险非品牌）：警示橙软底小字（#B45309 保 AA），与灰 status 角标区分 */
+.item-tag-unpaid { color: #B45309; background-color: #FFF7E6; }
 
 /* ==================== 5b. 缺货登记那一行（F-69） ==================== */
 /* 单独一行而不是并进上面那行 status 角标之后：fulfill_status 是与订单三态正交的旁路列，
    两枚并排就会被读成同一种标签（「文案与判据同源」要的正是别把这两件事混起来） */
 .item-shortage-line { margin-top: 10rpx; }
-/* 「已登记缺货」= 实心标记、不可点。刻意不用 .item-tag-unpaid 那种纯红底白字：
-   同一行两枚红底反色 tag 会互相冒充，而未支付与缺货是两件事 */
-.item-tag-shortage { color: #B01818; background-color: #FFF1F0; }
-/* 「登记缺货」= 可点胶囊，形状照本页 .date-clear（红描边 + 同一个按下态 pill-hover）。
+/* 「已登记缺货」= 实心标记、不可点：危险语义红软底（#DC2626/#FEF2F2），与未支付的警示橙区分开 */
+.item-tag-shortage { color: #DC2626; background-color: #FEF2F2; }
+/* 「登记缺货」= 可点胶囊，形状照本页 .date-clear（绿描边 + 同一个按下态 pill-hover）。
    刻意不套 .item-tag 的 4rpx 12rpx 内边距：那是标签的高度，拿来做按目标太小 */
 .item-btn-shortage {
   display: inline-flex; align-items: center;
-  font-size: 20rpx; font-weight: 600; color: #E02020; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  font-size: 20rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
   padding: 8rpx 24rpx;
 }
 /* 冷却中 / 请求在途：置灰取值口径同 .btn-more.btn-more-cooling（#BBBBBB / #EEEEEE）再加 not-allowed。
@@ -869,11 +870,11 @@ export default {
 .btn-more {
   margin: 0; padding: 0 48rpx;
   height: 72rpx; line-height: 72rpx;
-  background-color: #FFFFFF; color: #E02020;
+  background-color: #FFFFFF; color: #0F7B4A;
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #E02020; border-radius: 999rpx;
+  border: 1rpx solid #0F7B4A; border-radius: 999rpx;
 }
-.btn-more[disabled] { color: #F5B5B0; background-color: #FFFFFF; border-color: #F5B5B0; }
+.btn-more[disabled] { color: #A7D3BC; background-color: #FFFFFF; border-color: #A7D3BC; }
 /* 冷却态（429 后 retryLock > 0）：置灰取值口径同 .error-retry-cooling（color #BBBBBB / border #EEEEEE），
    再加 not-allowed 把「这一下点不动」说给人看。写成 .btn-more.btn-more-cooling 是为了压过
    上一条 .btn-more[disabled]（两者同特异度，靠源码顺序 + 类名叠加取胜），不改原类。 */

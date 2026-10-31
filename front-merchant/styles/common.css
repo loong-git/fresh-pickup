@@ -1,84 +1,94 @@
-/* ==================== 生鲜商家端 — 两页共用公共样式 ==================== */
+/* ==================== 生鲜商家端 — 多页共用公共样式（七期 P7-2「鲜蔬集市」） ==================== */
 /* 为什么单独成文件而不是写进页面 <style scoped>：
    uniapp 编译器会把页面级 <style> 全 scope 化（R8 三坑之一），跨页共用的类放这里、
-   由页面 <script> 里 import '@/styles/common.css' 引入，才是一份全局定义（改一处两端同变）；
+   由页面 <script> 里 import '@/styles/common.css' 引入，才是一份全局定义（改一处多页同变）；
    同款机制在用户端已有先例（front/pages/pickup/pickup.vue:209 引 styles/pickup-map.css）。
-   类名沿用用户端既有手感（.card / .cell-card / 引导态 / 空态 / 错误态），视觉只用多多红 #E02020 一系。 */
+   类名沿用既有手感（.card / .cell-card / 引导态 / 空态 / 错误态）一字不改，页面引用零改动；
+   视觉换「鲜蔬集市」色板（docs/七期规划/00-总纲.md §0）：暖灰底 #F7F6F3 + 白卡 12px 圆角 +
+   边框 #E7E5E0 + 阴影 0 1px 3px rgba(28,25,23,.06)，品牌绿 #0F7B4A 一系，危险语义红 #DC2626。 */
 
-/* ==================== 页面容器 ==================== */
+/* ==================== 页面容器（暖灰底，去纯灰冷感） ==================== */
 .page-container {
   min-height: 100vh;
-  background-color: #F5F5F5;
+  background-color: #F7F6F3;
   box-sizing: border-box;
 }
 
-/* ==================== 白卡通用（照用户端我的页 .card：16rpx 圆角 + 20rpx 24rpx 外边距） ==================== */
+/* ==================== 白卡通用（12px 圆角 + 暖灰描边 + tokens 阴影，白卡浮于暖灰底） ==================== */
 .card {
   background-color: #FFFFFF;
-  border-radius: 16rpx;
+  border-radius: 24rpx;
+  border: 1rpx solid #E7E5E0;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
   margin: 20rpx 24rpx 0;
   padding: 24rpx;
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; }
-.card-title { font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1.4; }
+.card-title { font-size: 30rpx; font-weight: 700; color: #1C1917; line-height: 1.4; }
 
-/* ==================== cell 行（白卡内列表；行分隔沿用用户端「无分隔线」手感） ==================== */
+/* ==================== cell 行（白卡内列表；行分隔沿用「无分隔线」手感） ==================== */
 .cell-card { padding: 0; overflow: hidden; }
 .cell { display: flex; align-items: center; gap: 16rpx; padding: 28rpx 24rpx; }
 .cell-icon { font-size: 36rpx; flex-shrink: 0; line-height: 1; }
-.cell-title { flex-shrink: 0; font-size: 28rpx; font-weight: 600; color: #333333; }
+.cell-title { flex-shrink: 0; font-size: 28rpx; font-weight: 600; color: #1C1917; }
 .cell-sub {
   flex: 1; min-width: 0; text-align: right;
-  font-size: 22rpx; color: #BBBBBB;
+  font-size: 22rpx; color: #A8A29E;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cell-arrow { flex-shrink: 0; font-size: 34rpx; color: #CCCCCC; }
-/* 置灰不可点行（工作台三入口 G-01 占位；灰度手法照用户端 .coupon-disabled） */
+.cell-arrow { flex-shrink: 0; font-size: 34rpx; color: #A8A29E; }
+/* 置灰不可点行（工作台占位入口；灰度手法照用户端 .coupon-disabled） */
 .cell-disabled { opacity: .55; filter: grayscale(.6); }
 
-/* 建设中角标（行尾替代 › 箭头：箭头会误导「可点进」，占位期不给） */
+/* 建设中角标（行尾替代 › 箭头：箭头会误导「可点进」，占位期不给）——警示橙小字（#B45309 保 AA） */
 .tag-building {
   flex-shrink: 0;
-  font-size: 20rpx; font-weight: 600; color: #E02020;
-  background-color: #FFF7F0; border-radius: 8rpx;
+  font-size: 20rpx; font-weight: 600; color: #B45309;
+  background-color: #FFF7E6; border-radius: 8rpx;
   padding: 6rpx 14rpx; line-height: 1.2;
 }
 
-/* ==================== 主按钮（多多红胶囊；禁用态同用户端登录页 #F5B5B0 档） ==================== */
+/* ==================== 主按钮（品牌绿胶囊；按下浅绿，禁用浅绿 #A7D3BC 档） ==================== */
 .btn-main {
   width: 100%; height: 88rpx; line-height: 88rpx;
   margin: 0; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: #0F7B4A; color: #FFFFFF;
   font-size: 32rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
-.btn-main.btn-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
+/* 按下态（H5 :active + uni-app button 默认 hover-class="button-hover" 双落点）：绿底翻浅绿、字翻绿 */
+.btn-main:active,
+.btn-main.button-hover { background-color: #E8F5EE; color: #0F7B4A; }
+/* 禁用态不吃按下反馈（真闸在各页判据，样式只负责「此刻点不动」的观感） */
+.btn-main.btn-disabled:active,
+.btn-main.btn-disabled.button-hover { background-color: #A7D3BC; color: rgba(255, 255, 255, 0.9); }
+.btn-main.btn-disabled { background-color: #A7D3BC; color: rgba(255, 255, 255, 0.9); }
 
-/* ==================== 引导态（403「暂无商家权限」：浅红卡 + 主红文案，复用游客态引导行纪律） ==================== */
+/* ==================== 引导态（403「暂无权限/访问受限」：浅绿卡 + 主绿强调，复用引导行纪律） ==================== */
 .guide-card {
-  background-color: #FFF7F0;
-  border: 1rpx solid #FFE3E0;
+  background-color: #E8F5EE;
+  border: 1rpx solid #C8E6D5;
   border-radius: 24rpx;
   display: flex; flex-direction: column; align-items: center; gap: 16rpx;
   padding: 48rpx 32rpx;
 }
-.guide-title { font-size: 32rpx; font-weight: 700; color: #333333; line-height: 1.4; text-align: center; }
-.guide-text { font-size: 24rpx; color: #666666; line-height: 1.6; text-align: center; }
-.guide-strong { color: #E02020; font-weight: 600; }
-.guide-link { font-size: 26rpx; font-weight: 600; color: #E02020; padding: 12rpx 24rpx; }
+.guide-title { font-size: 32rpx; font-weight: 700; color: #1C1917; line-height: 1.4; text-align: center; }
+.guide-text { font-size: 24rpx; color: #57534E; line-height: 1.6; text-align: center; }
+.guide-strong { color: #0F7B4A; font-weight: 600; }
+.guide-link { font-size: 26rpx; font-weight: 600; color: #0F7B4A; padding: 12rpx 24rpx; }
 
-/* ==================== 错误态（加载失败可点重试，区别于空态；照用户端我的优惠券页） ==================== */
+/* ==================== 错误态（加载失败可点重试，区别于空态；重试钮走品牌绿） ==================== */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
-.error-text { font-size: 24rpx; color: #999999; }
+.error-text { font-size: 24rpx; color: #A8A29E; }
 .error-retry {
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: #0F7B4A;
+  border: 1rpx solid #0F7B4A; border-radius: 28rpx;
   padding: 8rpx 36rpx; line-height: 1.4;
 }
 
 /* ==================== 空态 ==================== */
 .empty-row { display: flex; justify-content: center; padding: 40rpx 0; }
-.empty-text { font-size: 24rpx; color: #CCCCCC; }
+.empty-text { font-size: 24rpx; color: #A8A29E; }
 
 /* 底部安全区占位（页面有滚动内容时统一收尾） */
 .page-bottom-space { height: env(safe-area-inset-bottom); }

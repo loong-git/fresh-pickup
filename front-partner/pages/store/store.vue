@@ -107,7 +107,7 @@
         <view class="field-row st-field-accepting">
           <text class="field-label">接单开关</text>
           <text class="switch-text">{{ acceptingLabel }}</text>
-          <switch class="accepting-switch" :checked="form.accepting === 1" color="#E02020" @change="onAcceptingChange" />
+          <switch class="accepting-switch" :checked="form.accepting === 1" color="#0F7B4A" @change="onAcceptingChange" />
         </view>
         <text class="field-hint">关闭＝临时满容/休市，与上面「平台状态」（open/closed，由平台维护）是两件正交的事</text>
 
@@ -862,26 +862,28 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.guide-card/.btn-main/.cell-arrow 取自 common.css，
-   本页只补间距与专属字，不动主题变量、不加新公共类） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.guide-card/.btn-main/.cell-arrow 取自 common.css，
+   本页只补间距与专属字，不动主题变量、不加新公共类；旧多多红口径退役，
+   品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨，见 docs/七期规划/00-总纲.md §0） */
 
 /* ==================== 1/2/3. 单卡承载的三态 ==================== */
 .loading-card { margin-top: 56rpx; display: flex; justify-content: center; }
 .loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
 .guide-card .btn-main { margin-top: 16rpx; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 .guide-link-cooling { color: #BBBBBB; }
 .guide-link-plain { color: #999999; }
 
-/* ==================== 4. 合规提示条（RE 红线自证，浅红底压在整页最前） ==================== */
+/* ==================== 4. 合规提示条（RE 红线自证，压在整页最前）——是「规则边界说明」不是错误：
+   品牌浅绿卡照商家端 marketing 合规提示卡同款（#E8F5EE/#C8E6D5/#0F7B4A），不与危险红混轨 ==================== */
 .notice-card {
   margin-top: 24rpx;
-  background-color: #FFF7F0;
-  border: 1rpx solid #FFE3E0;
+  background-color: #E8F5EE;
+  border: 1rpx solid #C8E6D5;
 }
-.notice-text { font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.6; }
+.notice-text { font-size: 24rpx; font-weight: 600; color: #0F7B4A; line-height: 1.6; }
 
 /* ==================== 4.0 只读身份区：整块灰显，明确「这里没有输入口」 ==================== */
 .ro-card { display: flex; flex-direction: column; gap: 12rpx; }
@@ -929,11 +931,12 @@ export default {
 .field-hint { font-size: 22rpx; color: #BBBBBB; line-height: 1.5; }
 .switch-text { flex: 1; min-width: 0; font-size: 26rpx; color: #666666; line-height: 1.4; }
 .accepting-switch { flex-shrink: 0; transform: scale(.9); }
-/* 校验命中栏的描红（母版 dish-edit.vue 的 .field-error 同款）：一句居中 toast 不足以说明「是哪栏拦的」 */
+/* 校验命中栏的描红（母版 dish-edit.vue 的 .field-error 同款）：一句居中 toast 不足以说明「是哪栏拦的」。
+   校验失败是错误语义：描边/底色都走 #DC2626 危险红族（#FEF2F2 浅红底），不落品牌浅绿 */
 .field-error {
-  box-shadow: inset 0 0 0 2rpx #E02020;
+  box-shadow: inset 0 0 0 2rpx #DC2626;
   border-radius: 12rpx;
-  background-color: #FFF7F0;
+  background-color: #FEF2F2;
 }
 
 /* ==================== 4.2 照片只读区 ==================== */
@@ -950,12 +953,12 @@ export default {
 
 /* ==================== 4.3 保存卡 ==================== */
 .save-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
-/* 常驻反馈四支：成功=主红底白字，无改动=中性灰（不是失败就不该穿红），失败=主红，冷却=橙红 */
+/* 常驻反馈四支：成功=品牌绿底白字，无改动=中性灰（不是失败就不该穿红），失败=危险语义红 #DC2626（浅红底 #FEF2F2），冷却=警示橙 #B45309（软底 #FFF7E6） */
 .store-feedback { font-size: 28rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
-.store-feedback-ok { color: #FFFFFF; background-color: #E02020; }
+.store-feedback-ok { color: #FFFFFF; background-color: #0F7B4A; }
 .store-feedback-neutral { color: #666666; background-color: #F5F5F5; }
-.store-feedback-err { color: #E02020; background-color: #FFF1F0; }
-.store-feedback-cooling { color: #E02020; background-color: #FFF7F0; }
+.store-feedback-err { color: #DC2626; background-color: #FEF2F2; }
+.store-feedback-cooling { color: #B45309; background-color: #FFF7E6; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

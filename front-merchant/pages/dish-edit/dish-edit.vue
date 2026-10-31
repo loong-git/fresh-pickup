@@ -1317,7 +1317,8 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.btn-main/.btn-disabled/.cell-arrow 取自 common.css） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.btn-main/.btn-disabled/.cell-arrow 取自 common.css；
+   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 / 警示橙 #B45309 分轨） */
 
 /* ==================== 0. 写闸门红条 ==================== */
 /* sticky 而不是随表单滚走（FEB-1）：本页表单比视口长得多，实测红条 top=-1405/bottom=-1321，
@@ -1329,17 +1330,17 @@ export default {
   top: 0;
   z-index: 20;
   margin-top: 24rpx;
-  background-color: #FFF7F0;
-  border: 1rpx solid #FFE3E0;
+  background-color: #FEF2F2;
+  border: 1rpx solid #FECACA;
 }
-.block-text { font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.6; }
+.block-text { font-size: 24rpx; font-weight: 600; color: #DC2626; line-height: 1.6; }
 
 /* ==================== 0b. 审核驳回横幅（F-116 §2.4 编辑态展示） ====================
    醒目但不 sticky（不是写闸门那种「每一笔提交都受它管」的常驻警示，进页面读一次即可）；
    橙底黑字与写闸门红条区分，理由行用红字保证一眼可见 */
 .audit-reject-card { margin-top: 24rpx; display: flex; flex-direction: column; background-color: #FFF7E6; border: 1rpx solid #FFD591; }
 .audit-reject-title { font-size: 26rpx; font-weight: 600; color: #B45309; line-height: 1.6; }
-.audit-reject-reason { font-size: 24rpx; color: #E02020; line-height: 1.6; margin-top: 6rpx; }
+.audit-reject-reason { font-size: 24rpx; color: #DC2626; line-height: 1.6; margin-top: 6rpx; }
 .audit-reject-hint { font-size: 22rpx; color: #666666; line-height: 1.6; margin-top: 6rpx; }
 
 /* ==================== 1. 加载/错误态 ==================== */
@@ -1380,13 +1381,14 @@ export default {
 }
 /* 字段级说明行：小字灰，不抢主文案；字典失败时同一位置改成可点重试的红字 */
 .field-hint { font-size: 22rpx; color: #BBBBBB; line-height: 1.5; }
-.field-hint-warn { color: #E02020; }
+.field-hint-warn { color: #DC2626; }
 /* 校验命中栏的描红（FEB-6）：12 个字段的表单里，一句居中 1.5s 的 toast 不足以说明「是哪栏拦的」，
-   故另给一条行级视觉记号，配合 scrollIntoView/pageScrollTo 把这一栏带进视口。类名写在 <style> 里而非行内 style */
+   故另给一条行级视觉记号，配合 scrollIntoView/pageScrollTo 把这一栏带进视口。类名写在 <style> 里而非行内 style。
+   校验失败是错误语义：描边/底色都走 #DC2626 危险红族（#FEF2F2 浅红底），不落品牌浅绿 */
 .field-error {
-  box-shadow: inset 0 0 0 2rpx #E02020;
+  box-shadow: inset 0 0 0 2rpx #DC2626;
   border-radius: 12rpx;
-  background-color: #FFF7F0;
+  background-color: #FEF2F2;
 }
 
 /* ==================== 库存增量控件（编辑态独有） ==================== */
@@ -1397,34 +1399,35 @@ export default {
   font-size: 30rpx; color: #666666;
   background-color: #F5F5F5; border: 1rpx solid #EEEEEE; border-radius: 12rpx;
 }
-.sign-btn.active { color: #E02020; font-weight: 700; border-color: #E02020; background-color: #FFF7F0; }
+.sign-btn.active { color: #0F7B4A; font-weight: 700; border-color: #0F7B4A; background-color: #E8F5EE; }
 .stock-input { flex: 0 0 160rpx; width: 160rpx; }
 /* 方向回显（FEB-2）：把当前 stockSign 钉在数量框旁边——方向只该有一处真值，
    框里能打出负号是这一行的历史坑（Math.abs 会把它静默翻正并真的写进库） */
 .stock-sign-echo {
   flex-shrink: 0; font-size: 30rpx; font-weight: 700; line-height: 1.2;
-  color: #E02020; min-width: 28rpx; text-align: center;
+  color: #0F7B4A; min-width: 28rpx; text-align: center;
 }
 
 /* ==================== 次级按钮（common.css 只有主按钮，本页的上传/调整/上下架属次级动作） ==================== */
 .btn-sub {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
   height: 64rpx; line-height: 64rpx;
-  background-color: #FFFFFF; color: #E02020;
+  background-color: #FFFFFF; color: #0F7B4A;
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #E02020; border-radius: 999rpx;
+  border: 1rpx solid #0F7B4A; border-radius: 999rpx;
 }
-.btn-sub.btn-sub-disabled { color: #F5B5B0; border-color: #F5B5B0; background-color: #FFFFFF; }
+.btn-sub.btn-sub-disabled { color: #A7D3BC; border-color: #A7D3BC; background-color: #FFFFFF; }
 
 /* ==================== 标签 ==================== */
 .tag-list { display: flex; flex-wrap: wrap; gap: 12rpx; }
 .tag-chip {
   display: flex; align-items: center; gap: 6rpx;
-  background-color: #FFF7F0; border: 1rpx solid #FFE3E0; border-radius: 999rpx;
+  background-color: #E8F5EE; border: 1rpx solid #C8E6D5; border-radius: 999rpx;
   padding: 6rpx 16rpx;
 }
-.tag-text { font-size: 22rpx; color: #E02020; line-height: 1.4; }
-.tag-x { font-size: 24rpx; color: #E02020; line-height: 1.4; padding: 0 4rpx; }
+/* 已选标签 chip 随品牌绿（× 是 chip 内轻量移除记号，非页面级危险动作，随 chip 同色） */
+.tag-text { font-size: 22rpx; color: #0F7B4A; line-height: 1.4; }
+.tag-x { font-size: 24rpx; color: #0F7B4A; line-height: 1.4; padding: 0 4rpx; }
 .tag-row { display: flex; align-items: center; gap: 12rpx; width: 100%; }
 .tag-input { flex: 1; }
 
@@ -1455,15 +1458,16 @@ export default {
   flex: 1; font-size: 22rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 6rpx 16rpx;
 }
-.badge-on { color: #FFFFFF; background-color: #E02020; }
+.badge-on { color: #FFFFFF; background-color: #0F7B4A; }
 .badge-off { color: #999999; background-color: #F5F5F5; }
 
 /* ==================== 保存卡 ==================== */
 .save-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
 /* 保存支的常驻反馈行（X-7）：沿用 .field-hint 的字号，只把灰改成红——这一行与顶部的写闸门红条
    同为「有事发生」的记号，浅灰会被读成字段说明。写这一条而不是复用 .field-hint-warn（同色），
-   是为了给「保存反馈」留一个自己的类名钩子（片 5 的 X-8 文案族统一要按 tone 分色时改这一处就够） */
-.save-feedback { color: #E02020; font-weight: 600; }
+   是为了给「保存反馈」留一个自己的类名钩子（片 5 的 X-8 文案族统一要按 tone 分色时改这一处就够）。
+   该行实际只承载 err/cooling 两支（成功支只 toast 不落行），故走危险语义红 #DC2626 */
+.save-feedback { color: #DC2626; font-weight: 600; }
 
 /* 底部留白：最后一个字段离保存按钮近，别被键盘/手势条压住 */
 .page-bottom-space { height: 60rpx; }

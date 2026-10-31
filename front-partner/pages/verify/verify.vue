@@ -895,25 +895,27 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.btn-main/.cell-arrow 取自 common.css，
-   本页只补间距与本页专属的字，不动主题变量、不加新公共类） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.btn-main/.cell-arrow 取自 common.css，
+   本页只补间距与本页专属的字，不动主题变量、不加新公共类；旧多多红口径退役，
+   品牌绿 #0F7B4A / 危险语义红 #DC2626 / 警示橙 #B45309 分轨，见 docs/七期规划/00-总纲.md §0） */
 
-/* ==================== 1. 到货警示条 ==================== */
+/* ==================== 1. 到货警示条（批次未确认/无记录是待办警示，不是错误：警示橙卡照商家端
+   dish-edit 审核驳回横幅同族 #FFF7E6/#FFD591/#B45309，不与危险红 #DC2626 混轨） ==================== */
 .alert-card {
   margin-top: 24rpx;
-  background-color: #FFF1F0;
-  border: 1rpx solid #E02020;
+  background-color: #FFF7E6;
+  border: 1rpx solid #FFD591;
   display: flex; flex-direction: column; gap: 12rpx;
 }
-.alert-text { font-size: 28rpx; font-weight: 700; color: #E02020; line-height: 1.5; }
+.alert-text { font-size: 28rpx; font-weight: 700; color: #B45309; line-height: 1.5; }
 .alert-row { display: flex; align-items: center; gap: 16rpx; }
 .alert-link {
   font-size: 24rpx; font-weight: 600; color: #FFFFFF; line-height: 1.4;
-  background-color: #E02020; border-radius: 999rpx; padding: 10rpx 24rpx;
+  background-color: #0F7B4A; border-radius: 999rpx; padding: 10rpx 24rpx;
 }
 .alert-close {
-  font-size: 24rpx; color: #E02020; line-height: 1.4;
-  border: 1rpx solid #E02020; border-radius: 999rpx; padding: 10rpx 24rpx;
+  font-size: 24rpx; color: #B45309; line-height: 1.4;
+  border: 1rpx solid #D97706; border-radius: 999rpx; padding: 10rpx 24rpx;
 }
 .pill-hover { opacity: .82; }
 
@@ -926,12 +928,12 @@ export default {
   background-color: #F7F7F7; border: 1rpx solid #EEEEEE; border-radius: 12rpx;
 }
 .form-hint { font-size: 22rpx; color: #999999; line-height: 1.5; }
-/* 常驻反馈四支：成功=主红加粗，幂等=中性灰（不是失败就不该穿红），失败=主红，冷却=橙红 */
+/* 常驻反馈四支：成功=品牌绿底白字，幂等=中性灰（不是失败就不该穿红），失败=危险语义红 #DC2626（浅红底 #FEF2F2 照商家端危险软底档），冷却=警示橙 #B45309（软底 #FFF7E6） */
 .verify-feedback { font-size: 28rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
-.verify-feedback-ok { color: #FFFFFF; background-color: #E02020; }
+.verify-feedback-ok { color: #FFFFFF; background-color: #0F7B4A; }
 .verify-feedback-neutral { color: #666666; background-color: #F5F5F5; }
-.verify-feedback-err { color: #E02020; background-color: #FFF1F0; }
-.verify-feedback-cooling { color: #E02020; background-color: #FFF7F0; }
+.verify-feedback-err { color: #DC2626; background-color: #FEF2F2; }
+.verify-feedback-cooling { color: #B45309; background-color: #FFF7E6; }
 
 /* ==================== 3. 日期条（取值口径与 pickup-plan.vue 样式小节的「1. 日期条」同档） ==================== */
 .date-card { display: flex; flex-direction: column; gap: 12rpx; }
@@ -941,8 +943,8 @@ export default {
 .date-default-hint { margin-left: 8rpx; }
 .date-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .date-step {
-  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #E02020; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx; padding: 12rpx 24rpx;
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx; padding: 12rpx 24rpx;
 }
 .date-current {
   flex: 1; min-width: 0; text-align: center;
@@ -965,7 +967,7 @@ export default {
 .loading-card { display: flex; justify-content: center; }
 .loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 .empty-card { display: flex; flex-direction: column; align-items: center; }
 .empty-actions { display: flex; gap: 24rpx; }
@@ -1001,19 +1003,20 @@ export default {
   font-size: 20rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
-.item-tag-unpaid { color: #FFFFFF; background-color: #E02020; }
-.item-unpaid-note { display: block; margin-top: 8rpx; font-size: 20rpx; color: #E02020; opacity: .8; line-height: 1.4; }
+/* 「未支付」= 待办警示（非危险非品牌）：警示橙软底小字（#B45309 保 AA），照商家端 plan-orders 同名类口径 */
+.item-tag-unpaid { color: #B45309; background-color: #FFF7E6; }
+.item-unpaid-note { display: block; margin-top: 8rpx; font-size: 20rpx; color: #B45309; opacity: .8; line-height: 1.4; }
 
 /* ==================== 8. 加载更多 ==================== */
 .load-more { display: flex; flex-direction: column; align-items: center; margin-top: 24rpx; }
 .btn-more {
   margin: 0; padding: 0 48rpx;
   height: 72rpx; line-height: 72rpx;
-  background-color: #FFFFFF; color: #E02020;
+  background-color: #FFFFFF; color: #0F7B4A;
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #E02020; border-radius: 999rpx;
+  border: 1rpx solid #0F7B4A; border-radius: 999rpx;
 }
-.btn-more[disabled] { color: #F5B5B0; background-color: #FFFFFF; border-color: #F5B5B0; }
+.btn-more[disabled] { color: #A7D3BC; background-color: #FFFFFF; border-color: #A7D3BC; }
 .btn-more.btn-more-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 .no-more { font-size: 24rpx; color: #999999; line-height: 1.6; }
 

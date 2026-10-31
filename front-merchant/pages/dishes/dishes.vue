@@ -695,19 +695,20 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.empty-row/.btn-main/.guide-link/.cell-arrow 取自 common.css） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.empty-row/.btn-main/.guide-link/.cell-arrow 取自 common.css；
+   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 / 警示橙 #B45309 分轨） */
 
 /* ==================== 1. 筛选卡 ==================== */
 .filter-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
 /* 商家状态行（照 workspace.vue 的 .status-tip 同一档字号/颜色：同一状态在两端必须是同一副样子） */
-.status-tip { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: #E02020; opacity: .8; line-height: 1.5; }
+.status-tip { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: #DC2626; opacity: .8; line-height: 1.5; }
 .search-row { display: flex; align-items: center; gap: 16rpx; }
 .search-input {
   flex: 1; min-width: 0; height: 72rpx; line-height: 72rpx;
   background-color: #F5F5F5; border-radius: 999rpx;
   padding: 0 24rpx; font-size: 26rpx; color: #333333;
 }
-.search-go { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: #E02020; padding: 8rpx 4rpx; }
+.search-go { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: #0F7B4A; padding: 8rpx 4rpx; }
 .search-clear { flex-shrink: 0; font-size: 24rpx; color: #BBBBBB; padding: 8rpx 4rpx; }
 /* 行内新增按钮（取代常驻 fab）：灰度/禁用态照 dish-edit.vue 的 .btn-sub/.btn-sub-disabled 同一套写法，
    两处「新增/次级动作」的观感不能各长一个样；.btn-sub-disabled 只做视觉，
@@ -715,13 +716,13 @@ export default {
 .btn-sub {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
   height: 64rpx; line-height: 64rpx;
-  background-color: #FFFFFF; color: #E02020;
+  background-color: #FFFFFF; color: #0F7B4A;
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #E02020; border-radius: 999rpx;
+  border: 1rpx solid #0F7B4A; border-radius: 999rpx;
 }
-.btn-sub.btn-sub-disabled { color: #F5B5B0; border-color: #F5B5B0; background-color: #FFFFFF; }
+.btn-sub.btn-sub-disabled { color: #A7D3BC; border-color: #A7D3BC; background-color: #FFFFFF; }
 
-/* 三 tab（照用户端 my-coupons.vue:288 .coupon-tabs 手感，激活态用商家端主红） */
+/* 三 tab（照用户端 my-coupons.vue:288 .coupon-tabs 手感，激活态用商家端主绿） */
 .dish-tabs { display: flex; gap: 12rpx; margin-top: 20rpx; }
 .dish-tab {
   flex: 1; text-align: center;
@@ -729,7 +730,7 @@ export default {
   background-color: #F5F5F5; border-radius: 24rpx;
   padding: 12rpx 0; border: 1rpx solid #EEEEEE;
 }
-.dish-tab.active { color: #FFFFFF; font-weight: 700; background-color: #E02020; border-color: #E02020; }
+.dish-tab.active { color: #FFFFFF; font-weight: 700; background-color: #0F7B4A; border-color: #0F7B4A; }
 
 /* 类目下拉行（picker 是原生组件，整行可点，右侧 › 复用 common.css .cell-arrow） */
 /* picker 显式占满整行：H5 下它编译成自定义元素，不声明块级的话整行点击区只剩文字那么宽 */
@@ -746,7 +747,7 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* 字典拉取失败的降级行（本页筛选退化不影响列表，故只提示不给整页错误态，可点重试） */
-.cate-fail { display: block; margin-top: 12rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
+.cate-fail { display: block; margin-top: 12rpx; font-size: 22rpx; color: #DC2626; line-height: 1.5; }
 /* 供货价副文案（F-120 §2）：灰字常驻，只在筛选卡出现一次（列表逐行重复会淹掉商品行） */
 .supply-note { display: block; margin-top: 12rpx; font-size: 22rpx; color: #999999; line-height: 1.5; }
 
@@ -757,8 +758,8 @@ export default {
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
 /* .error-row/.error-text/.error-retry 基类在 common.css；本页只补两个差异件 */
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-/* 后端原文降为第二行：照 workspace.vue 的 .guide-tip 同一档（小字、半透明红），排查时看得见但不顶替人话 */
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+/* 后端原文降为第二行：照 workspace.vue 的 .guide-tip 同一档（小字、半透明危险红），排查时看得见但不顶替人话 */
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 
@@ -784,21 +785,22 @@ export default {
   flex-shrink: 0; font-size: 20rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
-.badge-on { color: #FFFFFF; background-color: #E02020; }
+.badge-on { color: #FFFFFF; background-color: #0F7B4A; }
 .badge-off { color: #999999; background-color: #F5F5F5; }
-/* 审核驳回徽标与理由行（F-116 §2.4）：醒目但不与在售红徽标同色系打架——用深底白字+理由红字双通道 */
+/* 审核驳回徽标与理由行（F-116 §2.4）：醒目但不与在售绿徽标同色系打架——用深橙底白字+理由红字双通道 */
 .badge-audit-rejected { color: #FFFFFF; background-color: #B45309; }
-.dish-audit-reason { font-size: 22rpx; color: #E02020; line-height: 1.5; }
+.dish-audit-reason { font-size: 22rpx; color: #DC2626; line-height: 1.5; }
 .dish-meta { font-size: 22rpx; color: #999999; line-height: 1.5; }
-/* 库存三态（P6-2）：警示色照本页既有警示色系 #E02020（.dish-audit-reason/.status-tip 同源），
-   数字沿用 .dish-meta 的 22rpx 字号只换色加粗；尾缀小字与 .dish-audit-reason 同档（22rpx 警示色） */
-.dish-stock-low { color: #E02020; font-weight: 600; }
-.dish-stock-low-hint { margin-left: 8rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
+/* 库存三态（P6-2）：警示橙照新 tokens（#B45309 保 AA，警示语义不与危险红 #DC2626 混轨），
+   数字沿用 .dish-meta 的 22rpx 字号只换色加粗；尾缀小字与 .dish-audit-reason 同档（22rpx 警示色）；
+   判据（STOCK_LOW_THRESHOLD=5）与类名零触碰，此处只换色值 */
+.dish-stock-low { color: #B45309; font-weight: 600; }
+.dish-stock-low-hint { margin-left: 8rpx; font-size: 22rpx; color: #B45309; line-height: 1.5; }
 .dish-price-row { display: flex; align-items: baseline; }
-.price-symbol { font-size: 22rpx; font-weight: 700; color: #E02020; }
-.price-num { font-size: 34rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.price-symbol { font-size: 22rpx; font-weight: 700; color: #0F7B4A; }
+.price-num { font-size: 34rpx; font-weight: 700; color: #0F7B4A; line-height: 1; }
 .price-unit { font-size: 22rpx; color: #999999; margin-left: 4rpx; }
-/* 供货价（F-120 §2）：灰字推到行尾，与挂牌价（红）拉开色阶——它是结算口径读数不是售价 */
+/* 供货价（F-120 §2）：灰字推到行尾，与挂牌价（绿）拉开色阶——它是结算口径读数不是售价 */
 .supply-text { margin-left: auto; font-size: 22rpx; color: #999999; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 /* ==================== 4. 空态卡 ==================== */

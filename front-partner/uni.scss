@@ -1,30 +1,37 @@
-/* ==================== 生鲜商家端 — 全局 SCSS 变量（G-01 §3.1 视觉单色板） ==================== */
-/* 收敛口径：用户端 front/uni.scss 是「天猫橙 #FF6600 + 多多红 #E02020」双轨（01 盘点 §2.3 未收敛），
-   商家端只保留多多红 #E02020 一系，红值一律照 front 页面里已在用的那几个，保证两端同手感；
-   橙系（$primary-color:#FF6600 / $bg-warm 等）与商家端用不到的价格色、秒杀色全部删除。 */
+/* ==================== 生鲜主理人端 — 全局 SCSS 变量（七期 P7-3「鲜蔬集市」视觉单色板） ==================== */
+/* 设计语言：docs/七期规划/00-总纲.md §0「鲜蔬集市」(Fresh Market Modern)，总纲为唯一真源。
+   旧「多多红」单色板自七期起退役（P7-1 运营端、P7-2 商家端已先行切换，本端与商家端逐字同构）：
+   变量名全部不变、只换值，下游引用零改动；语义从「品牌红一系包打」改为
+   「品牌绿 + 危险红 #DC2626 + 警示橙 #D97706」三轨——品牌态（按钮/高亮/选中）走主绿系，
+   删除/拒绝/错误等危险语义走 #DC2626 系，待办/警示走 #B45309 系。 */
 
-/* 主色 — 多多红 */
-$mc-primary: #E02020;
-/* 禁用/按下态：front 登录页主按钮禁用态同款浅红（.btn-main-disabled） */
-$mc-primary-disabled: #F5B5B0;
-/* 浅底：引导态/浅卡背景，取自 front 券卡与登录页设置密码卡（#FFF7F0 / #FFF7F6 同档） */
-$mc-primary-soft: #FFF7F0;
-/* 发丝边框：浅红描边（front coupon-item） */
-$mc-hairline: #FFE3E0;
+/* 主色 — 深鲜绿（品牌/主按钮/active 态/链接） */
+$mc-primary: #0F7B4A;
+/* 禁用/按下态浅绿：主按钮禁用、次级按钮禁用描边（原浅红同位替换） */
+$mc-primary-disabled: #A7D3BC;
+/* 浅底：引导态/浅卡背景/选中背景（原浅红同位替换） */
+$mc-primary-soft: #E8F5EE;
+/* 发丝边框：浅绿描边（原浅红同位替换） */
+$mc-hairline: #C8E6D5;
 
-/* 中性色 */
+/* 中性色（暖灰底 + 三级文字，照总纲 §0；placeholder/disabled 维持旧档不参与三级收敛） */
 $mc-white: #FFFFFF;
-$mc-bg: #F5F5F5;
-$text-primary: #333333;
-$text-secondary: #666666;
-$text-weak: #999999;
+$mc-bg: #F7F6F3;
+$text-primary: #1C1917;
+$text-secondary: #57534E;
+$text-weak: #A8A29E;
 $text-placeholder: #BBBBBB;
 $text-disabled: #CCCCCC;
 
-/* 边框与阴影（与 front 同一档，卡片浮起量保持一致） */
-$border-color: #EEEEEE;
-$shadow-sm: 0 2rpx 12rpx rgba(0, 0, 0, 0.05);
+/* 边框与阴影（边框换暖灰 #E7E5E0；阴影换总纲 §0 卡片阴影，改用 px 保持三端一致量感） */
+$border-color: #E7E5E0;
+$shadow-sm: 0 1px 3px rgba(28, 25, 23, 0.06);
 
-/* 说明：一期两页（登录/工作台）的页面样式按仓库惯例写在各自 <style scoped> 纯 CSS 里
-   （front 全仓零 lang="scss"，此处变量不产出 CSS 规则，仅作单色板的唯一登记处），
-   两页共用的卡片/cell/按钮/引导态/空态在 styles/common.css（经 JS import，非页面级 scoped）。 */
+/* 危险红（删除/拒绝/错误/对账✗ 等危险语义专用，不参与品牌态）—— #DC2626；
+   警示橙（待办/警示强调，12px 小字降 #B45309 保 AA）—— #D97706。
+   两者不在 $mc- 变量族内：主理人端 scoped 样式为纯 CSS（无 lang="scss"），语义色以字面量直写，
+   在此登记唯一出处防漂移。 */
+
+/* 说明：七页（登录/工作台/核销台/到货批次/门店信息/我的佣金/入驻申请）的页面样式按仓库惯例写在
+   各自 <style scoped> 纯 CSS 里（front 全仓零 lang="scss"，此处变量不产出 CSS 规则，仅作单色板的
+   唯一登记处），六页共用的卡片/cell/按钮/引导态/空态在 styles/common.css（经 JS import，非页面级 scoped）。 */

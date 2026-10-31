@@ -456,14 +456,15 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css；
+   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨） */
 
 /* ==================== 1. 合规提示（页顶常驻，不随滚动消失的那一句） ==================== */
 .notice-card {
   margin-top: 24rpx; padding: 20rpx 24rpx;
-  background-color: #FFF7F0; border: 1rpx solid #FFE3E0;
+  background-color: #E8F5EE; border: 1rpx solid #C8E6D5;
 }
-.notice-lead { font-size: 28rpx; font-weight: 700; color: #E02020; line-height: 1.5; }
+.notice-lead { font-size: 28rpx; font-weight: 700; color: #0F7B4A; line-height: 1.5; }
 .notice-sub { display: block; margin-top: 8rpx; font-size: 22rpx; color: #666666; line-height: 1.5; }
 
 /* ==================== 2. 加载中 ==================== */
@@ -474,15 +475,15 @@ export default {
 .guide-card { margin-top: 56rpx; }
 .guide-card .guide-link { margin-top: 8rpx; }
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 
 /* ==================== 5. 参与态两块 ==================== */
 .block-card { padding: 20rpx 24rpx; }
 .count-tag {
-  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #E02020;
-  background-color: #FFF7F0; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
+  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #0F7B4A;
+  background-color: #E8F5EE; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
 }
 .truncate-line { display: block; font-size: 22rpx; color: #999999; line-height: 1.6; }
 .mk-item { padding: 20rpx 0; border-bottom: 1rpx solid #F5F5F5; }
@@ -498,7 +499,7 @@ export default {
   font-size: 26rpx; font-weight: 600; color: #333333; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
-.mk-v-price { color: #E02020; }
+.mk-v-price { color: #0F7B4A; }
 
 /* ==================== 6. 读数拉取时刻行（与工作台「资料刷新于」同用途） ==================== */
 .refresh-line {

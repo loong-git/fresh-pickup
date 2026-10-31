@@ -339,7 +339,7 @@ export default {
         title: '换个账号',
         content: '将退出当前登录的商家账号，需重新用验证码登录。确定换账号？',
         confirmText: '退出',
-        confirmColor: '#E02020',
+        confirmColor: '#DC2626',
         success: (res) => {
           if (!res.confirm) return
           this.switchAccount()
@@ -394,17 +394,18 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底页面 + 白卡（.card/.cell-card/.guide-card/.btn-main 等公共类在 styles/common.css） */
+/* 鲜蔬集市绿单色板：暖灰底页面 + 白卡（.card/.cell-card/.guide-card/.btn-main 等公共类在 styles/common.css；
+   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨，见 docs/七期规划/00-总纲.md §0） */
 
 /* ==================== 1/2/3. 单卡承载的三态（本页自加间距，公共类不带 margin） ==================== */
 .guide-card { margin-top: 56rpx; }
 .checking-card { margin-top: 56rpx; display: flex; justify-content: center; }
 .checking-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
 .guide-card .btn-main { margin-top: 16rpx; }
-/* 后端 403 原文透出行：小字主红，与本页自撰文案区分，避免用户以为原因是前端编的 */
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
-/* 429 冷却读数行（D5/M12）：本屏唯一带数处，比原文行稍深一档以便与兜底文案分开 */
-.error-cooling { font-size: 22rpx; color: #E02020; line-height: 1.5; text-align: center; }
+/* 后端 403 原文透出行：小字弱化红（危险语义 #DC2626），与本页自撰文案区分，避免用户以为原因是前端编的 */
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
+/* 429 冷却读数行（D5/M12）：本屏唯一带数处，危险语义红以便与兜底文案分开 */
+.error-cooling { font-size: 22rpx; color: #DC2626; line-height: 1.5; text-align: center; }
 /* 冷却中的重试：保持同一枚按钮的形状但置灰（真闸在 loadMe 首行早退，样式只负责让用户一眼看出此刻点不动） */
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
 
@@ -426,23 +427,23 @@ export default {
   font-size: 22rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 6rpx 16rpx;
 }
-.audit-approved { color: #FFFFFF; background-color: #E02020; }
-.audit-pending { color: #E02020; background-color: #FFF7F0; }
-.audit-rejected { color: #E02020; background-color: #FFFFFF; border: 1rpx solid #E02020; }
+.audit-approved { color: #FFFFFF; background-color: #0F7B4A; }
+.audit-pending { color: #B45309; background-color: #FFF7E6; }
+.audit-rejected { color: #DC2626; background-color: #FFFFFF; border: 1rpx solid #DC2626; }
 /* 脏值/缺字段：中性灰，不与三态任一档混淆（不替后端猜状态） */
 .audit-unknown { color: #999999; background-color: #F5F5F5; }
 .merchant-rows { display: flex; flex-direction: column; gap: 8rpx; margin-top: 20rpx; }
 .merchant-row { font-size: 24rpx; color: #666666; line-height: 1.6; }
 .refresh-tip { display: block; margin-top: 20rpx; font-size: 20rpx; color: #CCCCCC; line-height: 1.4; }
-/* 非 active 生命周期的提示行：主红小字（色板内既有值），只读展示不拦截 */
-.status-tip { font-size: 22rpx; color: #E02020; opacity: .8; line-height: 1.5; }
-/* 有快照时 onShow 重拉失败的降级重试行：与刷新时间行同位呼应，可点 */
-.refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: #E02020; line-height: 1.5; }
+/* 非 active 生命周期的提示行：危险语义红小字（#DC2626，停业/清退属严重态），只读展示不拦截 */
+.status-tip { font-size: 22rpx; color: #DC2626; opacity: .8; line-height: 1.5; }
+/* 有快照时 onShow 重拉失败的降级重试行：与刷新时间行同位呼应，可点（失败语义红 #DC2626） */
+.refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: #DC2626; line-height: 1.5; }
 /* 降级行的冷却态（429）：秒数就在这一行里，置灰表明此刻点它不会发请求 */
 .refresh-fail-cooling { color: #BBBBBB; cursor: not-allowed; }
 
-/* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中红色字） ==================== */
-.cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #E02020; }
+/* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中危险语义红字） ==================== */
+.cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #DC2626; }
 
 /* ==================== 5. 入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
 .cell-card { margin-top: 24rpx; }

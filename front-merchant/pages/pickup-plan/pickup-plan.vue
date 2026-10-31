@@ -441,7 +441,8 @@ export default {
 </script>
 
 <style scoped>
-/* 多多红单色板：灰底 + 白卡（.card/.error-row/.empty-row/.btn-main/.guide-link 取自 common.css） */
+/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.empty-row/.btn-main/.guide-link 取自 common.css；
+   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨） */
 
 /* ==================== 1. 日期条 ==================== */
 .date-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
@@ -456,13 +457,13 @@ export default {
 /* 胶囊按钮：view + 12rpx 24rpx 内边距（原 8rpx 上下偏薄），四枚入口同一形状 */
 .date-step {
   flex-shrink: 0; text-align: center;
-  font-size: 26rpx; font-weight: 600; color: #E02020;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  font-size: 26rpx; font-weight: 600; color: #0F7B4A;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
   padding: 12rpx 24rpx; line-height: 1.4;
 }
 /* 按下反馈（hover-class 目标，date-step / date-quick / plan-entry 共用）：
    移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
-.pill-hover { color: #B01818; background-color: #FFF7F0; border-color: #B01818; }
+.pill-hover { color: #0B3D26; background-color: #E8F5EE; border-color: #0B3D26; }
 .date-current {
   flex: 1; min-width: 0; text-align: center;
   font-size: 32rpx; font-weight: 700; color: #333333; line-height: 1.4;
@@ -474,13 +475,13 @@ export default {
 .date-quick {
   flex-shrink: 0; text-align: center;
   font-size: 26rpx; color: #666666; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
   padding: 12rpx 24rpx;
 }
 .plan-entry {
   flex-shrink: 0; text-align: center;
-  font-size: 26rpx; font-weight: 600; color: #E02020; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 999rpx;
+  font-size: 26rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
+  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
   padding: 12rpx 24rpx;
 }
 
@@ -490,7 +491,7 @@ export default {
 
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
 .error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #E02020; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
 .error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
 
@@ -510,8 +511,8 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .group-count {
-  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #E02020;
-  background-color: #FFF7F0; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
+  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #0F7B4A;
+  background-color: #E8F5EE; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
 }
 .plan-line { display: flex; align-items: baseline; gap: 16rpx; padding: 16rpx 0; }
 .plan-line + .plan-line { border-top: 1rpx solid #F7F7F7; }
@@ -529,9 +530,9 @@ export default {
 /* ==================== 6. 导出文本 ==================== */
 .export-card { display: flex; flex-direction: column; align-items: center; gap: 12rpx; }
 .export-toggle { padding: 4rpx 8rpx; }
-.export-toggle-text { font-size: 24rpx; font-weight: 600; color: #E02020; }
+.export-toggle-text { font-size: 24rpx; font-weight: 600; color: #0F7B4A; }
 .copy-hint {
-  align-self: stretch; font-size: 22rpx; color: #E02020; line-height: 1.5; text-align: center;
+  align-self: stretch; font-size: 22rpx; color: #DC2626; line-height: 1.5; text-align: center;
 }
 /* 复制成功的常驻复核行：与失败提示同一行位，但不穿失败那身红 */
 .copy-hint-ok { color: #666666; }
