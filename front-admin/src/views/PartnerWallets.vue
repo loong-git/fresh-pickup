@@ -104,10 +104,10 @@ onMounted(() => {
 .accounting-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #E8F5EE;
-  border: 1px solid #D6F0E0;
+  background: #10241A;
+  border: 1px solid #1C3A2C;
   border-radius: 6px;
-  color: #0B5C36;
+  color: #22C55E;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -120,18 +120,18 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .panel {
   margin-top: 14px;
   padding: 16px;
-  background: #fff;
+  background: #1B1B1D;
   border: 1px solid var(--admin-border);
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .muted {
-  color: #57534E;
+  color: #A6A6AA;
   font-size: 12px;
 }
 .mono {
@@ -139,7 +139,7 @@ onMounted(() => {
   font-size: 12px;
 }
 .neg-balance {
-  color: #DC2626;
+  color: #EF4444;
 }
 .neg-mark {
   color: #D97706;

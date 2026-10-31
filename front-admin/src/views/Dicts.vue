@@ -479,20 +479,20 @@ onMounted(async () => {
 .result-bar {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #fff;
+  background: #1B1B1D;
   border: 1px solid var(--admin-border);
-  border-left: 3px solid #DC2626;
+  border-left: 3px solid #EF4444;
   border-radius: 6px;
 }
 .result-title {
   font-size: 13px;
   font-weight: 600;
-  color: #1C1917;
+  color: #F2F2F2;
 }
 .result-line {
   font-size: 12px;
   line-height: 1.7;
-  color: #57534E;
+  color: #A6A6AA;
   word-break: break-all;
 }
 .dict-layout {
@@ -504,25 +504,25 @@ onMounted(async () => {
 }
 .group-panel,
 .items-panel {
-  background: #fff;
+  background: #1B1B1D;
   border: 1px solid var(--admin-border);
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   padding: 14px;
 }
 .panel-title {
   font-size: 13px;
   font-weight: 600;
-  color: #1C1917;
+  color: #F2F2F2;
   margin-bottom: 10px;
 }
 .panel-state {
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
   line-height: 1.7;
 }
 .panel-error {
-  color: #DC2626;
+  color: #EF4444;
   word-break: break-all;
   margin-bottom: 8px;
 }
@@ -546,20 +546,20 @@ onMounted(async () => {
   outline: none;
 }
 .group-item:hover {
-  border-color: #A8A29E;
+  border-color: #4A4A50;
 }
 .group-item.active {
-  border-color: #0F7B4A;
-  background: #E8F5EE;
+  border-color: #3B82F6;
+  background: #142743;
 }
 .group-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1C1917;
+  color: #F2F2F2;
 }
 .group-code {
   font-size: 11px;
-  color: #57534E;
+  color: #A6A6AA;
   margin-top: 2px;
   word-break: break-all;
 }
@@ -571,7 +571,7 @@ onMounted(async () => {
 }
 .group-count {
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
   white-space: nowrap;
 }
 .items-head {
@@ -584,47 +584,47 @@ onMounted(async () => {
 .items-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1C1917;
+  color: #F2F2F2;
 }
 .items-code {
   font-size: 11px;
   font-weight: 400;
-  color: #57534E;
+  color: #A6A6AA;
   margin-left: 6px;
 }
 .items-meta {
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
   white-space: nowrap;
 }
 .fallback-tip {
   margin-bottom: 10px;
   padding: 8px 12px;
-  background: #E8F5EE;
-  border: 1px solid #F7E4CD;
+  background: #10241A;
+  border: 1px solid #4A3B14;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #B45309;
+  color: #D97706;
 }
 .table {
-  background: #fff;
+  background: #1B1B1D;
 }
 .empty {
-  color: #57534E;
+  color: #A6A6AA;
   font-size: 13px;
 }
 .muted {
-  color: #57534E;
+  color: #A6A6AA;
 }
 .dialog-target {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #F7F6F3;
+  background: #202023;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .dialog-form :deep(.el-form-item) {
   margin-bottom: 8px;
@@ -633,7 +633,7 @@ onMounted(async () => {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #57534E;
+  color: #A6A6AA;
 }
 @media (max-width: 900px) {
   .dict-layout {

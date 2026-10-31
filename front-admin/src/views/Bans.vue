@@ -572,10 +572,10 @@ onMounted(() => {
 .ban-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #FBF1E6;
-  border: 1px solid #F7E4CD;
+  background: #2A2410;
+  border: 1px solid #4A3B14;
   border-radius: 6px;
-  color: #92400E;
+  color: #E7C868;
   font-size: 13px;
   line-height: 1.7;
 }
@@ -602,17 +602,17 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .state-box {
   margin-top: 14px;
 }
 .table {
-  background: #fff;
+  background: #1B1B1D;
   margin-top: 14px;
 }
 .muted {
-  color: #57534E;
+  color: #A6A6AA;
   font-size: 12px;
 }
 .mono {

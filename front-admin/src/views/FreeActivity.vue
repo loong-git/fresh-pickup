@@ -549,42 +549,42 @@ onMounted(() => {
 .counter-note {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #FBF1E6;
-  border: 1px solid #F7E4CD;
+  background: #2A2410;
+  border: 1px solid #4A3B14;
   border-left: 3px solid #D97706;
   border-radius: 6px;
   font-size: 13px;
   line-height: 1.7;
-  color: #B45309;
+  color: #D97706;
 }
 .options-error {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #FCE9E9;
-  border: 1px solid #F8D4D4;
+  background: #2C1517;
+  border: 1px solid #4A2224;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #DC2626;
+  color: #EF4444;
   word-break: break-all;
 }
 .options-note {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #F7F6F3;
+  background: #202023;
   border: 1px solid var(--admin-border);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .panel {
   margin-top: 16px;
   padding: 16px;
-  background: #fff;
+  background: #1B1B1D;
   border: 1px solid var(--admin-border);
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .panel-head {
   display: flex;
@@ -596,13 +596,13 @@ onMounted(() => {
 .panel-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1C1917;
+  color: #F2F2F2;
 }
 .panel-sub {
   margin-top: 2px;
   font-size: 12px;
   line-height: 1.6;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .metrics {
   display: grid;
@@ -611,12 +611,12 @@ onMounted(() => {
 }
 .metric {
   padding: 10px 12px;
-  background: #F7F6F3;
+  background: #202023;
   border-radius: 6px;
 }
 .metric-label {
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .metric-value {
   margin-top: 4px;
@@ -624,14 +624,14 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1.4;
-  color: #1C1917;
+  color: #F2F2F2;
   word-break: break-all;
 }
 .metric-sub {
   margin-top: 2px;
   font-size: 11px;
   line-height: 1.5;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .edit-form {
   margin-top: 16px;
@@ -648,30 +648,30 @@ onMounted(() => {
 .form-tip {
   margin-left: 8px;
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
   white-space: nowrap;
 }
 .field-warn {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #B45309;
+  color: #D97706;
 }
 .pool-warn {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #FBF1E6;
-  border: 1px solid #F7E4CD;
+  background: #2A2410;
+  border: 1px solid #4A3B14;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #B45309;
+  color: #D97706;
   word-break: break-all;
 }
 .empty-line {
   font-size: 12px;
   line-height: 1.7;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .pool-group {
   display: flex;
@@ -682,7 +682,7 @@ onMounted(() => {
   margin-right: 0;
 }
 .muted {
-  color: #57534E;
+  color: #A6A6AA;
   font-size: 12px;
 }
 .save-row {
@@ -695,7 +695,7 @@ onMounted(() => {
 .save-hint {
   font-size: 12px;
   line-height: 1.6;
-  color: #57534E;
+  color: #A6A6AA;
 }
 @media (max-width: 900px) {
   .metrics {

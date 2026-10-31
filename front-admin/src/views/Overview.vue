@@ -282,21 +282,22 @@ onMounted(() => {
 }
 .cards {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* P8-1 §0 密度：卡片网格 auto-fill 320px 起（原固定 4 列改流式，卡片本体零改动） */
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
 }
 .card {
-  background: #fff;
+  background: #1B1B1D;
   border: 1px solid var(--admin-border);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 18px 20px;
-  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 /* 卡片 hover 轻浮起：transform 不参与网格布局，正常态与告警态盒子尺寸零变化 */
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(28, 25, 23, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 /* 主色图标位：标签前一枚 8px 圆角色块，告警卡转红（纯 CSS 装饰位） */
 .card-label {
@@ -304,7 +305,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #57534E;
+  color: #A6A6AA;
   margin-bottom: 8px;
 }
 .card-label::before {
@@ -312,17 +313,17 @@ onMounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 2px;
-  background: #0F7B4A;
+  background: #3B82F6;
   flex-shrink: 0;
 }
 .card--alert .card-label::before {
-  background: #DC2626;
+  background: #EF4444;
 }
 .card-value {
   font-size: 26px;
   font-weight: 700;
   line-height: 1.2;
-  color: #1C1917;
+  color: #F2F2F2;
   font-variant-numeric: tabular-nums;
 }
 /* F-50：那一格整格可点，但只用 cursor 与副行提示它是个入口——不改尺寸、不改网格，
@@ -334,35 +335,35 @@ onMounted(() => {
    不加任何 position、不改 padding/尺寸，因此不可能压到相邻元素或口径说明块。
    正常态与告警态的盒子高度逐字相同，切换时网格不跳动。 */
 .card--alert {
-  border-color: #DC2626;
-  background: #FCE9E9;
+  border-color: #EF4444;
+  background: #2C1517;
 }
 .card--alert .card-value {
-  color: #B91C1C;
+  color: #EF4444;
 }
 .card-sub {
   margin-top: 6px;
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .card--alert .card-sub {
-  color: #B91C1C;
+  color: #EF4444;
 }
 .caliber {
   grid-column: 1 / -1;
-  background: #fff;
+  background: #1B1B1D;
   border: 1px solid var(--admin-border);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 16px 20px;
-  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .caliber-title {
   font-size: 13px;
   font-weight: 600;
   margin: 0 0 8px;
-  color: #1C1917;
+  color: #F2F2F2;
 }
 .caliber ul {
   margin: 0;

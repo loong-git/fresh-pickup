@@ -359,45 +359,45 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .panel {
   margin-top: 14px;
   padding: 16px;
-  background: #fff;
+  background: #1B1B1D;
   border: 1px solid var(--admin-border);
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.06);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .options-error {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #FCE9E9;
-  border: 1px solid #F8D4D4;
+  background: #2C1517;
+  border: 1px solid #4A2224;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #DC2626;
+  color: #EF4444;
   word-break: break-all;
 }
 .options-note {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #F7F6F3;
+  background: #202023;
   border: 1px solid var(--admin-border);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .muted {
-  color: #57534E;
+  color: #A6A6AA;
   font-size: 12px;
 }
 .dialog-target {
   margin-bottom: 12px;
   font-size: 12px;
-  color: #57534E;
+  color: #A6A6AA;
 }
 .full-width {
   width: 100%;
@@ -406,12 +406,12 @@ onMounted(() => {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #B45309;
+  color: #D97706;
 }
 .dialog-note {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #57534E;
+  color: #A6A6AA;
 }
 </style>
