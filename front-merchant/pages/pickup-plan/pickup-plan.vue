@@ -441,32 +441,32 @@ export default {
 </script>
 
 <style scoped>
-/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.empty-row/.btn-main/.guide-link 取自 common.css；
-   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨） */
+/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.error-row/.empty-row/.btn-main/.guide-link 取自 common.css；
+   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 分轨，见 docs/八期规划/00-总纲.md §0） */
 
 /* ==================== 1. 日期条 ==================== */
 .date-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
-/* 字段名标签：与 plan-orders 的 .picker-label 同一档（26rpx/#999999），日期条不再是个裸日期 */
+/* 字段名标签：与 plan-orders 的 .picker-label 同一档（26rpx/#6F6F76），日期条不再是个裸日期 */
 /* baseline：字段名与右侧「默认明天」是两档字号并排，按基线对齐才不会一小一大上下飘 */
 .date-field-row { display: flex; align-items: baseline; margin-bottom: 12rpx; }
-.date-field-label { font-size: 26rpx; color: #999999; line-height: 1.4; }
-/* 默认口径旁注：比字段名小一档的灰字（22rpx/#BBBBBB，同本页 .guide-tip 的字号与 .plan-empty-line 的灰），
+.date-field-label { font-size: 26rpx; color: #6F6F76; line-height: 1.4; }
+/* 默认口径旁注：比字段名小一档的灰字（22rpx/#5A5A60，同本页 .guide-tip 的字号与 .plan-empty-line 的灰），
    只做标注、不承接任何交互（改日期仍走下面的步进/今天按钮） */
-.date-default-hint { margin-left: 8rpx; font-size: 22rpx; color: #BBBBBB; line-height: 1.4; }
+.date-default-hint { margin-left: 8rpx; font-size: 22rpx; color: #5A5A60; line-height: 1.4; }
 .date-row { display: flex; align-items: center; gap: 16rpx; }
 /* 胶囊按钮：view + 12rpx 24rpx 内边距（原 8rpx 上下偏薄），四枚入口同一形状 */
 .date-step {
   flex-shrink: 0; text-align: center;
-  font-size: 26rpx; font-weight: 600; color: #0F7B4A;
-  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
+  font-size: 26rpx; font-weight: 600; color: #3B82F6;
+  background-color: #1B1B1D; border: 1rpx solid #3B82F6; border-radius: 999rpx;
   padding: 12rpx 24rpx; line-height: 1.4;
 }
 /* 按下反馈（hover-class 目标，date-step / date-quick / plan-entry 共用）：
    移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
-.pill-hover { color: #0B3D26; background-color: #E8F5EE; border-color: #0B3D26; }
+.pill-hover { color: #3B82F6; background-color: #142743; border-color: #3B82F6; }
 .date-current {
   flex: 1; min-width: 0; text-align: center;
-  font-size: 32rpx; font-weight: 700; color: #333333; line-height: 1.4;
+  font-size: 32rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
   font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -474,26 +474,26 @@ export default {
 /* 「今天」「看明细」与上一排步进钮同形：同一文件里已有一套胶囊设计语言，不另起炉灶 */
 .date-quick {
   flex-shrink: 0; text-align: center;
-  font-size: 26rpx; color: #666666; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
+  font-size: 26rpx; color: #A6A6AA; line-height: 1.4;
+  background-color: #1B1B1D; border: 1rpx solid #3B82F6; border-radius: 999rpx;
   padding: 12rpx 24rpx;
 }
 .plan-entry {
   flex-shrink: 0; text-align: center;
-  font-size: 26rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
+  font-size: 26rpx; font-weight: 600; color: #3B82F6; line-height: 1.4;
+  background-color: #1B1B1D; border: 1rpx solid #3B82F6; border-radius: 999rpx;
   padding: 12rpx 24rpx;
 }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
 
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
-.error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
-.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
+.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; }
 
 /* ==================== 4. 空态 ==================== */
 .empty-card { display: flex; flex-direction: column; align-items: center; }
@@ -503,43 +503,43 @@ export default {
 .group-card { padding: 20rpx 24rpx; }
 .group-head {
   display: flex; align-items: center; gap: 16rpx;
-  padding-bottom: 16rpx; border-bottom: 1rpx solid #F5F5F5;
+  padding-bottom: 16rpx; border-bottom: 1rpx solid #2A2A2D;
 }
 .group-store {
   flex: 1; min-width: 0;
-  font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1.4;
+  font-size: 30rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .group-count {
-  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #0F7B4A;
-  background-color: #E8F5EE; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
+  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #3B82F6;
+  background-color: #142743; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
 }
 .plan-line { display: flex; align-items: baseline; gap: 16rpx; padding: 16rpx 0; }
-.plan-line + .plan-line { border-top: 1rpx solid #F7F7F7; }
+.plan-line + .plan-line { border-top: 1rpx solid #232326; }
 .plan-name {
   flex: 1; min-width: 0;
-  font-size: 28rpx; color: #333333; line-height: 1.5;
+  font-size: 28rpx; color: #F2F2F2; line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .plan-qty {
-  flex-shrink: 0; font-size: 28rpx; font-weight: 700; color: #333333; line-height: 1.5;
+  flex-shrink: 0; font-size: 28rpx; font-weight: 700; color: #F2F2F2; line-height: 1.5;
   text-align: right; font-variant-numeric: tabular-nums;
 }
-.plan-empty-line { font-size: 24rpx; color: #BBBBBB; line-height: 1.5; }
+.plan-empty-line { font-size: 24rpx; color: #5A5A60; line-height: 1.5; }
 
 /* ==================== 6. 导出文本 ==================== */
 .export-card { display: flex; flex-direction: column; align-items: center; gap: 12rpx; }
 .export-toggle { padding: 4rpx 8rpx; }
-.export-toggle-text { font-size: 24rpx; font-weight: 600; color: #0F7B4A; }
+.export-toggle-text { font-size: 24rpx; font-weight: 600; color: #3B82F6; }
 .copy-hint {
-  align-self: stretch; font-size: 22rpx; color: #DC2626; line-height: 1.5; text-align: center;
+  align-self: stretch; font-size: 22rpx; color: #EF4444; line-height: 1.5; text-align: center;
 }
 /* 复制成功的常驻复核行：与失败提示同一行位，但不穿失败那身红 */
-.copy-hint-ok { color: #666666; }
+.copy-hint-ok { color: #A6A6AA; }
 .export-textarea {
   width: 100%; min-height: 260rpx; box-sizing: border-box;
-  background-color: #F5F5F5; border-radius: 12rpx; padding: 16rpx;
-  font-size: 24rpx; color: #333333; line-height: 1.6;
+  background-color: #232326; border-radius: 12rpx; padding: 16rpx;
+  font-size: 24rpx; color: #F2F2F2; line-height: 1.6;
 }
 
 .page-bottom-space { height: 60rpx; }

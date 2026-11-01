@@ -433,7 +433,7 @@ export default {
         title: '换个账号',
         content: '将退出当前登录的主理人账号，需重新用验证码登录。确定换账号？',
         confirmText: '退出',
-        confirmColor: '#DC2626',
+        confirmColor: '#EF4444',
         success: (res) => {
           if (!res.confirm) return
           this.switchAccount()
@@ -491,22 +491,22 @@ export default {
 </script>
 
 <style scoped>
-/* 鲜蔬集市绿单色板：暖灰底页面 + 白卡（.card/.cell-card/.guide-card/.btn-main/.error-row 等公共类在 styles/common.css，
-   本页只补间距与本页专属的字，不动主题变量；旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨，
-   见 docs/七期规划/00-总纲.md §0） */
+/* 暗色控制台蓝单色板：近黑底页面 #0A0A0B + 暗卡（.card/.cell-card/.guide-card/.btn-main/.error-row 等公共类在 styles/common.css，
+   本页只补间距与本页专属的字，不动主题变量；七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 /
+   成功实底 #22C55E 分轨，见 docs/八期规划/00-总纲.md §0，与 P8-2 商家端同构） */
 
 /* ==================== 1/2/3. 单卡承载的三态（本页自加间距，公共类不带 margin） ==================== */
 .guide-card { margin-top: 56rpx; }
 .checking-card { margin-top: 56rpx; display: flex; justify-content: center; }
-.checking-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
+.checking-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
 .guide-card .btn-main { margin-top: 16rpx; }
-/* 后端原文透出行：小字弱化红（危险语义 #DC2626），与本页自撰文案区分，避免用户以为原因是前端编的 */
-.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
-.error-lead { font-size: 26rpx; color: #666666; line-height: 1.6; text-align: center; }
+/* 后端原文透出行：小字弱化红（危险语义 #EF4444），与本页自撰文案区分，避免用户以为原因是前端编的 */
+.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 26rpx; color: #A6A6AA; line-height: 1.6; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
-.error-retry-cooling { color: #CCCCCC; }
-.guide-link-cooling { color: #CCCCCC; }
-.guide-link-plain { color: #999999; }
+.error-retry-cooling { color: #5A5A60; }
+.guide-link-cooling { color: #5A5A60; }
+.guide-link-plain { color: #6F6F76; }
 
 /* ==================== 4. 身份卡 ==================== */
 .store-card { margin-top: 24rpx; }
@@ -514,27 +514,27 @@ export default {
 /* 门店名：后端锁定平台维护（本轮不可改），只读展示，长名两行截断 */
 .store-name {
   flex: 1; min-width: 0;
-  font-size: 34rpx; font-weight: 700; color: #333333; line-height: 1.4;
+  font-size: 34rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden;
 }
 /* 「共 N 家店」角标：中性灰底，不与状态类徽标抢色（它不是状态，是数量事实） */
 .count-tag {
   flex-shrink: 0;
-  font-size: 22rpx; color: #666666; background-color: #F5F5F5;
+  font-size: 22rpx; color: #A6A6AA; background-color: #232326;
   border-radius: 8rpx; padding: 4rpx 12rpx; line-height: 1.4;
 }
 .store-rows { display: flex; flex-direction: column; gap: 8rpx; margin-top: 20rpx; }
-.store-row { font-size: 24rpx; color: #666666; line-height: 1.6; }
-.refresh-tip { display: block; margin-top: 20rpx; font-size: 20rpx; color: #CCCCCC; line-height: 1.4; }
-/* 非 open 生命周期的提示行：危险语义红小字（#DC2626，停业/清退属严重态），只读展示不拦截 */
-.status-tip { font-size: 22rpx; color: #DC2626; opacity: .8; line-height: 1.5; }
-/* 有快照时重拉失败的降级重试行：与刷新时间行同位呼应，可点（失败语义红 #DC2626） */
-.refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: #DC2626; line-height: 1.5; }
-.refresh-fail-cooling { color: #CCCCCC; }
+.store-row { font-size: 24rpx; color: #A6A6AA; line-height: 1.6; }
+.refresh-tip { display: block; margin-top: 20rpx; font-size: 20rpx; color: #5A5A60; line-height: 1.4; }
+/* 非 open 生命周期的提示行：危险语义红小字（#EF4444，停业/清退属严重态），只读展示不拦截 */
+.status-tip { font-size: 22rpx; color: #EF4444; opacity: .8; line-height: 1.5; }
+/* 有快照时重拉失败的降级重试行：与刷新时间行同位呼应，可点（失败语义红 #EF4444） */
+.refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: #EF4444; line-height: 1.5; }
+.refresh-fail-cooling { color: #5A5A60; }
 
 /* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中危险语义红字） ==================== */
-.cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #DC2626; }
+.cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #EF4444; }
 
 /* ==================== 5. 四入口列表（.cell/.cell-disabled 均取自 common.css；
    .tag-building 占位角标已随 F-18.19 交付 store/apply 退役，本页不再引用它） ==================== */

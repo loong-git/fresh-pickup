@@ -456,55 +456,55 @@ export default {
 </script>
 
 <style scoped>
-/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css；
-   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨） */
+/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css；
+   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 分轨，见 docs/八期规划/00-总纲.md §0） */
 
 /* ==================== 1. 合规提示（页顶常驻，不随滚动消失的那一句） ==================== */
 .notice-card {
   margin-top: 24rpx; padding: 20rpx 24rpx;
-  background-color: #E8F5EE; border: 1rpx solid #C8E6D5;
+  background-color: #142743; border: 1rpx solid #26364D;
 }
-.notice-lead { font-size: 28rpx; font-weight: 700; color: #0F7B4A; line-height: 1.5; }
-.notice-sub { display: block; margin-top: 8rpx; font-size: 22rpx; color: #666666; line-height: 1.5; }
+.notice-lead { font-size: 28rpx; font-weight: 700; color: #3B82F6; line-height: 1.5; }
+.notice-sub { display: block; margin-top: 8rpx; font-size: 22rpx; color: #A6A6AA; line-height: 1.5; }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
 
 /* ==================== 3/4. 引导态与错误态（.guide-card/.guide-title/.guide-text/.error-row/.error-retry 取自 common.css） ==================== */
 .guide-card { margin-top: 56rpx; }
 .guide-card .guide-link { margin-top: 8rpx; }
-.error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
-.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
+.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
 
 /* ==================== 5. 参与态两块 ==================== */
 .block-card { padding: 20rpx 24rpx; }
 .count-tag {
-  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #0F7B4A;
-  background-color: #E8F5EE; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
+  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #3B82F6;
+  background-color: #142743; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
 }
-.truncate-line { display: block; font-size: 22rpx; color: #999999; line-height: 1.6; }
-.mk-item { padding: 20rpx 0; border-bottom: 1rpx solid #F5F5F5; }
+.truncate-line { display: block; font-size: 22rpx; color: #6F6F76; line-height: 1.6; }
+.mk-item { padding: 20rpx 0; border-bottom: 1rpx solid #2A2A2D; }
 .mk-item:last-of-type { border-bottom: none; }
 .mk-name {
   display: block;
-  font-size: 30rpx; font-weight: 700; color: #333333; line-height: 1.4;
+  font-size: 30rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .mk-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8rpx 20rpx; margin-top: 10rpx; }
-.mk-kv { font-size: 24rpx; color: #999999; line-height: 1.5; }
+.mk-kv { font-size: 24rpx; color: #6F6F76; line-height: 1.5; }
 .mk-v {
-  font-size: 26rpx; font-weight: 600; color: #333333; line-height: 1.5;
+  font-size: 26rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
-.mk-v-price { color: #0F7B4A; }
+.mk-v-price { color: #3B82F6; }
 
 /* ==================== 6. 读数拉取时刻行（与工作台「资料刷新于」同用途） ==================== */
 .refresh-line {
   display: block; margin: 20rpx 24rpx 0;
-  font-size: 20rpx; color: #CCCCCC; line-height: 1.4; text-align: right;
+  font-size: 20rpx; color: #5A5A60; line-height: 1.4; text-align: right;
 }
 
 .page-bottom-space { height: 60rpx; }

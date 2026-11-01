@@ -492,100 +492,101 @@ export default {
 </script>
 
 <style scoped>
-/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css；
-   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨） */
+/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css；
+   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 / 成功绿 #22C55E 分轨，见 docs/八期规划/00-总纲.md §0） */
 
 /* ==================== 0. 记账态说明卡 ==================== */
 .caliber-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
-.caliber-line { font-size: 24rpx; color: #666666; line-height: 1.7; }
-.caliber-foot { font-size: 20rpx; color: #BBBBBB; line-height: 1.6; }
+.caliber-line { font-size: 24rpx; color: #A6A6AA; line-height: 1.7; }
+.caliber-foot { font-size: 20rpx; color: #5A5A60; line-height: 1.6; }
 
 /* ==================== 1. 加载中 ==================== */
 .loading-card { margin-top: 24rpx; display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
 
 /* ==================== 2/3. 引导态与错误态（基类取自 common.css，本页只补差异件） ==================== */
 .guide-card { margin-top: 56rpx; }
 .guide-card .guide-link { margin-top: 8rpx; }
-.error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
-.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
+.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
 
 /* ==================== 4. 账单列表 ==================== */
 .list-card { margin-top: 24rpx; padding: 0; overflow: hidden; }
-.settle-item { padding: 24rpx; border-bottom: 1rpx solid #F5F5F5; }
+.settle-item { padding: 24rpx; border-bottom: 1rpx solid #2A2A2D; }
 .settle-item:last-child { border-bottom: none; }
-/* 展开中的账单项：品牌绿系极浅底高亮（原暖红档同位替换，仍保持「若有所指」的轻量） */
-.settle-item-open { background-color: #F1F9F5; }
+/* 展开中的账单项：品牌蓝系暗底高亮（#142743，原亮绿档同位替换，仍保持「若有所指」的轻量） */
+.settle-item-open { background-color: #142743; }
 .settle-head { display: flex; align-items: center; gap: 12rpx; }
-.settle-period { flex: 1; min-width: 0; font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.4; }
+.settle-period { flex: 1; min-width: 0; font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.4; }
+/* 记账态=成功态实底（#22C55E 亮绿底配近黑字保 AA，暗色下白字会跌穿 4.5:1） */
 .settle-tag {
   flex-shrink: 0; font-size: 20rpx; font-weight: 600; line-height: 1.4;
-  color: #FFFFFF; background-color: #0F7B4A; border-radius: 8rpx; padding: 4rpx 12rpx;
+  color: #0A0A0B; background-color: #22C55E; border-radius: 8rpx; padding: 4rpx 12rpx;
 }
-.settle-no { display: block; margin-top: 8rpx; font-size: 22rpx; color: #999999; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.settle-no { display: block; margin-top: 8rpx; font-size: 22rpx; color: #6F6F76; line-height: 1.5; font-variant-numeric: tabular-nums; }
 
 /* 金额 2×2 网格（flex 而不是 grid：小程序端 grid 支持面窄，照 dashboard 的 stat-grid 同款手势） */
 .amount-grid { display: flex; flex-wrap: wrap; margin-top: 16rpx; }
 .amount-box {
   width: 50%; box-sizing: border-box; padding: 12rpx 8rpx;
   display: flex; flex-direction: column; gap: 4rpx;
-  background-color: #FAFAFA; border-radius: 12rpx; margin-bottom: 8rpx;
+  background-color: #232326; border-radius: 12rpx; margin-bottom: 8rpx;
 }
-/* 应结净额是商家最关心的那格：品牌浅绿底高亮（#E8F5EE）——正数好消息穿绿，与 dashboard 取消单的警示橙区分 */
-.amount-box-main { background-color: #E8F5EE; }
+/* 应结净额是商家最关心的那格：品牌暗蓝底高亮（#142743）——正数好消息穿蓝，与 dashboard 取消单的警示橙区分 */
+.amount-box-main { background-color: #142743; }
 .amount-value {
-  font-size: 32rpx; font-weight: 700; color: #333333; line-height: 1.3;
+  font-size: 32rpx; font-weight: 700; color: #F2F2F2; line-height: 1.3;
   font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
-/* 退款冲销是负向读数：危险语义红 #DC2626 */
-.amount-value-refund { color: #DC2626; }
-.amount-label { font-size: 20rpx; color: #999999; line-height: 1.4; }
+/* 退款冲销是负向读数：危险语义红 #EF4444 */
+.amount-value-refund { color: #EF4444; }
+.amount-label { font-size: 20rpx; color: #6F6F76; line-height: 1.4; }
 
 .settle-foot { display: flex; align-items: center; margin-top: 8rpx; }
-.settle-orders { flex: 1; min-width: 0; font-size: 22rpx; color: #666666; line-height: 1.5; }
-.reconcile-ok { flex-shrink: 0; font-size: 22rpx; color: #0F7B4A; line-height: 1.5; font-variant-numeric: tabular-nums; }
-/* 对账异常：危险语义红（#DC2626，这不是按钮色），照 dishes 的驳回徽标思路用醒目红字承载 */
-.reconcile-bad { flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #DC2626; line-height: 1.5; }
+.settle-orders { flex: 1; min-width: 0; font-size: 22rpx; color: #A6A6AA; line-height: 1.5; }
+.reconcile-ok { flex-shrink: 0; font-size: 22rpx; color: #22C55E; line-height: 1.5; font-variant-numeric: tabular-nums; }
+/* 对账异常：危险语义红（#EF4444，这不是按钮色），照 dishes 的驳回徽标思路用醒目红字承载 */
+.reconcile-bad { flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #EF4444; line-height: 1.5; }
 
-.expand-hint { display: block; margin-top: 8rpx; font-size: 20rpx; color: #CCCCCC; line-height: 1.5; }
+.expand-hint { display: block; margin-top: 8rpx; font-size: 20rpx; color: #5A5A60; line-height: 1.5; }
 
 /* ==================== 展开明细区 ==================== */
-.detail-zone { margin-top: 16rpx; border-top: 1rpx solid #F0F0F0; padding-top: 8rpx; }
+.detail-zone { margin-top: 16rpx; border-top: 1rpx solid #2A2A2D; padding-top: 8rpx; }
 .detail-state { padding: 16rpx 0; }
-.detail-state-text { font-size: 22rpx; color: #999999; line-height: 1.6; }
-.detail-state-fail { color: #DC2626; }
-.detail-row { padding: 16rpx 0; border-bottom: 1rpx solid #F7F7F7; }
+.detail-state-text { font-size: 22rpx; color: #6F6F76; line-height: 1.6; }
+.detail-state-fail { color: #EF4444; }
+.detail-row { padding: 16rpx 0; border-bottom: 1rpx solid #232326; }
 .detail-row:last-of-type { border-bottom: none; }
 .detail-line1 { display: flex; align-items: baseline; gap: 12rpx; }
 .detail-name {
   flex: 1; min-width: 0;
-  font-size: 26rpx; font-weight: 600; color: #333333; line-height: 1.5;
+  font-size: 26rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.detail-subtotal { flex-shrink: 0; font-size: 26rpx; font-weight: 700; color: #333333; font-variant-numeric: tabular-nums; }
-.detail-line2 { display: block; margin-top: 6rpx; font-size: 22rpx; color: #999999; line-height: 1.6; font-variant-numeric: tabular-nums; }
-.detail-orphan { display: block; margin-top: 6rpx; font-size: 22rpx; color: #DC2626; line-height: 1.5; }
-.detail-hint { display: block; padding: 12rpx 0 4rpx; font-size: 20rpx; color: #CCCCCC; line-height: 1.5; }
+.detail-subtotal { flex-shrink: 0; font-size: 26rpx; font-weight: 700; color: #F2F2F2; font-variant-numeric: tabular-nums; }
+.detail-line2 { display: block; margin-top: 6rpx; font-size: 22rpx; color: #6F6F76; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.detail-orphan { display: block; margin-top: 6rpx; font-size: 22rpx; color: #EF4444; line-height: 1.5; }
+.detail-hint { display: block; padding: 12rpx 0 4rpx; font-size: 20rpx; color: #5A5A60; line-height: 1.5; }
 
 /* ==================== 空态卡 ==================== */
 .empty-card { margin-top: 24rpx; display: flex; flex-direction: column; align-items: center; }
 
 /* ==================== 5. 轻分页条（P5-2） ==================== */
 /* 胶囊按钮件照 common.css .error-retry 的形状（本页既有按钮风格），色值全取本页已出现的（不引新色）；
-   禁用态照 .error-retry-cooling 的「浅字 + 浅描边」配对 */
+   禁用态照 .error-retry-cooling 的「暗字 + 暗描边」配对 */
 .pager-card { margin-top: 24rpx; display: flex; flex-direction: column; align-items: center; gap: 16rpx; }
-.pager-total { font-size: 24rpx; color: #666666; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.pager-total { font-size: 24rpx; color: #A6A6AA; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .pager-actions { display: flex; align-items: center; gap: 24rpx; }
 .pager-btn {
-  font-size: 24rpx; font-weight: 600; color: #333333;
-  border: 1rpx solid #CCCCCC; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: #F2F2F2;
+  border: 1rpx solid #45454A; border-radius: 28rpx;
   padding: 8rpx 36rpx; line-height: 1.4;
   font-variant-numeric: tabular-nums;
 }
-.pager-btn-disabled { color: #BBBBBB; border-color: #EEEEEE; }
-.pager-page { font-size: 24rpx; color: #333333; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.pager-btn-disabled { color: #5A5A60; border-color: #2A2A2D; }
+.pager-page { font-size: 24rpx; color: #F2F2F2; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

@@ -56,8 +56,8 @@
     }
   ],
   "globalStyle": {
-    "backgroundColor": "#F7F6F3",
-    "navigationBarBackgroundColor": "#0B3D26",
+    "backgroundColor": "#0A0A0B",
+    "navigationBarBackgroundColor": "#111113",
     "navigationBarTextStyle": "white",
     "navigationBarTitleText": "生鲜商家端"
   }

@@ -560,11 +560,11 @@ export default {
 </script>
 
 <style scoped>
-/* 鲜蔬集市绿单色板：白底登录页 + 主绿 #0F7B4A（表单手感照母版，绿值与 common.css 同源，不改主题变量；
-   旧多多红口径退役，见 docs/七期规划/00-总纲.md §0） */
+/* 暗色控制台蓝单色板：近黑底登录页 #0A0A0B + 主蓝 #3B82F6（表单手感照用户端登录页，蓝值与 common.css 同源；
+   七期亮绿口径退役，见 docs/八期规划/00-总纲.md §0，与 P8-2 商家端逐字同构） */
 .login-page {
   min-height: 100vh;
-  background-color: #FFFFFF;
+  background-color: #0A0A0B;
   box-sizing: border-box;
   padding: 0 56rpx 60rpx;
 }
@@ -575,24 +575,24 @@ export default {
   padding-top: 88rpx;
 }
 .brand-emoji { font-size: 104rpx; line-height: 1; }
-.brand-title { margin-top: 24rpx; font-size: 44rpx; font-weight: 700; color: #333333; line-height: 1; }
-.brand-sub { margin-top: 18rpx; font-size: 26rpx; color: #999999; line-height: 1; }
+.brand-title { margin-top: 24rpx; font-size: 44rpx; font-weight: 700; color: #F2F2F2; line-height: 1; }
+.brand-sub { margin-top: 18rpx; font-size: 26rpx; color: #6F6F76; line-height: 1; }
 
 /* ==================== 2. 复查中（.card 来自 common.css，此处只加本页间距） ==================== */
 .checking-card { margin-top: 56rpx; display: flex; justify-content: center; }
-.checking-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
+.checking-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
 
 /* ==================== 3. 引导态卡（.guide-card/.guide-title/.guide-text/.btn-main 均来自 common.css） ==================== */
 .guide-card { margin-top: 56rpx; }
-/* 后端 403 原文透出的一行：小字弱化红（危险语义 #DC2626），与本页自撰文案区分开（避免用户以为是前端编的原因） */
-.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
+/* 后端 403 原文透出的一行：小字弱化红（危险语义 #EF4444），与本页自撰文案区分开（避免用户以为是前端编的原因） */
+.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
 .guide-card .btn-main { margin-top: 16rpx; }
 /* 429 冷却中的「重新检查」：同形状置灰不可点（点击已在模板里按 retryLock 分流） */
-.guide-link-cooling { color: #CCCCCC; }
+.guide-link-cooling { color: #5A5A60; }
 /* 换个账号是次级出口：不与「重新检查」抢视觉权重 */
-.guide-link-plain { color: #999999; }
+.guide-link-plain { color: #6F6F76; }
 
-/* ==================== 4. tab 切换（主绿下划线激活态） ==================== */
+/* ==================== 4. tab 切换（主蓝下划线激活态） ==================== */
 .tabs {
   display: flex; justify-content: center; gap: 96rpx;
   margin-top: 64rpx;
@@ -602,12 +602,12 @@ export default {
   display: flex; flex-direction: column; align-items: center;
   min-width: 160rpx; padding-bottom: 18rpx;
 }
-.tab-text { font-size: 30rpx; color: #666666; line-height: 1; }
-.tab-text-active { color: #0F7B4A; font-weight: 700; }
+.tab-text { font-size: 30rpx; color: #A6A6AA; line-height: 1; }
+.tab-text-active { color: #3B82F6; font-weight: 700; }
 .tab-underline {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
   width: 48rpx; height: 6rpx; border-radius: 6rpx;
-  background-color: #0F7B4A;
+  background-color: #3B82F6;
 }
 
 /* ==================== 5. 登录表单（圆角胶囊输入框） ==================== */
@@ -615,28 +615,28 @@ export default {
 .input-capsule {
   display: flex; align-items: center;
   height: 92rpx; margin-bottom: 24rpx;
-  background-color: #F5F5F5; border-radius: 999rpx;
+  background-color: #232326; border-radius: 999rpx;
   padding: 0 12rpx 0 36rpx; box-sizing: border-box;
 }
 .capsule-input {
   flex: 1; min-width: 0;
   height: 92rpx; line-height: 92rpx;
-  font-size: 30rpx; color: #333333;
+  font-size: 30rpx; color: #F2F2F2;
 }
 .btn-send-code {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
   height: 68rpx; line-height: 68rpx;
-  background-color: #0F7B4A; color: #FFFFFF;
+  background-color: #3B82F6; color: #FFFFFF;
   font-size: 24rpx; font-weight: 600;
   border: none; border-radius: 999rpx;
 }
-.btn-send-code.btn-send-disabled { background-color: #CCCCCC; color: rgba(255, 255, 255, 0.9); }
+.btn-send-code.btn-send-disabled { background-color: #45454A; color: rgba(255, 255, 255, 0.9); }
 /* 本页主按钮补外边距（.btn-main 基类在 common.css，两页共用不带间距） */
 .login-form .btn-main { margin-top: 40rpx; }
 .form-hint {
   display: block;
   margin: 0 24rpx;
-  font-size: 22rpx; color: #999999; line-height: 1.5;
+  font-size: 22rpx; color: #6F6F76; line-height: 1.5;
 }
 /* 提示位于按钮下方时与上方拉开间距 */
 .form-hint-loose { margin-top: 24rpx; }

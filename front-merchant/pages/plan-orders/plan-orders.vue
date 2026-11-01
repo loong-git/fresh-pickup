@@ -626,7 +626,7 @@ export default {
           + '只改这一行的缺货标记，不改变订单本身的状态（待自提 / 已完成 / 已取消不受影响），本页也没有撤销入口。',
         confirmText: '确认登记',
         cancelText: '再想想',
-        confirmColor: '#DC2626',
+        confirmColor: '#EF4444',
         success: (r) => {
           if (r && r.confirm) this.registerShortageRow(orderItemId)
         }
@@ -742,99 +742,99 @@ export default {
 </script>
 
 <style scoped>
-/* 鲜蔬集市绿单色板：暖灰底 + 白卡（.card/.error-row/.empty-row/.guide-link/.cell-arrow 取自 common.css；
-   旧多多红口径退役，品牌绿 #0F7B4A / 危险语义红 #DC2626 分轨） */
+/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.error-row/.empty-row/.guide-link/.cell-arrow 取自 common.css；
+   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 分轨，见 docs/八期规划/00-总纲.md §0） */
 
 /* ==================== 1. 筛选卡 ==================== */
 .filter-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
-/* 三 tab：视觉照 front/pages/order/order.vue 的 .status-tab 规则，配色用商家端主绿（与 dishes.vue .dish-tab 同一档）。
+/* 三 tab：视觉照 front/pages/order/order.vue 的 .status-tab 规则，配色用商家端主蓝（与 dishes.vue .dish-tab 同一档）。
    刻意不写行号：F-59 在 C 端那一页插了取货码行，把原先的 :321-328 顶到了别处——能按选择器具名的指针就别挂行号，
    否则每次改 C 端都要来修一次这里。 */
 .order-tabs { display: flex; gap: 12rpx; }
 .order-tab {
   flex: 1; text-align: center;
-  font-size: 26rpx; color: #666666;
-  background-color: #F5F5F5; border-radius: 24rpx;
-  padding: 12rpx 0; border: 1rpx solid #EEEEEE;
+  font-size: 26rpx; color: #A6A6AA;
+  background-color: #232326; border-radius: 24rpx;
+  padding: 12rpx 0; border: 1rpx solid #2A2A2D;
 }
-.order-tab.active { color: #FFFFFF; font-weight: 700; background-color: #0F7B4A; border-color: #0F7B4A; }
+.order-tab.active { color: #FFFFFF; font-weight: 700; background-color: #3B82F6; border-color: #3B82F6; }
 /* 日期下拉（picker 是原生组件，显式占满整行才有整行点击区，同 dishes.vue .cate-picker） */
 .date-picker { display: block; width: 100%; }
 .picker-row {
   display: flex; align-items: center; gap: 12rpx;
   margin-top: 20rpx; padding-top: 20rpx;
-  border-top: 1rpx solid #F5F5F5;
+  border-top: 1rpx solid #2A2A2D;
 }
-.picker-label { flex-shrink: 0; font-size: 26rpx; color: #999999; }
+.picker-label { flex-shrink: 0; font-size: 26rpx; color: #6F6F76; }
 .picker-value {
   flex: 1; min-width: 0; text-align: right;
-  font-size: 26rpx; color: #333333;
+  font-size: 26rpx; color: #F2F2F2;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.picker-arrow { flex-shrink: 0; font-size: 34rpx; color: #CCCCCC; }
+.picker-arrow { flex-shrink: 0; font-size: 34rpx; color: #5A5A60; }
 /* 「清除日期」收成胶囊 + 按下态：与备货单页日期条的按钮同一档，内边距不小于 12rpx 24rpx */
 .date-clear {
   display: inline-block; margin-top: 12rpx; text-align: center;
-  font-size: 24rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
+  font-size: 24rpx; font-weight: 600; color: #3B82F6; line-height: 1.4;
+  background-color: #1B1B1D; border: 1rpx solid #3B82F6; border-radius: 999rpx;
   padding: 12rpx 24rpx;
 }
 /* 按下反馈（hover-class 目标）：移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
-.pill-hover { color: #0B3D26; background-color: #E8F5EE; border-color: #0B3D26; }
+.pill-hover { color: #3B82F6; background-color: #142743; border-color: #3B82F6; }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #999999; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
 
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
-.error-lead { font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #DC2626; opacity: .75; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
-.error-retry-cooling { color: #BBBBBB; border-color: #EEEEEE; }
+.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; }
 
 /* ==================== 4. 空态 ==================== */
 .empty-card { display: flex; flex-direction: column; align-items: center; }
 
 /* ==================== 5. 明细行 ==================== */
 .list-card { margin-top: 24rpx; padding: 0 24rpx; overflow: hidden; }
-.order-item { padding: 24rpx 0; border-bottom: 1rpx solid #F5F5F5; }
+.order-item { padding: 24rpx 0; border-bottom: 1rpx solid #2A2A2D; }
 .order-item:first-child { padding-top: 20rpx; }
 .order-item:last-child { border-bottom: none; }
 /* 长店名/长商品名靠 flex-wrap 换行 + 单元自身 ellipsis，两种溢出都不会撑破卡片 */
 .item-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8rpx; }
 .item-sub-line { margin-top: 8rpx; }
 .item-day {
-  flex-shrink: 0; font-size: 24rpx; color: #999999; line-height: 1.5;
+  flex-shrink: 0; font-size: 24rpx; color: #6F6F76; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
-.item-dot { flex-shrink: 0; font-size: 24rpx; color: #DDDDDD; line-height: 1.5; }
+.item-dot { flex-shrink: 0; font-size: 24rpx; color: #45454A; line-height: 1.5; }
 /* 圆点 + 其后那段文本 = 一个不换行单元：整组一起折行，绝不会出现行首孤立圆点；
    min-width:0 让单元内的 ellipsis（店名/商品名）仍然生效 */
 .item-unit { display: flex; align-items: center; min-width: 0; gap: 8rpx; }
 .item-store {
   flex: 0 1 auto; min-width: 0; max-width: 240rpx;
-  font-size: 26rpx; color: #666666; line-height: 1.5;
+  font-size: 26rpx; color: #A6A6AA; line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .item-dish {
   flex: 1 1 auto; min-width: 0;
-  font-size: 28rpx; font-weight: 600; color: #333333; line-height: 1.5;
+  font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .item-qty {
-  flex-shrink: 0; font-size: 26rpx; color: #333333; line-height: 1.5;
+  flex-shrink: 0; font-size: 26rpx; color: #F2F2F2; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 .item-price {
   flex-shrink: 0; margin-left: 8rpx;
-  font-size: 28rpx; font-weight: 700; color: #0F7B4A; line-height: 1.5;
+  font-size: 28rpx; font-weight: 700; color: #3B82F6; line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 /* 「小计」两字的小标签：金额语义的唯一说明，缺了它 ×2 与 ¥6.60 并排就会被读成两种数 */
-.item-money-tag { flex-shrink: 0; font-size: 20rpx; color: #999999; line-height: 1.4; }
+.item-money-tag { flex-shrink: 0; font-size: 20rpx; color: #6F6F76; line-height: 1.4; }
 .item-sub {
   flex: 0 1 auto; min-width: 0;
-  font-size: 22rpx; color: #999999; line-height: 1.5;
+  font-size: 22rpx; color: #6F6F76; line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .item-tag {
@@ -842,44 +842,44 @@ export default {
   font-size: 20rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
-.item-tag-status { color: #999999; background-color: #F5F5F5; }
-/* 「未支付」= 待办警示（非危险非品牌）：警示橙软底小字（#B45309 保 AA），与灰 status 角标区分 */
-.item-tag-unpaid { color: #B45309; background-color: #FFF7E6; }
+.item-tag-status { color: #6F6F76; background-color: #232326; }
+/* 「未支付」= 待办警示（非危险非品牌）：警示橙暗底小字（#D97706/#3A2F10 暗底档），与灰 status 角标区分 */
+.item-tag-unpaid { color: #D97706; background-color: #3A2F10; }
 
 /* ==================== 5b. 缺货登记那一行（F-69） ==================== */
 /* 单独一行而不是并进上面那行 status 角标之后：fulfill_status 是与订单三态正交的旁路列，
    两枚并排就会被读成同一种标签（「文案与判据同源」要的正是别把这两件事混起来） */
 .item-shortage-line { margin-top: 10rpx; }
-/* 「已登记缺货」= 实心标记、不可点：危险语义红软底（#DC2626/#FEF2F2），与未支付的警示橙区分开 */
-.item-tag-shortage { color: #DC2626; background-color: #FEF2F2; }
-/* 「登记缺货」= 可点胶囊，形状照本页 .date-clear（绿描边 + 同一个按下态 pill-hover）。
+/* 「已登记缺货」= 实心标记、不可点：危险语义红暗底（#EF4444/#2C1517），与未支付的警示橙区分开 */
+.item-tag-shortage { color: #EF4444; background-color: #2C1517; }
+/* 「登记缺货」= 可点胶囊，形状照本页 .date-clear（蓝描边 + 同一个按下态 pill-hover）。
    刻意不套 .item-tag 的 4rpx 12rpx 内边距：那是标签的高度，拿来做按目标太小 */
 .item-btn-shortage {
   display: inline-flex; align-items: center;
-  font-size: 20rpx; font-weight: 600; color: #0F7B4A; line-height: 1.4;
-  background-color: #FFFFFF; border: 1rpx solid #0F7B4A; border-radius: 999rpx;
+  font-size: 20rpx; font-weight: 600; color: #3B82F6; line-height: 1.4;
+  background-color: #1B1B1D; border: 1rpx solid #3B82F6; border-radius: 999rpx;
   padding: 8rpx 24rpx;
 }
-/* 冷却中 / 请求在途：置灰取值口径同 .btn-more.btn-more-cooling（#BBBBBB / #EEEEEE）再加 not-allowed。
+/* 冷却中 / 请求在途：置灰取值口径同 .btn-more.btn-more-cooling（#5A5A60 / #2A2A2D）再加 not-allowed。
    写在上一条之后、与它同特异度，靠源码顺序压过它（同 .btn-more.btn-more-cooling 的打法）。
    这一处刻意不出数字——X-5「一把锁一屏一处带数」，那处数在点击时被拦/刚撞 429 的那一声 toast 上 */
-.item-btn-shortage-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
+.item-btn-shortage-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
 
 /* ==================== 6. 加载更多 ==================== */
 .load-more { display: flex; flex-direction: column; align-items: center; margin-top: 24rpx; }
 .btn-more {
   margin: 0; padding: 0 48rpx;
   height: 72rpx; line-height: 72rpx;
-  background-color: #FFFFFF; color: #0F7B4A;
+  background-color: #1B1B1D; color: #3B82F6;
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #0F7B4A; border-radius: 999rpx;
+  border: 1rpx solid #3B82F6; border-radius: 999rpx;
 }
-.btn-more[disabled] { color: #A7D3BC; background-color: #FFFFFF; border-color: #A7D3BC; }
-/* 冷却态（429 后 retryLock > 0）：置灰取值口径同 .error-retry-cooling（color #BBBBBB / border #EEEEEE），
+.btn-more[disabled] { color: #1E3A8A; background-color: #1B1B1D; border-color: #1E3A8A; }
+/* 冷却态（429 后 retryLock > 0）：置灰取值口径同 .error-retry-cooling（color #5A5A60 / border #2A2A2D），
    再加 not-allowed 把「这一下点不动」说给人看。写成 .btn-more.btn-more-cooling 是为了压过
    上一条 .btn-more[disabled]（两者同特异度，靠源码顺序 + 类名叠加取胜），不改原类。 */
-.btn-more.btn-more-cooling { color: #BBBBBB; border-color: #EEEEEE; cursor: not-allowed; }
-.no-more { font-size: 24rpx; color: #999999; line-height: 1.6; }
+.btn-more.btn-more-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
+.no-more { font-size: 24rpx; color: #6F6F76; line-height: 1.6; }
 
 .page-bottom-space { height: 60rpx; }
 </style>
