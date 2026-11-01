@@ -72,14 +72,6 @@
         >{{ refreshFailText }}</text>
       </view>
 
-      <!-- 正常态唯一登出/换账号出口：没有这一行，已登录用户既退不出也换不了号（403 分支的 switchAccount 走不到）；
-           走 confirmSwitchAccount 带二次确认，403/错误态那两个出口仍直连 switchAccount -->
-      <view class="card cell-card">
-        <view class="cell" @click="confirmSwitchAccount">
-          <text class="cell-logout">换个账号 / 退出登录</text>
-        </view>
-      </view>
-
       <!-- 入口逐个替换（§3.3）：已交付的挂路由并给 › 箭头；万一在册表漏一行，未在册的仍置灰 + 角标兜底（箭头与角标二选一，
            同时给会让用户以为角标那行也能点进去） -->
       <view class="card cell-card">
@@ -95,6 +87,14 @@
           <text class="cell-sub">{{ entry.hint }}</text>
           <text v-if="entryRoute(entry)" class="cell-arrow">›</text>
           <text v-else class="tag-building">建设中</text>
+        </view>
+      </view>
+
+      <!-- 正常态唯一登出/换账号出口：没有这一行，已登录用户既退不出也换不了号（403 分支的 switchAccount 走不到）；
+           走 confirmSwitchAccount 带二次确认，403/错误态那两个出口仍直连 switchAccount -->
+      <view class="card cell-card">
+        <view class="cell" @click="confirmSwitchAccount">
+          <text class="cell-logout">换个账号 / 退出登录</text>
         </view>
       </view>
     </template>

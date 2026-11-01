@@ -68,13 +68,6 @@
         <text v-else-if="refreshFailed" class="refresh-fail refresh-fail-cooling">资料刷新失败，{{ retryLock }}s后可重试</text>
       </view>
 
-      <!-- 正常态唯一登出/换账号出口：走 confirmSwitchAccount 带二次确认（误触代价=重新登录并重收验证码） -->
-      <view class="card cell-card">
-        <view class="cell" @click="confirmSwitchAccount">
-          <text class="cell-logout">换个账号 / 退出登录</text>
-        </view>
-      </view>
-
       <!-- 入口逐个替换：四行都已在 ENTRY_ROUTES 在册（F-18.19 交付 store / apply 两页），
            统一挂 › 箭头并保持可点。可点与否的唯一真源仍是 ENTRY_ROUTES（模块级常量表），
            模板的置灰判定（entryRoute）与点击分支（onEntryTap）两处消费它，页面不持第二个开关字段。 ==================== -->
@@ -91,6 +84,13 @@
           <text class="cell-sub">{{ entry.hint }}</text>
           <!-- 在册行给箭头；表里没登记路由的行（当前没有）不画箭头，点了给一句实话，不留静默死行 -->
           <text v-if="entryRoute(entry)" class="cell-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 正常态唯一登出/换账号出口：走 confirmSwitchAccount 带二次确认（误触代价=重新登录并重收验证码） -->
+      <view class="card cell-card">
+        <view class="cell" @click="confirmSwitchAccount">
+          <text class="cell-logout">换个账号 / 退出登录</text>
         </view>
       </view>
     </template>
