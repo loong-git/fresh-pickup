@@ -57,6 +57,22 @@ setUnauthorizedHandler(() => {
 	store.commit('clearToken')
 })
 
+// ==================== 双主题挂载（P9-1/P9-2 契约 §0，纯 UI 零业务判据） ====================
+// #ifdef H5
+// 挂载时读档恢复主题：storage 键 app_theme，缺省 'light'（契约 §0「缺省 'light'」——非 'dark' 值一律回落浅色，
+// 与下方 __setAppTheme 同一口径，两处不会各持一套真值）。给 html 根挂/摘 .dark 后，
+// App.vue 的 :root / :root.dark 两组 CSS 变量整体生效，页面零刷新
+const themeStored = uni.getStorageSync('app_theme')
+const themeInit = themeStored === 'dark' ? 'dark' : 'light'
+document.documentElement.classList.toggle('dark', themeInit === 'dark')
+// 全局切主题唯一入口（workspace「主题」cell 的 toggleTheme 调用）：写档 + 切 .dark 一步完成、立即生效
+window.__setAppTheme = function (t) {
+	const next = t === 'dark' ? 'dark' : 'light'
+	uni.setStorageSync('app_theme', next)
+	document.documentElement.classList.toggle('dark', next === 'dark')
+}
+// #endif
+
 export function createApp() {
 	const app = createSSRApp(App)
 	app.use(store)

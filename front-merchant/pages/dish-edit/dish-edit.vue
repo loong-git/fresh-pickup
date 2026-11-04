@@ -1317,8 +1317,10 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.error-row/.btn-main/.btn-disabled/.cell-arrow 取自 common.css；
-   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 / 警示橙 #D97706 分轨，见 docs/八期规划/00-总纲.md §0） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.guide-card/.btn-main/.error-row 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
 
 /* ==================== 0. 写闸门红条 ==================== */
 /* sticky 而不是随表单滚走（FEB-1）：本页表单比视口长得多，实测红条 top=-1405/bottom=-1321，
@@ -1330,45 +1332,45 @@ export default {
   top: 0;
   z-index: 20;
   margin-top: 24rpx;
-  background-color: #2C1517;
-  border: 1rpx solid #4A2224;
+  background-color: var(--c-danger-soft);
+  border: 1rpx solid var(--c-danger-hair);
 }
-.block-text { font-size: 24rpx; font-weight: 600; color: #EF4444; line-height: 1.6; }
+.block-text { font-size: 24rpx; font-weight: 600; color: var(--c-danger); line-height: 1.6; }
 
 /* ==================== 0b. 审核驳回横幅（F-116 §2.4 编辑态展示） ====================
    醒目但不 sticky（不是写闸门那种「每一笔提交都受它管」的常驻警示，进页面读一次即可）；
    暗底警示橙与写闸门红条区分，理由行用红字保证一眼可见 */
-.audit-reject-card { margin-top: 24rpx; display: flex; flex-direction: column; background-color: #3A2F10; border: 1rpx solid #4A3B14; }
-.audit-reject-title { font-size: 26rpx; font-weight: 600; color: #D97706; line-height: 1.6; }
-.audit-reject-reason { font-size: 24rpx; color: #EF4444; line-height: 1.6; margin-top: 6rpx; }
-.audit-reject-hint { font-size: 22rpx; color: #A6A6AA; line-height: 1.6; margin-top: 6rpx; }
+.audit-reject-card { margin-top: 24rpx; display: flex; flex-direction: column; background-color: var(--c-warn-soft); border: 1rpx solid var(--c-warn-hair); }
+.audit-reject-title { font-size: 26rpx; font-weight: 600; color: var(--c-warn); line-height: 1.6; }
+.audit-reject-reason { font-size: 24rpx; color: var(--c-danger); line-height: 1.6; margin-top: 6rpx; }
+.audit-reject-hint { font-size: 22rpx; color: var(--c-text-2); line-height: 1.6; margin-top: 6rpx; }
 
 /* ==================== 1. 加载/错误态 ==================== */
 .loading-card { margin-top: 56rpx; display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
 
 /* ==================== 2. 表单行 ==================== */
 .form-card { margin-top: 24rpx; padding: 8rpx 24rpx 24rpx; }
 .field-row {
   display: flex; align-items: center; gap: 16rpx;
-  padding: 22rpx 0; border-bottom: 1rpx solid #2A2A2D;
+  padding: 22rpx 0; border-bottom: 1rpx solid var(--c-border);
 }
 .field-row-flat { border-bottom: none; padding: 8rpx 0; }
 /* 纵向排布的整块字段（描述/标签/图片）：标签在上一行，内容占满宽 */
 .field-row-col { flex-direction: column; align-items: flex-start; gap: 12rpx; }
 .field-row-wrap { flex-wrap: wrap; }
-.field-label { width: 140rpx; flex-shrink: 0; font-size: 28rpx; color: #F2F2F2; line-height: 1.4; }
+.field-label { width: 140rpx; flex-shrink: 0; font-size: 28rpx; color: var(--c-text); line-height: 1.4; }
 .field-row-col .field-label { width: auto; font-weight: 600; }
 .field-input {
   flex: 1; min-width: 0;
   height: 68rpx; line-height: 68rpx;
-  background-color: #232326; border-radius: 12rpx;
-  padding: 0 20rpx; font-size: 28rpx; color: #F2F2F2;
+  background-color: var(--c-fill); border-radius: 12rpx;
+  padding: 0 20rpx; font-size: 28rpx; color: var(--c-text);
 }
-.field-suffix { flex-shrink: 0; font-size: 24rpx; color: #6F6F76; }
+.field-suffix { flex-shrink: 0; font-size: 24rpx; color: var(--c-text-3); }
 .field-picker {
   flex: 1; min-width: 0;
-  font-size: 28rpx; color: #F2F2F2; line-height: 1.4;
+  font-size: 28rpx; color: var(--c-text); line-height: 1.4;
   text-align: right;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -1376,58 +1378,58 @@ export default {
 .row-picker { display: block; width: 100%; }
 .field-textarea {
   width: 100%; height: 160rpx; box-sizing: border-box;
-  background-color: #232326; border-radius: 12rpx;
-  padding: 16rpx 20rpx; font-size: 26rpx; color: #F2F2F2; line-height: 1.6;
+  background-color: var(--c-fill); border-radius: 12rpx;
+  padding: 16rpx 20rpx; font-size: 26rpx; color: var(--c-text); line-height: 1.6;
 }
 /* 字段级说明行：小字灰，不抢主文案；字典失败时同一位置改成可点重试的红字 */
-.field-hint { font-size: 22rpx; color: #5A5A60; line-height: 1.5; }
-.field-hint-warn { color: #EF4444; }
+.field-hint { font-size: 22rpx; color: var(--c-text-4); line-height: 1.5; }
+.field-hint-warn { color: var(--c-danger); }
 /* 校验命中栏的描红（FEB-6）：12 个字段的表单里，一句居中 1.5s 的 toast 不足以说明「是哪栏拦的」，
    故另给一条行级视觉记号，配合 scrollIntoView/pageScrollTo 把这一栏带进视口。类名写在 <style> 里而非行内 style。
    校验失败是错误语义：描边/底色都走 #EF4444 危险红族（#2C1517 暗红底），不落品牌暗蓝 */
 .field-error {
-  box-shadow: inset 0 0 0 2rpx #EF4444;
+  box-shadow: inset 0 0 0 2rpx var(--c-danger);
   border-radius: 12rpx;
-  background-color: #2C1517;
+  background-color: var(--c-danger-soft);
 }
 
 /* ==================== 库存增量控件（编辑态独有） ==================== */
-.stock-now { font-size: 26rpx; color: #A6A6AA; min-width: 130rpx; }
+.stock-now { font-size: 26rpx; color: var(--c-text-2); min-width: 130rpx; }
 .sign-btns { display: flex; gap: 8rpx; flex-shrink: 0; }
 .sign-btn {
   width: 60rpx; height: 60rpx; line-height: 56rpx; text-align: center;
-  font-size: 30rpx; color: #A6A6AA;
-  background-color: #232326; border: 1rpx solid #2A2A2D; border-radius: 12rpx;
+  font-size: 30rpx; color: var(--c-text-2);
+  background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 12rpx;
 }
-.sign-btn.active { color: #3B82F6; font-weight: 700; border-color: #3B82F6; background-color: #142743; }
+.sign-btn.active { color: var(--c-primary); font-weight: 700; border-color: var(--c-primary); background-color: var(--c-primary-soft); }
 .stock-input { flex: 0 0 160rpx; width: 160rpx; }
 /* 方向回显（FEB-2）：把当前 stockSign 钉在数量框旁边——方向只该有一处真值，
    框里能打出负号是这一行的历史坑（Math.abs 会把它静默翻正并真的写进库） */
 .stock-sign-echo {
   flex-shrink: 0; font-size: 30rpx; font-weight: 700; line-height: 1.2;
-  color: #3B82F6; min-width: 28rpx; text-align: center;
+  color: var(--c-primary); min-width: 28rpx; text-align: center;
 }
 
 /* ==================== 次级按钮（common.css 只有主按钮，本页的上传/调整/上下架属次级动作） ==================== */
 .btn-sub {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
   height: 64rpx; line-height: 64rpx;
-  background-color: #1B1B1D; color: #3B82F6;
+  background-color: var(--c-card); color: var(--c-primary);
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #3B82F6; border-radius: 999rpx;
+  border: 1rpx solid var(--c-primary); border-radius: 999rpx;
 }
-.btn-sub.btn-sub-disabled { color: #1E3A8A; border-color: #1E3A8A; background-color: #1B1B1D; }
+.btn-sub.btn-sub-disabled { color: var(--c-primary-disabled); border-color: var(--c-primary-disabled); background-color: var(--c-card); }
 
 /* ==================== 标签 ==================== */
 .tag-list { display: flex; flex-wrap: wrap; gap: 12rpx; }
 .tag-chip {
   display: flex; align-items: center; gap: 6rpx;
-  background-color: #142743; border: 1rpx solid #26364D; border-radius: 999rpx;
+  background-color: var(--c-primary-soft); border: 1rpx solid var(--c-primary-hair); border-radius: 999rpx;
   padding: 6rpx 16rpx;
 }
 /* 已选标签 chip 随品牌蓝（× 是 chip 内轻量移除记号，非页面级危险动作，随 chip 同色） */
-.tag-text { font-size: 22rpx; color: #3B82F6; line-height: 1.4; }
-.tag-x { font-size: 24rpx; color: #3B82F6; line-height: 1.4; padding: 0 4rpx; }
+.tag-text { font-size: 22rpx; color: var(--c-primary); line-height: 1.4; }
+.tag-x { font-size: 24rpx; color: var(--c-primary); line-height: 1.4; padding: 0 4rpx; }
 .tag-row { display: flex; align-items: center; gap: 12rpx; width: 100%; }
 .tag-input { flex: 1; }
 
@@ -1440,16 +1442,16 @@ export default {
 .img-photo { width: 220rpx; height: 220rpx; }
 .img-emoji { font-size: 96rpx; line-height: 1; }
 .img-btns { display: flex; align-items: center; gap: 20rpx; }
-.img-clear { font-size: 24rpx; color: #6F6F76; text-decoration: underline; }
+.img-clear { font-size: 24rpx; color: var(--c-text-3); text-decoration: underline; }
 /* 入库值原样显示（不是可展示 URL）：验收时一眼能确认库里存的确实是 /static/images/uploads/<名> */
 .img-path {
   width: 100%; box-sizing: border-box;
-  font-size: 20rpx; color: #5A5A60; line-height: 1.5;
+  font-size: 20rpx; color: var(--c-text-4); line-height: 1.5;
   word-break: break-all;
 }
 .color-chip {
   width: 48rpx; height: 48rpx; flex-shrink: 0;
-  border-radius: 8rpx; border: 1rpx solid #2A2A2D;
+  border-radius: 8rpx; border: 1rpx solid var(--c-border);
 }
 
 /* ==================== 上下架卡 ==================== */
@@ -1459,8 +1461,8 @@ export default {
   border-radius: 8rpx; padding: 6rpx 16rpx;
 }
 /* 在售=成功态实底（#22C55E 亮绿底配近黑字保 AA，暗色下白字会跌穿 4.5:1） */
-.badge-on { color: #0A0A0B; background-color: #22C55E; }
-.badge-off { color: #6F6F76; background-color: #232326; }
+.badge-on { color: #0A0A0B; background-color: var(--c-ok); }
+.badge-off { color: var(--c-text-3); background-color: var(--c-fill); }
 
 /* ==================== 保存卡 ==================== */
 .save-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
@@ -1468,7 +1470,7 @@ export default {
    同为「有事发生」的记号，浅灰会被读成字段说明。写这一条而不是复用 .field-hint-warn（同色），
    是为了给「保存反馈」留一个自己的类名钩子（片 5 的 X-8 文案族统一要按 tone 分色时改这一处就够）。
    该行实际只承载 err/cooling 两支（成功支只 toast 不落行），故走危险语义红 #EF4444 */
-.save-feedback { color: #EF4444; font-weight: 600; }
+.save-feedback { color: var(--c-danger); font-weight: 600; }
 
 /* 底部留白：最后一个字段离保存按钮近，别被键盘/手势条压住 */
 .page-bottom-space { height: 60rpx; }

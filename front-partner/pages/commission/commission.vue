@@ -330,16 +330,17 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底页面 #0A0A0B + 暗卡 #1B1B1D（.card/.error-row/.btn-main 等公共类在 styles/common.css，
-   本页只补间距与专属字，不动主题变量；七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 分轨，
-   见 docs/八期规划/00-总纲.md §0，与 P8-2 商家端同构） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.error-row/.btn-main 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
 
 /* ==================== 1/2. 单卡承载的三态 ==================== */
 .loading-card { margin-top: 56rpx; display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
-.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
-.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
-.error-retry-cooling { color: #5A5A60; }
+.loading-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
+.guide-tip { font-size: 22rpx; color: var(--c-danger); opacity: .75; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: var(--c-text); line-height: 1.5; text-align: center; }
+.error-retry-cooling { color: var(--c-text-4); }
 
 /* ==================== 3. 余额卡 ==================== */
 .balance-card {
@@ -347,53 +348,53 @@ export default {
   display: flex; flex-direction: column; align-items: center; gap: 12rpx;
   padding: 40rpx 24rpx;
 }
-.balance-label { font-size: 24rpx; color: #6F6F76; }
+.balance-label { font-size: 24rpx; color: var(--c-text-3); }
 /* 佣金余额是本页最核心的正向读数：品牌蓝大数字（照商家端 plan-orders .item-price / dashboard .top-amount 的金额蓝口径） */
-.balance-value { font-size: 64rpx; font-weight: 700; color: #3B82F6; line-height: 1.2; }
+.balance-value { font-size: 64rpx; font-weight: 700; color: var(--c-primary); line-height: 1.2; }
 .balance-tag-row { display: flex; }
 .balance-tag {
-  font-size: 22rpx; color: #E7C868; background-color: #3A2F10;
-  border: 1rpx solid #8A6D1D; border-radius: 8rpx; padding: 6rpx 16rpx; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-gold); background-color: var(--c-warn-soft);
+  border: 1rpx solid var(--c-gold-hair); border-radius: 8rpx; padding: 6rpx 16rpx; line-height: 1.5;
 }
-.balance-note { font-size: 22rpx; color: #5A5A60; line-height: 1.5; text-align: center; }
+.balance-note { font-size: 22rpx; color: var(--c-text-4); line-height: 1.5; text-align: center; }
 
 /* ==================== 4. 流水卡 ==================== */
 .flow-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 16rpx; }
-.block-title { font-size: 30rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4; }
+.block-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); line-height: 1.4; }
 .flow-empty { display: flex; flex-direction: column; align-items: center; gap: 8rpx; padding: 32rpx 0; }
-.flow-empty-sub { font-size: 22rpx; color: #5A5A60; line-height: 1.5; text-align: center; }
+.flow-empty-sub { font-size: 22rpx; color: var(--c-text-4); line-height: 1.5; text-align: center; }
 .flow-list { display: flex; flex-direction: column; }
 .flow-item {
   display: flex; flex-direction: column; gap: 6rpx;
-  padding: 20rpx 0; border-bottom: 1rpx solid #232326;
+  padding: 20rpx 0; border-bottom: 1rpx solid var(--c-fill);
 }
 .flow-item:last-child { border-bottom: none; }
 .flow-head { display: flex; align-items: center; justify-content: space-between; }
 .flow-type {
   font-size: 22rpx; border-radius: 8rpx; padding: 4rpx 12rpx; line-height: 1.5;
-  color: #A6A6AA; background-color: #232326;
+  color: var(--c-text-2); background-color: var(--c-fill);
 }
-/* 入账=正向收益（好消息）：品牌蓝字 + 品牌暗蓝底（照商家端 count-tag/top-rank 的 #3B82F6+#142743 组合）；
+/* 入账=正向收益（好消息）：品牌蓝字 + 品牌暗蓝底（照商家端 count-tag/top-rank 的 --c-primary + --c-primary-soft 组合）；
    冲销（reversal）保持中性灰不动——负向冲销不穿危险红也不穿蓝，避免与失败反馈混读 */
-.flow-type-grant { color: #3B82F6; background-color: #142743; }
-.flow-amount { font-size: 32rpx; font-weight: 700; color: #F2F2F2; }
-.flow-amount-grant { color: #3B82F6; }
-.flow-amount-reversal { color: #6F6F76; }
-.flow-row { font-size: 24rpx; color: #A6A6AA; line-height: 1.6; word-break: break-all; }
-.flow-time { color: #5A5A60; }
+.flow-type-grant { color: var(--c-primary); background-color: var(--c-primary-soft); }
+.flow-amount { font-size: 32rpx; font-weight: 700; color: var(--c-text); }
+.flow-amount-grant { color: var(--c-primary); }
+.flow-amount-reversal { color: var(--c-text-3); }
+.flow-row { font-size: 24rpx; color: var(--c-text-2); line-height: 1.6; word-break: break-all; }
+.flow-time { color: var(--c-text-4); }
 .load-more {
   margin-top: 8rpx; padding: 16rpx 0;
   display: flex; justify-content: center;
-  border: 1rpx solid #2A2A2D; border-radius: 12rpx;
+  border: 1rpx solid var(--c-border); border-radius: 12rpx;
 }
 /* 按压反馈（arrival.vue 的 .pill-hover 同款，scoped 内自带一份） */
 .pill-hover { opacity: .82; }
-.load-more-text { font-size: 26rpx; color: #A6A6AA; }
+.load-more-text { font-size: 26rpx; color: var(--c-text-2); }
 /* 429 冷却中的「加载更多」：置灰不可点（与 .error-retry-cooling 同色），点击再由 loadMore 首行的 retryLock 早退兜住 */
-.load-more-disabled { background-color: #232326; border-color: #2A2A2D; }
-.load-more-disabled .load-more-text { color: #5A5A60; }
-.flow-end { font-size: 22rpx; color: #5A5A60; text-align: center; padding: 8rpx 0; }
-.flow-refresh-fail { font-size: 22rpx; color: #EF4444; opacity: .8; text-align: center; }
+.load-more-disabled { background-color: var(--c-fill); border-color: var(--c-border); }
+.load-more-disabled .load-more-text { color: var(--c-text-4); }
+.flow-end { font-size: 22rpx; color: var(--c-text-4); text-align: center; padding: 8rpx 0; }
+.flow-refresh-fail { font-size: 22rpx; color: var(--c-danger); opacity: .8; text-align: center; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

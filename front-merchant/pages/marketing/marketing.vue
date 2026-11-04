@@ -456,55 +456,57 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css；
-   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 分轨，见 docs/八期规划/00-总纲.md §0） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.guide-card/.btn-main/.error-row 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
 
 /* ==================== 1. 合规提示（页顶常驻，不随滚动消失的那一句） ==================== */
 .notice-card {
   margin-top: 24rpx; padding: 20rpx 24rpx;
-  background-color: #142743; border: 1rpx solid #26364D;
+  background-color: var(--c-primary-soft); border: 1rpx solid var(--c-primary-hair);
 }
-.notice-lead { font-size: 28rpx; font-weight: 700; color: #3B82F6; line-height: 1.5; }
-.notice-sub { display: block; margin-top: 8rpx; font-size: 22rpx; color: #A6A6AA; line-height: 1.5; }
+.notice-lead { font-size: 28rpx; font-weight: 700; color: var(--c-primary); line-height: 1.5; }
+.notice-sub { display: block; margin-top: 8rpx; font-size: 22rpx; color: var(--c-text-2); line-height: 1.5; }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
 
 /* ==================== 3/4. 引导态与错误态（.guide-card/.guide-title/.guide-text/.error-row/.error-retry 取自 common.css） ==================== */
 .guide-card { margin-top: 56rpx; }
 .guide-card .guide-link { margin-top: 8rpx; }
-.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: var(--c-text); line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: var(--c-danger); opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
-.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
+.error-retry-cooling { color: var(--c-text-4); border-color: var(--c-border); cursor: not-allowed; }
 
 /* ==================== 5. 参与态两块 ==================== */
 .block-card { padding: 20rpx 24rpx; }
 .count-tag {
-  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: #3B82F6;
-  background-color: #142743; border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
+  flex-shrink: 0; font-size: 22rpx; font-weight: 600; color: var(--c-primary);
+  background-color: var(--c-primary-soft); border-radius: 8rpx; padding: 4rpx 14rpx; line-height: 1.4;
 }
-.truncate-line { display: block; font-size: 22rpx; color: #6F6F76; line-height: 1.6; }
-.mk-item { padding: 20rpx 0; border-bottom: 1rpx solid #2A2A2D; }
+.truncate-line { display: block; font-size: 22rpx; color: var(--c-text-3); line-height: 1.6; }
+.mk-item { padding: 20rpx 0; border-bottom: 1rpx solid var(--c-border); }
 .mk-item:last-of-type { border-bottom: none; }
 .mk-name {
   display: block;
-  font-size: 30rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
+  font-size: 30rpx; font-weight: 700; color: var(--c-text); line-height: 1.4;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .mk-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8rpx 20rpx; margin-top: 10rpx; }
-.mk-kv { font-size: 24rpx; color: #6F6F76; line-height: 1.5; }
+.mk-kv { font-size: 24rpx; color: var(--c-text-3); line-height: 1.5; }
 .mk-v {
-  font-size: 26rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5;
+  font-size: 26rpx; font-weight: 600; color: var(--c-text); line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
-.mk-v-price { color: #3B82F6; }
+.mk-v-price { color: var(--c-primary); }
 
 /* ==================== 6. 读数拉取时刻行（与工作台「资料刷新于」同用途） ==================== */
 .refresh-line {
   display: block; margin: 20rpx 24rpx 0;
-  font-size: 20rpx; color: #5A5A60; line-height: 1.4; text-align: right;
+  font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; text-align: right;
 }
 
 .page-bottom-space { height: 60rpx; }

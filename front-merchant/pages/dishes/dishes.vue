@@ -695,42 +695,44 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.error-row/.empty-row/.btn-main/.guide-link/.cell-arrow 取自 common.css；
-   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 / 警示橙 #D97706 分轨，见 docs/八期规划/00-总纲.md §0） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.guide-card/.btn-main/.error-row 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
 
 /* ==================== 1. 筛选卡 ==================== */
 .filter-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
 /* 商家状态行（照 workspace.vue 的 .status-tip 同一档字号/颜色：同一状态在两端必须是同一副样子） */
-.status-tip { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: #EF4444; opacity: .8; line-height: 1.5; }
+.status-tip { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: var(--c-danger); opacity: .8; line-height: 1.5; }
 .search-row { display: flex; align-items: center; gap: 16rpx; }
 .search-input {
   flex: 1; min-width: 0; height: 72rpx; line-height: 72rpx;
-  background-color: #232326; border-radius: 999rpx;
-  padding: 0 24rpx; font-size: 26rpx; color: #F2F2F2;
+  background-color: var(--c-fill); border-radius: 999rpx;
+  padding: 0 24rpx; font-size: 26rpx; color: var(--c-text);
 }
-.search-go { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: #3B82F6; padding: 8rpx 4rpx; }
-.search-clear { flex-shrink: 0; font-size: 24rpx; color: #5A5A60; padding: 8rpx 4rpx; }
+.search-go { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: var(--c-primary); padding: 8rpx 4rpx; }
+.search-clear { flex-shrink: 0; font-size: 24rpx; color: var(--c-text-4); padding: 8rpx 4rpx; }
 /* 行内新增按钮（取代常驻 fab）：灰度/禁用态照 dish-edit.vue 的 .btn-sub/.btn-sub-disabled 同一套写法，
    两处「新增/次级动作」的观感不能各长一个样；.btn-sub-disabled 只做视觉，
    拦截与告知在 goCreate 里（原生 disabled 会把点击整个吞掉，商家就看不到「为什么点不动」） */
 .btn-sub {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
   height: 64rpx; line-height: 64rpx;
-  background-color: #1B1B1D; color: #3B82F6;
+  background-color: var(--c-card); color: var(--c-primary);
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #3B82F6; border-radius: 999rpx;
+  border: 1rpx solid var(--c-primary); border-radius: 999rpx;
 }
-.btn-sub.btn-sub-disabled { color: #1E3A8A; border-color: #1E3A8A; background-color: #1B1B1D; }
+.btn-sub.btn-sub-disabled { color: var(--c-primary-disabled); border-color: var(--c-primary-disabled); background-color: var(--c-card); }
 
 /* 三 tab（照用户端 my-coupons.vue:288 .coupon-tabs 手感，激活态用商家端主蓝） */
 .dish-tabs { display: flex; gap: 12rpx; margin-top: 20rpx; }
 .dish-tab {
   flex: 1; text-align: center;
-  font-size: 26rpx; color: #A6A6AA;
-  background-color: #232326; border-radius: 24rpx;
-  padding: 12rpx 0; border: 1rpx solid #2A2A2D;
+  font-size: 26rpx; color: var(--c-text-2);
+  background-color: var(--c-fill); border-radius: 24rpx;
+  padding: 12rpx 0; border: 1rpx solid var(--c-border);
 }
-.dish-tab.active { color: #FFFFFF; font-weight: 700; background-color: #3B82F6; border-color: #3B82F6; }
+.dish-tab.active { color: #FFFFFF; font-weight: 700; background-color: var(--c-primary); border-color: var(--c-primary); }
 
 /* 类目下拉行（picker 是原生组件，整行可点，右侧 › 复用 common.css .cell-arrow） */
 /* picker 显式占满整行：H5 下它编译成自定义元素，不声明块级的话整行点击区只剩文字那么宽 */
@@ -738,34 +740,34 @@ export default {
 .picker-row {
   display: flex; align-items: center; gap: 12rpx;
   margin-top: 20rpx; padding-top: 20rpx;
-  border-top: 1rpx solid #2A2A2D;
+  border-top: 1rpx solid var(--c-border);
 }
-.picker-label { flex-shrink: 0; font-size: 26rpx; color: #6F6F76; }
+.picker-label { flex-shrink: 0; font-size: 26rpx; color: var(--c-text-3); }
 .picker-value {
   flex: 1; min-width: 0; text-align: right;
-  font-size: 26rpx; color: #F2F2F2;
+  font-size: 26rpx; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* 字典拉取失败的降级行（本页筛选退化不影响列表，故只提示不给整页错误态，可点重试） */
-.cate-fail { display: block; margin-top: 12rpx; font-size: 22rpx; color: #EF4444; line-height: 1.5; }
+.cate-fail { display: block; margin-top: 12rpx; font-size: 22rpx; color: var(--c-danger); line-height: 1.5; }
 /* 供货价副文案（F-120 §2）：灰字常驻，只在筛选卡出现一次（列表逐行重复会淹掉商品行） */
-.supply-note { display: block; margin-top: 12rpx; font-size: 22rpx; color: #6F6F76; line-height: 1.5; }
+.supply-note { display: block; margin-top: 12rpx; font-size: 22rpx; color: var(--c-text-3); line-height: 1.5; }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { margin-top: 24rpx; display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
 
 /* ==================== 3. 错误态（两层式：人话主文案 + 后端原文小字） ==================== */
 /* .error-row/.error-text/.error-retry 基类在 common.css；本页只补两个差异件 */
-.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: var(--c-text); line-height: 1.5; text-align: center; }
 /* 后端原文降为第二行：照 workspace.vue 的 .guide-tip 同一档（小字、半透明危险红），排查时看得见但不顶替人话 */
-.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: var(--c-danger); opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
-.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; }
+.error-retry-cooling { color: var(--c-text-4); border-color: var(--c-border); }
 
 /* ==================== 4. 商品行 ==================== */
 .list-card { margin-top: 24rpx; padding: 0; overflow: hidden; }
-.dish-item { display: flex; align-items: center; gap: 16rpx; padding: 24rpx; border-bottom: 1rpx solid #2A2A2D; }
+.dish-item { display: flex; align-items: center; gap: 16rpx; padding: 24rpx; border-bottom: 1rpx solid var(--c-border); }
 .dish-item:last-child { border-bottom: none; }
 .dish-img {
   width: 140rpx; height: 140rpx; flex-shrink: 0;
@@ -778,7 +780,7 @@ export default {
 .dish-title-row { display: flex; align-items: center; gap: 12rpx; }
 .dish-name {
   flex: 1; min-width: 0;
-  font-size: 30rpx; font-weight: 600; color: #F2F2F2; line-height: 1.4;
+  font-size: 30rpx; font-weight: 600; color: var(--c-text); line-height: 1.4;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dish-badge {
@@ -786,23 +788,23 @@ export default {
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
 /* 在售=成功态实底（#22C55E 亮绿底配近黑字保 AA，暗色下白字会跌穿 4.5:1） */
-.badge-on { color: #0A0A0B; background-color: #22C55E; }
-.badge-off { color: #6F6F76; background-color: #232326; }
+.badge-on { color: #0A0A0B; background-color: var(--c-ok); }
+.badge-off { color: var(--c-text-3); background-color: var(--c-fill); }
 /* 审核驳回徽标与理由行（F-116 §2.4）：醒目但不与在售绿徽标同色系打架——用警示橙实底（#D97706 配近黑字保 AA）+理由红字双通道 */
-.badge-audit-rejected { color: #0A0A0B; background-color: #D97706; }
-.dish-audit-reason { font-size: 22rpx; color: #EF4444; line-height: 1.5; }
-.dish-meta { font-size: 22rpx; color: #6F6F76; line-height: 1.5; }
+.badge-audit-rejected { color: #0A0A0B; background-color: var(--c-warn); }
+.dish-audit-reason { font-size: 22rpx; color: var(--c-danger); line-height: 1.5; }
+.dish-meta { font-size: 22rpx; color: var(--c-text-3); line-height: 1.5; }
 /* 库存三态（P6-2）：警示橙照新 tokens（#D97706 暗底档，警示语义不与危险红 #EF4444 混轨），
    数字沿用 .dish-meta 的 22rpx 字号只换色加粗；尾缀小字与 .dish-audit-reason 同档（22rpx 警示色）；
    判据（STOCK_LOW_THRESHOLD=5）与类名零触碰，此处只换色值 */
-.dish-stock-low { color: #D97706; font-weight: 600; }
-.dish-stock-low-hint { margin-left: 8rpx; font-size: 22rpx; color: #D97706; line-height: 1.5; }
+.dish-stock-low { color: var(--c-warn); font-weight: 600; }
+.dish-stock-low-hint { margin-left: 8rpx; font-size: 22rpx; color: var(--c-warn); line-height: 1.5; }
 .dish-price-row { display: flex; align-items: baseline; }
-.price-symbol { font-size: 22rpx; font-weight: 700; color: #3B82F6; }
-.price-num { font-size: 34rpx; font-weight: 700; color: #3B82F6; line-height: 1; }
-.price-unit { font-size: 22rpx; color: #6F6F76; margin-left: 4rpx; }
+.price-symbol { font-size: 22rpx; font-weight: 700; color: var(--c-primary); }
+.price-num { font-size: 34rpx; font-weight: 700; color: var(--c-primary); line-height: 1; }
+.price-unit { font-size: 22rpx; color: var(--c-text-3); margin-left: 4rpx; }
 /* 供货价（F-120 §2）：灰字推到行尾，与挂牌价（蓝）拉开色阶——它是结算口径读数不是售价 */
-.supply-text { margin-left: auto; font-size: 22rpx; color: #6F6F76; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.supply-text { margin-left: auto; font-size: 22rpx; color: var(--c-text-3); line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 /* ==================== 4. 空态卡 ==================== */
 .empty-card { margin-top: 24rpx; display: flex; flex-direction: column; align-items: center; }

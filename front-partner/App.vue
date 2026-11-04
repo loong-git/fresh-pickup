@@ -82,11 +82,117 @@ export default {
 </script>
 
 <style>
-/* 全局样式 */
+/* 全局样式（P9-1/P9-2 契约 §0：双主题 CSS 变量单点真源，16 个 --c-* 逐字照
+   docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md §0 变量表）：
+   :root = 浅色组（七期「鲜蔬集市」绿系暖底白卡，默认）；:root.dark = 深色组（八期「暗色控制台」蓝系黑底暗卡）。
+   主题切换只有一种动作：main.js 给 html 根挂/摘 .dark 类（storage 键 app_theme），两组值整体生效、页面零刷新。
+   页面 scoped 与 styles/common.css 的色值全部引用 var(--c-*)，不再各自持字面值 */
+:root {
+	--c-bg: #F7F6F3;
+	--c-card: #FFFFFF;
+	--c-topbar: #0B3D26;
+	--c-border: #E7E5E0;
+	--c-text: #1C1917;
+	--c-text-2: #57534E;
+	--c-text-3: #A8A29E;
+	--c-primary: #0F7B4A;
+	--c-primary-soft: #E8F5EE;
+	--c-primary-hair: #C8E6D5;
+	--c-primary-disabled: #A7D3BC;
+	--c-ok: #0F7B4A;
+	--c-warn: #B45309;
+	--c-warn-soft: #FFF7E6;
+	--c-danger: #DC2626;
+	--c-danger-soft: #FEF2F2;
+	/* 补充变量（契约 §1.4「八期新增暗色 tint……也按语义入表或补充变量」授权；浅值取七期同位点实值，
+	   深值 = 八期现值，深色渲染不变）：text-4 弱提示文字 / fill 卡内嵌入面（输入框·胶囊·灰徽标底·行间弱分隔）/
+	   disabled 禁用档 / gold 金胶囊字 / gold-hair 金胶囊描边（浅 #FAECD8=P7 commission .balance-tag 描边实值、
+	   深 #8A6D1D=P8 verify .alert-card/.alert-close 与 commission .balance-tag 描边现值）/ shadow 卡影 / warn-hair·danger-hair 警示与危险横幅描边 */
+	--c-text-4: #BBBBBB;
+	--c-fill: #F5F5F5;
+	--c-disabled: #CCCCCC;
+	--c-gold: #B45309;
+	--c-gold-hair: #FAECD8;
+	--c-shadow: rgba(28, 25, 23, 0.06);
+	--c-warn-hair: #FFD591;
+	--c-danger-hair: #FECACA;
+}
+:root.dark {
+	--c-bg: #0A0A0B;
+	--c-card: #1B1B1D;
+	--c-topbar: #111113;
+	--c-border: #2A2A2D;
+	--c-text: #F2F2F2;
+	--c-text-2: #A6A6AA;
+	--c-text-3: #6F6F76;
+	--c-primary: #3B82F6;
+	--c-primary-soft: #142743;
+	--c-primary-hair: #26364D;
+	--c-primary-disabled: #1E3A8A;
+	--c-ok: #22C55E;
+	--c-warn: #D97706;
+	--c-warn-soft: #3A2F10;
+	--c-danger: #EF4444;
+	--c-danger-soft: #2C1517;
+	--c-text-4: #5A5A60;
+	--c-fill: #232326;
+	--c-disabled: #45454A;
+	--c-gold: #E7C868;
+	--c-gold-hair: #8A6D1D;
+	--c-shadow: rgba(0, 0, 0, 0.4);
+	--c-warn-hair: #4A3B14;
+	--c-danger-hair: #4A2224;
+}
+
+/* #ifndef H5 */
+/* 小程序端兜底（切主题机制只在 H5，小程序恒浅色）：:root 在 wxss 不生效，给 page 根声明同一套浅色组，
+   让页面里的 var() 引用取到浅值而不是失效；H5 构建排除本块（uni-page-body 若再声明浅值会压过 :root.dark 的继承） */
 page {
-	background-color: #F5F5F5;
+	--c-bg: #F7F6F3;
+	--c-card: #FFFFFF;
+	--c-topbar: #0B3D26;
+	--c-border: #E7E5E0;
+	--c-text: #1C1917;
+	--c-text-2: #57534E;
+	--c-text-3: #A8A29E;
+	--c-primary: #0F7B4A;
+	--c-primary-soft: #E8F5EE;
+	--c-primary-hair: #C8E6D5;
+	--c-primary-disabled: #A7D3BC;
+	--c-ok: #0F7B4A;
+	--c-warn: #B45309;
+	--c-warn-soft: #FFF7E6;
+	--c-danger: #DC2626;
+	--c-danger-soft: #FEF2F2;
+	--c-text-4: #BBBBBB;
+	--c-fill: #F5F5F5;
+	--c-disabled: #CCCCCC;
+	--c-gold: #B45309;
+	--c-gold-hair: #FAECD8;
+	--c-shadow: rgba(28, 25, 23, 0.06);
+	--c-warn-hair: #FFD591;
+	--c-danger-hair: #FECACA;
+}
+/* #endif */
+
+/* 页面底随主题（P9 契约 §1.3：原单值 #F5F5F5 改 var，浅 #F7F6F3 / 深 #0A0A0B） */
+page {
+	background-color: var(--c-bg);
 	font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Segoe UI, Arial, Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
+
+/* #ifdef H5 */
+/* H5 端 body 底同随主题：page 选择器编译到 uni-page-body，overscroll/短页露出的 body 也要同色 */
+body {
+	background-color: var(--c-bg);
+}
+/* P9 契约外最小配套（显式披露）：pages.json 的页头色是静态单值（#111113）无法表达双主题，
+   H5 端页头改随 --c-topbar（浅 #0B3D26 深绿 / 深 #111113），白字两种主题都对；
+   小程序端无 uni-page-head 元素、且本块 H5 条件编译隔离，不受影响 */
+uni-page-head {
+	background-color: var(--c-topbar) !important;
+}
+/* #endif */
 
 /* 全局按钮禁用 hover 效果（小程序不支持） */
 button::after {

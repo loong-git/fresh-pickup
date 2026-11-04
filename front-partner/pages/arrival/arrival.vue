@@ -692,46 +692,46 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.error-row/.empty-row/.guide-link/.btn-main 取自 common.css，
-   本页只补间距与专属的字，不动主题变量、不改公共类语义；七期亮绿口径退役，
-   品牌蓝 #3B82F6 / 危险语义红 #EF4444 / 警示橙 #D97706 分轨，见 docs/八期规划/00-总纲.md §0，
-   与 P8-2 商家端同构） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.error-row/.empty-row/.guide-link/.btn-main 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
 
 /* ==================== 1. 日期条 ==================== */
 .date-card { display: flex; flex-direction: column; gap: 12rpx; }
 .date-field-row { display: flex; align-items: center; }
-.date-field-label { font-size: 26rpx; color: #6F6F76; line-height: 1.5; }
+.date-field-label { font-size: 26rpx; color: var(--c-text-3); line-height: 1.5; }
 /* P4-14 M15：默认日期标注复用本页 .form-hint 小字档，只加一个左间距（不新增大块样式） */
 .date-default-hint { margin-left: 8rpx; }
 .date-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .date-step {
-  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #3B82F6; line-height: 1.4;
-  background-color: #1B1B1D; border: 1rpx solid #3B82F6; border-radius: 999rpx; padding: 12rpx 24rpx;
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: var(--c-primary); line-height: 1.4;
+  background-color: var(--c-card); border: 1rpx solid var(--c-primary); border-radius: 999rpx; padding: 12rpx 24rpx;
 }
 .date-current {
   flex: 1; min-width: 0; text-align: center;
-  font-size: 30rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
+  font-size: 30rpx; font-weight: 700; color: var(--c-text); line-height: 1.4;
   font-variant-numeric: tabular-nums;
 }
 .date-sub-row { display: flex; align-items: center; gap: 12rpx; }
 .date-quick {
-  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #F2F2F2; line-height: 1.4;
-  background-color: #232326; border: 1rpx solid #2A2A2D; border-radius: 999rpx; padding: 12rpx 24rpx;
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: var(--c-text); line-height: 1.4;
+  background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 999rpx; padding: 12rpx 24rpx;
 }
-.date-note { flex: 1; min-width: 0; font-size: 20rpx; color: #5A5A60; line-height: 1.4; }
+.date-note { flex: 1; min-width: 0; font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; }
 /* P4-5 S5（D3/D4）：日期条三枚控件在读侧冷却里的灰态。两个灰值照本页既有姿势
-   （.error-retry-cooling 用的就是同一对 #5A5A60 / #2A2A2D）。
+   （.error-retry-cooling 用的就是同一对 --c-text-4 / --c-border）。
    刻意排在 .date-step 与 .date-quick 之后：同优先级下后写的才压得过它们各自的 color/border。
    注意 view 没有原生 disabled 语义——这一枚只负责「看着就按不动」，真拦住点击的是 stepDay/goToday 首行那道早退 */
-.date-pill-disabled { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
+.date-pill-disabled { color: var(--c-text-4); border-color: var(--c-border); cursor: not-allowed; }
 .pill-hover { opacity: .82; }
 
 /* ==================== 2/3/4. 三态卡 ==================== */
 .loading-card { display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
-.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
-.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; }
+.loading-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: var(--c-text); line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: var(--c-danger); opacity: .75; line-height: 1.5; text-align: center; }
+.error-retry-cooling { color: var(--c-text-4); border-color: var(--c-border); }
 .empty-card { display: flex; flex-direction: column; align-items: center; }
 .empty-actions { display: flex; gap: 24rpx; }
 
@@ -740,47 +740,47 @@ export default {
 .batch-head { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .batch-title {
   flex: 1; min-width: 0;
-  font-size: 28rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
+  font-size: 28rpx; font-weight: 700; color: var(--c-text); line-height: 1.4;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.batch-row { font-size: 24rpx; color: #A6A6AA; line-height: 1.5; }
-.batch-items { display: flex; flex-direction: column; gap: 8rpx; padding-top: 8rpx; border-top: 1rpx solid #232326; }
+.batch-row { font-size: 24rpx; color: var(--c-text-2); line-height: 1.5; }
+.batch-items { display: flex; flex-direction: column; gap: 8rpx; padding-top: 8rpx; border-top: 1rpx solid var(--c-fill); }
 .item-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12rpx; }
 .item-dish {
   flex: 1 1 auto; min-width: 0;
-  font-size: 26rpx; color: #F2F2F2; line-height: 1.5;
+  font-size: 26rpx; color: var(--c-text); line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.item-qty { flex-shrink: 0; font-size: 24rpx; color: #A6A6AA; line-height: 1.5; font-variant-numeric: tabular-nums; }
-.item-empty { font-size: 24rpx; color: #5A5A60; line-height: 1.5; }
-/* 缺货说明行：危险语义红 #EF4444（缺货是错误事实，不是待办警示；照商家端 plan-orders 缺货族的危险红口径） */
-.item-short { flex-basis: 100%; font-size: 22rpx; color: #EF4444; opacity: .8; line-height: 1.4; }
+.item-qty { flex-shrink: 0; font-size: 24rpx; color: var(--c-text-2); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.item-empty { font-size: 24rpx; color: var(--c-text-4); line-height: 1.5; }
+/* 缺货说明行：危险语义红 --c-danger（缺货是错误事实，不是待办警示；照商家端 plan-orders 缺货族的危险红口径） */
+.item-short { flex-basis: 100%; font-size: 22rpx; color: var(--c-danger); opacity: .8; line-height: 1.4; }
 .item-tag {
   flex-shrink: 0; font-size: 20rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
-.batch-tag-info { color: #A6A6AA; background-color: #232326; }
-/* 未确认=待办警示：警示橙暗底（#D97706/#3A2F10），照商家端 plan-orders .item-tag-unpaid 口径 */
-.batch-tag-warn { color: #D97706; background-color: #3A2F10; }
-/* 已确认=成功态实底（#22C55E 亮绿底配近黑字保 AA，暗色下白字会跌穿 4.5:1；照商家端 .badge-on/.audit-approved 口径） */
-.batch-tag-ok { color: #0A0A0B; background-color: #22C55E; }
-/* 异常=危险语义：#EF4444 字配暗红底 #2C1517（暗底危险档，实底白字在暗色下对比不足） */
-.batch-tag-err { color: #EF4444; background-color: #2C1517; }
+.batch-tag-info { color: var(--c-text-2); background-color: var(--c-fill); }
+/* 未确认=待办警示：警示橙暗底（--c-warn/--c-warn-soft），照商家端 plan-orders .item-tag-unpaid 口径 */
+.batch-tag-warn { color: var(--c-warn); background-color: var(--c-warn-soft); }
+/* 已确认=成功态实底（--c-ok 亮绿底配近黑字保 AA，暗色下白字会跌穿 4.5:1；照商家端 .badge-on/.audit-approved 口径） */
+.batch-tag-ok { color: #0A0A0B; background-color: var(--c-ok); }
+/* 异常=危险语义：--c-danger 字配暗红底 --c-danger-soft（暗底危险档，实底白字在暗色下对比不足） */
+.batch-tag-err { color: var(--c-danger); background-color: var(--c-danger-soft); }
 
 /* ==================== 6. 确认按钮与反馈行 ==================== */
 .batch-confirm { margin-top: 8rpx; }
-.form-hint { font-size: 22rpx; color: #6F6F76; line-height: 1.5; }
-/* 常驻反馈四支：成功=成功绿 #22C55E 实底配近黑字保 AA，中性=灰，失败=危险语义红 #EF4444（暗红底 #2C1517 照商家端危险暗底档），冷却=警示橙 #D97706（暗底 #3A2F10） */
+.form-hint { font-size: 22rpx; color: var(--c-text-3); line-height: 1.5; }
+/* 常驻反馈四支：成功=成功绿 --c-ok 实底配近黑字保 AA，中性=灰，失败=危险语义红 --c-danger（暗红底 --c-danger-soft 照商家端危险暗底档），冷却=警示橙 --c-warn（暗底 --c-warn-soft） */
 .batch-feedback { font-size: 26rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
-.batch-feedback-ok { color: #0A0A0B; background-color: #22C55E; }
-.batch-feedback-neutral { color: #A6A6AA; background-color: #232326; }
-.batch-feedback-err { color: #EF4444; background-color: #2C1517; }
-.batch-feedback-cooling { color: #D97706; background-color: #3A2F10; }
+.batch-feedback-ok { color: #0A0A0B; background-color: var(--c-ok); }
+.batch-feedback-neutral { color: var(--c-text-2); background-color: var(--c-fill); }
+.batch-feedback-err { color: var(--c-danger); background-color: var(--c-danger-soft); }
+.batch-feedback-cooling { color: var(--c-warn); background-color: var(--c-warn-soft); }
 
 /* 空态改两行式：主句只说事实（哪一天没有批次记录），副句说「这事该找谁」。
    common.css 的 .empty-row 是横向居中，两个 text 并排会把长句挤成竖条，这里按本页需要改纵向。 */
 .empty-row { flex-direction: column; align-items: center; gap: 12rpx; }
-.empty-sub { font-size: 22rpx; color: #5A5A60; text-align: center; padding: 0 30rpx; line-height: 34rpx; }
+.empty-sub { font-size: 22rpx; color: var(--c-text-4); text-align: center; padding: 0 30rpx; line-height: 34rpx; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

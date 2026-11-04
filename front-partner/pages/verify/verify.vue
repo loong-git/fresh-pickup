@@ -895,87 +895,87 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.error-row/.empty-row/.guide-link/.btn-main/.cell-arrow 取自 common.css，
-   本页只补间距与本页专属的字，不动主题变量、不加新公共类；七期亮绿口径退役，
-   品牌蓝 #3B82F6 / 危险语义红 #EF4444 / 警示橙 #D97706 分轨，见 docs/八期规划/00-总纲.md §0，
-   与 P8-2 商家端同构） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.error-row/.empty-row/.guide-link/.btn-main/.cell-arrow 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
 
 /* ==================== 1. 到货警示条（批次未确认/无记录是待办警示，不是错误：金胶囊暗底族
-   底 #3A2F10 / 字 #E7C868 / 描边 #8A6D1D（总纲 §0 金胶囊），不与危险红 #EF4444 混轨） ==================== */
+   底 --c-warn-soft / 字 --c-gold / 描边 --c-gold-hair（总纲 §0 金胶囊），不与危险红 --c-danger 混轨） ==================== */
 .alert-card {
   margin-top: 24rpx;
-  background-color: #3A2F10;
-  border: 1rpx solid #8A6D1D;
+  background-color: var(--c-warn-soft);
+  border: 1rpx solid var(--c-gold-hair);
   display: flex; flex-direction: column; gap: 12rpx;
 }
-.alert-text { font-size: 28rpx; font-weight: 700; color: #E7C868; line-height: 1.5; }
+.alert-text { font-size: 28rpx; font-weight: 700; color: var(--c-gold); line-height: 1.5; }
 .alert-row { display: flex; align-items: center; gap: 16rpx; }
 .alert-link {
   font-size: 24rpx; font-weight: 600; color: #FFFFFF; line-height: 1.4;
-  background-color: #3B82F6; border-radius: 999rpx; padding: 10rpx 24rpx;
+  background-color: var(--c-primary); border-radius: 999rpx; padding: 10rpx 24rpx;
 }
 .alert-close {
-  font-size: 24rpx; color: #E7C868; line-height: 1.4;
-  border: 1rpx solid #8A6D1D; border-radius: 999rpx; padding: 10rpx 24rpx;
+  font-size: 24rpx; color: var(--c-gold); line-height: 1.4;
+  border: 1rpx solid var(--c-gold-hair); border-radius: 999rpx; padding: 10rpx 24rpx;
 }
 .pill-hover { opacity: .82; }
 
 /* ==================== 2. 输码卡 ==================== */
 .verify-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 16rpx; }
-.block-title { font-size: 30rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4; }
+.block-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); line-height: 1.4; }
 .code-input {
   height: 88rpx; padding: 0 24rpx;
-  font-size: 36rpx; font-weight: 700; color: #F2F2F2; letter-spacing: 6rpx;
-  background-color: #232326; border: 1rpx solid #2A2A2D; border-radius: 12rpx;
+  font-size: 36rpx; font-weight: 700; color: var(--c-text); letter-spacing: 6rpx;
+  background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 12rpx;
 }
-.form-hint { font-size: 22rpx; color: #6F6F76; line-height: 1.5; }
-/* 常驻反馈四支：成功=成功绿 #22C55E 实底配近黑字保 AA（暗色下白字会跌穿 4.5:1），幂等=中性灰（不是失败就不该穿红），失败=危险语义红 #EF4444（暗红底 #2C1517 照商家端危险暗底档），冷却=警示橙 #D97706（暗底 #3A2F10） */
+.form-hint { font-size: 22rpx; color: var(--c-text-3); line-height: 1.5; }
+/* 常驻反馈四支：成功=成功绿 --c-ok 实底配近黑字保 AA（暗色下白字会跌穿 4.5:1），幂等=中性灰（不是失败就不该穿红），失败=危险语义红 --c-danger（暗红底 --c-danger-soft 照商家端危险暗底档），冷却=警示橙 --c-warn（暗底 --c-warn-soft） */
 .verify-feedback { font-size: 28rpx; font-weight: 600; line-height: 1.5; padding: 12rpx 16rpx; border-radius: 12rpx; }
-.verify-feedback-ok { color: #0A0A0B; background-color: #22C55E; }
-.verify-feedback-neutral { color: #A6A6AA; background-color: #232326; }
-.verify-feedback-err { color: #EF4444; background-color: #2C1517; }
-.verify-feedback-cooling { color: #D97706; background-color: #3A2F10; }
+.verify-feedback-ok { color: #0A0A0B; background-color: var(--c-ok); }
+.verify-feedback-neutral { color: var(--c-text-2); background-color: var(--c-fill); }
+.verify-feedback-err { color: var(--c-danger); background-color: var(--c-danger-soft); }
+.verify-feedback-cooling { color: var(--c-warn); background-color: var(--c-warn-soft); }
 
 /* ==================== 3. 日期条（取值口径与 pickup-plan.vue 样式小节的「1. 日期条」同档） ==================== */
 .date-card { display: flex; flex-direction: column; gap: 12rpx; }
 .date-field-row { display: flex; align-items: center; }
-.date-field-label { font-size: 26rpx; color: #6F6F76; line-height: 1.5; }
+.date-field-label { font-size: 26rpx; color: var(--c-text-3); line-height: 1.5; }
 /* P4-14 M15：默认日期标注复用本页 .form-hint 小字档，只加一个左间距（不新增大块样式） */
 .date-default-hint { margin-left: 8rpx; }
 .date-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .date-step {
-  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #3B82F6; line-height: 1.4;
-  background-color: #1B1B1D; border: 1rpx solid #3B82F6; border-radius: 999rpx; padding: 12rpx 24rpx;
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: var(--c-primary); line-height: 1.4;
+  background-color: var(--c-card); border: 1rpx solid var(--c-primary); border-radius: 999rpx; padding: 12rpx 24rpx;
 }
 .date-current {
   flex: 1; min-width: 0; text-align: center;
-  font-size: 30rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
+  font-size: 30rpx; font-weight: 700; color: var(--c-text); line-height: 1.4;
   font-variant-numeric: tabular-nums;
 }
 .date-sub-row { display: flex; align-items: center; gap: 12rpx; }
 .date-quick {
-  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: #F2F2F2; line-height: 1.4;
-  background-color: #232326; border: 1rpx solid #2A2A2D; border-radius: 999rpx; padding: 12rpx 24rpx;
+  flex-shrink: 0; font-size: 24rpx; font-weight: 600; color: var(--c-text); line-height: 1.4;
+  background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 999rpx; padding: 12rpx 24rpx;
 }
-.date-note { flex: 1; min-width: 0; font-size: 20rpx; color: #5A5A60; line-height: 1.4; }
+.date-note { flex: 1; min-width: 0; font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; }
 /* P4-5 S3（D3/D4）：日期条三枚控件在读侧冷却里的灰态。两个灰值照本页既有姿势
-   （.error-retry-cooling 与 .btn-more.btn-more-cooling 用的就是同一对 #5A5A60 / #2A2A2D）。
+   （.error-retry-cooling 与 .btn-more.btn-more-cooling 用的就是同一对 --c-text-4 / --c-border）。
    刻意排在 .date-step 与 .date-quick 之后：同优先级下后写的才压得过它们各自的 color/border。
    注意 view 没有原生 disabled 语义——这一枚只负责「看着就按不动」，真拦住点击的是 stepDay/goToday 首行那道早退 */
-.date-pill-disabled { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
+.date-pill-disabled { color: var(--c-text-4); border-color: var(--c-border); cursor: not-allowed; }
 
 /* ==================== 4/5/6. 三态卡 ==================== */
 .loading-card { display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
-.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
-.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; }
+.loading-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: var(--c-text); line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: var(--c-danger); opacity: .75; line-height: 1.5; text-align: center; }
+.error-retry-cooling { color: var(--c-text-4); border-color: var(--c-border); }
 .empty-card { display: flex; flex-direction: column; align-items: center; }
 .empty-actions { display: flex; gap: 24rpx; }
 
 /* ==================== 7. 清单行 ==================== */
 .list-card { margin-top: 24rpx; padding: 0 24rpx; overflow: hidden; }
-.order-item { padding: 24rpx 0; border-bottom: 1rpx solid #232326; }
+.order-item { padding: 24rpx 0; border-bottom: 1rpx solid var(--c-fill); }
 .order-item:first-child { padding-top: 20rpx; }
 .order-item:last-child { border-bottom: none; }
 .item-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8rpx; }
@@ -983,20 +983,20 @@ export default {
 .item-unit { display: flex; align-items: center; min-width: 0; gap: 8rpx; }
 .item-dish {
   flex: 1 1 auto; min-width: 0;
-  font-size: 30rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5;
+  font-size: 30rpx; font-weight: 600; color: var(--c-text); line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.item-qty { flex-shrink: 0; font-size: 26rpx; color: #F2F2F2; line-height: 1.5; font-variant-numeric: tabular-nums; }
-.item-phone { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: #A6A6AA; line-height: 1.5; font-variant-numeric: tabular-nums; }
-.item-dot { flex-shrink: 0; font-size: 24rpx; color: #45454A; line-height: 1.5; }
+.item-qty { flex-shrink: 0; font-size: 26rpx; color: var(--c-text); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.item-phone { flex-shrink: 0; font-size: 26rpx; font-weight: 600; color: var(--c-text-2); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.item-dot { flex-shrink: 0; font-size: 24rpx; color: var(--c-disabled); line-height: 1.5; }
 .item-store {
   flex: 0 1 auto; min-width: 0; max-width: 240rpx;
-  font-size: 24rpx; color: #A6A6AA; line-height: 1.5;
+  font-size: 24rpx; color: var(--c-text-2); line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .item-sub {
   flex: 0 1 auto; min-width: 0;
-  font-size: 22rpx; color: #6F6F76; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-text-3); line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .item-tag {
@@ -1004,22 +1004,22 @@ export default {
   font-size: 20rpx; font-weight: 600; line-height: 1.4;
   border-radius: 8rpx; padding: 4rpx 12rpx;
 }
-/* 「未支付」= 待办警示（非危险非品牌）：警示橙暗底小字（#D97706/#3A2F10），照商家端 plan-orders 同名类口径 */
-.item-tag-unpaid { color: #D97706; background-color: #3A2F10; }
-.item-unpaid-note { display: block; margin-top: 8rpx; font-size: 20rpx; color: #D97706; opacity: .8; line-height: 1.4; }
+/* 「未支付」= 待办警示（非危险非品牌）：警示橙暗底小字（--c-warn/--c-warn-soft），照商家端 plan-orders 同名类口径 */
+.item-tag-unpaid { color: var(--c-warn); background-color: var(--c-warn-soft); }
+.item-unpaid-note { display: block; margin-top: 8rpx; font-size: 20rpx; color: var(--c-warn); opacity: .8; line-height: 1.4; }
 
 /* ==================== 8. 加载更多 ==================== */
 .load-more { display: flex; flex-direction: column; align-items: center; margin-top: 24rpx; }
 .btn-more {
   margin: 0; padding: 0 48rpx;
   height: 72rpx; line-height: 72rpx;
-  background-color: #1B1B1D; color: #3B82F6;
+  background-color: var(--c-card); color: var(--c-primary);
   font-size: 26rpx; font-weight: 600;
-  border: 1rpx solid #3B82F6; border-radius: 999rpx;
+  border: 1rpx solid var(--c-primary); border-radius: 999rpx;
 }
-.btn-more[disabled] { color: #1E3A8A; background-color: #1B1B1D; border-color: #1E3A8A; }
-.btn-more.btn-more-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
-.no-more { font-size: 24rpx; color: #6F6F76; line-height: 1.6; }
+.btn-more[disabled] { color: var(--c-primary-disabled); background-color: var(--c-card); border-color: var(--c-primary-disabled); }
+.btn-more.btn-more-cooling { color: var(--c-text-4); border-color: var(--c-border); cursor: not-allowed; }
+.no-more { font-size: 24rpx; color: var(--c-text-3); line-height: 1.6; }
 
 .page-bottom-space { height: 60rpx; }
 </style>

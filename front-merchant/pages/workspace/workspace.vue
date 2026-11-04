@@ -45,6 +45,19 @@
 
     <!-- ==================== 4. 正常态：商家卡 + 登出/换账号出口 + 入口列表（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态，五入口均已交付） ==================== -->
     <template v-else>
+      <!-- P9-1/P9-2 契约 §0 切换钮：双主题（浅色=鲜蔬集市绿系默认 / 深色=暗色控制台可切），店信息卡上方一行。
+           纯 UI（照 P8-1 放宽条款、显式披露）：全 cell 唯一绑定 @click=toggleTheme 新函数，不接任何业务判据/事件；
+           只在 H5 渲染（切主题靠 html 根 .dark 类与 document，小程序端无此机制，整块条件编译隔离） -->
+      <!-- #ifdef H5 -->
+      <view class="card cell-card">
+        <view class="cell" @click="toggleTheme">
+          <text class="cell-icon">🌗</text>
+          <text class="cell-title">主题</text>
+          <text class="cell-sub">当前{{ themeName }} · 点击切换</text>
+          <text class="cell-arrow">›</text>
+        </view>
+      </view>
+      <!-- #endif -->
       <view class="card merchant-card">
         <view class="merchant-head">
           <text class="merchant-name">{{ merchantName }}</text>
@@ -162,6 +175,9 @@ export default {
       // 两端全部自减锁），本页不另起第二套闸门抽象；锚点仍只由 api 层 retrySecondsOf 转述的后端秒数
       // 换算，页内零推算时长。stop*/onUnload 成对归零：残留值会让下一实例读到上一实例的数字。
       retryLockUntil: 0,
+      // P9-1/P9-2 契约 §0：当前主题（'light' | 'dark'），屏上读数只跟这个字段；
+      // 真源在 main.js 挂载/切换处（storage 键 app_theme），本页 onShow 按档校准，不持第二套存储
+      theme: 'light',
       // 五入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
       // 可点与否由 ENTRY_ROUTES[entry.key] 决定，本页不再持第二个开关字段（两处真值会打架）
       entries: [
@@ -220,6 +236,10 @@ export default {
       if (r === 'not_merchant') return '该账号未开通商家权限，工作台不对其开放'
       if (r === 'user_banned') return '该账号已被封禁，工作台不对其开放'
       return '当前账号可能没有商家权限（未开通 / 已停业 / 被限制），工作台不对其开放'
+    },
+    // 主题名（P9 主题 cell 的展示读数）：只从 this.theme 派生，不直接读 storage（屏上值与状态同源）
+    themeName() {
+      return this.theme === 'dark' ? '深色' : '浅色'
     }
   },
   onShow() {
@@ -228,6 +248,10 @@ export default {
     // tick 算出的旧值——不重算就把「已经到期的锁」继续显示成「还在冷却」，也就会把本可以发的
     // onShow 重拉无谓地挡掉（FE-5 验收③「onShow 重算」要的就是这一行）
     this.retryLock = this.retryLockRemaining()
+    // #ifdef H5
+    // P9 契约 §0：回前台按 storage 校准主题读数（主题唯一真源在 main.js 挂载/__setAppTheme 切换处，屏上只跟读）
+    this.theme = uni.getStorageSync('app_theme') === 'dark' ? 'dark' : 'light'
+    // #endif
     // 每次进入重拉（对齐用户端 mine.vue onShow 刷新惯例）：审核状态与联系人改了都能第一时间反映
     this.loadMe()
   },
@@ -311,6 +335,19 @@ export default {
       }
     },
     // ==================== 交互 ====================
+    // ==================== 主题切换（P9-1/P9-2 契约 §0，纯 UI 显式披露） ====================
+    // 实现：写 uni.setStorageSync('app_theme', 新值) + document.documentElement.classList.toggle('dark')
+    // 两步都收在 main.js 的 window.__setAppTheme（唯一出口，读档缺省口径与它一致）；本页只算目标值并同步屏上读数。
+    // 整个方法体 #ifdef H5（切主题依赖 document，小程序端主题 cell 整块不渲染、本方法也不会被触发）
+    toggleTheme() {
+      // #ifdef H5
+      const next = this.theme === 'dark' ? 'light' : 'dark'
+      if (typeof window !== 'undefined' && typeof window.__setAppTheme === 'function') {
+        window.__setAppTheme(next)
+      }
+      this.theme = next
+      // #endif
+    },
     // 入口可点与否的唯一判定处（模板与点击分支共用，避免两处真值打架）
     entryRoute(entry) {
       return (entry && ENTRY_ROUTES[entry.key]) || ''
@@ -394,30 +431,37 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底页面 #0A0A0B + 暗卡（.card/.cell-card/.guide-card/.btn-main 等公共类在 styles/common.css；
-   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 / 成功实底 #22C55E 分轨，见 docs/八期规划/00-总纲.md §0） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.guide-card/.btn-main/.error-row 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
+
+/* ==================== 0. P9 浅色排版精修（契约 §1.5：只动 style 尺寸/内边距，结构与绑定零改动） ==================== */
+/* 菜单图标 40rpx（契约 §1.5「菜单图标」档；common.css 基类 36rpx，本页 scoped 覆写），
+   主题卡/菜单卡/退出条行高一致靠 common.css .cell 上下 28rpx 一处生效（三卡同用 .cell） */
+.cell-icon { font-size: 40rpx; }
 
 /* ==================== 1/2/3. 单卡承载的三态（本页自加间距，公共类不带 margin） ==================== */
 .guide-card { margin-top: 56rpx; }
 .checking-card { margin-top: 56rpx; display: flex; justify-content: center; }
-.checking-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
+.checking-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
 .guide-card .btn-main { margin-top: 16rpx; }
 /* 后端 403 原文透出行：小字弱化红（危险语义 #EF4444），与本页自撰文案区分，避免用户以为原因是前端编的 */
-.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: var(--c-danger); opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却读数行（D5/M12）：本屏唯一带数处，危险语义红以便与兜底文案分开 */
-.error-cooling { font-size: 22rpx; color: #EF4444; line-height: 1.5; text-align: center; }
+.error-cooling { font-size: 22rpx; color: var(--c-danger); line-height: 1.5; text-align: center; }
 /* 冷却中的重试：保持同一枚按钮的形状但置灰（真闸在 loadMe 首行早退，样式只负责让用户一眼看出此刻点不动） */
-.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
+.error-retry-cooling { color: var(--c-text-4); border-color: var(--c-border); cursor: not-allowed; }
 
-/* ==================== 4. 商家卡 ==================== */
-.merchant-card { margin-top: 24rpx; }
+/* ==================== 4. 商家卡（P9 精修：内边距 32rpx） ==================== */
+.merchant-card { margin-top: 24rpx; padding: 32rpx; }
 /* 名称与徽标/状态行纵向排布：长名两行截断后不再与徽标同行，天然不重叠 */
 .merchant-head { display: flex; flex-direction: column; align-items: flex-start; gap: 8rpx; }
 /* 主体名后端锁定平台维护，前端只读展示；name 为 VARCHAR(100)（m15-migration.sql:19），
    单行截断会无处看全名，故改两行截断（-webkit-line-clamp 系，uniapp H5/小程序端均支持） */
 .merchant-name {
   width: 100%;
-  font-size: 34rpx; font-weight: 700; color: #F2F2F2; line-height: 1.4;
+  font-size: 34rpx; font-weight: 600; color: var(--c-text); line-height: 1.4;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden;
 }
@@ -428,23 +472,23 @@ export default {
   border-radius: 8rpx; padding: 6rpx 16rpx;
 }
 /* 资质通过=成功态实底（#22C55E 亮绿底配近黑字保 AA，暗色下白字会跌穿 4.5:1） */
-.audit-approved { color: #0A0A0B; background-color: #22C55E; }
-.audit-pending { color: #D97706; background-color: #3A2F10; }
-.audit-rejected { color: #EF4444; background-color: #1B1B1D; border: 1rpx solid #EF4444; }
+.audit-approved { color: #0A0A0B; background-color: var(--c-ok); }
+.audit-pending { color: var(--c-warn); background-color: var(--c-warn-soft); }
+.audit-rejected { color: var(--c-danger); background-color: var(--c-card); border: 1rpx solid var(--c-danger); }
 /* 脏值/缺字段：中性灰，不与三态任一档混淆（不替后端猜状态） */
-.audit-unknown { color: #6F6F76; background-color: #232326; }
+.audit-unknown { color: var(--c-text-3); background-color: var(--c-fill); }
 .merchant-rows { display: flex; flex-direction: column; gap: 8rpx; margin-top: 20rpx; }
-.merchant-row { font-size: 24rpx; color: #A6A6AA; line-height: 1.6; }
-.refresh-tip { display: block; margin-top: 20rpx; font-size: 20rpx; color: #5A5A60; line-height: 1.4; }
+.merchant-row { font-size: 24rpx; color: var(--c-text-2); line-height: 1.6; }
+.refresh-tip { display: block; margin-top: 20rpx; font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; }
 /* 非 active 生命周期的提示行：危险语义红小字（#EF4444，停业/清退属严重态），只读展示不拦截 */
-.status-tip { font-size: 22rpx; color: #EF4444; opacity: .8; line-height: 1.5; }
+.status-tip { font-size: 22rpx; color: var(--c-danger); opacity: .8; line-height: 1.5; }
 /* 有快照时 onShow 重拉失败的降级重试行：与刷新时间行同位呼应，可点（失败语义红 #EF4444） */
-.refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: #EF4444; line-height: 1.5; }
+.refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: var(--c-danger); line-height: 1.5; }
 /* 降级行的冷却态（429）：秒数就在这一行里，置灰表明此刻点它不会发请求 */
-.refresh-fail-cooling { color: #5A5A60; cursor: not-allowed; }
+.refresh-fail-cooling { color: var(--c-text-4); cursor: not-allowed; }
 
 /* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中危险语义红字） ==================== */
-.cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: #EF4444; }
+.cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: var(--c-danger); }
 
 /* ==================== 5. 入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
 .cell-card { margin-top: 24rpx; }

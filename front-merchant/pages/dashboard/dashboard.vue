@@ -485,43 +485,45 @@ export default {
 </script>
 
 <style scoped>
-/* 暗色控制台蓝单色板：近黑底 #0A0A0B + 暗卡 #1B1B1D（.card/.card-head/.card-title/.error-row/.empty-row/.guide-card/.guide-link 取自 common.css；
-   七期亮绿口径退役，品牌蓝 #3B82F6 / 危险语义红 #EF4444 / 警示橙 #D97706 分轨，见 docs/八期规划/00-总纲.md §0） */
+/* P9-1/P9-2 双主题（契约 §0，docs/九期规划/P9-1-P9-2-双主题与排版精修契约.md）：色值全部走 var(--c-*)，
+   两组变量定义在 App.vue 的 :root（浅=鲜蔬集市绿系暖底白卡，默认）/:root.dark（深=暗色控制台蓝系黑底暗卡）；
+   .card/.guide-card/.btn-main/.error-row 等公共类在 styles/common.css 同走 var()。
+   字面值只留特殊档：成功实底（--c-ok）上的近黑字 #0A0A0B 与主色底上的白字 #FFFFFF（两主题同值，不随主题换色） */
 
 /* ==================== 1. 窗口切换 ==================== */
 .window-card { margin-top: 24rpx; padding: 20rpx 24rpx; }
 .window-tabs { display: flex; gap: 12rpx; }
 .window-tab {
   flex: 1; text-align: center;
-  font-size: 26rpx; color: #A6A6AA;
-  background-color: #232326; border-radius: 24rpx;
-  padding: 12rpx 0; border: 1rpx solid #2A2A2D;
+  font-size: 26rpx; color: var(--c-text-2);
+  background-color: var(--c-fill); border-radius: 24rpx;
+  padding: 12rpx 0; border: 1rpx solid var(--c-border);
 }
-.window-tab.active { color: #FFFFFF; font-weight: 700; background-color: #3B82F6; border-color: #3B82F6; }
+.window-tab.active { color: #FFFFFF; font-weight: 700; background-color: var(--c-primary); border-color: var(--c-primary); }
 /* 按下反馈（hover-class 目标）：移动端没有 :hover，靠 uni-app 的 hover-class 才有这一态 */
-.pill-hover { color: #3B82F6; background-color: #142743; border-color: #3B82F6; }
+.pill-hover { color: var(--c-primary); background-color: var(--c-primary-soft); border-color: var(--c-primary); }
 /* 当前档的按下态（U-13）：.window-tab.active 是 (0,2,0)、.pill-hover 只有 (0,1,0)，
    于是点已选中的那一档毫无视觉反馈，而 switchDays 又对它早退不发请求 —— 看着就像「这页点不动」。
    这里给同一条规则 (0,3,0) 的权重把它压回去，色值全取本色板已有的 #1E3A8A/#FFFFFF（uni.scss 暗蓝禁用档），不引新色 */
-.window-tab.active.pill-hover { color: #FFFFFF; background-color: #1E3A8A; border-color: #1E3A8A; }
+.window-tab.active.pill-hover { color: #FFFFFF; background-color: var(--c-primary-disabled); border-color: var(--c-primary-disabled); }
 /* 窗口起点那句实话：整行可换行，长日期串不许被截断（这是商家判断「到底统计的哪几天」的唯一线索） */
 .window-line {
   display: block; margin-top: 16rpx;
-  font-size: 24rpx; color: #A6A6AA; line-height: 1.6;
+  font-size: 24rpx; color: var(--c-text-2); line-height: 1.6;
   font-variant-numeric: tabular-nums;
 }
 
 /* ==================== 2. 加载中 ==================== */
 .loading-card { display: flex; justify-content: center; }
-.loading-text { font-size: 26rpx; color: #6F6F76; line-height: 1.6; }
+.loading-text { font-size: 26rpx; color: var(--c-text-3); line-height: 1.6; }
 
 /* ==================== 3/4. 引导态与错误态（.guide-card/.guide-title/.guide-text/.error-row/.error-retry/.guide-link 取自 common.css） ==================== */
 .guide-card { margin-top: 56rpx; }
 .guide-card .guide-link { margin-top: 8rpx; }
-.error-lead { font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5; text-align: center; }
-.guide-tip { font-size: 22rpx; color: #EF4444; opacity: .75; line-height: 1.5; text-align: center; }
+.error-lead { font-size: 28rpx; font-weight: 600; color: var(--c-text); line-height: 1.5; text-align: center; }
+.guide-tip { font-size: 22rpx; color: var(--c-danger); opacity: .75; line-height: 1.5; text-align: center; }
 /* 429 冷却中的重试：同一枚按钮的形状，置灰 + 不可点（点击已在模板里按 retryLock 分流） */
-.error-retry-cooling { color: #5A5A60; border-color: #2A2A2D; cursor: not-allowed; }
+.error-retry-cooling { color: var(--c-text-4); border-color: var(--c-border); cursor: not-allowed; }
 
 /* ==================== 5. 四卡（2×2 网格，flex 而不是 grid：小程序端 grid 支持面窄） ==================== */
 .stat-card { margin-top: 24rpx; padding: 8rpx; }
@@ -529,50 +531,50 @@ export default {
 .stat-item { width: 50%; box-sizing: border-box; padding: 8rpx; }
 .stat-box {
   display: flex; flex-direction: column; align-items: center; gap: 4rpx;
-  background-color: #232326; border-radius: 12rpx; padding: 20rpx 12rpx;
+  background-color: var(--c-fill); border-radius: 12rpx; padding: 20rpx 12rpx;
 }
 /* 取消单那一格（D-4 坏消息同权重）：警示橙暗底（#3A2F10），与品牌暗蓝 #142743 区分——坏消息不穿「好消息蓝」 */
-.stat-box-warn { background-color: #3A2F10; }
+.stat-box-warn { background-color: var(--c-warn-soft); }
 .stat-value {
-  font-size: 36rpx; font-weight: 700; color: #F2F2F2; line-height: 1.3;
+  font-size: 36rpx; font-weight: 700; color: var(--c-text); line-height: 1.3;
   font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
-.stat-value-warn { color: #D97706; }
-.stat-unit { font-size: 20rpx; color: #6F6F76; line-height: 1.4; }
-.stat-label { font-size: 22rpx; color: #A6A6AA; line-height: 1.4; text-align: center; }
+.stat-value-warn { color: var(--c-warn); }
+.stat-unit { font-size: 20rpx; color: var(--c-text-3); line-height: 1.4; }
+.stat-label { font-size: 22rpx; color: var(--c-text-2); line-height: 1.4; text-align: center; }
 
 /* ==================== 6. Top 商品（纯 CSS 条形，零图表库） ==================== */
 .top-card { padding: 20rpx 24rpx; }
 .top-card .card-head { margin-bottom: 12rpx; }
-.top-note { font-size: 20rpx; color: #5A5A60; line-height: 1.4; }
+.top-note { font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; }
 .top-row { padding: 16rpx 0; }
-.top-row + .top-row { border-top: 1rpx solid #232326; }
+.top-row + .top-row { border-top: 1rpx solid var(--c-fill); }
 .top-head { display: flex; align-items: baseline; gap: 12rpx; }
 .top-rank {
   flex-shrink: 0; width: 32rpx; height: 32rpx; line-height: 32rpx; text-align: center;
-  font-size: 20rpx; font-weight: 700; color: #3B82F6;
-  background-color: #142743; border-radius: 8rpx;
+  font-size: 20rpx; font-weight: 700; color: var(--c-primary);
+  background-color: var(--c-primary-soft); border-radius: 8rpx;
 }
 .top-name {
   flex: 1; min-width: 0;
-  font-size: 28rpx; font-weight: 600; color: #F2F2F2; line-height: 1.5;
+  font-size: 28rpx; font-weight: 600; color: var(--c-text); line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.top-qty { flex-shrink: 0; font-size: 24rpx; color: #A6A6AA; line-height: 1.5; font-variant-numeric: tabular-nums; }
-.top-amount { flex-shrink: 0; font-size: 28rpx; font-weight: 700; color: #3B82F6; line-height: 1.5; font-variant-numeric: tabular-nums; }
-.top-bar-track { margin-top: 10rpx; height: 12rpx; background-color: #232326; border-radius: 999rpx; overflow: hidden; }
-.top-bar { height: 12rpx; min-width: 4rpx; background-color: #3B82F6; border-radius: 999rpx; }
+.top-qty { flex-shrink: 0; font-size: 24rpx; color: var(--c-text-2); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.top-amount { flex-shrink: 0; font-size: 28rpx; font-weight: 700; color: var(--c-primary); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.top-bar-track { margin-top: 10rpx; height: 12rpx; background-color: var(--c-fill); border-radius: 999rpx; overflow: hidden; }
+.top-bar { height: 12rpx; min-width: 4rpx; background-color: var(--c-primary); border-radius: 999rpx; }
 
 /* ==================== 7. 口径说明（D-5 逐字三行 + S-4/S-5 补的两行，行序即原文序） ==================== */
 .caliber-card { display: flex; flex-direction: column; gap: 12rpx; }
-.caliber-line { font-size: 24rpx; color: #A6A6AA; line-height: 1.7; }
-.caliber-foot { font-size: 20rpx; color: #5A5A60; line-height: 1.6; }
+.caliber-line { font-size: 24rpx; color: var(--c-text-2); line-height: 1.7; }
+.caliber-foot { font-size: 20rpx; color: var(--c-text-4); line-height: 1.6; }
 
 /* ==================== 8. 读数拉取时刻行（与营销页 .refresh-line 同一用途，只在本页 scoped 内定义） ==================== */
 .refresh-line {
   display: block; margin: 20rpx 24rpx 0;
-  font-size: 20rpx; color: #5A5A60; line-height: 1.4; text-align: right;
+  font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; text-align: right;
 }
 
 .page-bottom-space { height: 60rpx; }
