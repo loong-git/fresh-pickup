@@ -65,7 +65,24 @@
       <header v-if="showChrome" class="console-topbar">
         <button type="button" class="side-toggle" :title="sideCollapsed ? '展开侧栏' : '收起侧栏'" @click="toggleSide">☰</button>
         <!-- P9-fix 双主题切换钮（纯 UI，P8-1 放宽条款先例）：读数按当前档显示，点击切到另一档（写档+挂 class 走 main.js 的 __setAdminTheme） -->
-        <el-button size="small" @click="toggleAdminTheme">主题：{{ adminTheme === 'dark' ? '深色' : '浅色' }}</el-button>
+        <el-button size="small" class="theme-toggle" :title="adminTheme === 'dark' ? '切换到浅色主题' : '切换到深色主题'" @click="toggleAdminTheme">
+          <!-- P9-fix2 内联 SVG 图标（feather 风格 24 viewBox 描边系，stroke=currentColor 颜色随按钮字色两主题通用，零新 import）：
+               显示的是点击后进入的主题——浅色档=月亮（点击切深色），深色档=太阳（点击切浅色） -->
+          <svg v-if="adminTheme === 'light'" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </el-button>
         <div class="topbar-capsules">
           <el-tag type="warning" effect="dark" size="small" class="tag-gold">运营端</el-tag>
         </div>
@@ -231,6 +248,11 @@ setForbiddenHandler((payload) => {
   --admin-login-grad-0: #F3F6FB;
   --admin-login-grad-1: #E7EEFF;
   --admin-login-grad-2: #DAE5FF;
+  /* —— P9-fix2 滚动条族浅值（契约 docs/九期规划/P9-fix2-滚动条与太阳月亮切换钮契约.md §1.1）：
+     浅色档取中性灰 #CDD0D6（亮色边框 hover 系邻近值，白底上可见不抢眼），hover 提亮至 #A8ABB2；
+     深色档同族深值在下方 html.dark 组同名定义 —— */
+  --admin-scroll-thumb: #CDD0D6;
+  --admin-scroll-thumb-hover: #A8ABB2;
 }
 html.dark {
   /* 主色：强调蓝 + light 梯度（§0 强调蓝 #3B82F6；light-8 取 light-7/9 之间插值） */
@@ -342,6 +364,10 @@ html.dark {
   --admin-login-grad-0: #05070D;
   --admin-login-grad-1: #0E1B33;
   --admin-login-grad-2: #16305C;
+  /* —— P9-fix2 滚动条族深值（契约 §1.1）：深色档取暗灰阶 #3F3F46（比暗色边框 #2A2A2D 亮一档，
+     近黑底上可辨），hover 提亮至 #52525B；浅色档同族浅值在上方 :root 组同名定义 —— */
+  --admin-scroll-thumb: #3F3F46;
+  --admin-scroll-thumb-hover: #52525B;
 }
 /* §0 开关绿：EP 的 switch-on 色定义在组件根上，需在组件选择器上覆盖 */
 .el-switch.el-switch {
@@ -678,5 +704,36 @@ body {
   line-height: 1.75;
   font-size: 13px;
   color: var(--el-text-color-regular);
+}
+/* P9-fix2 主题切换图标钮：只放内联 SVG（14px），内边距收紧至 7px 9px + inline-flex 垂直居中 */
+.theme-toggle {
+  padding: 7px 9px;
+  display: inline-flex;
+  align-items: center;
+}
+/* ---- P9-fix2 全局滚动条美化（契约 §1.1；本组件 <style> 无 scoped，天然全局）----
+   颜色两主题随 --admin-scroll-thumb(-hover) 变量走（浅 #CDD0D6→hover #A8ABB2 / 深 #3F3F46→hover #52525B）：
+   标准轨（Firefox 与新 Chrome）scrollbar-width thin + 轨透明，EP 表格/弹层滚动条一并不漂；
+   webkit 兜底（旧 Chrome/Edge）6px 细条 + 3px 圆角 thumb，hover 提亮，corner 透明。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--admin-scroll-thumb) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--admin-scroll-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--admin-scroll-thumb-hover);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 </style>
