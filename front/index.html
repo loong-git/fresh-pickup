@@ -20,6 +20,9 @@
         height: 100%;
         overflow: hidden;
         -webkit-overflow-scrolling: touch;
+        /* P10-1 首屏背景兜底：取值与 C 端页面底真值一致（App.vue page #F5F5F5 / uni.scss:13
+           $bg-color:#F5F5F5），消除白屏→底色跳变；P7 暖灰 #F7F6F3 属商家/主理人端 tokens，C 端不适用 */
+        background: #F5F5F5;
       }
     </style>
   </head>

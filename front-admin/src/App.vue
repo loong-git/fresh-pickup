@@ -338,7 +338,7 @@ html.dark {
   --admin-ok-border: #1C3A2C;
   --admin-danger-border: #4A2224;
   --admin-active-bg: #142743;
-  --admin-border-hover: #6C6E72;
+  --admin-border-hover: #4A4A50;
   --admin-login-grad-0: #05070D;
   --admin-login-grad-1: #0E1B33;
   --admin-login-grad-2: #16305C;

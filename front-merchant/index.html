@@ -6,6 +6,7 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
     <!-- static 下无图标资源（商家端一期不引图片资产），用内联 SVG data URI favicon 消除 /favicon.ico 404 报错，不发额外请求 -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏪</text></svg>" />
+    <script>try{var t=localStorage.getItem('app_theme');if(t==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
     <title>生鲜商家端</title>
     <style>
       * {
@@ -20,6 +21,12 @@
         height: 100%;
         overflow: hidden;
         -webkit-overflow-scrolling: touch;
+        /* P10-1 首屏背景兜底：预置脚本前移主题判定后，首帧直接按档位取底色，消除白闪 */
+        background: #F7F6F3;
+      }
+      /* 深色档兜底（class 挂在 html，须选到 body 才能盖住浅色底） */
+      html.dark body {
+        background: #0A0A0B;
       }
     </style>
   </head>
