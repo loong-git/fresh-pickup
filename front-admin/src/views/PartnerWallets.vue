@@ -101,13 +101,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* P9-fix 记账横幅 var 化：底/字换 --admin-ok-*；边框换 --admin-ok-border（P9-fix 复核增补族，
+   深值=原 #1C3A2C 逐字保留、登记契约 §2.2.1）。 */
 .accounting-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #10241A;
-  border: 1px solid #1C3A2C;
+  background: var(--admin-ok-bg);
+  border: 1px solid var(--admin-ok-border);
   border-radius: 6px;
-  color: #22C55E;
+  color: var(--admin-ok-text);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -120,18 +122,18 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .panel {
   margin-top: 14px;
   padding: 16px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .mono {
@@ -139,9 +141,9 @@ onMounted(() => {
   font-size: 12px;
 }
 .neg-balance {
-  color: #EF4444;
+  color: var(--el-color-danger);
 }
 .neg-mark {
-  color: #D97706;
+  color: var(--el-color-warning);
 }
 </style>

@@ -287,7 +287,7 @@ onMounted(() => {
   gap: 16px;
 }
 .card {
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   padding: 18px 20px;
@@ -305,7 +305,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   margin-bottom: 8px;
 }
 .card-label::before {
@@ -313,17 +313,17 @@ onMounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 2px;
-  background: #3B82F6;
+  background: var(--el-color-primary);
   flex-shrink: 0;
 }
 .card--alert .card-label::before {
-  background: #EF4444;
+  background: var(--el-color-danger);
 }
 .card-value {
   font-size: 26px;
   font-weight: 700;
   line-height: 1.2;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
   font-variant-numeric: tabular-nums;
 }
 /* F-50：那一格整格可点，但只用 cursor 与副行提示它是个入口——不改尺寸、不改网格，
@@ -335,35 +335,35 @@ onMounted(() => {
    不加任何 position、不改 padding/尺寸，因此不可能压到相邻元素或口径说明块。
    正常态与告警态的盒子高度逐字相同，切换时网格不跳动。 */
 .card--alert {
-  border-color: #EF4444;
-  background: #2C1517;
+  border-color: var(--el-color-danger);
+  background: var(--admin-danger-bg);
 }
 .card--alert .card-value {
-  color: #EF4444;
+  color: var(--el-color-danger);
 }
 .card-sub {
   margin-top: 6px;
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .card--alert .card-sub {
-  color: #EF4444;
+  color: var(--el-color-danger);
 }
 .caliber {
   grid-column: 1 / -1;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   padding: 16px 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .caliber-title {
   font-size: 13px;
   font-weight: 600;
   margin: 0 0 8px;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .caliber ul {
   margin: 0;

@@ -464,15 +464,15 @@ onMounted(() => {
   margin-right: 4px;
 }
 .table {
-  background: #1B1B1D;
+  background: var(--admin-card);
   margin-top: 16px;
 }
 .empty {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .pager {
   display: flex;
@@ -482,11 +482,11 @@ onMounted(() => {
 .dialog-target {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #202023;
+  background: var(--admin-card-soft);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .dialog-form :deep(.el-form-item) {
   margin-bottom: 8px;
@@ -495,7 +495,7 @@ onMounted(() => {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 /* F-107 多证照：明细弹窗与驳回弹窗共用同一套缩略图网格 */
 .license-grid {
@@ -513,7 +513,7 @@ onMounted(() => {
   width: 148px;
   height: 104px;
   border-radius: 6px;
-  background: #202023;
+  background: var(--admin-card-soft);
   cursor: zoom-in;
 }
 .license-img-fallback {
@@ -523,25 +523,25 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  color: #A6A6AA;
-  background: #202023;
+  color: var(--el-text-color-secondary);
+  background: var(--admin-card-soft);
 }
 .license-type {
   font-size: 12px;
   line-height: 1.4;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   text-align: center;
 }
 .license-review {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #202023;
+  background: var(--admin-card-soft);
   border-radius: 6px;
 }
 .license-review-title {
   margin-bottom: 8px;
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .license-empty {
   font-size: 12px;

@@ -64,6 +64,8 @@
     <div class="console-main">
       <header v-if="showChrome" class="console-topbar">
         <button type="button" class="side-toggle" :title="sideCollapsed ? '展开侧栏' : '收起侧栏'" @click="toggleSide">☰</button>
+        <!-- P9-fix 双主题切换钮（纯 UI，P8-1 放宽条款先例）：读数按当前档显示，点击切到另一档（写档+挂 class 走 main.js 的 __setAdminTheme） -->
+        <el-button size="small" @click="toggleAdminTheme">主题：{{ adminTheme === 'dark' ? '深色' : '浅色' }}</el-button>
         <div class="topbar-capsules">
           <el-tag type="warning" effect="dark" size="small" class="tag-gold">运营端</el-tag>
         </div>
@@ -94,6 +96,14 @@ const onLogout = () => logout()
 const sideCollapsed = ref(false)
 const toggleSide = () => {
   sideCollapsed.value = !sideCollapsed.value
+}
+
+// —— P9-fix 双主题读数（纯 UI 状态，照 P8-1 放宽条款先例显式披露；本 script 段唯一新增）——
+// 读数与 storage 同源：初始读档（main.js 已按同口径在挂载前挂 class），切换走 main.js 的
+// window.__setAdminTheme（写档 + toggle class 一步完成，切换唯一入口），返回值回填读数。
+const adminTheme = ref(localStorage.getItem('admin_theme') === 'dark' ? 'dark' : 'light')
+const toggleAdminTheme = () => {
+  adminTheme.value = window.__setAdminTheme(adminTheme.value === 'dark' ? 'light' : 'dark')
 }
 
 // P4-7 §6（D6）：403 的全局出口。api 层 handleEnvelope 在 403 分支先把信封通知到这里，
@@ -131,11 +141,97 @@ setForbiddenHandler((payload) => {
 </script>
 
 <style>
-/* ===== 八期 P8-1「暗色控制台」主题层（docs/八期规划/00-总纲.md §0 tokens） =====
-   官方暗色 vars（main.js 已引 dark/css-vars.css + 挂 html.dark）之上覆盖一次品牌变量：
-   EP 组件与全 19 页自动生效，各页 scoped 不再逐页碰 EP 变量。同选择器写 html.dark 以在
-   同特异性下后置压过 EP 官方暗色默认（本组件样式在 EP css 之后入束）。 */
-:root,
+/* ===== P8-1「暗色控制台」→ P9-fix 双主题变量层（docs/九期规划/P9-fix-运营端双主题补齐与三端收尾契约.md §2.1/§2.2） =====
+   官方双组 vars（浅色 = main.js 引的 EP dist/index.css 亮色真源；深色 = dark/css-vars.css，html.dark class 生效）
+   之上覆盖品牌变量与 --admin-* 壳层族：EP 组件与全 19 页自动生效，各页 scoped 不再逐页碰 EP 变量。
+   深色组（html.dark）：八期暗色现值逐字保留，红线 = 变量值不动只拆选择器；同选择器写 html.dark 以在
+   同特异性下后置压过 EP 官方暗色默认（本组件样式在 EP css 之后入束）。
+   浅色组（:root，默认档）：亮色 SaaS 控制台 + 品牌蓝；中性面/边/文字/fill/表格浅色不覆盖，
+   交还 EP 官方亮色真源（契约 §3.3）。 */
+:root {
+  /* 主色：强调蓝 + light 梯度（§0 强调蓝；light-8 取 light-7/9 之间插值），dark-2 两主题同值亮暗通用 */
+  --el-color-primary: #3B82F6;
+  --el-color-primary-light-3: #6EA8FE;
+  --el-color-primary-light-5: #9DC0FB;
+  --el-color-primary-light-7: #CEDDFF;
+  --el-color-primary-light-8: #DAE5FF;
+  --el-color-primary-light-9: #E7EEFF;
+  --el-color-primary-dark-2: #2563EB;
+  /* 开关/成功绿（EP 白混口径，梯度与八期深色组同值，亮暗通用） */
+  --el-color-success: #22C55E;
+  --el-color-success-light-3: #64D68E;
+  --el-color-success-light-5: #91E2AF;
+  --el-color-success-light-7: #BDEECF;
+  --el-color-success-light-8: #D3F3DF;
+  --el-color-success-light-9: #E9F9EF;
+  --el-color-success-dark-2: #1B9E4B;
+  /* warning：强调橙（light 梯度沿用七期白混口径，与深色组同值；dark-2 两主题同值） */
+  --el-color-warning: #D97706;
+  --el-color-warning-light-3: #E4A051;
+  --el-color-warning-light-5: #ECBB83;
+  --el-color-warning-light-7: #F4D6B4;
+  --el-color-warning-light-8: #F7E4CD;
+  --el-color-warning-light-9: #FBF1E6;
+  --el-color-warning-dark-2: #B45309;
+  /* danger：危险红（light 梯度按 EP 白混口径推导，与深色组同值） */
+  --el-color-danger: #EF4444;
+  --el-color-danger-light-3: #F47C7C;
+  --el-color-danger-light-5: #F7A2A2;
+  --el-color-danger-light-7: #FAC7C7;
+  --el-color-danger-light-8: #FCDADA;
+  --el-color-danger-light-9: #FDECEC;
+  --el-color-danger-dark-2: #BF3636;
+  /* error = danger 同族（EP 亮色对 error 单独定义，需同值覆盖） */
+  --el-color-error: #EF4444;
+  --el-color-error-light-3: #F47C7C;
+  --el-color-error-light-5: #F7A2A2;
+  --el-color-error-light-7: #FAC7C7;
+  --el-color-error-light-8: #FCDADA;
+  --el-color-error-light-9: #FDECEC;
+  --el-color-error-dark-2: #BF3636;
+  /* info：EP 亮色默认（官方白混梯度，实证自 element-plus/dist/index.css） */
+  --el-color-info: #909399;
+  --el-color-info-light-3: #B1B3B8;
+  --el-color-info-light-5: #C8C9CC;
+  --el-color-info-light-7: #DEDFE0;
+  --el-color-info-light-8: #E9E9EB;
+  --el-color-info-light-9: #F4F4F5;
+  --el-color-info-dark-2: #73767A;
+  /* 圆角：主题无关，两主题同值（浅色保持八期控件密度，布局零改动） */
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  /* —— --admin-* 壳层族浅值（契约 §2.2 表；深值在下方 html.dark 组同名定义）—— */
+  --admin-bg: #F5F7FA;
+  --admin-border: #E4E7ED;
+  --admin-side-bg: #FFFFFF;
+  --admin-side-border: #E4E7ED;
+  --admin-side-text: #303133;
+  --admin-side-text-2: #606266;
+  --admin-card: #FFFFFF;
+  --admin-card-soft: #F5F7FA;
+  --admin-warn-bg: #FDF6EC;
+  --admin-warn-text: #B45309;
+  --admin-danger-bg: #FEF0F0;
+  --admin-danger-text: #DC2626;
+  --admin-ok-bg: #E9F9EF;
+  --admin-ok-text: #1B9E4B;
+  /* 「运营端」金胶囊浅值（P9-fix 增补族，浅色档） */
+  --admin-gold-bg: #FDF6EC;
+  --admin-gold-border: #E4A051;
+  /* —— P9-fix 复核增补族浅值（登记 docs/九期规划/P9-fix-运营端双主题补齐与三端收尾契约.md §2.2.1）：
+     三族横幅边框取同族品牌色 light-3（与金胶囊 --admin-gold-border=#E4A051=warning-light-3 同口径，
+     EP 白混梯度既有值不新增字面色）；选中项浅值=primary-light-9 底 + primary-dark-2 字；
+     hover 边取 EP 亮色真源 --el-border-color-hover 展开=#C0C4CC；登录页渐变浅值=亮色 SaaS
+     控制台浅蓝灰渐变（品牌族 light 梯度同族，登录卡白底浮起，契约 §3.1）—— */
+  --admin-warn-border: #E4A051;
+  --admin-ok-border: #64D68E;
+  --admin-danger-border: #F47C7C;
+  --admin-active-bg: #E7EEFF;
+  --admin-border-hover: #C0C4CC;
+  --admin-login-grad-0: #F3F6FB;
+  --admin-login-grad-1: #E7EEFF;
+  --admin-login-grad-2: #DAE5FF;
+}
 html.dark {
   /* 主色：强调蓝 + light 梯度（§0 强调蓝 #3B82F6；light-8 取 light-7/9 之间插值） */
   --el-color-primary: #3B82F6;
@@ -221,10 +317,35 @@ html.dark {
   /* 壳层两枚旧变量原位重定值：各页 scoped 的 var(--admin-*) 引用零改动即换肤 */
   --admin-bg: #0A0A0B;
   --admin-border: #2A2A2D;
+  /* —— P9-fix 新增 --admin-* 壳层族（深值 = 八期现值；浅值在上方 :root 组同名定义，契约 §2.2 表）—— */
+  --admin-side-bg: #111113;
+  --admin-side-border: #232326;
+  --admin-side-text: #F2F2F2;
+  --admin-side-text-2: #A6A6AA;
+  --admin-card: #1B1B1D;
+  --admin-card-soft: #202023;
+  --admin-warn-bg: #2A2410;
+  --admin-warn-text: #E7C868;
+  --admin-danger-bg: #2C1517;
+  --admin-danger-text: #FCA5A5;
+  --admin-ok-bg: #10241A;
+  --admin-ok-text: #22C55E;
+  /* 「运营端」金胶囊（§0 金族，P9-fix 增补：浅值见 :root 组） */
+  --admin-gold-bg: #3A2F10;
+  --admin-gold-border: #8A6D1D;
+  /* —— P9-fix 复核增补族深值（=各页八期现值逐字保留；浅值见 :root 组，登记契约 §2.2.1）—— */
+  --admin-warn-border: #4A3B14;
+  --admin-ok-border: #1C3A2C;
+  --admin-danger-border: #4A2224;
+  --admin-active-bg: #142743;
+  --admin-border-hover: #6C6E72;
+  --admin-login-grad-0: #05070D;
+  --admin-login-grad-1: #0E1B33;
+  --admin-login-grad-2: #16305C;
 }
 /* §0 开关绿：EP 的 switch-on 色定义在组件根上，需在组件选择器上覆盖 */
 .el-switch.el-switch {
-  --el-switch-on-color: #22C55E;
+  --el-switch-on-color: var(--el-color-success);
 }
 * {
   box-sizing: border-box;
@@ -233,9 +354,9 @@ body {
   margin: 0;
   background: var(--admin-bg);
   font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
-/* ---- 壳：左深黑侧边栏 + 右列（顶栏工具条 + 内容区） ---- */
+/* ---- 壳：左侧边栏（深色档深黑/浅色档白底，取 --admin-side-*）+ 右列（顶栏工具条 + 内容区） ---- */
 .console-shell {
   display: flex;
   height: 100vh;
@@ -246,8 +367,8 @@ body {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: #111113;
-  border-right: 1px solid #232326;
+  background: var(--admin-side-bg);
+  border-right: 1px solid var(--admin-side-border);
   overflow: hidden;
 }
 /* 品牌区：40px 圆角方块「鲜」+ 白字 + 蓝字缀 */
@@ -262,7 +383,8 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: #3B82F6;
+  background: var(--el-color-primary);
+  /* 主色底白字：两主题同值特殊档（契约 §5 登记例外） */
   color: #fff;
   font-size: 20px;
   font-weight: 700;
@@ -279,7 +401,7 @@ body {
 .brand-name {
   font-size: 15px;
   font-weight: 700;
-  color: #F2F2F2;
+  color: var(--admin-side-text);
   letter-spacing: 0.5px;
   white-space: nowrap;
 }
@@ -287,11 +409,11 @@ body {
 .brand-fresh {
   font-size: 14px;
   font-weight: 800;
-  color: #3B82F6;
+  color: var(--el-color-primary);
   letter-spacing: 1px;
   white-space: nowrap;
 }
-/* 中部菜单：纵向列表，active 蓝底白字圆角 10px，hover #202023 */
+/* 中部菜单：纵向列表，active 主色蓝底白字圆角 10px，hover 卡内嵌面 */
 .side-nav {
   flex: 1;
   min-height: 0;
@@ -306,7 +428,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #A6A6AA;
+  color: var(--admin-side-text-2);
   text-decoration: none;
   font-size: 13px;
   line-height: 1;
@@ -316,14 +438,15 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 .nav-link:hover {
-  color: #F2F2F2;
-  background: #202023;
+  color: var(--admin-side-text);
+  background: var(--admin-card-soft);
 }
 /* active = 蓝底白字（壳的记忆点），橙点在蓝底上依旧醒目 */
 .nav-link.active {
+  /* 主色底白字：两主题同值特殊档（契约 §5 登记例外） */
   color: #fff;
   font-weight: 600;
-  background: #3B82F6;
+  background: var(--el-color-primary);
 }
 /* 菜单项装饰符号（纯装饰，不承载语义） */
 .side-ico {
@@ -339,14 +462,14 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #D97706;
+  background: var(--el-color-warning);
   box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.22);
   margin-right: 5px;
   flex-shrink: 0;
 }
 .nav-legend {
   font-size: 11px;
-  color: #6F6F76;
+  color: var(--el-text-color-placeholder);
   white-space: nowrap;
   padding: 8px 12px 4px;
 }
@@ -354,8 +477,8 @@ body {
 .side-user {
   margin: 10px;
   padding: 12px;
-  background: #1B1B1D;
-  border: 1px solid #2A2A2D;
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -366,9 +489,9 @@ body {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: #202023;
-  border: 1px solid #2A2A2D;
-  color: #F2F2F2;
+  background: var(--admin-card-soft);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-side-text);
   font-size: 14px;
   font-weight: 700;
   display: flex;
@@ -383,7 +506,7 @@ body {
 .side-user-name {
   display: block;
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--admin-side-text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -437,25 +560,25 @@ body {
   align-items: center;
   gap: 12px;
   padding: 0 20px;
-  background: #111113;
-  border-bottom: 1px solid #232326;
+  background: var(--admin-side-bg);
+  border-bottom: 1px solid var(--admin-side-border);
 }
 /* 折叠按钮（纯 UI） */
 .side-toggle {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  border: 1px solid #2A2A2D;
-  background: #1B1B1D;
-  color: #A6A6AA;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-card);
+  color: var(--admin-side-text-2);
   font-size: 15px;
   line-height: 1;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 .side-toggle:hover {
-  color: #F2F2F2;
-  background: #202023;
+  color: var(--admin-side-text);
+  background: var(--admin-card-soft);
 }
 .topbar-capsules {
   margin-left: auto;
@@ -463,11 +586,11 @@ body {
   align-items: center;
   gap: 8px;
 }
-/* 「运营端」金胶囊（§0：描边 #8A6D1D 底 #3A2F10 文字 #E7C868） */
+/* 「运营端」金胶囊（§0 金族入 --admin-gold-bg/--admin-gold-border/--admin-warn-text 双组） */
 .console-topbar .tag-gold.el-tag {
-  --el-tag-bg-color: #3A2F10;
-  --el-tag-border-color: #8A6D1D;
-  --el-tag-text-color: #E7C868;
+  --el-tag-bg-color: var(--admin-gold-bg);
+  --el-tag-border-color: var(--admin-gold-border);
+  --el-tag-text-color: var(--admin-warn-text);
   border-radius: 999px;
 }
 /* 内容区 */
@@ -476,7 +599,7 @@ body {
   min-height: 0;
   overflow-y: auto;
   padding: 20px;
-  background: #0A0A0B;
+  background: var(--admin-bg);
 }
 .page {
   max-width: 1280px;
@@ -486,7 +609,7 @@ body {
 .page-title {
   font-size: 20px;
   font-weight: 700;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
   margin: 0 0 4px;
   letter-spacing: 0.2px;
 }
@@ -497,7 +620,7 @@ body {
 }
 .page-note {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   line-height: 1.7;
 }
 /* ---- 表格面：14px 圆角裁切容器 + 行高 +4px + 金额/数字列等宽（§0 密度） ---- */
@@ -530,7 +653,7 @@ body {
 .state-box {
   padding: 40px;
   text-align: center;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -539,11 +662,11 @@ body {
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 6px;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .state-desc {
   font-size: 13px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 /* 写动作二次确认框：多行后果清单要真的换行、加宽到能读完一行 */
 .admin-write-confirm {
@@ -554,6 +677,6 @@ body {
   white-space: pre-line;
   line-height: 1.75;
   font-size: 13px;
-  color: #D6D6D9;
+  color: var(--el-text-color-regular);
 }
 </style>

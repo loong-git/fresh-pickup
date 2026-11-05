@@ -569,13 +569,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* P9-fix 封禁横幅 var 化：底/字换 --admin-warn-*；边框换 --admin-warn-border（P9-fix 复核增补族，
+   深值=原 #4A3B14 逐字保留、登记契约 §2.2.1）。 */
 .ban-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #2A2410;
-  border: 1px solid #4A3B14;
+  background: var(--admin-warn-bg);
+  border: 1px solid var(--admin-warn-border);
   border-radius: 6px;
-  color: #E7C868;
+  color: var(--admin-warn-text);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -602,17 +604,17 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .state-box {
   margin-top: 14px;
 }
 .table {
-  background: #1B1B1D;
+  background: var(--admin-card);
   margin-top: 14px;
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .mono {

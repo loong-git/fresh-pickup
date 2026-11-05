@@ -376,37 +376,37 @@ onMounted(() => {
   gap: 8px;
   margin-top: 10px;
   padding-left: 10px;
-  border-left: 2px solid #2A2A2D;
+  border-left: 2px solid var(--admin-border);
 }
 .quick-filters__label {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
   letter-spacing: 1px;
 }
 /* F-45 系统事件那一句说明：短、普通文档流一到两行，靠左侧一道 warning 色竖线归到预设那一排。
-   颜色比正文低一档但刻意不淡（#E7C868 配 #D97706 那道线）——这句话是防误读的，
+   颜色比正文低一档但刻意不淡（var(--admin-warn-text) 配 var(--el-color-warning) 那道线）——这句话是防误读的，
    淡到看不见就等于没写，而「有人做了这件事」的误读正是本条要挡住的。 */
 .quick-filters__note {
   margin: 8px 0 0;
   padding-left: 10px;
-  border-left: 2px solid #D97706;
-  color: #E7C868;
+  border-left: 2px solid var(--el-color-warning);
+  color: var(--admin-warn-text);
   font-size: 12px;
   line-height: 1.6;
 }
 .quick-filters__note code {
   padding: 0 4px;
-  background: #202023;
+  background: var(--admin-card-soft);
   border-radius: 2px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .table {
-  background: #1B1B1D;
+  background: var(--admin-card);
   margin-top: 16px;
 }
 .empty {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .pager {

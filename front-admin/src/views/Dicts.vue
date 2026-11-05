@@ -479,20 +479,20 @@ onMounted(async () => {
 .result-bar {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
-  border-left: 3px solid #EF4444;
+  border-left: 3px solid var(--el-color-danger);
   border-radius: 6px;
 }
 .result-title {
   font-size: 13px;
   font-weight: 600;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .result-line {
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   word-break: break-all;
 }
 .dict-layout {
@@ -504,7 +504,7 @@ onMounted(async () => {
 }
 .group-panel,
 .items-panel {
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -513,16 +513,16 @@ onMounted(async () => {
 .panel-title {
   font-size: 13px;
   font-weight: 600;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
   margin-bottom: 10px;
 }
 .panel-state {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   line-height: 1.7;
 }
 .panel-error {
-  color: #EF4444;
+  color: var(--el-color-danger);
   word-break: break-all;
   margin-bottom: 8px;
 }
@@ -546,20 +546,20 @@ onMounted(async () => {
   outline: none;
 }
 .group-item:hover {
-  border-color: #4A4A50;
+  border-color: var(--admin-border-hover);
 }
 .group-item.active {
-  border-color: #3B82F6;
-  background: #142743;
+  border-color: var(--el-color-primary);
+  background: var(--admin-active-bg);
 }
 .group-name {
   font-size: 13px;
   font-weight: 600;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .group-code {
   font-size: 11px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   margin-top: 2px;
   word-break: break-all;
 }
@@ -571,7 +571,7 @@ onMounted(async () => {
 }
 .group-count {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   white-space: nowrap;
 }
 .items-head {
@@ -584,47 +584,47 @@ onMounted(async () => {
 .items-title {
   font-size: 14px;
   font-weight: 600;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .items-code {
   font-size: 11px;
   font-weight: 400;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   margin-left: 6px;
 }
 .items-meta {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   white-space: nowrap;
 }
 .fallback-tip {
   margin-bottom: 10px;
   padding: 8px 12px;
-  background: #10241A;
-  border: 1px solid #4A3B14;
+  background: var(--admin-ok-bg);
+  border: 1px solid var(--admin-warn-border);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #D97706;
+  color: var(--el-color-warning);
 }
 .table {
-  background: #1B1B1D;
+  background: var(--admin-card);
 }
 .empty {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .dialog-target {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #202023;
+  background: var(--admin-card-soft);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .dialog-form :deep(.el-form-item) {
   margin-bottom: 8px;
@@ -633,7 +633,7 @@ onMounted(async () => {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 @media (max-width: 900px) {
   .dict-layout {

@@ -482,32 +482,32 @@ onMounted(async () => {
 .result-bar {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 6px;
-  border-left: 3px solid #6F6F76;
+  border-left: 3px solid var(--el-color-info);
 }
 .result-bar-success {
-  border-left-color: #22C55E;
+  border-left-color: var(--admin-ok-text);
 }
 .result-bar-error {
-  border-left-color: #EF4444;
+  border-left-color: var(--el-color-danger);
 }
 .result-bar-info {
-  border-left-color: #D97706;
+  border-left-color: var(--el-color-warning);
 }
 .result-bar-warning {
-  border-left-color: #D97706;
+  border-left-color: var(--el-color-warning);
 }
 .result-title {
   font-size: 13px;
   font-weight: 600;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .result-line {
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .toolbar {
   display: flex;
@@ -525,7 +525,7 @@ onMounted(async () => {
 .summary {
   margin-top: 16px;
   padding: 12px 14px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -541,25 +541,25 @@ onMounted(async () => {
   gap: 8px;
 }
 .summary-label {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .summary-sub {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .plan-head {
   margin-top: 16px;
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .table {
-  background: #1B1B1D;
+  background: var(--admin-card);
   margin-top: 8px;
 }
 .plan-total {
   margin-top: 8px;
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   text-align: right;
 }
 .depart-bar {
@@ -576,13 +576,13 @@ onMounted(async () => {
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.7;
-  color: #D97706;
+  color: var(--el-color-warning);
 }
 .empty {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 </style>

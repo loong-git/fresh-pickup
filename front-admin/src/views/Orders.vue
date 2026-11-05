@@ -564,46 +564,46 @@ onMounted(() => {
 .sql-fallback {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
-  border-left: 3px solid #D97706;
+  border-left: 3px solid var(--el-color-warning);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .sql-fallback code {
   font-family: Consolas, Menlo, monospace;
-  background: #202023;
+  background: var(--admin-card-soft);
   padding: 0 4px;
   border-radius: 3px;
 }
 .result-bar {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 6px;
-  border-left: 3px solid #6F6F76;
+  border-left: 3px solid var(--el-color-info);
 }
 .result-bar-success {
-  border-left-color: #22C55E;
+  border-left-color: var(--el-color-success);
 }
 .result-bar-error {
-  border-left-color: #EF4444;
+  border-left-color: var(--el-color-danger);
 }
 .result-bar-info {
-  border-left-color: #D97706;
+  border-left-color: var(--el-color-warning);
 }
 .result-title {
   font-size: 13px;
   font-weight: 600;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .result-line {
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .toolbar {
   display: flex;
@@ -623,15 +623,15 @@ onMounted(() => {
   width: 280px;
 }
 .table {
-  background: #1B1B1D;
+  background: var(--admin-card);
   margin-top: 16px;
 }
 .empty {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 /* P4-13：门店下拉失败时的行尾重试行——与工具栏同一条 flex 行，垂直居中即可，不另造视觉 */
 .choices-fallback {

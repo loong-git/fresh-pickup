@@ -613,10 +613,10 @@ onMounted(() => {
 .accounting-banner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #2A2410;
-  border: 1px solid #4A3B14;
+  background: var(--admin-warn-bg);
+  border: 1px solid var(--admin-warn-border);
   border-radius: 6px;
-  color: #D97706;
+  color: var(--el-color-warning);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -629,7 +629,7 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 /* F-125 §2：分页器行（照 Orders.vue 同款右对齐） */
 .pager {
@@ -640,77 +640,77 @@ onMounted(() => {
 .panel {
   margin-top: 14px;
   padding: 16px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .reconcile-ok {
-  color: #22C55E;
+  color: var(--admin-ok-text);
   font-weight: 600;
 }
 .reconcile-bad {
-  color: #EF4444;
+  color: var(--el-color-danger);
   font-weight: 700;
 }
 .field-warn {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #D97706;
+  color: var(--el-color-warning);
 }
 .field-hint {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .field-error {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #EF4444;
+  color: var(--el-color-danger);
 }
 .option-meta {
   margin-left: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .generated-hint {
   margin-top: 10px;
   padding: 8px 12px;
-  background: #10241A;
-  border: 1px solid #1C3A2C;
+  background: var(--admin-ok-bg);
+  border: 1px solid var(--admin-ok-border);
   border-radius: 6px;
-  color: #22C55E;
+  color: var(--admin-ok-text);
   font-size: 13px;
 }
 .dialog-note {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 /* 对账 ✗ 数据事故行：整行标红（全局样式作用点，scoped 对 row-class-name 生成的行类不可达，
    故走 :deep 穿透——与表格行内 el-tag 的既有用法同一机制） */
 :deep(.el-table .settle-broken),
 :deep(.el-table .settle-broken td.el-table__cell) {
-  background: #2C1517 !important;
+  background: var(--admin-danger-bg) !important;
 }
 /* 明细弹窗孤儿行（orders 已删）同款标红警示 */
 :deep(.el-table .item-orphan),
 :deep(.el-table .item-orphan td.el-table__cell) {
-  background: #2C1517 !important;
+  background: var(--admin-danger-bg) !important;
 }
 .orphan-tag {
   margin-left: 6px;
 }
 .orphan-cell {
-  color: #EF4444;
+  color: var(--el-color-danger);
   font-size: 12px;
 }
 </style>

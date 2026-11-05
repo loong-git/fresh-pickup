@@ -549,39 +549,39 @@ onMounted(() => {
 .counter-note {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #2A2410;
-  border: 1px solid #4A3B14;
-  border-left: 3px solid #D97706;
+  background: var(--admin-warn-bg);
+  border: 1px solid var(--admin-warn-border);
+  border-left: 3px solid var(--el-color-warning);
   border-radius: 6px;
   font-size: 13px;
   line-height: 1.7;
-  color: #D97706;
+  color: var(--el-color-warning);
 }
 .options-error {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #2C1517;
-  border: 1px solid #4A2224;
+  background: var(--admin-danger-bg);
+  border: 1px solid var(--admin-danger-border);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #EF4444;
+  color: var(--el-color-danger);
   word-break: break-all;
 }
 .options-note {
   margin-top: 12px;
   padding: 10px 14px;
-  background: #202023;
+  background: var(--admin-card-soft);
   border: 1px solid var(--admin-border);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .panel {
   margin-top: 16px;
   padding: 16px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -596,13 +596,13 @@ onMounted(() => {
 .panel-title {
   font-size: 14px;
   font-weight: 600;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
 }
 .panel-sub {
   margin-top: 2px;
   font-size: 12px;
   line-height: 1.6;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .metrics {
   display: grid;
@@ -611,12 +611,12 @@ onMounted(() => {
 }
 .metric {
   padding: 10px 12px;
-  background: #202023;
+  background: var(--admin-card-soft);
   border-radius: 6px;
 }
 .metric-label {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .metric-value {
   margin-top: 4px;
@@ -624,14 +624,14 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1.4;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
   word-break: break-all;
 }
 .metric-sub {
   margin-top: 2px;
   font-size: 11px;
   line-height: 1.5;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .edit-form {
   margin-top: 16px;
@@ -648,30 +648,30 @@ onMounted(() => {
 .form-tip {
   margin-left: 8px;
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   white-space: nowrap;
 }
 .field-warn {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #D97706;
+  color: var(--el-color-warning);
 }
 .pool-warn {
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #2A2410;
-  border: 1px solid #4A3B14;
+  background: var(--admin-warn-bg);
+  border: 1px solid var(--admin-warn-border);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.7;
-  color: #D97706;
+  color: var(--el-color-warning);
   word-break: break-all;
 }
 .empty-line {
   font-size: 12px;
   line-height: 1.7;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .pool-group {
   display: flex;
@@ -682,7 +682,7 @@ onMounted(() => {
   margin-right: 0;
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .save-row {
@@ -695,7 +695,7 @@ onMounted(() => {
 .save-hint {
   font-size: 12px;
   line-height: 1.6;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 @media (max-width: 900px) {
   .metrics {

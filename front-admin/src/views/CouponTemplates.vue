@@ -370,22 +370,22 @@ onMounted(() => {
 }
 .toolbar-hint {
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .panel {
   margin-top: 14px;
   padding: 16px;
-  background: #1B1B1D;
+  background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .muted {
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .amount {
-  color: #EF4444;
+  color: var(--el-color-danger);
   font-weight: 600;
 }
 .mono {
@@ -395,18 +395,18 @@ onMounted(() => {
 .dialog-target {
   margin-bottom: 12px;
   font-size: 12px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 .field-warn {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #D97706;
+  color: var(--el-color-warning);
 }
 .dialog-note {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
 }
 </style>

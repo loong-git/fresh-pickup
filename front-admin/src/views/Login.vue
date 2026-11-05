@@ -143,7 +143,9 @@ async function onSubmit() {
 
 <style scoped>
 /* 「暗色控制台」登录页（八期 P8-1，docs/八期规划/00-总纲.md §0 tokens）：近黑蓝渐变整幅 + 暗卡浮起 + 蓝色记忆点。
-   .console-content 固定 20px 内边距，负外边距把渐变拉成满幅；多背景一层蓝光晕、一层金色微光点题。 */
+   .console-content 固定 20px 内边距，负外边距把渐变拉成满幅；多背景一层蓝光晕、一层金色微光点题。
+   P9-fix scoped var 化：卡/文字/品牌色已换 var 引用；整幅渐变三色标换 --admin-login-grad-0/1/2
+   （P9-fix 复核增补族，深值=原三色标逐字保留、浅值=亮色 SaaS 控制台浅蓝灰渐变，登记契约 §2.2.1）。 */
 .login-wrap {
   margin: -20px;
   min-height: 100vh;
@@ -153,14 +155,14 @@ async function onSubmit() {
   background:
     radial-gradient(880px 460px at 78% 16%, rgba(59, 130, 246, 0.16), transparent 62%),
     radial-gradient(640px 380px at 12% 88%, rgba(231, 200, 104, 0.08), transparent 58%),
-    linear-gradient(150deg, #05070D 0%, #0E1B33 42%, #16305C 100%);
+    linear-gradient(150deg, var(--admin-login-grad-0) 0%, var(--admin-login-grad-1) 42%, var(--admin-login-grad-2) 100%);
 }
 .login-card {
   position: relative;
   width: 380px;
   padding: 36px 32px 24px;
-  background: #1B1B1D;
-  border: 1px solid #2A2A2D;
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
   border-radius: 12px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
   overflow: hidden;
@@ -173,14 +175,14 @@ async function onSubmit() {
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, #3B82F6, #6EA8FE);
+  background: linear-gradient(90deg, var(--el-color-primary), var(--el-color-primary-light-3));
 }
 .login-title {
   display: flex;
   align-items: center;
   font-size: 20px;
   font-weight: 700;
-  color: #F2F2F2;
+  color: var(--el-text-color-primary);
   margin: 0 0 4px;
 }
 /* 标题后的蓝色圆点：呼应品牌「·鲜」蓝字缀（纯装饰，无文字内容） */
@@ -190,12 +192,12 @@ async function onSubmit() {
   height: 8px;
   margin-left: 8px;
   border-radius: 50%;
-  background: #3B82F6;
+  background: var(--el-color-primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 .login-sub {
   font-size: 13px;
-  color: #A6A6AA;
+  color: var(--el-text-color-secondary);
   margin: 0 0 20px;
 }
 .login-form :deep(.el-form-item) {
@@ -208,12 +210,12 @@ async function onSubmit() {
   letter-spacing: 4px;
 }
 .error {
-  color: #EF4444;
+  color: var(--el-color-danger);
   font-size: 13px;
   margin: 0;
 }
 .lock-tip {
-  color: #D97706;
+  color: var(--el-color-warning);
   font-size: 12px;
   margin: 6px 0 0;
 }
