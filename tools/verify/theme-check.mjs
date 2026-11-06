@@ -108,8 +108,12 @@ async function main() {
   const base = await evaluate(`({cls: document.documentElement.className, stored: localStorage.getItem(${JSON.stringify(KEY)})})`);
   expect('清档后浅色默认（无 dark class）', base.cls !== 'dark' && !base.cls.includes('dark'), `cls="${base.cls}"`);
 
-  // 5. 找主题钮/主题 cell 坐标 → 真实点击切深色
+  // 5. 找主题钮/主题 cell 坐标 → 真实点击切深色。
+  //    P9-fix2 后运营端按钮内容是内联 SVG（textContent 空），按文本找会漏——优先 .theme-toggle
+  //    类（P9-fix2 落地的类名），再回退文本匹配（兼容旧版/移动端 cell）。
   const box = await evaluate(`(() => {
+    const toggle = document.querySelector('.console-topbar .theme-toggle');
+    if (toggle) { const r = toggle.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2 }; }
     const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent||'').includes('主题'));
     if (btn) { const r = btn.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2 }; }
     const cell = Array.from(document.querySelectorAll('*')).find(e => String(e.className||'').includes('cell') && (e.textContent||'').trim().startsWith('主题'));
