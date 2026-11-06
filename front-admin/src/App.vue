@@ -14,24 +14,24 @@
         <router-link to="/audit-logs" class="nav-link" :class="{ active: isActive('/audit-logs') }"><span class="side-ico">☰</span><span class="side-label">审计记录</span></router-link>
         <!-- F-20.22 Step 5b-2：四个运营 P0 页（每页 = 一条 5b-1 只读列表 + 一个 AdminController 旧写端点）。
              FE-G6-10：这四条会改数据，挂橙点区分于前两条只读页，图例跟在最后一条后面。 -->
-        <router-link to="/orders" class="nav-link" :class="{ active: isActive('/orders') }" title="全量订单列表 + 代门店核销/取消。主理人端那个按取货码核销的「核销台」不在这个入口。"><span class="side-ico">▤</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">订单管理</span></router-link>
-        <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }"><span class="side-ico">❖</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">商品管理</span></router-link>
+        <router-link to="/orders" class="nav-link" :class="{ active: isActive('/orders') }" title="全量订单列表 + 代门店核销/取消。主理人端那个按取货码核销的「核销台」不在这个入口。"><span class="side-ico">▤</span><span class="side-label">订单管理</span></router-link>
+        <router-link to="/dishes" class="nav-link" :class="{ active: isActive('/dishes') }"><span class="side-ico">❖</span><span class="side-label">商品管理</span></router-link>
         <!-- F-108 片 2：字典四组（含商品分类 dish_category）的运营维护入口，紧跟商品管理 -->
-        <router-link to="/dicts" class="nav-link" :class="{ active: isActive('/dicts') }" title="字典分组与词条的增删改、启停与缓存清除；dish_category 组有商品引用保护。"><span class="side-ico">⊞</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">字典管理</span></router-link>
+        <router-link to="/dicts" class="nav-link" :class="{ active: isActive('/dicts') }" title="字典分组与词条的增删改、启停与缓存清除；dish_category 组有商品引用保护。"><span class="side-ico">⊞</span><span class="side-label">字典管理</span></router-link>
         <!-- F-112：秒杀商品集管理，只写 dish.seckill / seckill_price 两列（进秒杀设价/调价/移出，移出不回清价） -->
-        <router-link to="/seckill" class="nav-link" :class="{ active: isActive('/seckill') }" title="秒杀商品集的进秒杀/调价/移出：只改 seckill 与秒杀价两列，移出不回清价；下架品可预配，上架即生效。"><span class="side-ico">◈</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">秒杀商品</span></router-link>
+        <router-link to="/seckill" class="nav-link" :class="{ active: isActive('/seckill') }" title="秒杀商品集的进秒杀/调价/移出：只改 seckill 与秒杀价两列，移出不回清价；下架品可预配，上架即生效。"><span class="side-ico">◈</span><span class="side-label">秒杀商品</span></router-link>
         <!-- F-110：搜索别名（dish_alias）维护，只影响 C 端搜索命中，不碰价格/库存/订单 -->
-        <router-link to="/aliases" class="nav-link" :class="{ active: isActive('/aliases') }" title="搜索别名的增删改：别名精确命中商品，只影响搜索，不碰价格/库存/订单；商品下拉只列在售。"><span class="side-ico">✦</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">搜索别名</span></router-link>
+        <router-link to="/aliases" class="nav-link" :class="{ active: isActive('/aliases') }" title="搜索别名的增删改：别名精确命中商品，只影响搜索，不碰价格/库存/订单；商品下拉只列在售。"><span class="side-ico">✦</span><span class="side-label">搜索别名</span></router-link>
         <!-- F-113：券模板（coupon_template）管理，只写一张表：上新/改面额门槛天数限领总量/启停；
              无删除（停用即运营语义）；key 与 issued_count 不可改；已发券核销走券上快照不受改动影响 -->
-        <router-link to="/coupon-templates" class="nav-link" :class="{ active: isActive('/coupon-templates') }" title="券模板的上新/改配置/启停：只写 coupon_template 表，无删除；改面额只影响之后的新领取，已发券按快照核销。"><span class="side-ico">▢</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">券模板</span></router-link>
+        <router-link to="/coupon-templates" class="nav-link" :class="{ active: isActive('/coupon-templates') }" title="券模板的上新/改配置/启停：只写 coupon_template 表，无删除；改面额只影响之后的新领取，已发券按快照核销。"><span class="side-ico">▢</span><span class="side-label">券模板</span></router-link>
         <!-- F-114：自提点存量（store）管理，白名单八列部分更新：名称/地址/服务/状态/营业时间/日容量/接单；
              无新建无删除（创建只经入驻审核）；contact_phone/photos/经纬度/主理人归属不可改；
              改 status 后 C 端该店即刻置灰/可选，改日容量真实生效到下单拒单 -->
-        <router-link to="/stores" class="nav-link" :class="{ active: isActive('/stores') }" title="自提点存量维护：改名称/地址/服务/状态/营业时间/日容量/接单，白名单八列；无新建无删除；改状态 C 端即刻置灰/可选，改日容量生效到下单拒单。"><span class="side-ico">⌂</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">自提点管理</span></router-link>
+        <router-link to="/stores" class="nav-link" :class="{ active: isActive('/stores') }" title="自提点存量维护：改名称/地址/服务/状态/营业时间/日容量/接单，白名单八列；无新建无删除；改状态 C 端即刻置灰/可选，改日容量生效到下单拒单。"><span class="side-ico">⌂</span><span class="side-label">自提点管理</span></router-link>
         <!-- F-118：结算中心，写侧只有「生成账期」一个动作（POST generate）；settlement 只增不改（无作废/重开），
              冲销走下一期 refund 列负向计入；对账 ✗ = 数据事故标红；打款通道未接（轨道 B）恒显记账态 -->
-        <router-link to="/settlements" class="nav-link" :class="{ active: isActive('/settlements') }" title="结算中心：生成账期（聚合已支付·非缺货·已设供货价的未结算明细）+ 账期列表 + 账单明细。settlement 只增不改，冲销在下一账期负向计入；对账 ✗ 即数据事故。"><span class="side-ico">◫</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">结算中心</span></router-link>
+        <router-link to="/settlements" class="nav-link" :class="{ active: isActive('/settlements') }" title="结算中心：生成账期（聚合已支付·非缺货·已设供货价的未结算明细）+ 账期列表 + 账单明细。settlement 只增不改，冲销在下一账期负向计入；对账 ✗ 即数据事故。"><span class="side-ico">◫</span><span class="side-label">结算中心</span></router-link>
         <!-- F-119：主理人钱包，纯只读（无写操作，与大盘/审计记录同款无橙点）——余额只由结算跑批记账增减，
              人工调额=资损面不设入口；提现通道未接入（轨道 B） -->
         <router-link to="/partner-wallets" class="nav-link" :class="{ active: isActive('/partner-wallets') }" title="主理人钱包（只读）：user（脱敏）/店名/余额/流水数。余额只由结算跑批自动记账，无人工调额入口；提现通道未接入（轨道 B）。"><span class="side-ico">◎</span><span class="side-label">主理人钱包</span></router-link>
@@ -41,17 +41,16 @@
         <!-- F-122：封禁管理，写侧页（用户/商家各一个钉状态写端点），紧跟限流观测——观测到的异常流量在这里处置。
              user 封禁=登录拒 + 已签发旧 token 立即失效；merchant 封禁复用既有的 suspended（停业整顿），
              C 端商品仍展示、只拦下单，商家端写与订单/履约 403；不自动下架/清秒杀/移出免费领池 -->
-        <router-link to="/bans" class="nav-link" :class="{ active: isActive('/bans') }" title="用户/商家封禁与解封：user 封禁即登录拒+旧 token 失效；merchant 封禁复用停业整顿，C 端仅下单拦截、可见性不变。"><span class="side-ico">⊘</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">封禁管理</span></router-link>
+        <router-link to="/bans" class="nav-link" :class="{ active: isActive('/bans') }" title="用户/商家封禁与解封：user 封禁即登录拒+旧 token 失效；merchant 封禁复用停业整顿，C 端仅下单拦截、可见性不变。"><span class="side-ico">⊘</span><span class="side-label">封禁管理</span></router-link>
         <!-- F-109：免费领活动配置（换品/日限量/门槛/上下线）与候选池维护；dailyClaimed 是运行时计数，本页不可改 -->
-        <router-link to="/free-activity" class="nav-link" :class="{ active: isActive('/free-activity') }" title="免费领活动配置与候选池维护；dailyClaimed 是运行时计数，本页不可改，改它会超发。"><span class="side-ico">♦</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">免费领活动</span></router-link>
-        <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="side-ico">☆</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">评价审核</span></router-link>
-        <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }"><span class="side-ico">⊕</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">入驻审核</span></router-link>
+        <router-link to="/free-activity" class="nav-link" :class="{ active: isActive('/free-activity') }" title="免费领活动配置与候选池维护；dailyClaimed 是运行时计数，本页不可改，改它会超发。"><span class="side-ico">♦</span><span class="side-label">免费领活动</span></router-link>
+        <router-link to="/reviews" class="nav-link" :class="{ active: isActive('/reviews') }"><span class="side-ico">☆</span><span class="side-label">评价审核</span></router-link>
+        <router-link to="/store-applies" class="nav-link" :class="{ active: isActive('/store-applies') }"><span class="side-ico">⊕</span><span class="side-label">入驻审核</span></router-link>
         <!-- F-106 片 C：商家自助入驻申请的审核队列，紧跟门店申请审核（两条入口都读申请、都发审核写）。
              与「入驻审核」（store_apply 门店入驻）不是同一张表，标题里点名区分。 -->
-        <router-link to="/merchant-applies" class="nav-link" :class="{ active: isActive('/merchant-applies') }" title="商家自助入驻申请（merchant_apply）审核；门店入驻审核在上一个入口。"><span class="side-ico">⌗</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">商家入驻</span></router-link>
+        <router-link to="/merchant-applies" class="nav-link" :class="{ active: isActive('/merchant-applies') }" title="商家自助入驻申请（merchant_apply）审核；门店入驻审核在上一个入口。"><span class="side-ico">⌗</span><span class="side-label">商家入驻</span></router-link>
         <!-- F-63 到货发车：写侧页（发车建批次→到货中），挂橙点与其余四条写侧入口同列 -->
-        <router-link to="/arrivals" class="nav-link" :class="{ active: isActive('/arrivals') }"><span class="side-ico">➤</span><span class="nav-dot" title="本页会改数据">✎</span><span class="side-label">到货发车</span></router-link>
-        <span class="nav-legend" title="铅笔标入口对应的页面会修改数据，操作前有二次确认">✎ 会改数据（操作前有二次确认）</span>
+        <router-link to="/arrivals" class="nav-link" :class="{ active: isActive('/arrivals') }"><span class="side-ico">➤</span><span class="side-label">到货发车</span></router-link>
       </nav>
       <div class="side-user">
         <div class="side-avatar">鲜</div>
@@ -482,22 +481,6 @@ body {
   font-size: 14px;
   line-height: 1;
 }
-/* 会改数据橙点（语义原样）：强调橙 + 一圈淡橙晕 */
-.nav-dot {
-  /* P10-4b 用户反馈（2026-11-06）：圆点被误读为「未完成/待办」徽章——改铅笔字符 ✎（「可编辑/会改数据」语义直白），去圆形底与光晕，纯字符色号随主题警示橙，字号对齐图标 */
-  display: inline-block;
-  color: var(--el-color-warning);
-  font-size: 12px;
-  line-height: 1;
-  margin-right: 5px;
-  flex-shrink: 0;
-}
-.nav-legend {
-  font-size: 11px;
-  color: var(--el-text-color-placeholder);
-  white-space: nowrap;
-  padding: 8px 12px 4px;
-}
 /* 底部用户卡 */
 .side-user {
   margin: 10px;
@@ -544,9 +527,6 @@ body {
   width: 64px;
 }
 .side-collapsed .side-label,
-.side-collapsed .nav-legend {
-  display: none;
-}
 .side-collapsed .side-brand {
   justify-content: center;
   padding-left: 0;
@@ -556,9 +536,6 @@ body {
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
-}
-.side-collapsed .nav-dot {
-  margin-right: 0;
 }
 .side-collapsed .side-user {
   flex-direction: column;
