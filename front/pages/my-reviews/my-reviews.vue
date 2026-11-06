@@ -184,7 +184,7 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 多多买菜风格 — 我的评价页（白底 + 主红 #E02020，F-11 自我的页随块迁移） ==================== */
+/* ==================== 多多买菜风格 — 我的评价页（白底 + 品牌绿 var(--c-primary)，F-11 自我的页随块迁移） ==================== */
 
 .page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
 
@@ -200,18 +200,18 @@ export default {
 /* 游客态登录引导行（照我的页） */
 .guide-row {
   display: flex; align-items: center; justify-content: space-between;
-  background-color: #FFF7F0; border-radius: 12rpx;
+  background-color: var(--c-primary-soft); border-radius: 12rpx;
   padding: 24rpx;
 }
 .guide-text { font-size: 26rpx; color: #666666; }
-.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: #E02020; }
+.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-primary); }
 
 /* 错误态行（可点击重试，照我的页） */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
 .error-text { font-size: 24rpx; color: #999999; }
 .error-retry {
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: var(--c-primary);
+  border: 1rpx solid var(--c-primary); border-radius: 28rpx;
   padding: 8rpx 36rpx; line-height: 1.4;
 }
 
@@ -231,12 +231,12 @@ export default {
 .review-badge { flex-shrink: 0; font-size: 20rpx; font-weight: 700; padding: 4rpx 14rpx; border-radius: 20rpx; }
 /* 审核状态徽标：approved 绿 / pending 橙 / rejected 灰（配色照订单页支付徽标体系） */
 .ra-approved { color: #07C160; background-color: #E8F8EF; }
-.ra-pending { color: #FF6600; background-color: #FFF3EB; }
+.ra-pending { color: var(--c-warn); background-color: var(--c-warn-soft); }
 .ra-rejected { color: #999999; background-color: #F5F5F5; }
 /* 星级行（照详情页 preview-stars 逐键，容器改名 review-stars） */
 .review-stars { display: flex; gap: 2rpx; margin-bottom: 8rpx; }
 .star { font-size: 22rpx; color: #DDDDDD; }
-.star.active { color: #FF6600; }
+.star.active { color: var(--c-gold); }
 .review-content { display: block; font-size: 24rpx; color: #666666; line-height: 1.6; word-break: break-all; white-space: pre-wrap; }
 /* 底部行：时间 + 右箭头两端对齐，与 content 的间距由本行 margin-top 承载 */
 .review-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 8rpx; }

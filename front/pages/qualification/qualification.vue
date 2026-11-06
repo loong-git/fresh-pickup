@@ -141,7 +141,7 @@ export default {
 	flex-direction: column;
 }
 
-/* 顶部左侧红色圆形印章占位：红圈 + 红★ */
+/* 顶部左侧红色圆形印章占位：红圈 + 红★（P10-4 登记：拟物公章红，非品牌旧红，theme-audit 白名单豁免档） */
 .seal-top {
 	position: absolute;
 	top: 28rpx;
@@ -224,7 +224,7 @@ export default {
 	line-height: 1.5;
 }
 
-/* 右下角红色圆形公章：红圆环 + ⭐，轻微旋转 + 半透明模拟盖章 */
+/* 右下角红色圆形公章：红圆环 + ⭐，轻微旋转 + 半透明模拟盖章（P10-4 登记：拟物公章红，非品牌旧红，theme-audit 白名单豁免档） */
 .seal-bottom {
 	position: absolute;
 	right: 36rpx;

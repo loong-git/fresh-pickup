@@ -883,10 +883,10 @@ export default {
 .pe-btn {
   margin-top: 8rpx; min-width: 280rpx; height: 80rpx; line-height: 80rpx;
   padding: 0 48rpx; font-size: 28rpx; font-weight: 700; color: #FFFFFF;
-  background-color: #E02020; border: none; border-radius: 44rpx;
+  background-color: var(--c-primary); border: none; border-radius: 44rpx;
 }
 .pe-btn::after { border: none; }
-.pe-retry { font-size: 26rpx; color: #E02020; padding: 8rpx 20rpx; }
+.pe-retry { font-size: 26rpx; color: var(--c-primary); padding: 8rpx 20rpx; }
 /* 左下：销量标签（深色半透明圆角） */
 .image-sold { position: absolute; left: 20rpx; bottom: 84rpx; background-color: rgba(0,0,0,.5); border-radius: 999rpx; padding: 6rpx 18rpx; }
 .image-sold-text { font-size: 20rpx; color: #FFFFFF; }
@@ -898,7 +898,7 @@ export default {
 .image-index-text { font-size: 20rpx; color: #FFFFFF; }
 
 /* ---------- 2. 秒杀红色价格条（仅秒杀商品） ---------- */
-.seckill-bar { background: linear-gradient(90deg, #E02020, #FF4A3A); padding: 20rpx 24rpx; }
+.seckill-bar { background: linear-gradient(90deg, var(--c-warn), var(--c-warn-bright)); padding: 20rpx 24rpx; }
 .seckill-main { display: flex; align-items: center; justify-content: space-between; }
 .seckill-left { display: flex; align-items: center; gap: 14rpx; }
 .seckill-price { font-size: 44rpx; color: #FFFFFF; font-weight: 800; line-height: 1.1; }
@@ -909,35 +909,35 @@ export default {
 /* 归零展示态：置灰"已切明日场次"（T-M3-04 归零不闪跳），字号收窄避免撑爆红条 */
 .seckill-countdown.countdown-zero { font-size: 24rpx; font-weight: 600; color: rgba(255,255,255,.72); }
 /* 红条下方浅红进度条：黄色进度 + 疯抢文案 */
-.seckill-subbar { background-color: #FCE4E2; display: flex; align-items: center; gap: 16rpx; padding: 12rpx 24rpx; }
-.subbar-track { flex: 1; height: 14rpx; border-radius: 7rpx; background-color: #F3BDB8; overflow: hidden; }
-.subbar-fill { height: 100%; border-radius: 7rpx; background-color: #FFC300; }
-.subbar-text { font-size: 20rpx; color: #E02020; font-weight: 600; white-space: nowrap; }
+.seckill-subbar { background-color: var(--c-warn-soft); display: flex; align-items: center; gap: 16rpx; padding: 12rpx 24rpx; }
+.subbar-track { flex: 1; height: 14rpx; border-radius: 7rpx; background-color: var(--c-warn-hair); overflow: hidden; }
+.subbar-fill { height: 100%; border-radius: 7rpx; background-color: var(--c-warn-bright); }
+.subbar-text { font-size: 20rpx; color: var(--c-warn); font-weight: 600; white-space: nowrap; }
 
 /* ---------- 3. 标题信息区 ---------- */
 .info-section { padding: 24rpx 28rpx; background-color: #FFFFFF; margin-bottom: 12rpx; }
 /* 非秒杀普通价格区（沿用现有样式） */
 .detail-price-row { display: flex; align-items: baseline; margin-bottom: 16rpx; }
-.detail-price-symbol { font-size: 28rpx; color: #E02020; font-weight: 700; }
-.detail-price { font-size: 52rpx; color: #E02020; font-weight: 700; line-height: 1; }
+.detail-price-symbol { font-size: 28rpx; color: var(--c-warn); font-weight: 700; }
+.detail-price { font-size: 52rpx; color: var(--c-warn); font-weight: 700; line-height: 1; }
 .detail-unit { font-size: 24rpx; color: #999999; margin-left: 6rpx; }
 .detail-original { font-size: 24rpx; color: #999999; text-decoration: line-through; margin-left: 16rpx; }
-.countdown-box { display: flex; align-items: center; gap: 10rpx; background: linear-gradient(90deg, #FFF3EB, #FFF0E8); padding: 16rpx 20rpx; border-radius: 10rpx; margin-bottom: 16rpx; }
+.countdown-box { display: flex; align-items: center; gap: 10rpx; background: linear-gradient(90deg, var(--c-warn-soft), var(--c-warn-soft)); padding: 16rpx 20rpx; border-radius: 10rpx; margin-bottom: 16rpx; }
 .countdown-icon { font-size: 22rpx; }
-.countdown-label { font-size: 22rpx; color: #FF6600; }
-.countdown-value { font-size: 30rpx; font-weight: 700; color: #FF6600; font-variant-numeric: tabular-nums; }
+.countdown-label { font-size: 22rpx; color: var(--c-warn); }
+.countdown-value { font-size: 30rpx; font-weight: 700; color: var(--c-warn); font-variant-numeric: tabular-nums; }
 /* 标题行：[秒]红标 + 商品名 */
 .title-row { display: flex; align-items: flex-start; gap: 12rpx; margin-bottom: 14rpx; }
-.sec-badge { flex-shrink: 0; background-color: #E02020; color: #FFFFFF; font-size: 20rpx; font-weight: 700; border-radius: 6rpx; padding: 4rpx 10rpx; margin-top: 6rpx; }
+.sec-badge { flex-shrink: 0; background-color: var(--c-warn); color: #FFFFFF; font-size: 20rpx; font-weight: 700; border-radius: 6rpx; padding: 4rpx 10rpx; margin-top: 6rpx; }
 /* 长商品名两行截断（T-M3-07）：超两行省略号收尾 */
 .detail-name { font-size: 36rpx; font-weight: 700; color: #333333; line-height: 1.4; flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
 /* 副标题行：绿色小标 + tags 橙色小字 */
 .title-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 12rpx; margin-bottom: 14rpx; }
 .green-tag { font-size: 20rpx; color: #00B578; background-color: #EAF9F1; border-radius: 6rpx; padding: 4rpx 10rpx; }
-.orange-tags { font-size: 22rpx; color: #FF6600; }
+.orange-tags { font-size: 22rpx; color: var(--c-warn); }
 /* 好评率 / 销量 */
 .title-stats { display: flex; align-items: center; gap: 24rpx; margin-bottom: 10rpx; }
-.stat-rate { font-size: 22rpx; color: #FF6600; font-weight: 600; }
+.stat-rate { font-size: 22rpx; color: var(--c-warn); font-weight: 600; }
 .stat-sold { font-size: 22rpx; color: #999999; }
 .stock-text { font-size: 24rpx; color: #CCCCCC; display: block; }
 
@@ -949,14 +949,14 @@ export default {
 .reason-sub { font-size: 20rpx; color: #999999; }
 
 /* ---------- 5. 秒杀播报条（仅秒杀商品） ---------- */
-.notice-bar { margin: 0 24rpx 12rpx; background: linear-gradient(90deg, #E02020, #FF4A3A); border-radius: 16rpx; padding: 16rpx 20rpx; }
+.notice-bar { margin: 0 24rpx 12rpx; background: linear-gradient(90deg, var(--c-warn), var(--c-warn-bright)); border-radius: 16rpx; padding: 16rpx 20rpx; }
 .notice-head { display: flex; align-items: center; gap: 12rpx; margin-bottom: 12rpx; }
 .notice-title { font-size: 26rpx; color: #FFFFFF; font-weight: 800; white-space: nowrap; }
 .notice-divider { font-size: 22rpx; color: rgba(255,255,255,.6); }
 .notice-cut { font-size: 22rpx; color: #FFFFFF; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* 内嵌白色圆角子条 */
 .notice-sub { background-color: #FFFFFF; border-radius: 999rpx; padding: 8rpx 20rpx; }
-.notice-text { font-size: 20rpx; color: #E02020; }
+.notice-text { font-size: 20rpx; color: var(--c-warn); }
 
 /* ---------- 6. 服务保障行 ---------- */
 .service-card { background-color: #FFFFFF; padding: 4rpx 28rpx; margin-bottom: 12rpx; }
@@ -978,7 +978,7 @@ export default {
 .param-cell { width: calc(50% - 6rpx); box-sizing: border-box; background-color: #F7F7F7; border-radius: 8rpx; padding: 16rpx 20rpx; display: flex; flex-direction: column; gap: 6rpx; }
 .param-label { font-size: 22rpx; color: #999999; }
 .param-value { font-size: 24rpx; color: #333333; line-height: 1.5; word-break: break-all; }
-.param-link { color: #E02020; }
+.param-link { color: var(--c-primary); }
 /* 查看全部入口：灰色小字，靠左 */
 .param-more { margin-bottom: 24rpx; }
 .param-more-text { font-size: 24rpx; color: #999999; }
@@ -996,22 +996,22 @@ export default {
 .entry-icon { font-size: 32rpx; }
 .entry-text { font-size: 28rpx; font-weight: 700; color: #333333; }
 .entry-right { display: flex; align-items: center; gap: 12rpx; }
-.entry-rate { font-size: 24rpx; color: #E02020; font-weight: 600; }
+.entry-rate { font-size: 24rpx; color: var(--c-warn); font-weight: 600; }
 .entry-count { font-size: 24rpx; color: #999999; }
 .review-preview { display: flex; flex-direction: column; gap: 20rpx; }
-.preview-item { background-color: #FFF8F5; border-radius: 12rpx; padding: 20rpx; }
+.preview-item { background-color: var(--c-warn-soft); border-radius: 12rpx; padding: 20rpx; }
 .preview-user { display: flex; align-items: center; gap: 10rpx; margin-bottom: 10rpx; }
-.preview-avatar { width: 44rpx; height: 44rpx; background: linear-gradient(135deg, #FF6600, #FF8533); border-radius: 50%; font-size: 20rpx; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.preview-avatar { width: 44rpx; height: 44rpx; background: linear-gradient(135deg, var(--c-primary), var(--c-primary)); border-radius: 50%; font-size: 20rpx; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
 .preview-name { font-size: 24rpx; color: #333333; font-weight: 600; }
 .preview-stars { display: flex; gap: 2rpx; margin-bottom: 8rpx; }
 .star { font-size: 22rpx; color: #DDDDDD; }
-.star.active { color: #FF6600; }
+.star.active { color: var(--c-gold); }
 .preview-content { font-size: 24rpx; color: #666666; line-height: 1.6; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 /* ---------- 9. 底部操作栏 ---------- */
 .bottom-bar { background-color: #FFFFFF; box-shadow: 0 -2rpx 20rpx rgba(0,0,0,.06); flex-shrink: 0; }
 /* uni-button 显式覆盖：直角大红块、无默认边框圆角与 line-height:2.55 */
-.btn-grab { width: 100%; background-color: #E02020; color: #FFFFFF; border: none; border-radius: 0; padding: 14rpx 0 22rpx; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8rpx; line-height: 1.3; font-size: 26rpx; }
+.btn-grab { width: 100%; background-color: var(--c-primary); color: #FFFFFF; border: none; border-radius: 0; padding: 14rpx 0 22rpx; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8rpx; line-height: 1.3; font-size: 26rpx; }
 .btn-grab::after { border: none; }
 .grab-main { font-size: 26rpx; font-weight: 700; line-height: 1.3; }
 .grab-sub { font-size: 24rpx; opacity: .9; letter-spacing: 1rpx; font-variant-numeric: tabular-nums; line-height: 1.3; }
@@ -1020,10 +1020,10 @@ export default {
 .bar-split { display: flex; align-items: stretch; }
 .bar-cart { position: relative; width: 110rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .cart-icon { font-size: 44rpx; }
-.cart-badge { position: absolute; top: 14rpx; left: 50%; margin-left: -16rpx; min-width: 30rpx; height: 30rpx; padding: 0 6rpx; box-sizing: border-box; border-radius: 15rpx; background-color: #E02020; color: #FFFFFF; font-size: 18rpx; display: flex; align-items: center; justify-content: center; }
+.cart-badge { position: absolute; top: 14rpx; left: 50%; margin-left: -16rpx; min-width: 30rpx; height: 30rpx; padding: 0 6rpx; box-sizing: border-box; border-radius: 15rpx; background-color: var(--c-primary); color: #FFFFFF; font-size: 18rpx; display: flex; align-items: center; justify-content: center; }
 /* 中：去支付 + 已减 */
 .bar-pay { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6rpx; padding: 0 24rpx; overflow: hidden; }
-.pay-main { font-size: 28rpx; font-weight: 700; color: #E02020; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pay-main { font-size: 28rpx; font-weight: 700; color: var(--c-warn); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pay-sub { font-size: 22rpx; color: #999999; }
 /* 右：直角大红块两行 */
 .btn-grab-right { width: auto; min-width: 300rpx; flex-shrink: 0; padding: 14rpx 28rpx 22rpx; }
@@ -1071,34 +1071,34 @@ export default {
 .rec-photo { width: 100%; height: 100%; display: block; }
 .rec-body { flex: 1; min-width: 0; margin-left: 20rpx; display: flex; flex-direction: column; }
 .rec-title-row { display: flex; align-items: center; min-width: 0; }
-.rec-sec-tag { flex-shrink: 0; margin-right: 8rpx; font-size: 18rpx; font-weight: 700; color: #FFFFFF; background-color: #E02020; border-radius: 4rpx; padding: 0 8rpx; line-height: 30rpx; }
+.rec-sec-tag { flex-shrink: 0; margin-right: 8rpx; font-size: 18rpx; font-weight: 700; color: #FFFFFF; background-color: var(--c-warn); border-radius: 4rpx; padding: 0 8rpx; line-height: 30rpx; }
 .rec-name { flex: 1; min-width: 0; font-size: 28rpx; font-weight: 600; color: #333333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-tags { margin-top: 8rpx; font-size: 20rpx; color: #999999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-sold-row { display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; }
-.rec-rush { font-size: 20rpx; font-weight: 600; color: #E02020; flex-shrink: 0; }
+.rec-rush { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
 .rec-sold { font-size: 20rpx; color: #999999; }
 .rec-promo-row { display: flex; align-items: center; gap: 10rpx; margin-top: 8rpx; min-height: 30rpx; }
-.rec-tag-cut { font-size: 18rpx; color: #E02020; font-weight: 600; border: 1rpx solid #E02020; border-radius: 6rpx; padding: 0 8rpx; line-height: 26rpx; }
+.rec-tag-cut { font-size: 18rpx; color: var(--c-warn); font-weight: 600; border: 1rpx solid var(--c-warn); border-radius: 6rpx; padding: 0 8rpx; line-height: 26rpx; }
 .rec-tag-limit { font-size: 18rpx; color: #999999; border: 1rpx solid #DDDDDD; border-radius: 6rpx; padding: 0 8rpx; line-height: 26rpx; }
 .rec-rate { font-size: 20rpx; color: #999999; }
 .rec-price-row { margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; }
 .rec-price-left { display: flex; align-items: baseline; min-width: 0; }
-.rec-price-label { font-size: 20rpx; font-weight: 700; color: #E02020; margin-right: 4rpx; }
-.rec-price-symbol { font-size: 20rpx; font-weight: 700; color: #E02020; }
-.rec-price-big { font-size: 38rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.rec-price-label { font-size: 20rpx; font-weight: 700; color: var(--c-warn); margin-right: 4rpx; }
+.rec-price-symbol { font-size: 20rpx; font-weight: 700; color: var(--c-warn); }
+.rec-price-big { font-size: 38rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .rec-action { flex-shrink: 0; margin-left: 16rpx; }
-.rec-add-btn { min-width: 160rpx; height: 56rpx; padding: 0 22rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #FF5A3C, #E02020); border-radius: 28rpx; }
+.rec-add-btn { min-width: 160rpx; height: 56rpx; padding: 0 22rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--c-primary), var(--c-primary)); border-radius: 28rpx; }
 .rec-add-btn text { font-size: 22rpx; font-weight: 700; color: #FFFFFF; }
 .rec-stepper { display: flex; align-items: center; }
 .rec-step-btn { width: 46rpx; height: 46rpx; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
 .rec-step-btn text { font-size: 30rpx; font-weight: 700; line-height: 1; }
-.rec-step-minus { border: 1rpx solid #E02020; background-color: #FFFFFF; }
-.rec-step-minus text { color: #E02020; }
-.rec-step-plus { background-color: #E02020; }
+.rec-step-minus { border: 1rpx solid var(--c-primary); background-color: #FFFFFF; }
+.rec-step-minus text { color: var(--c-primary); }
+.rec-step-plus { background-color: var(--c-primary); }
 .rec-step-plus text { color: #FFFFFF; }
 .rec-step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: #333333; }
 /* 秒杀卡内超级秒杀条：红底圆角小条，左标题右倒计时（全场共用同一倒计时） */
-.rec-seckill-bar { margin-top: 12rpx; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(90deg, #E02020, #FF4A3A); border-radius: 8rpx; padding: 8rpx 16rpx; }
+.rec-seckill-bar { margin-top: 12rpx; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(90deg, var(--c-warn), var(--c-warn-bright)); border-radius: 8rpx; padding: 8rpx 16rpx; }
 .rec-seckill-label { font-size: 20rpx; color: #FFFFFF; font-weight: 700; }
 .rec-seckill-countdown { font-size: 20rpx; color: #FFFFFF; font-weight: 700; font-variant-numeric: tabular-nums; }
 /* 推荐卡内归零展示态：置灰（T-M3-04） */

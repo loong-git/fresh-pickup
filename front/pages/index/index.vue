@@ -1579,10 +1579,10 @@ export default {
 
 /* ==================== 吸顶层（仅搜索框；分类 tab 已移至券区之后独立吸顶，样式见下方 4 区块） ==================== */
 /* 原生 sticky：置于 scroll-view 内容顶部，父链无 overflow:hidden，H5 下相对最近滚动容器吸附；
-   未滚动红底 #E02020，分类 tab 吸顶时刻（catTabStuck → .stuck）切换白底 */
+   未滚动品牌绿底（--c-primary），分类 tab 吸顶时刻（catTabStuck → .stuck）切换白底 */
 .sticky-header {
   position: sticky; top: 0; z-index: 90;
-  background-color: #E02020;
+  background-color: var(--c-primary);
 }
 .sticky-header.stuck {
   background-color: #FFFFFF;
@@ -1604,7 +1604,7 @@ export default {
 }
 /* 吸附态（白底）：白条改红描边 1rpx 以便区分（border-box 下总高仍 64rpx，96rpx 吸顶位不变） */
 .sticky-header.stuck .search-box {
-  border: 1rpx solid #E02020;
+  border: 1rpx solid var(--c-primary);
 }
 .search-icon { flex-shrink: 0; font-size: 24rpx; }
 /* 白条占位文案节点（<text>，非 input，故无 placeholder 概念与 placeholder-style）：flex:1 撑满剩余宽度，文字深灰 */
@@ -1624,7 +1624,7 @@ export default {
   display: flex; align-items: center;
   padding: 0 28rpx;
 }
-.search-go-text { font-size: 28rpx; font-weight: 700; color: #E02020; }
+.search-go-text { font-size: 28rpx; font-weight: 700; color: var(--c-primary); }
 
 /* ==================== 1.5 搜索辅助区：本页无历史词/热词胶囊，本段无对应规则 ==================== */
 
@@ -1637,7 +1637,7 @@ export default {
 .red-zone {
   /* 首子元素（.cutoff-bar 的 margin-top:12rpx）margin 塌陷会穿透红区形成白缝，flow-root 建立 BFC 使 12rpx 间距留在红区内呈红底 */
   display: flow-root;
-  background: linear-gradient(180deg, #E02020 0%, #D31D1D 100%);
+  background: linear-gradient(180deg, var(--c-primary) 0%, var(--c-topbar) 100%);
   padding-bottom: 28rpx;
 }
 /* 截单前 1 小时红条（T-M3-04）：黄底深字在红区中醒目，由倒计时 tick 维护显隐 */
@@ -1685,7 +1685,7 @@ export default {
 }
 .coupon-main { font-size: 26rpx; font-weight: 700; color: #FFFFFF; }
 .coupon-use-btn {
-  font-size: 20rpx; font-weight: 700; color: #E02020;
+  font-size: 20rpx; font-weight: 700; color: var(--c-primary);
   background-color: #FFFFFF; border-radius: 20rpx;
   padding: 4rpx 18rpx;
 }
@@ -1712,10 +1712,10 @@ export default {
 .cat-tabs { display: flex; gap: 44rpx; }
 .cat-tab { position: relative; padding: 12rpx 0; }
 .cat-tab text { font-size: 30rpx; font-weight: 700; color: #666666; }
-.cat-tab.active text { color: #E02020; }
+.cat-tab.active text { color: var(--c-primary); }
 .cat-tab.active::after {
   content: ''; position: absolute; bottom: 2rpx; left: 50%; transform: translateX(-50%);
-  width: 44rpx; height: 6rpx; background-color: #E02020; border-radius: 3rpx;
+  width: 44rpx; height: 6rpx; background-color: var(--c-primary); border-radius: 3rpx;
 }
 .cat-all text { font-size: 26rpx; color: #666666; }
 
@@ -1739,7 +1739,7 @@ export default {
 .seckill-card {
   margin: 20rpx 24rpx;
   border-radius: 16rpx; overflow: hidden;
-  background: linear-gradient(160deg, #E02020 0%, #F0402F 60%, #FF7A50 100%);
+  background: linear-gradient(160deg, var(--c-warn) 0%, var(--c-warn-bright) 60%, var(--c-warn-bright) 100%);
 }
 .seckill-header {
   display: flex; align-items: center;
@@ -1774,11 +1774,11 @@ export default {
 .seckill-cut {
   display: inline-block; margin: 8rpx 0 0 12rpx;
   font-size: 18rpx; font-weight: 700; color: #FFFFFF;
-  background-color: #E02020; border-radius: 6rpx; padding: 2rpx 10rpx;
+  background-color: var(--c-warn); border-radius: 6rpx; padding: 2rpx 10rpx;
 }
 .seckill-price-row { display: flex; align-items: baseline; padding: 6rpx 12rpx 14rpx; gap: 2rpx; }
-.sp-symbol { font-size: 20rpx; font-weight: 700; color: #E02020; }
-.sp-num { font-size: 32rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.sp-symbol { font-size: 20rpx; font-weight: 700; color: var(--c-warn); }
+.sp-num { font-size: 32rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .seckill-empty { display: inline-block; width: 100%; text-align: center; padding: 40rpx 0; }
 .seckill-empty text { font-size: 24rpx; color: rgba(255,255,255,.85); }
 
@@ -1807,7 +1807,7 @@ export default {
 .dish-seckill-tag {
   flex-shrink: 0; margin-right: 8rpx;
   font-size: 18rpx; font-weight: 700; color: #FFFFFF;
-  background-color: #E02020; border-radius: 4rpx; padding: 0 8rpx;
+  background-color: var(--c-warn); border-radius: 4rpx; padding: 0 8rpx;
   line-height: 30rpx;
 }
 .dish-name {
@@ -1821,12 +1821,12 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dish-sold-row { display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; }
-.dish-rush { font-size: 20rpx; font-weight: 600; color: #E02020; flex-shrink: 0; }
+.dish-rush { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
 .dish-sold { font-size: 20rpx; color: #999999; }
 .dish-promo-row { display: flex; align-items: center; gap: 10rpx; margin-top: 8rpx; min-height: 30rpx; }
 .tag-cut {
-  font-size: 18rpx; color: #E02020; font-weight: 600;
-  border: 1rpx solid #E02020; border-radius: 6rpx; padding: 0 8rpx;
+  font-size: 18rpx; color: var(--c-warn); font-weight: 600;
+  border: 1rpx solid var(--c-warn); border-radius: 6rpx; padding: 0 8rpx;
   line-height: 26rpx;
 }
 .tag-limit {
@@ -1840,14 +1840,14 @@ export default {
   display: flex; align-items: flex-end; justify-content: space-between;
 }
 .price-left { display: flex; align-items: baseline; min-width: 0; }
-.price-seckill-label { font-size: 20rpx; font-weight: 700; color: #E02020; margin-right: 4rpx; }
-.price-symbol { font-size: 20rpx; font-weight: 700; color: #E02020; }
-.price-big { font-size: 38rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.price-seckill-label { font-size: 20rpx; font-weight: 700; color: var(--c-warn); margin-right: 4rpx; }
+.price-symbol { font-size: 20rpx; font-weight: 700; color: var(--c-warn); }
+.price-big { font-size: 38rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .dish-action { flex-shrink: 0; margin-left: 16rpx; }
 .add-btn {
   min-width: 160rpx; height: 56rpx; padding: 0 22rpx; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #FF5A3C, #E02020);
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary));
   border-radius: 28rpx;
 }
 .add-btn text { font-size: 22rpx; font-weight: 700; color: #FFFFFF; }
@@ -1858,9 +1858,9 @@ export default {
   display: flex; align-items: center; justify-content: center;
 }
 .step-btn text { font-size: 30rpx; font-weight: 700; line-height: 1; }
-.step-minus { border: 1rpx solid #E02020; background-color: #FFFFFF; }
-.step-minus text { color: #E02020; }
-.step-plus { background-color: #E02020; }
+.step-minus { border: 1rpx solid var(--c-primary); background-color: #FFFFFF; }
+.step-minus text { color: var(--c-primary); }
+.step-plus { background-color: var(--c-primary); }
 .step-plus text { color: #FFFFFF; }
 .step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: #333333; }
 
@@ -1873,8 +1873,8 @@ export default {
 .error-state { display: flex; flex-direction: column; align-items: center; gap: 20rpx; padding: 120rpx 0; }
 .error-text { font-size: 26rpx; color: #999999; }
 .error-retry {
-  font-size: 26rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 32rpx;
+  font-size: 26rpx; font-weight: 600; color: var(--c-danger);
+  border: 1rpx solid var(--c-danger); border-radius: 32rpx;
   padding: 10rpx 44rpx;
 }
 
@@ -1889,7 +1889,7 @@ export default {
 }
 .pb-label { font-size: 22rpx; font-weight: 700; color: #333333; }
 .pb-divider { font-size: 22rpx; color: #DDDDDD; }
-.pb-coupon { font-size: 22rpx; font-weight: 600; color: #E02020; }
+.pb-coupon { font-size: 22rpx; font-weight: 600; color: var(--c-warn); }
 .pb-arrow { margin-left: auto; font-size: 22rpx; color: #999999; }
 
 /* ==================== 10. 底部购物车栏（三段结构，保持直角大红块） ==================== */
@@ -1905,24 +1905,24 @@ export default {
 .cart-badge {
   position: absolute; top: -4rpx; right: -4rpx;
   min-width: 30rpx; height: 30rpx; padding: 0 6rpx; box-sizing: border-box;
-  background-color: #E02020; border-radius: 15rpx;
+  background-color: var(--c-primary); border-radius: 15rpx;
   font-size: 20rpx; color: #FFFFFF; text-align: center; line-height: 30rpx;
 }
 .cart-info { display: flex; flex-direction: column; justify-content: center; gap: 4rpx; margin-left: auto; min-width: 0; }
 .cart-price-line { display: flex; align-items: baseline; }
-.cart-total-symbol { font-size: 26rpx; color: #E02020; font-weight: 700; }
-.cart-total-price { font-size: 40rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.cart-total-symbol { font-size: 26rpx; color: var(--c-warn); font-weight: 700; }
+.cart-total-price { font-size: 40rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .cart-reduced { font-size: 20rpx; color: #999999; }
 .btn-pay {
   flex: 3; min-width: 0; margin: 0;
-  background-color: #E02E24;
+  background-color: var(--c-primary);
   color: #FFFFFF; border: none; border-radius: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6rpx;
   padding: 16rpx; line-height: 1.3;
 }
 .pay-main { font-size: 30rpx; font-weight: 700; color: #FFFFFF; }
 .pay-sub-wrap { display: flex; align-items: center; }
-.pay-coupon { font-size: 22rpx; background-color: #FFD84D; color: #C23A0F; border-radius: 8rpx; padding: 2rpx 10rpx; font-weight: 600; }
+.pay-coupon { font-size: 22rpx; background-color: #FFD84D; color: var(--c-warn); border-radius: 8rpx; padding: 2rpx 10rpx; font-weight: 600; }
 
 /* ==================== 弹窗通用 ==================== */
 .popup-mask {
@@ -2030,9 +2030,9 @@ export default {
   margin: 12rpx 24rpx 0; padding: 10rpx 20rpx;
   background-color: #FFF7F0; border-radius: 10rpx;
 }
-.hb-title { font-size: 22rpx; font-weight: 700; color: #E02020; }
+.hb-title { font-size: 22rpx; font-weight: 700; color: var(--c-warn); }
 .hb-divider { font-size: 22rpx; color: #F0D8C0; }
-.hb-text { font-size: 22rpx; color: #E0662A; }
+.hb-text { font-size: 22rpx; color: var(--c-warn); }
 /* 商品行滚动区（flex:1 占满剩余高度内部滚动；空车时兼作居中占位容器） */
 .cart-items { flex: 1; min-height: 0; padding: 0 24rpx; box-sizing: border-box; }
 .cart-items-empty { display: flex; align-items: center; justify-content: center; }
@@ -2046,7 +2046,7 @@ export default {
   display: flex; align-items: center; justify-content: center;
   background-color: #FFFFFF;
 }
-.check-circle.checked { border: none; background-color: #E02020; }
+.check-circle.checked { border: none; background-color: var(--c-primary); }
 .check-circle text { font-size: 20rpx; font-weight: 700; color: #FFFFFF; line-height: 1; }
 /* 图片+文字区域：整体可点跳商品详情（勾选圈与右侧操作区已阻止冒泡） */
 .ci-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16rpx; }
@@ -2061,7 +2061,7 @@ export default {
 .ci-seckill-tag {
   flex-shrink: 0; margin-right: 8rpx;
   font-size: 16rpx; font-weight: 700; color: #FFFFFF;
-  background-color: #E02020; border-radius: 4rpx; padding: 0 6rpx;
+  background-color: var(--c-warn); border-radius: 4rpx; padding: 0 6rpx;
   line-height: 26rpx;
 }
 .ci-name {
@@ -2070,7 +2070,7 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ci-desc-row { display: flex; align-items: center; gap: 12rpx; overflow: hidden; white-space: nowrap; }
-.ci-restore { font-size: 20rpx; font-weight: 600; color: #E02020; flex-shrink: 0; }
+.ci-restore { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
 .ci-sold { font-size: 20rpx; color: #999999; flex-shrink: 0; }
 .ci-limit { font-size: 20rpx; color: #999999; }
 /* 下架行只做视觉告知：只降透明度与字色，不用 pointer-events（那会悄悄改掉交互）；勾选/删除/步进与结算路径零改动 */
@@ -2079,17 +2079,17 @@ export default {
 .ci-price-row { display: flex; align-items: baseline; gap: 12rpx; }
 .ci-original { font-size: 20rpx; color: #BBBBBB; text-decoration: line-through; }
 .ci-price-line { display: flex; align-items: baseline; }
-.ci-symbol { font-size: 18rpx; font-weight: 700; color: #E02020; }
-.ci-price { font-size: 30rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.ci-symbol { font-size: 18rpx; font-weight: 700; color: var(--c-warn); }
+.ci-price { font-size: 30rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .ci-discount {
-  font-size: 18rpx; font-weight: 600; color: #E02020;
-  background-color: #FFECE8; border-radius: 6rpx; padding: 2rpx 8rpx;
+  font-size: 18rpx; font-weight: 600; color: var(--c-warn);
+  background-color: var(--c-warn-soft); border-radius: 6rpx; padding: 2rpx 8rpx;
 }
 .ci-action { flex-shrink: 0; }
 .ci-delete {
   display: inline-block;
-  font-size: 22rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 24rpx;
+  font-size: 22rpx; font-weight: 600; color: var(--c-danger);
+  border: 1rpx solid var(--c-danger); border-radius: 24rpx;
   padding: 6rpx 20rpx;
 }
 /* 空购物车占位（由 .cart-items-empty 水平垂直居中） */
@@ -2110,7 +2110,7 @@ export default {
 .btn-manage-delete {
   margin: 0 0 0 auto;
   min-width: 160rpx; height: 72rpx; line-height: 72rpx;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-danger); color: #FFFFFF;
   font-size: 26rpx; font-weight: 700;
   border: none; border-radius: 36rpx; padding: 0 44rpx;
   text-align: center;
@@ -2118,12 +2118,12 @@ export default {
 .btn-manage-delete::after { border: none; }
 .ctb-price { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2rpx; margin-right: 16rpx; }
 .ctb-price-line { display: flex; align-items: baseline; }
-.ctb-price-num { font-size: 36rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.ctb-price-num { font-size: 36rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .ctb-saving { font-size: 20rpx; color: #999999; }
 .btn-pay-popup {
   flex-shrink: 0; margin: 0;
   min-width: 200rpx; height: 76rpx; line-height: 76rpx;
-  background-color: #E02E24; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 26rpx; font-weight: 700;
   border: none; border-radius: 38rpx; padding: 0 36rpx;
   text-align: center;
@@ -2152,7 +2152,7 @@ export default {
 .btn-save-person {
   flex: 1; height: 80rpx; line-height: 80rpx;
   margin: 0; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 28rpx; font-weight: 700;
   border: none; border-radius: 44rpx;
 }
@@ -2168,12 +2168,12 @@ export default {
 .btn-confirm {
   width: 100%; height: 80rpx; line-height: 80rpx;
   margin-top: 16rpx; padding: 0;
-  background-color: #E02E24; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 28rpx; font-weight: 700;
   border: none; border-radius: 0;
 }
 /* 提交飞行中禁用态：置灰提示"提交中…"，防重复下单（T-M1-09 验收②） */
-.btn-confirm-disabled { background-color: #F5B5B0; color: rgba(255,255,255,.9); }
+.btn-confirm-disabled { background-color: var(--c-primary-disabled); color: rgba(255,255,255,.9); }
 
 /* ==================== 支付弹窗（原有流程） ==================== */
 .pay-section { margin-bottom: 24rpx; }
@@ -2181,14 +2181,14 @@ export default {
 .pay-item { display: flex; align-items: center; padding: 10rpx 0; }
 .pay-item-name { flex: 1; font-size: 26rpx; color: #333333; }
 .pay-item-qty { font-size: 22rpx; color: #999999; margin: 0 20rpx; }
-.pay-item-price { font-size: 26rpx; color: #E02020; font-weight: 600; }
+.pay-item-price { font-size: 26rpx; color: var(--c-warn); font-weight: 600; }
 .pay-info { display: block; font-size: 24rpx; color: #666666; margin-bottom: 8rpx; }
 .pay-total { display: flex; justify-content: space-between; align-items: baseline; padding: 20rpx 0; border-top: 1rpx solid #F0F0F0; }
 .pay-total text:first-child { font-size: 24rpx; color: #666666; }
-.pay-total-price { font-size: 44rpx; font-weight: 700; color: #E02020; }
+.pay-total-price { font-size: 44rpx; font-weight: 700; color: var(--c-warn); }
 /* M4-T-02：合计右侧组（已抵扣提示 + 抵扣后金额） */
 .pay-total-right { display: flex; align-items: baseline; gap: 14rpx; }
-.pay-deducted { font-size: 22rpx; color: #E02020; }
+.pay-deducted { font-size: 22rpx; color: var(--c-warn); }
 /* M4-T-02：确认订单优惠券选择行（满足门槛可选，不满足置灰） */
 .coupon-empty { padding: 4rpx 0 8rpx; }
 .coupon-empty text { font-size: 24rpx; color: #999999; }
@@ -2199,13 +2199,13 @@ export default {
   display: flex; align-items: center; justify-content: center;
 }
 .coupon-radio text { font-size: 20rpx; font-weight: 700; color: #FFFFFF; line-height: 1; }
-.coupon-option-active .coupon-radio { border: none; background-color: #E02020; }
+.coupon-option-active .coupon-radio { border: none; background-color: var(--c-primary); }
 .coupon-option-text { font-size: 26rpx; color: #333333; font-weight: 600; }
-.coupon-option-state { margin-left: auto; font-size: 22rpx; color: #E02020; }
+.coupon-option-state { margin-left: auto; font-size: 22rpx; color: var(--c-warn); }
 .coupon-option-disabled .coupon-option-text,
 .coupon-option-disabled .coupon-option-state { color: #BBBBBB; }
 /* M4-T-01：自提门店停业红色警示（点击跳自提点页切换） */
-.pay-closed-warn { display: block; font-size: 24rpx; color: #E02020; font-weight: 600; margin: 4rpx 0 8rpx; }
+.pay-closed-warn { display: block; font-size: 24rpx; color: var(--c-danger); font-weight: 600; margin: 4rpx 0 8rpx; }
 /* M4-T-02：确认订单弹窗内容区内部滚动（清单+券行内容增多时不超面板 70vh） */
 .popup-body-scroll { max-height: calc(70vh - 110rpx); overflow-y: auto; box-sizing: border-box; }
 
@@ -2216,8 +2216,8 @@ export default {
 .ilg-btn {
   flex-shrink: 0; margin: 0;
   height: 64rpx; line-height: 64rpx;
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 12rpx;
+  font-size: 24rpx; font-weight: 600; color: var(--c-primary);
+  background-color: #FFFFFF; border: 1rpx solid var(--c-primary); border-radius: 12rpx;
   padding: 0 26rpx;
 }
 .ilg-btn::after { border: none; }
@@ -2228,8 +2228,8 @@ export default {
 .cashier-amount-row { display: flex; flex-direction: column; align-items: center; padding: 8rpx 0 20rpx; }
 .cashier-amount-label { font-size: 24rpx; color: #999999; margin-bottom: 10rpx; }
 .cashier-amount-line { display: flex; align-items: baseline; }
-.cashier-symbol { font-size: 30rpx; font-weight: 700; color: #E02020; }
-.cashier-amount { font-size: 64rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.cashier-symbol { font-size: 30rpx; font-weight: 700; color: var(--c-warn); }
+.cashier-amount { font-size: 64rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .cashier-order { display: block; text-align: center; font-size: 22rpx; color: #999999; margin-bottom: 12rpx; word-break: break-all; }
 .cashier-tip { display: block; text-align: center; font-size: 20rpx; color: #CCCCCC; margin-bottom: 8rpx; }
 </style>

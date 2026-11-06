@@ -14,5 +14,26 @@ export default defineConfig({
   server: {
     port: 5177,
     strictPort: true
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // 【P10-4 C6 构建分包（轻做）】目的：主 chunk 此前 884KB（element-plus 全量占约七成），
+        // 单文件串行下载拖慢首屏；拆分后 EP 独立成块与业务主 chunk 并行加载（预期主 chunk 降至 ~200KB 级），
+        // 且 EP chunk 内容不随业务迭代变化，可长期命中浏览器缓存。零业务逻辑改动，仅影响产物分块。
+        // 写法：函数式 manualChunks（vite 2 起 API，本工程 vite 8.3.4 沿用），
+        // 按 rollup 模块 id 的 node_modules 包名精确归组（正则兼容 Windows 反斜杠与 scoped 包）：
+        manualChunks(id) {
+          // 非第三方依赖（业务源码）不干预，随默认分组进主 chunk
+          if (!/[\\/]node_modules[\\/]/.test(id)) return undefined
+          // element-plus 本体 + @element-plus/icons-vue 等官方包 → 独立 element-plus chunk（~700KB）
+          if (/[\\/]node_modules[\\/](element-plus|@element-plus)[\\/]/.test(id)) {
+            return 'element-plus'
+          }
+          // 其余框架依赖（vue / @vue/* 运行时、vue-router）→ vendor chunk，与 EP 块并行加载
+          return 'vendor'
+        }
+      }
+    }
   }
 })

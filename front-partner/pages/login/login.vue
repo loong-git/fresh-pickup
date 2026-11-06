@@ -67,7 +67,7 @@
             type="number"
             maxlength="11"
             placeholder="请输入手机号码"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
           />
         </view>
         <view class="input-capsule">
@@ -77,7 +77,7 @@
             type="number"
             maxlength="6"
             placeholder="请输入验证码"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
           />
           <button
             class="btn-send-code"
@@ -100,7 +100,7 @@
             type="number"
             maxlength="11"
             placeholder="请输入手机号码"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
           />
         </view>
         <view class="input-capsule">
@@ -110,7 +110,7 @@
             :password="true"
             maxlength="20"
             placeholder="请输入密码（6-20位）"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
           />
         </view>
         <button class="btn-main" :class="{ 'btn-disabled': pwdLogging || loginLock > 0 }" :disabled="pwdLogging || loginLock > 0" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : (loginLock > 0 ? loginLockPillText : '登录') }}</text></button>

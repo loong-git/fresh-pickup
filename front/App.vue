@@ -81,6 +81,44 @@ export default {
 </script>
 
 <style>
+/* ---- P10-4 单点真源：C 端全局 CSS 变量（单主题，无 dark 组）----
+   照 front-merchant/App.vue :root 浅色组逐字抄入，语义对齐商家端 tokens，页面色值由 C7 逐页转 var(--c-*)。
+   披露：gold-hair 商家端 :root 未定义，浅值 #FAECD8 抄自主理人端 front-partner/App.vue :root
+   （P7 commission .balance-tag 描边实值，docs/十期规划/tokens-对照表.md 金胶囊行同值）。
+   另追加 3 枚：scroll-thumb / scroll-thumb-hover = A3 滚动条（C 端底色 #F5F5F5 偏冷，用 zinc 系）；
+   warn-bright = C7 促销价签橙渐变第二端点（价格不是危险，不占 danger 轨，与 --c-warn #B45309 组渐变） */
+:root {
+	--c-bg: #F7F6F3;
+	--c-card: #FFFFFF;
+	--c-topbar: #0B3D26;
+	--c-border: #E7E5E0;
+	--c-text: #1C1917;
+	--c-text-2: #57534E;
+	--c-text-3: #A8A29E;
+	--c-primary: #0F7B4A;
+	--c-primary-soft: #E8F5EE;
+	--c-primary-hair: #C8E6D5;
+	--c-primary-disabled: #A7D3BC;
+	--c-ok: #0F7B4A;
+	--c-warn: #B45309;
+	--c-warn-soft: #FFF7E6;
+	--c-danger: #DC2626;
+	--c-danger-soft: #FEF2F2;
+	--c-text-4: #BBBBBB;
+	--c-fill: #F5F5F5;
+	--c-disabled: #CCCCCC;
+	--c-gold: #B45309;
+	--c-gold-hair: #FAECD8;
+	--c-shadow: rgba(28, 25, 23, 0.06);
+	--c-warn-hair: #FFD591;
+	--c-danger-hair: #FECACA;
+	/* A3 滚动条变量：thumb 常态色 / hover 提亮色，全局规则块见本 style 段末尾 */
+	--c-scroll-thumb: #CDD0D6;
+	--c-scroll-thumb-hover: #A8ABB2;
+	/* C7 促销渐变第二端点 */
+	--c-warn-bright: #D97706;
+}
+
 /* 全局样式 */
 page {
 	background-color: #F5F5F5;
@@ -90,5 +128,32 @@ page {
 /* 全局按钮禁用 hover 效果（小程序不支持） */
 button::after {
 	border: none;
+}
+
+/* ---- P10-4 A3 全局滚动条美化（与商家端 P10-4 A2 / 运营端 P9-fix2 同构；本组件 <style> 无 scoped，天然全局）----
+   颜色随 --c-scroll-thumb(-hover) 变量走（#CDD0D6 → hover #A8ABB2，zinc 系）：
+   标准轨（Firefox 与新 Chrome）scrollbar-width thin + 轨透明，页面与弹层滚动条一并不漂；
+   webkit 兜底（旧 Chrome/Edge/Safari）6px 细条 + 3px 圆角 thumb，hover 提亮，corner 透明。
+   小程序端 wxss 无滚动条渲染概念，本块不生效亦无害 */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--c-scroll-thumb) transparent;
+}
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	background: var(--c-scroll-thumb);
+	border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--c-scroll-thumb-hover);
+}
+::-webkit-scrollbar-corner {
+	background: transparent;
 }
 </style>

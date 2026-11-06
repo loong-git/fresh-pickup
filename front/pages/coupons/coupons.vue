@@ -204,14 +204,14 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 多多买菜风格 — 领券中心页（白底 + 主红 #E02020） ==================== */
+/* ==================== 多多买菜风格 — 领券中心页（白底 + 页头绿 --c-topbar（P10-4 C7）） ==================== */
 
 .page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
 
 /* ==================== 1. 红色头部 ==================== */
 .coupons-header {
   position: relative;
-  background: linear-gradient(180deg, #E02020 0%, #E02020 55%, #F5F5F5 100%);
+  background: linear-gradient(180deg, var(--c-topbar) 0%, var(--c-topbar) 55%, #F5F5F5 100%);
   padding: 48rpx 24rpx 8rpx;
 }
 .coupons-slogan { display: block; text-align: center; font-size: 38rpx; font-weight: 700; color: #FFFFFF; line-height: 1.3; }
@@ -229,18 +229,18 @@ export default {
 /* 游客态登录引导行（照我的页） */
 .guide-row {
   display: flex; align-items: center; justify-content: space-between;
-  background-color: #FFF7F0; border-radius: 12rpx;
+  background-color: var(--c-warn-soft); border-radius: 12rpx;
   padding: 24rpx;
 }
 .guide-text { font-size: 26rpx; color: #666666; }
-.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: #E02020; }
+.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-warn); }
 
 /* 错误态行（可点击重试，照我的页） */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
 .error-text { font-size: 24rpx; color: #999999; }
 .error-retry {
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: var(--c-warn);
+  border: 1rpx solid var(--c-warn); border-radius: 28rpx;
   padding: 8rpx 36rpx; line-height: 1.4;
 }
 
@@ -248,20 +248,20 @@ export default {
 .center-list { display: flex; flex-direction: column; gap: 16rpx; }
 .coupon-item {
   display: flex; align-items: center; gap: 20rpx;
-  border: 1rpx solid #FFE3E0; border-radius: 12rpx;
+  border: 1rpx solid var(--c-warn-hair); border-radius: 12rpx;
   padding: 20rpx;
-  background: linear-gradient(90deg, #FFF5F4, #FFFFFF);
+  background: linear-gradient(90deg, var(--c-warn-soft), #FFFFFF);
 }
 .coupon-face {
   flex-shrink: 0; width: 170rpx; box-sizing: border-box;
   display: flex; flex-direction: column; align-items: center; gap: 4rpx;
-  border-right: 1rpx dashed #F0C8C5;
+  border-right: 1rpx dashed var(--c-warn-hair);
   padding-right: 20rpx;
 }
-.coupon-amount-line { display: flex; align-items: baseline; color: #E02020; }
+.coupon-amount-line { display: flex; align-items: baseline; color: var(--c-warn); }
 .coupon-symbol { font-size: 24rpx; font-weight: 700; }
 .coupon-amount { font-size: 44rpx; font-weight: 700; line-height: 1; }
-.coupon-threshold { font-size: 20rpx; color: #E02020; }
+.coupon-threshold { font-size: 20rpx; color: var(--c-warn); }
 .coupon-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
 .coupon-main { font-size: 28rpx; font-weight: 700; color: #333333; }
 .coupon-desc { font-size: 20rpx; color: #BBBBBB; }
@@ -271,7 +271,7 @@ export default {
   flex-shrink: 0;
   margin: 0; padding: 0 28rpx;
   height: 64rpx; line-height: 64rpx;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-warn); color: #FFFFFF;
   font-size: 24rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }

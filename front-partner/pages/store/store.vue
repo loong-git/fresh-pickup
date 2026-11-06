@@ -94,7 +94,7 @@
             maxlength="5"
             :value="form.dailyCapacity"
             placeholder="留空表示不修改"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onCapacityInput"
           />
           <text class="field-suffix">单/日</text>
@@ -119,7 +119,7 @@
             maxlength="11"
             :value="form.contactPhone"
             :placeholder="phonePlaceholder"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onPhoneInput"
           />
         </view>
@@ -132,7 +132,7 @@
             :value="form.service"
             maxlength="50"
             placeholder="如 支持冷冻/冷藏自提，50 字以内"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onServiceInput"
           />
           <text class="field-count">{{ form.service.length }}/50</text>

@@ -571,6 +571,26 @@ done
 chk "README 漏提的节号数" "$([ -z "$MISS" ] && echo 0 || printf '%s' "$MISS" | wc -w | tr -d ' ')" "0"
 [ -n "$MISS" ] && say "      漏提：$MISS —— 到 tools/gate/README.md 的 f28 节「判什么」里补上它"
 
+say "=== 13) 主题静态断言：双组完整性 + style 段 hex 残留（P10-4 B4 新）==="
+# theme-audit.cjs 两件事：① 商家/主理人 :root/:root.dark 与运营端 :root/html.dark 双组完整性（浅组每枚
+# --变量深组必须有同名定义，缺一枚=切深色拿浏览器回退值）；② 四端全部 .vue 的 <style> 段 hex 残留
+# 超白名单即红（白名单：App.vue 变量定义块、主色底白字/成功实底近黑字特殊档、placeholder 行、注释）。
+# **C 端 front/ 的旧红在 P10-4 §C7（237 处旧红→七期 tokens）收口之前是预期红**——那之前本节会持续
+# FAIL，读数看「非 front/ 命中数」（应为 0）而不是总数；C7 收口后本节转绿。
+if [ -n "${SKIP_THEME:-}" ]; then
+  say "  SKIP 本次显式跳过 theme-audit（例如与 C 端配色改造并行时：C7 未收口前 hex 残留判据恒红，读数无增量）"
+  SKIPPED="$SKIPPED §13(theme-audit)"
+else
+node tools/gate/theme-audit.cjs > logs/out/p10_theme_audit.txt 2>&1; TH_EXIT=$?
+say "  $(head -1 logs/out/p10_theme_audit.txt || true)"
+chk "theme-audit 退出码（0=双组齐且无白名单外 hex）" "$TH_EXIT" "0"
+if [ "$TH_EXIT" != "0" ]; then
+  say "  逐条出处（kind  file:line  值；非 front/ 命中才是本批缺陷，front/ 属 C7 待治理项）："
+  grep -E '^  [A-Z][A-Z_]+  ' logs/out/p10_theme_audit.txt | grep -v '^  [A-Z][A-Z_]*  front/' | head -30 | sed 's/^/    /'
+  say "  …（完整清单见 logs/out/p10_theme_audit.txt）"
+fi
+fi
+
 say "=== 结论 ==="
 git status --porcelain | sed 's/^/  /'
 if [ -n "$SKIPPED" ]; then

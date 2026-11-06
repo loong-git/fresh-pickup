@@ -68,7 +68,7 @@
               v-model="form.merchantName"
               maxlength="100"
               placeholder="请输入商家名称"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
           </view>
         </view>
@@ -81,7 +81,7 @@
               v-model="form.contactName"
               maxlength="50"
               placeholder="请输入联系人姓名"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
           </view>
         </view>
@@ -94,7 +94,7 @@
               v-model="form.legalPerson"
               maxlength="50"
               placeholder="请输入法人姓名"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
           </view>
         </view>
@@ -107,7 +107,7 @@
               v-model="form.address"
               maxlength="255"
               placeholder="请输入经营地址"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
           </view>
         </view>
@@ -120,7 +120,7 @@
               v-model="form.settlementAccount"
               maxlength="64"
               placeholder="请输入结算账户（选填）"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
           </view>
         </view>
@@ -491,7 +491,7 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 多多买菜工具风 — 申请成为商家页（白底 + 主红 #E02020） ==================== */
+/* ==================== 多多买菜工具风 — 申请成为商家页（白底 + 品牌绿 --c-primary） ==================== */
 
 .page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
 
@@ -521,7 +521,7 @@ export default {
   padding: 4rpx 16rpx; border-radius: 999rpx;
 }
 .status-pending { color: #C77C00; background-color: #FFF4E0; }
-.status-rejected { color: #E02020; background-color: #FFECE8; }
+.status-rejected { color: var(--c-danger); background-color: var(--c-danger-soft); }
 .status-approved { color: #1F9D55; background-color: #E8F7EE; }
 .status-title {
   flex: 1; min-width: 0;
@@ -532,7 +532,7 @@ export default {
 .summary-row { display: flex; align-items: flex-start; padding: 10rpx 0; font-size: 26rpx; line-height: 1.5; }
 .summary-label { flex-shrink: 0; width: 140rpx; color: #999999; }
 .summary-value { flex: 1; min-width: 0; color: #333333; word-break: break-all; }
-.summary-remark { color: #E02020; }
+.summary-remark { color: var(--c-danger); }
 
 /* ==================== 1.1 已提交态证照预览 ==================== */
 .license-preview { display: flex; align-items: flex-start; padding: 10rpx 0; font-size: 26rpx; line-height: 1.5; }
@@ -551,7 +551,7 @@ export default {
 /* ==================== 2. 表单字段 ==================== */
 .field { margin-bottom: 24rpx; }
 .field-label { display: block; margin-bottom: 12rpx; font-size: 26rpx; font-weight: 600; color: #333333; }
-.required { color: #E02020; margin-left: 4rpx; }
+.required { color: var(--c-danger); margin-left: 4rpx; }
 .input-capsule {
   display: flex; align-items: center;
   height: 92rpx;
@@ -607,7 +607,7 @@ export default {
 }
 .license-type-arrow { flex-shrink: 0; margin-left: 12rpx; font-size: 20rpx; color: #999999; }
 .license-row-actions { display: flex; align-items: center; gap: 28rpx; margin-top: 14rpx; }
-.license-action { font-size: 24rpx; color: #E02020; }
+.license-action { font-size: 24rpx; color: var(--c-primary); }
 .license-action-del { color: #999999; }
 .license-add {
   height: 80rpx; line-height: 80rpx;
@@ -619,12 +619,12 @@ export default {
 .btn-main {
   width: 100%; height: 88rpx; line-height: 88rpx;
   margin-top: 8rpx; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 32rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
 .btn-main::after { border: none; }
-.btn-main.btn-main-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
+.btn-main.btn-main-disabled { background-color: var(--c-primary-disabled); color: rgba(255, 255, 255, 0.9); }
 .form-tip {
   display: block; margin-top: 16rpx;
   font-size: 22rpx; color: #999999; text-align: center; line-height: 1.5;

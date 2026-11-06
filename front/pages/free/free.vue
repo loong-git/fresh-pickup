@@ -1272,7 +1272,7 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 选购型免费领页 — 多多买菜风格（白底 + 主红 #E02020 + 金色舞台大卡） ==================== */
+/* ==================== 选购型免费领页 — 多多买菜风格（白底 + 品牌绿头部 var(--c-topbar) + 金色舞台大卡） ==================== */
 
 .page-container {
   min-height: 100vh;
@@ -1282,12 +1282,12 @@ export default {
 /* 购物车栏在场（非空车）时底部留出 购物车栏120rpx + 平台优惠条60rpx + 呼吸，避免固定栏遮住最后内容 */
 .page-container.with-bar { padding-bottom: 210rpx; }
 
-/* ==================== 红色头部（custom 自绘：返回 + 标题 + 右上规则｜明细） ==================== */
+/* ==================== 品牌绿头部（custom 自绘：返回 + 标题 + 右上规则｜明细；色随 --c-topbar，对齐 C7 页头口径） ==================== */
 .free-header {
   position: relative;
   display: flex;
   align-items: center;
-  background: linear-gradient(180deg, #E02020 0%, #E02020 55%, #F5F5F5 100%);
+  background: linear-gradient(180deg, var(--c-topbar) 0%, var(--c-topbar) 55%, #F5F5F5 100%);
   padding: 24rpx 24rpx 20rpx;
   padding-top: calc(24rpx + env(safe-area-inset-top));
 }
@@ -1312,14 +1312,14 @@ export default {
   display: flex; align-items: center; gap: 10rpx;
   margin: 16rpx 24rpx 0;
   height: 60rpx; padding: 0 20rpx;
-  background: linear-gradient(90deg, #FFF1F0 0%, #FFF7E0 100%);
+  background: linear-gradient(90deg, var(--c-warn-soft) 0%, #FFF7E0 100%);
   border-radius: 30rpx;
   overflow: hidden;
 }
 .broadcast-icon { font-size: 26rpx; flex-shrink: 0; line-height: 1; }
 .broadcast-text {
   flex: 1; min-width: 0;
-  font-size: 22rpx; font-weight: 600; color: #C2541F;
+  font-size: 22rpx; font-weight: 600; color: var(--c-warn);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -1336,7 +1336,7 @@ export default {
 .btn-retry {
   margin-top: 32rpx; min-width: 240rpx;
   font-size: 26rpx; font-weight: 600; color: #FFFFFF;
-  background-color: #E02020; border: none; border-radius: 32rpx;
+  background-color: var(--c-primary); border: none; border-radius: 32rpx;
   padding: 14rpx 48rpx; line-height: 1.4;
 }
 .btn-retry::after { border: none; }
@@ -1364,7 +1364,7 @@ export default {
 .hero-img { width: 100%; height: 340rpx; display: block; border-radius: 12rpx; }
 .hero-img-fallback {
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #FFECE8 0%, #FFF3E0 100%);
+  background: linear-gradient(135deg, var(--c-warn-soft) 0%, #FFF3E0 100%);
 }
 .hero-img-emoji { font-size: 110rpx; line-height: 1; }
 /* 图上悬浮「更换 ›」小按钮（随图区同步缩小） */
@@ -1386,10 +1386,10 @@ export default {
   padding: 2rpx 12rpx;
 }
 .hero-price-row { display: flex; align-items: baseline; gap: 10rpx; margin-top: 8rpx; }
-.hero-zero { font-size: 32rpx; font-weight: 700; color: #E02020; }
+.hero-zero { font-size: 32rpx; font-weight: 700; color: var(--c-warn); }
 .hero-zero-tag {
   font-size: 20rpx; font-weight: 700; color: #FFFFFF;
-  background-color: #E02020; border-radius: 8rpx;
+  background-color: var(--c-warn); border-radius: 8rpx;
   padding: 2rpx 10rpx;
 }
 .hero-origin { font-size: 24rpx; color: #999999; text-decoration: line-through; }
@@ -1404,7 +1404,7 @@ export default {
   border-radius: 36rpx;
 }
 .cd-icon { font-size: 28rpx; line-height: 1; }
-.cd-value { font-size: 30rpx; font-weight: 700; color: #E02020; font-variant-numeric: tabular-nums; }
+.cd-value { font-size: 30rpx; font-weight: 700; color: var(--c-warn); font-variant-numeric: tabular-nums; }
 .cd-suffix { font-size: 24rpx; color: #999999; }
 
 /* ==================== 进度条大按钮（未达标凑单 / 达标领取 / 置灰态；uni-button 默认样式显式覆盖） ==================== */
@@ -1413,24 +1413,24 @@ export default {
   position: relative;
   width: 100%; height: 92rpx;
   margin: 0; padding: 0;
-  background-color: #FF7A5C;
+  background-color: var(--c-warn-bright);
   color: #FFFFFF; font-size: 28rpx; font-weight: 700;
   border: none; border-radius: 46rpx;
   overflow: hidden;
   display: flex; align-items: center; justify-content: center;
 }
 .btn-claim::after { border: none; }
-/* 进度填充：购物车合计越接近门槛，深红铺得越满；达标时铺满全钮 */
+/* 进度填充：购物车合计越接近门槛，促销橙铺得越满；达标时铺满全钮 */
 .claim-fill {
   position: absolute; left: 0; top: 0; bottom: 0;
-  background: linear-gradient(90deg, #FF5A3C 0%, #E02020 100%);
+  background: linear-gradient(90deg, var(--c-warn-bright) 0%, var(--c-warn) 100%);
   transition: width 0.3s;
 }
 .btn-claim-text { position: relative; z-index: 1; line-height: 92rpx; }
-/* 达标态：整钮渐变红 + 微光阴影强调可领 */
+/* 达标态：整钮促销橙渐变 + 微光阴影强调可领 */
 .btn-claim.btn-claim-ready {
-  background: linear-gradient(90deg, #FF5A3C 0%, #E02020 100%);
-  box-shadow: 0 8rpx 20rpx rgba(224, 32, 32, 0.35);
+  background: linear-gradient(90deg, var(--c-warn-bright) 0%, var(--c-warn) 100%);
+  box-shadow: 0 8rpx 20rpx rgba(180, 83, 9, 0.35); /* --c-warn #B45309 同值 rgba：阴影色无法引变量，登记例外 */
 }
 /* 置灰态（已领/抢完/领取中）：禁用视觉 */
 .btn-claim.btn-claim-disabled { background-color: #CCCCCC; box-shadow: none; }
@@ -1445,13 +1445,13 @@ export default {
   border-radius: 16rpx;
 }
 .claim-success-title { font-size: 30rpx; font-weight: 700; color: #333333; }
-.claim-success-code { margin-top: 12rpx; font-size: 40rpx; font-weight: 700; color: #E02020; letter-spacing: 2rpx; }
+.claim-success-code { margin-top: 12rpx; font-size: 40rpx; font-weight: 700; color: var(--c-primary); letter-spacing: 2rpx; }
 .claim-success-sub { margin-top: 10rpx; font-size: 24rpx; color: #999999; }
 .claim-success-btn {
   margin-top: 16rpx;
   padding: 0 36rpx; height: 60rpx; line-height: 60rpx;
-  border: 1rpx solid #E02020; border-radius: 30rpx;
-  font-size: 26rpx; color: #E02020;
+  border: 1rpx solid var(--c-primary); border-radius: 30rpx;
+  font-size: 26rpx; color: var(--c-primary);
 }
 
 /* ==================== 商品选购区（分类 tab + 商品卡列表） ==================== */
@@ -1472,13 +1472,13 @@ export default {
 .cat-tabs { display: inline-flex; align-items: center; padding: 0 8rpx; }
 .cat-tab { position: relative; flex-shrink: 0; padding: 22rpx 24rpx; }
 .cat-tab text { font-size: 28rpx; color: #333333; font-weight: 500; }
-.cat-tab.active text { color: #E02020; font-weight: 700; }
+.cat-tab.active text { color: var(--c-primary); font-weight: 700; }
 .cat-tab.active::after {
   content: '';
   position: absolute; left: 50%; bottom: 10rpx;
   transform: translateX(-50%);
   width: 40rpx; height: 6rpx; border-radius: 3rpx;
-  background-color: #E02020;
+  background-color: var(--c-primary);
 }
 .cat-all {
   flex-shrink: 0;
@@ -1515,8 +1515,8 @@ export default {
 .dish-list { margin-top: 20rpx; }
 .error-text { font-size: 26rpx; color: #999999; }
 .error-retry {
-  font-size: 26rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 32rpx;
+  font-size: 26rpx; font-weight: 600; color: var(--c-primary);
+  border: 1rpx solid var(--c-primary); border-radius: 32rpx;
   padding: 10rpx 44rpx;
   margin-top: 20rpx;
 }
@@ -1542,7 +1542,7 @@ export default {
 .dish-seckill-tag {
   flex-shrink: 0; margin-right: 8rpx;
   font-size: 18rpx; font-weight: 700; color: #FFFFFF;
-  background-color: #E02020; border-radius: 4rpx; padding: 0 8rpx;
+  background-color: var(--c-warn); border-radius: 4rpx; padding: 0 8rpx;
   line-height: 30rpx;
 }
 .dish-name {
@@ -1556,12 +1556,12 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dish-sold-row { display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; }
-.dish-rush { font-size: 20rpx; font-weight: 600; color: #E02020; flex-shrink: 0; }
+.dish-rush { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
 .dish-sold { font-size: 20rpx; color: #999999; }
 .dish-promo-row { display: flex; align-items: center; gap: 10rpx; margin-top: 8rpx; min-height: 30rpx; }
 .tag-cut {
-  font-size: 18rpx; color: #E02020; font-weight: 600;
-  border: 1rpx solid #E02020; border-radius: 6rpx; padding: 0 8rpx;
+  font-size: 18rpx; color: var(--c-warn); font-weight: 600;
+  border: 1rpx solid var(--c-warn); border-radius: 6rpx; padding: 0 8rpx;
   line-height: 26rpx;
 }
 .tag-limit {
@@ -1575,14 +1575,14 @@ export default {
   display: flex; align-items: flex-end; justify-content: space-between;
 }
 .price-left { display: flex; align-items: baseline; min-width: 0; }
-.price-seckill-label { font-size: 20rpx; font-weight: 700; color: #E02020; margin-right: 4rpx; }
-.price-symbol { font-size: 20rpx; font-weight: 700; color: #E02020; }
-.price-big { font-size: 38rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.price-seckill-label { font-size: 20rpx; font-weight: 700; color: var(--c-warn); margin-right: 4rpx; }
+.price-symbol { font-size: 20rpx; font-weight: 700; color: var(--c-warn); }
+.price-big { font-size: 38rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .dish-action { flex-shrink: 0; margin-left: 16rpx; }
 .add-btn {
   min-width: 160rpx; height: 56rpx; padding: 0 22rpx; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #FF5A3C, #E02020);
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary));
   border-radius: 28rpx;
 }
 .add-btn text { font-size: 22rpx; font-weight: 700; color: #FFFFFF; }
@@ -1595,9 +1595,9 @@ export default {
   display: flex; align-items: center; justify-content: center;
 }
 .step-btn text { font-size: 30rpx; font-weight: 700; line-height: 1; }
-.step-minus { border: 1rpx solid #E02020; background-color: #FFFFFF; }
-.step-minus text { color: #E02020; }
-.step-plus { background-color: #E02020; }
+.step-minus { border: 1rpx solid var(--c-primary); background-color: #FFFFFF; }
+.step-minus text { color: var(--c-primary); }
+.step-plus { background-color: var(--c-primary); }
 .step-plus text { color: #FFFFFF; }
 .step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: #333333; }
 
@@ -1627,9 +1627,9 @@ export default {
 .claim-item-name { display: block; font-size: 28rpx; font-weight: 600; color: #333333; }
 .claim-item-date { display: block; margin-top: 8rpx; font-size: 22rpx; color: #999999; }
 .claim-item-right { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 8rpx; }
-.claim-item-free { font-size: 28rpx; font-weight: 700; color: #E02020; }
+.claim-item-free { font-size: 28rpx; font-weight: 700; color: var(--c-warn); }
 .claim-item-status { font-size: 20rpx; font-weight: 700; padding: 4rpx 14rpx; border-radius: 20rpx; }
-.cs-pending_pickup { color: #FF6600; background-color: #FFF3EB; }
+.cs-pending_pickup { color: var(--c-warn); background-color: var(--c-warn-soft); }
 .cs-completed { color: #999999; background-color: #F5F5F5; }
 .cs-cancelled { color: #BBBBBB; background-color: #FAFAFA; }
 .claims-state { display: flex; align-items: center; justify-content: center; padding: 40rpx 0 16rpx; }
@@ -1654,7 +1654,7 @@ export default {
 }
 .pb-label { font-size: 22rpx; font-weight: 700; color: #333333; }
 .pb-divider { font-size: 22rpx; color: #DDDDDD; }
-.pb-coupon { font-size: 22rpx; font-weight: 600; color: #E02020; }
+.pb-coupon { font-size: 22rpx; font-weight: 600; color: var(--c-warn); }
 .pb-arrow { margin-left: auto; font-size: 22rpx; color: #999999; }
 
 .cart-bar {
@@ -1669,18 +1669,18 @@ export default {
 .cart-badge {
   position: absolute; top: -4rpx; right: -4rpx;
   min-width: 30rpx; height: 30rpx; padding: 0 6rpx; box-sizing: border-box;
-  background-color: #E02020; border-radius: 15rpx;
+  background-color: var(--c-warn); border-radius: 15rpx;
   font-size: 20rpx; color: #FFFFFF; text-align: center; line-height: 30rpx;
 }
 .cart-info { display: flex; flex-direction: column; justify-content: center; gap: 4rpx; margin-left: auto; min-width: 0; }
 .cart-price-line { display: flex; align-items: baseline; }
-.cart-total-symbol { font-size: 26rpx; color: #E02020; font-weight: 700; }
-.cart-total-price { font-size: 40rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.cart-total-symbol { font-size: 26rpx; color: var(--c-warn); font-weight: 700; }
+.cart-total-price { font-size: 40rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .cart-reduced { font-size: 20rpx; color: #999999; }
 /* uniapp button 默认样式显式覆盖（去边框/圆角/内边距，::after 伪元素边框一并去掉） */
 .btn-pay {
   flex: 3; min-width: 0; margin: 0;
-  background-color: #E02E24;
+  background-color: var(--c-primary);
   color: #FFFFFF; border: none; border-radius: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6rpx;
   padding: 16rpx; line-height: 1.3;
@@ -1688,7 +1688,7 @@ export default {
 .btn-pay::after { border: none; }
 .pay-main { font-size: 30rpx; font-weight: 700; color: #FFFFFF; }
 .pay-sub-wrap { display: flex; align-items: center; }
-.pay-coupon { font-size: 22rpx; background-color: #FFD84D; color: #C23A0F; border-radius: 8rpx; padding: 2rpx 10rpx; font-weight: 600; }
+.pay-coupon { font-size: 22rpx; background-color: #FFD84D; color: var(--c-warn); border-radius: 8rpx; padding: 2rpx 10rpx; font-weight: 600; }
 
 /* ==================== 轻购物车弹层（白底圆角固定 80vh 高，与首页弹层同骨架：服务保障条 + 提货人行 + 标题/管理 + 凑单助手条 + 富卡片行（图/名称/划线价/现价/秒标/勾选圈/删除/步进器）+ 管理模式/常规模式双底部条，mask 点击关闭） ==================== */
 .cart-popup-mask {
@@ -1739,7 +1739,7 @@ export default {
 .cart-popup-title { font-size: 30rpx; font-weight: 700; color: #333333; }
 .cart-popup-count { margin-left: 12rpx; font-size: 22rpx; color: #999999; }
 .cart-popup-head-right { margin-left: auto; display: flex; align-items: center; gap: 28rpx; }
-/* 管理入口：灰字（红留给管理模式内的勾选态与删除按钮），进入管理模式后文案变「退出管理」（对照首页 cart-manage-btn） */
+/* 管理入口：灰字（勾选态主绿与删除红留给管理模式内按钮），进入管理模式后文案变「退出管理」（对照首页 cart-manage-btn） */
 .cart-manage-btn { font-size: 24rpx; font-weight: 600; color: #666666; }
 .cart-popup-close { font-size: 32rpx; color: #CCCCCC; padding: 4rpx 8rpx; line-height: 1; }
 /* 凑单助手条（对照首页弹层 helper-bar 同款文案/配色；弹层自带左右内边距） */
@@ -1747,19 +1747,19 @@ export default {
   flex-shrink: 0;
   display: flex; align-items: center; gap: 12rpx;
   margin: 0 0 12rpx; padding: 10rpx 20rpx;
-  background-color: #FFF7F0; border-radius: 10rpx;
+  background-color: var(--c-warn-soft); border-radius: 10rpx;
 }
-.hb-title { font-size: 22rpx; font-weight: 700; color: #E02020; }
+.hb-title { font-size: 22rpx; font-weight: 700; color: var(--c-warn); }
 .hb-divider { font-size: 22rpx; color: #F0D8C0; }
-.hb-text { font-size: 22rpx; color: #E0662A; }
-/* 勾选圆圈（对照首页弹层 check-circle：管理模式 item 勾选与底部全选复用同款红勾选态） */
+.hb-text { font-size: 22rpx; color: var(--c-warn); }
+/* 勾选圆圈（对照首页弹层 check-circle：管理模式 item 勾选与底部全选复用同款品牌绿勾选态） */
 .check-circle {
   width: 36rpx; height: 36rpx; flex-shrink: 0;
   border: 2rpx solid #DDDDDD; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background-color: #FFFFFF;
 }
-.check-circle.checked { border: none; background-color: #E02020; }
+.check-circle.checked { border: none; background-color: var(--c-primary); }
 .check-circle text { font-size: 20rpx; font-weight: 700; color: #FFFFFF; line-height: 1; }
 /* 列表滚动区（对照首页 .cart-items 高度策略：flex:1 撑满弹层剩余高度内部滚动，去掉原 44vh 上限——
    item 多时列表内滚、item 少时也占满高度，底部条始终钉在弹层底部） */
@@ -1781,7 +1781,7 @@ export default {
 .fci-seckill-tag {
   flex-shrink: 0; margin-right: 8rpx;
   font-size: 16rpx; font-weight: 700; color: #FFFFFF;
-  background-color: #E02020; border-radius: 4rpx; padding: 0 6rpx;
+  background-color: var(--c-warn); border-radius: 4rpx; padding: 0 6rpx;
   line-height: 26rpx;
 }
 .fci-name {
@@ -1792,18 +1792,18 @@ export default {
 .fci-price-row { display: flex; align-items: baseline; gap: 12rpx; }
 .fci-original { font-size: 20rpx; color: #BBBBBB; text-decoration: line-through; }
 .fci-price-line { display: flex; align-items: baseline; }
-.fci-symbol { font-size: 18rpx; font-weight: 700; color: #E02020; }
-.fci-price { font-size: 30rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.fci-symbol { font-size: 18rpx; font-weight: 700; color: var(--c-warn); }
+.fci-price { font-size: 30rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .fci-discount {
-  font-size: 18rpx; font-weight: 600; color: #E02020;
-  background-color: #FFECE8; border-radius: 6rpx; padding: 2rpx 8rpx;
+  font-size: 18rpx; font-weight: 600; color: var(--c-warn);
+  background-color: var(--c-warn-soft); border-radius: 6rpx; padding: 2rpx 8rpx;
 }
 .fci-action { flex-shrink: 0; }
-/* 管理模式单件「删除」文字按钮（对照首页弹层 ci-delete 同款红描边胶囊） */
+/* 管理模式单件「删除」文字按钮（对照首页弹层 ci-delete 同款危险红描边胶囊） */
 .fci-delete {
   display: inline-block;
-  font-size: 22rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 24rpx;
+  font-size: 22rpx; font-weight: 600; color: var(--c-danger);
+  border: 1rpx solid var(--c-danger); border-radius: 24rpx;
   padding: 6rpx 20rpx;
 }
 /* 空车占位（对照首页 cart-items-empty：撑满列表区后垂直+水平居中，不再靠 padding 撑高度） */
@@ -1819,7 +1819,7 @@ export default {
 .btn-manage-delete {
   margin: 0 0 0 auto;
   min-width: 160rpx; height: 72rpx; line-height: 72rpx;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-danger); color: #FFFFFF;
   font-size: 26rpx; font-weight: 700;
   border: none; border-radius: 36rpx; padding: 0 44rpx;
   text-align: center;
@@ -1827,12 +1827,12 @@ export default {
 .btn-manage-delete::after { border: none; }
 .ctb-price { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2rpx; margin-right: 16rpx; }
 .ctb-price-line { display: flex; align-items: baseline; }
-.ctb-price-num { font-size: 36rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.ctb-price-num { font-size: 36rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .ctb-saving { font-size: 20rpx; color: #999999; }
 .btn-pay-popup {
   flex-shrink: 0; margin: 0;
   min-width: 200rpx; height: 76rpx; line-height: 76rpx;
-  background-color: #E02E24; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 26rpx; font-weight: 700;
   border: none; border-radius: 38rpx; padding: 0 36rpx;
   text-align: center;
@@ -1896,7 +1896,7 @@ export default {
 .change-btn {
   margin-top: 16rpx; width: 100%; height: 56rpx;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #FF5A3C, #E02020);
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary));
   border-radius: 28rpx;
 }
 .change-btn text { font-size: 24rpx; font-weight: 700; color: #FFFFFF; }

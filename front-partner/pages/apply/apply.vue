@@ -65,7 +65,7 @@
             maxlength="100"
             :value="form.proposedName"
             placeholder="必填，100 字以内"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onNameInput"
           />
         </view>
@@ -76,7 +76,7 @@
             maxlength="255"
             :value="form.proposedAddress"
             placeholder="必填，写清门牌号，255 字以内"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onAddressInput"
           />
         </view>
@@ -97,7 +97,7 @@
             maxlength="12"
             :value="form.lng"
             placeholder="可手填，如 121.473700"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onLngInput"
           />
         </view>
@@ -109,7 +109,7 @@
             maxlength="12"
             :value="form.lat"
             placeholder="可手填，如 31.230400"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onLatInput"
           />
         </view>
@@ -122,7 +122,7 @@
             maxlength="50"
             :value="form.service"
             placeholder="选填，50 字以内，如 支持冷冻自提"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onServiceInput"
           />
         </view>
@@ -133,7 +133,7 @@
             maxlength="50"
             :value="form.contactName"
             placeholder="选填，50 字以内"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onContactNameInput"
           />
         </view>
@@ -145,7 +145,7 @@
             maxlength="11"
             :value="form.contactPhone"
             placeholder="选填，11 位大陆手机号"
-            placeholder-style="color:#BBBBBB;"
+            placeholder-style="color:var(--c-text-3);"
             @input="onPhoneInput"
           />
         </view>

@@ -237,7 +237,7 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 多多买菜风格 — 我的优惠券页（白底 + 主红 #E02020，F-10 自领券中心页随块迁移） ==================== */
+/* ==================== 多多买菜风格 — 我的优惠券页（白底 + 品牌主色 var(--c-primary)，F-10 自领券中心页随块迁移） ==================== */
 
 .page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
 
@@ -253,18 +253,18 @@ export default {
 /* 游客态登录引导行（照我的页） */
 .guide-row {
   display: flex; align-items: center; justify-content: space-between;
-  background-color: #FFF7F0; border-radius: 12rpx;
+  background-color: var(--c-warn-soft); border-radius: 12rpx;
   padding: 24rpx;
 }
 .guide-text { font-size: 26rpx; color: #666666; }
-.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: #E02020; }
+.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-primary); }
 
 /* 错误态行（可点击重试，照我的页） */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
 .error-text { font-size: 24rpx; color: #999999; }
 .error-retry {
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: var(--c-primary);
+  border: 1rpx solid var(--c-primary); border-radius: 28rpx;
   padding: 8rpx 36rpx; line-height: 1.4;
 }
 
@@ -272,20 +272,20 @@ export default {
 .coupon-list { display: flex; flex-direction: column; gap: 16rpx; }
 .coupon-item {
   display: flex; align-items: center; gap: 20rpx;
-  border: 1rpx solid #FFE3E0; border-radius: 12rpx;
+  border: 1rpx solid var(--c-warn-hair); border-radius: 12rpx;
   padding: 20rpx;
-  background: linear-gradient(90deg, #FFF5F4, #FFFFFF);
+  background: linear-gradient(90deg, var(--c-warn-soft), #FFFFFF);
 }
 .coupon-face {
   flex-shrink: 0; width: 170rpx; box-sizing: border-box;
   display: flex; flex-direction: column; align-items: center; gap: 4rpx;
-  border-right: 1rpx dashed #F0C8C5;
+  border-right: 1rpx dashed var(--c-warn-hair);
   padding-right: 20rpx;
 }
-.coupon-amount-line { display: flex; align-items: baseline; color: #E02020; }
+.coupon-amount-line { display: flex; align-items: baseline; color: var(--c-warn); }
 .coupon-symbol { font-size: 24rpx; font-weight: 700; }
 .coupon-amount { font-size: 44rpx; font-weight: 700; line-height: 1; }
-.coupon-threshold { font-size: 20rpx; color: #E02020; }
+.coupon-threshold { font-size: 20rpx; color: var(--c-warn); }
 .coupon-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
 .coupon-main { font-size: 28rpx; font-weight: 700; color: #333333; }
 .coupon-expire { font-size: 22rpx; color: #999999; }
@@ -306,7 +306,7 @@ export default {
   background-color: #F5F5F5; border-radius: 24rpx;
   padding: 12rpx 0; border: 1rpx solid #EEEEEE;
 }
-.coupon-tab.active { color: #FFFFFF; font-weight: 700; background-color: #E02020; border-color: #E02020; }
+.coupon-tab.active { color: #FFFFFF; font-weight: 700; background-color: var(--c-primary); border-color: var(--c-primary); }
 
 /* 空态行 */
 .empty-row { display: flex; justify-content: center; padding: 40rpx 0; }

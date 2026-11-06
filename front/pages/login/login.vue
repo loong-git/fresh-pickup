@@ -39,7 +39,7 @@
           type="number"
           maxlength="11"
           placeholder="请输入手机号码"
-          placeholder-style="color:#BBBBBB;"
+          placeholder-style="color:var(--c-text-3);"
         />
       </view>
       <view class="input-capsule">
@@ -49,7 +49,7 @@
           type="number"
           maxlength="6"
           placeholder="请输入验证码"
-          placeholder-style="color:#BBBBBB;"
+          placeholder-style="color:var(--c-text-3);"
         />
         <button
           class="btn-send-code"
@@ -72,7 +72,7 @@
           type="number"
           maxlength="11"
           placeholder="请输入手机号码"
-          placeholder-style="color:#BBBBBB;"
+          placeholder-style="color:var(--c-text-3);"
         />
       </view>
       <view class="input-capsule">
@@ -82,7 +82,7 @@
           :password="true"
           maxlength="20"
           placeholder="请输入密码（6-20位）"
-          placeholder-style="color:#BBBBBB;"
+          placeholder-style="color:var(--c-text-3);"
         />
       </view>
       <button class="btn-main" :class="{ 'btn-main-disabled': pwdLogging }" :disabled="pwdLogging" @click="loginWithPassword"><text>{{ pwdLogging ? '登录中…' : '登录' }}</text></button>
@@ -297,7 +297,7 @@ export default {
 </script>
 
 <style scoped>
-/* 多多买菜风格：白底 + 主红 #E02020 + 圆角胶囊输入框 */
+/* 多多买菜风格：白底 + 品牌绿 var(--c-primary) + 圆角胶囊输入框 */
 .login-page {
   position: relative;
   min-height: 100vh;
@@ -330,7 +330,7 @@ export default {
 .invite-banner {
   display: flex; align-items: center; gap: 20rpx;
   margin-top: -56rpx;
-  background: linear-gradient(90deg, #FF6600, #E02020);
+  background: linear-gradient(90deg, var(--c-warn-bright), var(--c-warn));
   border-radius: 24rpx;
   padding: 24rpx 28rpx;
 }
@@ -339,7 +339,7 @@ export default {
 .invite-banner-title { font-size: 28rpx; font-weight: 700; color: #FFFFFF; line-height: 1.3; }
 .invite-banner-sub { font-size: 22rpx; color: rgba(255, 255, 255, 0.92); line-height: 1.3; }
 
-/* ==================== 2. tab 切换（红色下划线激活态） ==================== */
+/* ==================== 2. tab 切换（品牌绿下划线激活态） ==================== */
 .tabs {
   display: flex; justify-content: center; gap: 96rpx;
   margin-top: 72rpx;
@@ -350,11 +350,11 @@ export default {
   min-width: 160rpx; padding-bottom: 18rpx;
 }
 .tab-text { font-size: 30rpx; color: #666666; line-height: 1; }
-.tab-text-active { color: #E02020; font-weight: 700; }
+.tab-text-active { color: var(--c-primary); font-weight: 700; }
 .tab-underline {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
   width: 48rpx; height: 6rpx; border-radius: 6rpx;
-  background-color: #E02020;
+  background-color: var(--c-primary);
 }
 
 /* ==================== 3/4. 登录表单（圆角胶囊输入框） ==================== */
@@ -373,7 +373,7 @@ export default {
 .btn-send-code {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
   height: 68rpx; line-height: 68rpx;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 24rpx; font-weight: 600;
   border: none; border-radius: 999rpx;
 }
@@ -389,10 +389,10 @@ export default {
 .btn-main {
   width: 100%; height: 88rpx; line-height: 88rpx;
   margin-top: 40rpx; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 32rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
 /* 提交飞行中禁用态：置灰提示"登录中…"，防重复提交（对照首页 .btn-confirm-disabled） */
-.btn-main.btn-main-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
+.btn-main.btn-main-disabled { background-color: var(--c-primary-disabled); color: rgba(255, 255, 255, 0.9); }
 </style>

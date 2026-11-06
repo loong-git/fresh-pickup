@@ -520,7 +520,7 @@ export default {
   background-color: #FFFFFF; border-radius: 24rpx;
   padding: 12rpx 0; border: 1rpx solid #EEEEEE;
 }
-.status-tab.active { color: #FFFFFF; font-weight: 700; background-color: #E02020; border-color: #E02020; }
+.status-tab.active { color: #FFFFFF; font-weight: 700; background-color: var(--c-primary); border-color: var(--c-primary); }
 
 /* P4-1：刷新保留旧列表时的轻提示；首屏加载态（无旧数据） */
 .refresh-tip { text-align: center; font-size: 22rpx; color: #999999; padding: 4rpx 0 12rpx; }
@@ -531,7 +531,7 @@ export default {
 .order-top { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 24rpx; border-bottom: 1rpx solid #F5F5F5; }
 .order-id { font-size: 24rpx; color: #999999; }
 .order-status { font-size: 22rpx; font-weight: 700; padding: 4rpx 16rpx; border-radius: 20rpx; }
-.st-pending_pickup { color: #FF6600; background-color: #FFF3EB; }
+.st-pending_pickup { color: var(--c-warn); background-color: var(--c-warn-soft); }
 .st-completed { color: #999999; background-color: #F5F5F5; }
 .st-cancelled { color: #BBBBBB; background-color: #FAFAFA; }
 
@@ -539,7 +539,7 @@ export default {
 .order-badges { display: flex; align-items: center; gap: 8rpx; flex-shrink: 0; }
 .pay-badge { font-size: 20rpx; font-weight: 700; padding: 4rpx 14rpx; border-radius: 20rpx; }
 .pay-paid { color: #07C160; background-color: #E8F8EF; }
-.pay-unpaid { color: #FF6600; background-color: #FFF3EB; }
+.pay-unpaid { color: var(--c-warn); background-color: var(--c-warn-soft); }
 /* 已退款徽标（已支付单取消后端置 pay_status=2）：灰底灰字弱化展示 */
 .pay-refund { color: #999999; background-color: #F5F5F5; }
 
@@ -553,7 +553,7 @@ export default {
 /* 超长商品名 clamp（M3-T-07）：单行省略，min-width:0 允许 flex 子项收缩触发 ellipsis */
 .oi-name { flex: 1; min-width: 0; font-size: 26rpx; color: #333333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oi-qty { font-size: 24rpx; color: #999999; margin: 0 20rpx; }
-.oi-price { font-size: 26rpx; font-weight: 600; color: #FF3333; }
+.oi-price { font-size: 26rpx; font-weight: 600; color: var(--c-warn); }
 .order-item-empty { padding: 12rpx 0; font-size: 22rpx; color: #CCCCCC; }
 
 .order-info { padding: 0 24rpx; border-top: 1rpx solid #F5F5F5; }
@@ -575,12 +575,12 @@ export default {
 
 .order-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12rpx; padding: 18rpx 24rpx; border-top: 1rpx solid #F5F5F5; }
 .of-label { font-size: 24rpx; color: #999999; }
-.of-price { font-size: 34rpx; font-weight: 700; color: #FF3333; }
+.of-price { font-size: 34rpx; font-weight: 700; color: var(--c-warn); }
 /* 取消订单按钮：白底红字描边，取消中禁用置灰 */
 .btn-cancel {
   margin-right: auto;
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: var(--c-danger);
+  background-color: #FFFFFF; border: 1rpx solid var(--c-danger); border-radius: 28rpx;
   padding: 8rpx 28rpx; line-height: 1.4;
 }
 .btn-cancel[disabled] { color: #CCCCCC; border-color: #DDDDDD; background-color: #FAFAFA; }
@@ -589,11 +589,11 @@ export default {
 .btn-pay-order {
   margin-left: 12rpx;
   font-size: 24rpx; font-weight: 600; color: #FFFFFF;
-  background-color: #E02020; border: none; border-radius: 28rpx;
+  background-color: var(--c-primary); border: none; border-radius: 28rpx;
   padding: 8rpx 28rpx; line-height: 1.4;
 }
 .btn-pay-order::after { border: none; }
-.btn-pay-order[disabled] { color: #FFFFFF; background-color: #F5B5B0; }
+.btn-pay-order[disabled] { color: #FFFFFF; background-color: var(--c-primary-disabled); }
 
 /* 加载更多 */
 .load-more { display: flex; justify-content: center; padding: 8rpx 0 24rpx; }
@@ -611,27 +611,27 @@ export default {
 .empty-icon { font-size: 80rpx; margin-bottom: 20rpx; }
 .empty-label { font-size: 30rpx; font-weight: 700; color: #333333; margin-bottom: 10rpx; }
 .empty-sub { font-size: 24rpx; color: #999999; margin-bottom: 40rpx; }
-.btn-go { background: linear-gradient(90deg, #FF6B35, #FF6600); color: #FFFFFF; font-size: 26rpx; font-weight: 700; border: none; border-radius: 0; padding: 18rpx 56rpx; }
+.btn-go { background: linear-gradient(90deg, var(--c-primary), var(--c-primary)); color: #FFFFFF; font-size: 26rpx; font-weight: 700; border: none; border-radius: 0; padding: 18rpx 56rpx; }
 
 /* 错误态（M3-T-05 部分）：白底红字描边重试按钮 */
 .error-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 240rpx; }
-.btn-retry { min-width: 240rpx; font-size: 26rpx; font-weight: 600; color: #E02020; background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 0; padding: 16rpx 56rpx; line-height: 1.4; }
+.btn-retry { min-width: 240rpx; font-size: 26rpx; font-weight: 600; color: var(--c-danger); background-color: #FFFFFF; border: 1rpx solid var(--c-danger); border-radius: 0; padding: 16rpx 56rpx; line-height: 1.4; }
 
 /* ==================== P6-1 再来一单 + 进展时间线 ==================== */
-/* 时间线区：节点行沿用本页既有色板（#E02020 主红高亮、#07C160 到货/已支付绿系 tag、既有灰阶），零新色系 */
+/* 时间线区：节点行沿用本页既有色板（--c-primary 品牌绿高亮、#07C160 到货/已支付绿系 tag、既有灰阶），零新色系 */
 .order-timeline { padding: 4rpx 24rpx 12rpx; border-top: 1rpx solid #F5F5F5; }
 .tl-node { display: flex; align-items: center; gap: 12rpx; padding: 8rpx 0; }
 .tl-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background-color: #DDDDDD; flex-shrink: 0; }
 .tl-label { font-size: 24rpx; color: #999999; }
 .tl-time { font-size: 22rpx; color: #BBBBBB; }
-.tl-active .tl-dot { background-color: #E02020; }
+.tl-active .tl-dot { background-color: var(--c-primary); }
 .tl-active .tl-label { color: #333333; font-weight: 600; }
 .tl-tag { font-size: 20rpx; font-weight: 700; color: #07C160; background-color: #E8F8EF; padding: 2rpx 12rpx; border-radius: 16rpx; }
 /* 再来一单按钮：白底红字描边（btn-cancel 同族色系，但不带 margin-right:auto——常驻右侧操作区） */
 .btn-reorder {
   margin-left: 12rpx;
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  background-color: #FFFFFF; border: 1rpx solid #E02020; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: var(--c-primary);
+  background-color: #FFFFFF; border: 1rpx solid var(--c-primary); border-radius: 28rpx;
   padding: 8rpx 28rpx; line-height: 1.4;
 }
 .btn-reorder::after { border: none; }

@@ -30,20 +30,20 @@
       <view class="card form-card">
         <view class="field-row de-field-name" :class="{ 'field-error': errorKey === 'name' }">
           <text class="field-label">名称</text>
-          <input class="field-input" v-model="form.name" maxlength="100" placeholder="必填，如 山东红富士苹果" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input" v-model="form.name" maxlength="100" placeholder="必填，如 山东红富士苹果" placeholder-style="color:var(--c-text-3);" />
         </view>
         <view class="field-row de-field-price" :class="{ 'field-error': errorKey === 'price' }">
           <text class="field-label">价格</text>
           <!-- F-124/M19：秒杀件挂牌价前端只读——置灰（保留现值展示，placeholder 只在空值时顶替）+ 旁加说明行；
                不禁保存：只读只落在 payload 不发 price 键上（见 buildPayload），其余字段照常可改 -->
-          <input class="field-input" v-model="form.price" type="digit" :disabled="isSeckill" :placeholder="isSeckill ? '秒杀商品挂牌价由运营维护' : '必填，单位元'" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input" v-model="form.price" type="digit" :disabled="isSeckill" :placeholder="isSeckill ? '秒杀商品挂牌价由运营维护' : '必填，单位元'" placeholder-style="color:var(--c-text-3);" />
           <text class="field-suffix">元</text>
         </view>
         <!-- F-124/M19：秒杀件才出的说明行，样式复用本页既有 field-hint -->
         <text v-if="isSeckill" class="field-hint de-price-seckill-hint">该商品参与平台秒杀，成交价按秒杀价结算；调价请联系运营</text>
         <view class="field-row de-field-unit" :class="{ 'field-error': errorKey === 'unit' }">
           <text class="field-label">单位</text>
-          <input class="field-input" v-model="form.unit" maxlength="20" placeholder="必填，如 斤 / 盒 / 份" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input" v-model="form.unit" maxlength="20" placeholder="必填，如 斤 / 盒 / 份" placeholder-style="color:var(--c-text-3);" />
         </view>
         <!-- 类目：11 类只选不建（F-13.4），取值域来自字典 dish_category，页内不硬编码枚举 -->
         <picker class="row-picker" mode="selector" :range="categoryLabels" :value="categoryIndex" @change="onCategoryChange">
@@ -60,7 +60,7 @@
         <!-- 库存两态分开：新增带初始值（POST 必填），编辑只给增量（PUT 见 stock 非 null 即 400，R7'） -->
         <view v-if="!isEdit" class="field-row de-field-stock" :class="{ 'field-error': errorKey === 'stock' }">
           <text class="field-label">库存</text>
-          <input class="field-input" v-model="form.stock" type="number" placeholder="必填，0~99999" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input" v-model="form.stock" type="number" placeholder="必填，0~99999" placeholder-style="color:var(--c-text-3);" />
         </view>
         <view v-else class="field-row field-row-wrap">
           <text class="field-label">库存</text>
@@ -72,7 +72,7 @@
           <!-- 方向回显：数量框是 type="number"（能打出负号），把当前符号钉在框旁边，
                让「方向只有 stockSign 一处真值」这件事在界面上也只看一处（框里打负号会被直接拦下，见 adjustStock） -->
           <text class="stock-sign-echo">{{ stockSign === 'minus' ? '−' : '＋' }}</text>
-          <input class="field-input stock-input" v-model="stockDelta" type="number" placeholder="数量" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input stock-input" v-model="stockDelta" type="number" placeholder="数量" placeholder-style="color:var(--c-text-3);" />
           <button class="btn-sub" :class="{ 'btn-sub-disabled': adjusting || writeBlocked || leaving || writeGates.stock.seconds > 0 }" :disabled="adjusting || writeBlocked || leaving || writeGates.stock.seconds > 0" @click="adjustStock">
             <text>{{ adjusting ? '调整中…' : (writeGates.stock.seconds > 0 ? '库存冷却中' : '调整') }}</text>
           </button>
@@ -85,20 +85,20 @@
 
         <view class="field-row de-field-limitBuy" :class="{ 'field-error': errorKey === 'limitBuy' }">
           <text class="field-label">限购</text>
-          <input class="field-input" v-model="form.limitBuy" type="number" placeholder="必填，1~20" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input" v-model="form.limitBuy" type="number" placeholder="必填，1~20" placeholder-style="color:var(--c-text-3);" />
         </view>
         <view class="field-row de-field-emoji" :class="{ 'field-error': errorKey === 'emoji' }">
           <text class="field-label">emoji</text>
-          <input class="field-input" v-model="form.emoji" maxlength="50" placeholder="无图时 C 端显示的占位表情" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input" v-model="form.emoji" maxlength="50" placeholder="无图时 C 端显示的占位表情" placeholder-style="color:var(--c-text-3);" />
         </view>
         <view class="field-row de-field-bgColor" :class="{ 'field-error': errorKey === 'bgColor' }">
           <text class="field-label">背景色</text>
-          <input class="field-input" v-model="form.bgColor" maxlength="20" placeholder="如 #FFF1E6" placeholder-style="color:#BBBBBB;" />
+          <input class="field-input" v-model="form.bgColor" maxlength="20" placeholder="如 #FFF1E6" placeholder-style="color:var(--c-text-3);" />
           <view class="color-chip" :style="{ backgroundColor: safeColor }"></view>
         </view>
         <view class="field-row field-row-col de-field-description" :class="{ 'field-error': errorKey === 'description' }">
           <text class="field-label">描述</text>
-          <textarea class="field-textarea" v-model="form.description" maxlength="2000" placeholder="选填，2000 字以内" placeholder-style="color:#BBBBBB;" />
+          <textarea class="field-textarea" v-model="form.description" maxlength="2000" placeholder="选填，2000 字以内" placeholder-style="color:var(--c-text-3);" />
         </view>
 
         <!-- 标签：最多 5 个、每个 ≤12 字（服务端 @Size 同口径，本地拦一句是为了不让用户白填） -->
@@ -111,7 +111,7 @@
             </view>
           </view>
           <view class="tag-row">
-            <input class="field-input tag-input" v-model="tagInput" maxlength="12" placeholder="如 产地直发，回车或点添加" placeholder-style="color:#BBBBBB;" @confirm="addTag" />
+            <input class="field-input tag-input" v-model="tagInput" maxlength="12" placeholder="如 产地直发，回车或点添加" placeholder-style="color:var(--c-text-3);" @confirm="addTag" />
             <button class="btn-sub" :class="{ 'btn-sub-disabled': tags.length >= 5 }" :disabled="tags.length >= 5" @click="addTag"><text>添加</text></button>
           </view>
           <text class="field-hint">最多 5 个，每个 12 字以内；点标签可删除</text>

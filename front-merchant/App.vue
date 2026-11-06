@@ -114,6 +114,9 @@ export default {
 	--c-shadow: rgba(28, 25, 23, 0.06);
 	--c-warn-hair: #FFD591;
 	--c-danger-hair: #FECACA;
+	/* 滚动条美化变量（P10-4 A2，与运营端 P9-fix2 同构）：thumb 常态色 / hover 提亮色，全局规则块见 style 段末尾 */
+	--c-scroll-thumb: #D6D3CD;
+	--c-scroll-thumb-hover: #A8A29E;
 }
 :root.dark {
 	--c-bg: #0A0A0B;
@@ -139,6 +142,9 @@ export default {
 	--c-shadow: rgba(0, 0, 0, 0.4);
 	--c-warn-hair: #4A3B14;
 	--c-danger-hair: #4A2224;
+	/* 滚动条变量深色档（P10-4 A2） */
+	--c-scroll-thumb: #3F3F46;
+	--c-scroll-thumb-hover: #52525B;
 }
 
 /* #ifndef H5 */
@@ -193,5 +199,32 @@ uni-page-head {
 /* 全局按钮禁用 hover 效果（小程序不支持） */
 button::after {
 	border: none;
+}
+
+/* ---- P10-4 A2 全局滚动条美化（与运营端 P9-fix2 同构；本组件 <style> 无 scoped，天然全局）----
+   颜色两主题随 --c-scroll-thumb(-hover) 变量走（浅 #D6D3CD→hover #A8A29E / 深 #3F3F46→hover #52525B）：
+   标准轨（Firefox 与新 Chrome）scrollbar-width thin + 轨透明，页面与弹层滚动条一并不漂；
+   webkit 兜底（旧 Chrome/Edge/Safari）6px 细条 + 3px 圆角 thumb，hover 提亮，corner 透明。
+   小程序端 wxss 无滚动条渲染概念，本块不生效亦无害 */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--c-scroll-thumb) transparent;
+}
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	background: var(--c-scroll-thumb);
+	border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--c-scroll-thumb-hover);
+}
+::-webkit-scrollbar-corner {
+	background: transparent;
 }
 </style>

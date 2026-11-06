@@ -137,5 +137,5 @@ export default {
   border-radius: 44rpx;
   box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.25);
 }
-.fgg-cta-text { font-size: 32rpx; font-weight: 700; color: #E02020; letter-spacing: 4rpx; }
+.fgg-cta-text { font-size: 32rpx; font-weight: 700; color: var(--c-warn); letter-spacing: 4rpx; } /* P10-4 C7 补漏：金胶囊引导字按促销语义走价签橙（金底橙字），旧红清零 */
 </style>

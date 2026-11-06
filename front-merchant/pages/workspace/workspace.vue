@@ -52,6 +52,24 @@
       <view class="card cell-card">
         <view class="cell" @click="toggleTheme">
           <text class="cell-icon">🌗</text>
+          <!-- P10-4 A1 主题 cell 日月图标（feather 风格内联 SVG，14px，语义与运营端 P9-fix2 一致）：
+               显示的是点击后进入的主题：浅色档显示月亮（点击进深色）、深色档显示太阳（点击回浅色）；
+               stroke=currentColor 随主题字色变色，零新增 import（守不引图标库纪律）。
+               本 cell 整块已在外层 H5 条件编译区内（主题机制 H5-only），SVG 随之仅 H5 渲染；右侧文字读数不动 -->
+          <svg v-if="theme === 'light'" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
           <text class="cell-title">主题</text>
           <text class="cell-sub">当前{{ themeName }} · 点击切换</text>
           <text class="cell-arrow">›</text>

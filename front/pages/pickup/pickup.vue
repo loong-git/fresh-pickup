@@ -1158,7 +1158,7 @@ page {
 	color: #333333;
 }
 .tab-active .tab-text {
-	color: #e02020;
+	color: var(--c-primary);
 	font-weight: bold;
 }
 /* 红色下划线指示 */
@@ -1170,7 +1170,7 @@ page {
 	width: 56rpx;
 	height: 6rpx;
 	border-radius: 3rpx;
-	background-color: #e02020;
+	background-color: var(--c-primary);
 }
 
 /* ============ 分组标题 ============ */
@@ -1208,7 +1208,7 @@ page {
 /* 当前自提点大卡 */
 .current-card {
 	background-color: #ffffff;
-	border: 1rpx solid #ffe3e3;
+	border: 1rpx solid var(--c-primary-hair);
 }
 /* 停业卡置灰 */
 .card-disabled {
@@ -1227,7 +1227,7 @@ page {
 	align-items: center;
 	justify-content: center;
 	font-size: 52rpx;
-	background-color: #fdecec;
+	background-color: var(--c-primary-soft);
 	border-radius: 12rpx;
 	margin-right: 20rpx;
 }
@@ -1273,8 +1273,8 @@ page {
 /* 冷冻/冷藏服务标签：浅红底红字圆角 */
 .service-tag {
 	font-size: 22rpx;
-	color: #e02020;
-	background-color: #fdecec;
+	color: var(--c-primary);
+	background-color: var(--c-primary-soft);
 	border-radius: 8rpx;
 	padding: 4rpx 14rpx;
 }
@@ -1294,7 +1294,7 @@ page {
 	height: 60rpx;
 	padding: 0 28rpx;
 	margin: 0;
-	background-color: #e02020;
+	background-color: var(--c-primary);
 	color: #ffffff;
 	font-size: 26rpx;
 	line-height: 1;
@@ -1315,7 +1315,7 @@ page {
 /* 当前门店停业警示（M4-T-01）：红字醒目 */
 .closed-warn {
 	font-size: 24rpx;
-	color: #e02020;
+	color: var(--c-danger);
 	font-weight: 600;
 	margin-top: 10rpx;
 }
@@ -1369,7 +1369,7 @@ page {
 }
 .locate-text {
 	font-size: 28rpx;
-	color: #e02020;
+	color: var(--c-primary);
 }
 
 /* 静态占位区（F-06 后模板已不引用 .empty-area，保留待未搜索态回归） */
@@ -1403,7 +1403,7 @@ page {
 	height: 72rpx;
 	padding: 0;
 	margin: 0 20rpx 0 0;
-	background-color: #e02020;
+	background-color: var(--c-primary);
 	color: #ffffff;
 	font-size: 28rpx;
 	line-height: 1;
@@ -1422,10 +1422,10 @@ page {
 	padding: 0;
 	margin: 0;
 	background-color: #ffffff;
-	color: #e02020;
+	color: var(--c-primary);
 	font-size: 28rpx;
 	line-height: 1;
-	border: 1rpx solid #e02020;
+	border: 1rpx solid var(--c-primary);
 	border-radius: 36rpx;
 }
 .btn-ghost::after {
@@ -1504,8 +1504,8 @@ page {
 	margin-left: 12rpx;
 	font-size: 22rpx;
 	font-weight: 600;
-	color: #e02020;
-	background-color: #fdecec;
+	color: var(--c-primary);
+	background-color: var(--c-primary-soft);
 	border-radius: 8rpx;
 	padding: 4rpx 12rpx;
 }

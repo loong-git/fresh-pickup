@@ -34,7 +34,7 @@
         :value="code"
         :focus="codeFocus"
         placeholder="请输入取货码（6 位数字）"
-        placeholder-style="color:#BBBBBB;"
+        placeholder-style="color:var(--c-text-3);"
         @input="onCodeInput"
       />
       <button

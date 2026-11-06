@@ -13,7 +13,7 @@
           :password="true"
           maxlength="20"
           placeholder="请输入新密码（6-20位）"
-          placeholder-style="color:#BBBBBB;"
+          placeholder-style="color:var(--c-text-3);"
         />
       </view>
       <view class="input-capsule">
@@ -23,7 +23,7 @@
           :password="true"
           maxlength="20"
           placeholder="请再次输入新密码"
-          placeholder-style="color:#BBBBBB;"
+          placeholder-style="color:var(--c-text-3);"
         />
       </view>
       <button class="btn-main" :class="{ 'btn-main-disabled': settingPwd }" :disabled="settingPwd" @click="confirmSetPassword"><text>{{ settingPwd ? '设置中…' : '保存新密码' }}</text></button>
@@ -49,7 +49,7 @@
               type="number"
               maxlength="6"
               placeholder="请输入验证码"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
             <button
               class="pc-send"
@@ -72,7 +72,7 @@
               type="number"
               maxlength="11"
               placeholder="请输入新手机号"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
           </view>
           <view class="pc-capsule">
@@ -82,7 +82,7 @@
               type="number"
               maxlength="6"
               placeholder="请输入验证码"
-              placeholder-style="color:#BBBBBB;"
+              placeholder-style="color:var(--c-text-3);"
             />
             <button
               class="pc-send"
@@ -390,7 +390,7 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 多多买菜工具风 — 账号安全页（白底 + 主红 #E02020） ==================== */
+/* ==================== 多多买菜工具风 — 账号安全页（白底 + 品牌绿 var(--c-primary)） ==================== */
 
 .page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
 
@@ -424,20 +424,20 @@ export default {
 .btn-main {
   width: 100%; height: 88rpx; line-height: 88rpx;
   margin-top: 16rpx; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 32rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
-.btn-main.btn-main-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
+.btn-main.btn-main-disabled { background-color: var(--c-primary-disabled); color: rgba(255, 255, 255, 0.9); }
 
 /* ==================== 2. 绑定手机号（当前号一行 + 行尾胶囊按钮） ==================== */
 .phone-row { display: flex; align-items: center; justify-content: space-between; padding: 8rpx 0 4rpx; }
 .phone-now { font-size: 30rpx; font-weight: 600; color: #333333; }
 .cell-action {
   flex-shrink: 0;
-  font-size: 24rpx; font-weight: 600; color: #E02020;
+  font-size: 24rpx; font-weight: 600; color: var(--c-primary);
   padding: 6rpx 20rpx; line-height: 1.4;
-  border: 1rpx solid #E02020; border-radius: 24rpx;
+  border: 1rpx solid var(--c-primary); border-radius: 24rpx;
 }
 
 /* ==================== 2.1 F-08 更换手机号卡区（自 mine.vue 整体搬入，样式与观感不变） ==================== */
@@ -462,7 +462,7 @@ export default {
 .pc-send {
   flex-shrink: 0; margin: 0; padding: 0 24rpx;
   height: 64rpx; line-height: 64rpx;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 22rpx; font-weight: 600;
   border: none; border-radius: 999rpx;
 }
@@ -477,15 +477,15 @@ export default {
   display: block;
   width: 100%; height: 80rpx; line-height: 80rpx;
   margin-top: 24rpx; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 30rpx; font-weight: 700;
   border: none; border-radius: 999rpx; text-align: center;
 }
 .pc-main::after { border: none; }
-.pc-main.pc-main-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
+.pc-main.pc-main-disabled { background-color: var(--c-primary-disabled); color: rgba(255, 255, 255, 0.9); }
 .pc-back {
   display: block; margin-top: 20rpx;
-  font-size: 24rpx; color: #E02020; text-align: center;
+  font-size: 24rpx; color: var(--c-primary); text-align: center;
 }
 
 .page-bottom-space { height: env(safe-area-inset-bottom); }

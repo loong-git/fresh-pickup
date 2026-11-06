@@ -416,14 +416,14 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 多多买菜工具风 — 我的页（白底 + 主红 #E02020） ==================== */
+/* ==================== 多多买菜工具风 — 我的页（白底 + 品牌主色 var(--c-primary)） ==================== */
 
 .page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
 
 /* ==================== 1. 红色头部 + 身份卡（白卡叠压红头下缘） ==================== */
 .mine-header {
   position: relative;
-  background: linear-gradient(180deg, #E02020 0%, #E02020 55%, #F5F5F5 100%);
+  background: linear-gradient(180deg, var(--c-primary) 0%, var(--c-primary) 55%, #F5F5F5 100%);
   padding: 24rpx 24rpx 72rpx;
   padding-top: calc(24rpx + env(safe-area-inset-top));
 }
@@ -434,11 +434,11 @@ export default {
   display: flex; align-items: center; gap: 20rpx;
   background-color: #FFFFFF; border-radius: 16rpx;
   padding: 28rpx 24rpx;
-  box-shadow: 0 4rpx 16rpx rgba(224,32,32,.08);
+  box-shadow: 0 4rpx 16rpx var(--c-shadow);
 }
 .avatar-box {
   flex-shrink: 0; width: 96rpx; height: 96rpx; border-radius: 50%;
-  background-color: #FFECE8;
+  background-color: var(--c-primary-soft);
   display: flex; align-items: center; justify-content: center;
   position: relative;
   overflow: visible;
@@ -452,7 +452,7 @@ export default {
 .avatar-editable { cursor: pointer; }
 .user-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
 .user-phone { font-size: 34rpx; font-weight: 700; color: #333333; }
-.user-phone-guest { color: #E02020; }
+.user-phone-guest { color: var(--c-primary); }
 .user-sub { font-size: 22rpx; color: #999999; }
 .user-arrow { flex-shrink: 0; font-size: 36rpx; color: #CCCCCC; }
 
@@ -479,7 +479,7 @@ export default {
   display: block;
   width: calc(100% - 48rpx); box-sizing: border-box;
   margin: 40rpx 24rpx 0; padding: 24rpx 0;
-  font-size: 28rpx; font-weight: 600; color: #E02020;
+  font-size: 28rpx; font-weight: 600; color: var(--c-danger);
   background-color: #FFFFFF;
   border: none; border-radius: 16rpx;
   line-height: 1.4; text-align: center;

@@ -444,14 +444,14 @@ export default {
 </script>
 
 <style scoped>
-/* ==================== 多多买菜风格 — 邀请赚现金页（白底 + 主红 #E02020） ==================== */
+/* ==================== 多多买菜风格 — 邀请赚现金页（白底 + 品牌绿头部 var(--c-topbar)） ==================== */
 
 .page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
 
-/* ==================== 1. 红色头部 + 余额大卡（白卡叠红头下缘） ==================== */
+/* ==================== 1. 品牌绿头部 + 余额大卡（白卡叠头部下缘） ==================== */
 .cash-header {
   position: relative;
-  background: linear-gradient(180deg, #E02020 0%, #E02020 55%, #F5F5F5 100%);
+  background: linear-gradient(180deg, var(--c-topbar) 0%, var(--c-topbar) 55%, #F5F5F5 100%);
   padding: 40rpx 24rpx 8rpx;
 }
 .cash-slogan { display: block; text-align: center; font-size: 38rpx; font-weight: 700; color: #FFFFFF; line-height: 1.3; }
@@ -460,16 +460,16 @@ export default {
   margin-top: 32rpx;
   background-color: #FFFFFF; border-radius: 24rpx;
   padding: 40rpx 32rpx 36rpx;
-  box-shadow: 0 4rpx 16rpx rgba(224,32,32,.08);
+  box-shadow: 0 4rpx 16rpx var(--c-shadow);
   display: flex; flex-direction: column; align-items: center;
 }
 .balance-label { font-size: 24rpx; color: #999999; line-height: 1; }
-/* ¥balance 大字：¥ 小一号上标风格，余额大字加粗主红；占位同色系防跳动 */
+/* ¥balance 大字：¥ 小一号上标风格，余额大字加粗促销价签橙（var(--c-warn)，价格不是危险）；占位同色系防跳动 */
 .balance-value-row { margin-top: 20rpx; display: flex; align-items: baseline; justify-content: center; }
-.balance-symbol { font-size: 44rpx; font-weight: 700; color: #E02020; margin-right: 6rpx; }
+.balance-symbol { font-size: 44rpx; font-weight: 700; color: var(--c-warn); margin-right: 6rpx; }
 .balance-value {
   font-size: 88rpx; font-weight: 800; line-height: 1.1;
-  color: #E02020;
+  color: var(--c-warn);
   font-family: "SF Mono", Menlo, Consolas, monospace;
   max-width: 100%;
 }
@@ -479,14 +479,14 @@ export default {
 .btn-withdraw {
   width: 100%; height: 88rpx; line-height: 88rpx;
   margin-top: 32rpx; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 32rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
-.btn-withdraw.btn-withdraw-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
+.btn-withdraw.btn-withdraw-disabled { background-color: var(--c-primary-disabled); color: rgba(255, 255, 255, 0.9); }
 /* 按钮注（满 20 提全部余额 / 演示环境模拟到账明示） */
 .withdraw-note { margin-top: 16rpx; font-size: 22rpx; color: #999999; line-height: 1.5; text-align: center; }
-.withdraw-note-mock { color: #FF6600; }
+.withdraw-note-mock { color: var(--c-warn); }
 
 /* ==================== 游客态价值面板（F-05 评审「单 CTA 原则」定稿） ==================== */
 /* 设计依据：游客态原余额卡/邀请码卡/邀请记录行三处各挂一个「去登录」，CTA 冗余、页面割裂；
@@ -496,20 +496,20 @@ export default {
   margin-top: 32rpx;
   background-color: #FFFFFF; border-radius: 24rpx;
   padding: 32rpx;
-  box-shadow: 0 4rpx 16rpx rgba(224,32,32,.08);
+  box-shadow: 0 4rpx 16rpx var(--c-shadow);
   display: flex; flex-direction: column; align-items: center;
 }
 /* 价值点列表：撑满面板宽度左对齐，行高 44rpx，行距 16rpx 与页面通用间距一致 */
 .guest-value-list { width: 100%; margin-top: 24rpx; display: flex; flex-direction: column; gap: 16rpx; }
 .guest-value-item { display: flex; align-items: flex-start; }
-/* 前缀 8rpx 主红圆点（纯 CSS，不引入 emoji）；上距 18rpx = (44rpx 行高 - 8rpx 点径) / 2，对齐首行文字垂直居中 */
-.guest-value-dot { flex-shrink: 0; width: 8rpx; height: 8rpx; border-radius: 50%; background-color: #E02020; margin: 18rpx 16rpx 0 0; }
+/* 前缀 8rpx 品牌绿圆点（纯 CSS，不引入 emoji）；上距 18rpx = (44rpx 行高 - 8rpx 点径) / 2，对齐首行文字垂直居中 */
+.guest-value-dot { flex-shrink: 0; width: 8rpx; height: 8rpx; border-radius: 50%; background-color: var(--c-primary); margin: 18rpx 16rpx 0 0; }
 .guest-value-text { flex: 1; min-width: 0; font-size: 26rpx; color: #333333; line-height: 44rpx; }
 
 /* ==================== 2. 冻结提示条（frozenTotal>0 展示） ==================== */
 .frozen-bar { display: flex; align-items: center; gap: 12rpx; padding: 20rpx 24rpx; }
 .frozen-icon { font-size: 28rpx; line-height: 1; }
-.frozen-text { font-size: 24rpx; color: #FF6600; line-height: 1.5; }
+.frozen-text { font-size: 24rpx; color: var(--c-warn); line-height: 1.5; }
 
 /* ==================== 3. 邀请信息区（承接原 invite 页：邀请码大卡 + 统计 + 记录） ==================== */
 /* 邀请码大卡：居中排版，8 位码等宽大字 + 字距拉开 */
@@ -521,7 +521,7 @@ export default {
 .code-value {
   margin-top: 20rpx;
   font-size: 64rpx; font-weight: 800; line-height: 1.2;
-  color: #E02020; letter-spacing: 10rpx;
+  color: var(--c-primary); letter-spacing: 10rpx;
   font-family: "SF Mono", Menlo, Consolas, monospace;
   max-width: 100%; overflow: hidden;
 }
@@ -531,16 +531,16 @@ export default {
 .btn-copy {
   width: 100%; height: 84rpx; line-height: 84rpx;
   margin-top: 28rpx; padding: 0;
-  background-color: #E02020; color: #FFFFFF;
+  background-color: var(--c-primary); color: #FFFFFF;
   font-size: 30rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
-.btn-copy.btn-copy-disabled { background-color: #F5B5B0; color: rgba(255, 255, 255, 0.9); }
+.btn-copy.btn-copy-disabled { background-color: var(--c-primary-disabled); color: rgba(255, 255, 255, 0.9); }
 
 /* 统计卡（两列大数字） */
 .stat-card { display: flex; align-items: center; padding: 32rpx 0; }
 .stat-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 10rpx; }
-.stat-num { font-size: 48rpx; font-weight: 700; color: #E02020; line-height: 1; }
+.stat-num { font-size: 48rpx; font-weight: 700; color: var(--c-primary); line-height: 1; }
 .stat-label { font-size: 24rpx; color: #999999; }
 .stat-divider { flex-shrink: 0; width: 1rpx; height: 56rpx; background-color: #EEEEEE; }
 
@@ -567,7 +567,7 @@ export default {
 .rule-item:last-child { margin-bottom: 0; }
 .rule-no {
   flex-shrink: 0; width: 36rpx; height: 36rpx; border-radius: 50%;
-  background-color: #FFECE8; color: #E02020;
+  background-color: var(--c-primary-soft); color: var(--c-primary);
   font-size: 22rpx; font-weight: 700; text-align: center; line-height: 36rpx;
 }
 .rule-text { flex: 1; min-width: 0; font-size: 26rpx; color: #666666; line-height: 1.6; }
@@ -575,18 +575,18 @@ export default {
 /* 游客态登录引导行（照我的页） */
 .guide-row {
   display: flex; align-items: center; justify-content: space-between;
-  background-color: #FFF7F0; border-radius: 12rpx;
+  background-color: var(--c-primary-soft); border-radius: 12rpx;
   padding: 24rpx;
 }
 .guide-text { font-size: 26rpx; color: #666666; }
-.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: #E02020; }
+.guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-primary); }
 
 /* 错误态行（可点击重试，照我的页） */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
 .error-text { font-size: 24rpx; color: #999999; }
 .error-retry {
-  font-size: 24rpx; font-weight: 600; color: #E02020;
-  border: 1rpx solid #E02020; border-radius: 28rpx;
+  font-size: 24rpx; font-weight: 600; color: var(--c-primary);
+  border: 1rpx solid var(--c-primary); border-radius: 28rpx;
   padding: 8rpx 36rpx; line-height: 1.4;
 }
 
@@ -600,12 +600,12 @@ export default {
 .flow-time { font-size: 22rpx; color: #CCCCCC; }
 .flow-badge { flex-shrink: 0; font-size: 20rpx; font-weight: 700; padding: 4rpx 14rpx; border-radius: 20rpx; }
 /* 状态徽标配色照我的页体系：冻结中橙 / 已入账绿 / 提现灰 */
-.rb-wait { color: #FF6600; background-color: #FFF3EB; }
+.rb-wait { color: var(--c-warn); background-color: var(--c-warn-soft); }
 .rb-done { color: #07C160; background-color: #E8F8EF; }
 .rb-withdraw { color: #999999; background-color: #F5F5F5; }
-/* 金额：奖励 + 主红 / 提现 - 灰（支出弱化） */
+/* 金额：奖励 + 促销价签橙（var(--c-warn)）/ 提现 - 灰（支出弱化） */
 .flow-amount { flex-shrink: 0; font-size: 30rpx; font-weight: 700; font-family: "SF Mono", Menlo, Consolas, monospace; }
-.fa-in { color: #E02020; }
+.fa-in { color: var(--c-warn); }
 .fa-out { color: #999999; }
 
 /* 空态行 */
