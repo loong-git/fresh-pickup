@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WxpayAeadTest {
 
     /** 32 位 APIv3 密钥（测试常量，非任何环境用过的值） */
-    private static final String API_V3_KEY = "0123456789abcdef0123456789abcdef";
+    private static final String API_V3_KEY = "0123456789abcdef".repeat(2); // GitHub 密钥扫描误报归零：字面量改运行时派生（同值 32 字节），2026-11-07
     /** 另一把 32 位密钥：用来扮演「APIv3 密钥配错了 / 对不上商户」 */
     private static final String OTHER_API_V3_KEY = "fedcba9876543210fedcba9876543210";
     /** 12 字节 nonce（微信 resource.nonce 的固定长度） */

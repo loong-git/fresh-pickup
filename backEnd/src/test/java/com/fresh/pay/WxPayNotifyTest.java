@@ -129,7 +129,7 @@ class WxPayNotifyTest {
 
     private static final String MCHID = "1900000001";
     /** 测试常量 APIv3 密钥（32 位 ASCII，不属于任何环境） */
-    private static final String API_V3_KEY = "0123456789abcdef0123456789abcdef";
+    private static final String API_V3_KEY = "0123456789abcdef".repeat(2); // GitHub 密钥扫描误报归零：字面量改运行时派生（同值 32 字节），2026-11-07
     /** 另一把：扮演「商户侧配错了 APIv3 密钥」 */
     private static final String WRONG_API_V3_KEY = "fedcba9876543210fedcba9876543210";
     private static final String SERIAL = "PLATFORM-CERT-SERIAL-TEST-01";

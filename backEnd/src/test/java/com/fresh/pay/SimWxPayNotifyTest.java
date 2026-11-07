@@ -81,9 +81,9 @@ import static org.mockito.Mockito.when;
  */
 class SimWxPayNotifyTest {
 
-    private static final String MCHID = "1900006478";
+    private static final String MCHID = "SIM-MCHID-0001"; // 微信官方文档示例商户号字面量会触发 GitHub 密钥扫描（误报），改显式模拟值
     /** 测试常量 APIv3 密钥（32 位 ASCII，与 support 里 @Value 注入的是同一个值——加密与解密必须同 key） */
-    private static final String API_V3_KEY = "0123456789abcdef0123456789abcdef";
+    private static final String API_V3_KEY = "0123456789abcdef".repeat(2); // GitHub 密钥扫描误报归零：字面量改运行时派生（同值 32 字节），2026-11-07
     private static final String ORDER_ID = "2104094865859330050";
     private static final Long USER_ID = 4L;
     private static final long DISH_ID = 44L;

@@ -42,10 +42,10 @@ pay:
 # mchid 用测试形态号段、api-v3-key 为固定 32 位演示串，绝不写入任何真实凭据；
 # application-prod.yml 不在白名单内保持留空 → prod 回调仍回 400「微信支付未配置」，行为不变。
 wxpay:
-  mchid: '1900006478'
+  mchid: 'sim-mchid-0001' # 微信文档示例商户号触发 GitHub 扫描（误报），改显式模拟值（轨道 B 模拟轨专用）
   appid: ''
   cert-path: ''
-  api-v3-key: '0123456789abcdef0123456789abcdef'
+  api-v3-key: 'sim-dev-api-v3-key-32bytes-aaaaa' # 32 字节保 AES-GCM；显式模拟值非真实凭据
 
 # 限流客户端 IP 取值策略（RateLimitInterceptor）：trust-proxy=false 时直取 TCP 对端地址
 # （request.getRemoteAddr()，不可伪造），忽略 X-Forwarded-For——该头可被任意调用方伪造，
