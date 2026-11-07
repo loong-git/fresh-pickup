@@ -152,8 +152,9 @@ public class PartnerController {
      * 我的佣金（F-119 §3，GET /api/partner/wallet）：本人钱包余额 + 流水分页。
      * 归属=token userId（{@code ATTR_USER_ID}）——钱包按主理人 user 建（uk_user_wallet 一人一钱包），
      * 与门店归属集合正交；拦截器的 /api/partner/ 分支已验「登录 + 名下有店」，本方法不重复归属判定。
-     * page/size 夹而不拒并回显生效值（照上方 orders 的既有姿势）。只读展示类：本功能无任何钱包写端点
-     * （写路径只有生成账期跑批记账，契约 §3 红线），余额卡「记账态：提现通道未接入」由前端恒显。
+     * page/size 夹而不拒并回显生效值（照上方 orders 的既有姿势）。只读展示类（写入口只有下方
+     * withdraw 提现端点，P10-5 D6/m32 起；跑批记账外的人工调额仍无入口），余额卡标注改由前端
+     * 显「提现走模拟通道」。
      */
     @RateLimit(limit = 30, windowSeconds = 60)
     @GetMapping("/wallet")
@@ -161,5 +162,24 @@ public class PartnerController {
                                          @RequestParam(required = false) Integer page,
                                          @RequestParam(required = false) Integer size) {
         return R.ok(partnerWalletService.walletView(userId, page, size));
+    }
+
+    /**
+     * 提现（P10-5 轨道 B D6/m32，POST /api/partner/wallet/withdraw），body {@code {amount}}：
+     * 佣金余额负向即时入账——余额条件扣减（充足才减，绝不透支）+ WITHDRAW 负向流水
+     * （余额快照范式），通道字段显式标 MOCK_SIM（模拟通道，无真实资金流）。
+     * 金额须 &gt;0、至多两位小数、≤余额（不足 400「余额不足」）；判定、事务与流水落库钉在
+     * {@code PartnerWalletService#withdraw}（照 F-119 grant 的事务与流水范式）。归属=token userId
+     * （{@code ATTR_USER_ID}，同上方 wallet 只读端点；拦截器 /api/partner/ 分支已验「登录+名下有店」）。
+     * 本端点是钱包唯一人工写入口（F-119「无钱包写端点」红线由本片契约解除运营侧部分——
+     * 运营侧仍零钱包写端点）；提现审核态留真实轨（契约 D6 登记）。写档限流 USER 10/60s（照 verify）。
+     */
+    @RateLimit(limit = 10, windowSeconds = 60)
+    @PostMapping("/wallet/withdraw")
+    public R<Map<String, Object>> withdraw(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
+                                           @RequestBody Map<String, Object> body) {
+        Object raw = body == null ? null : body.get("amount");
+        return R.ok(partnerWalletService.withdraw(userId, raw == null ? null : String.valueOf(raw)),
+                "提现已受理（模拟通道）");
     }
 }

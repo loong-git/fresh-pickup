@@ -5,6 +5,7 @@ import com.fresh.entity.Settlement;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -12,10 +13,24 @@ import java.util.List;
 /**
  * 商家结算单 mapper（F-118）：BaseMapper 承担 INSERT（generate）与 SELECT（列表/详情）；
  * 冲销金额与对账统计读 order_item（锚所在的家），归 OrderItemMapper，本面不复制第二份 order_item SQL。
- * <b>无 UPDATE/DELETE 方法</b>（F-118 契约 §3 红线：settlement 只增不改，冲销走下一期 refund 列承载）。
+ * <b>写路径边界</b>（F-118 契约 §3 红线「只增不改」——P10-5 轨道 B 契约 D5 解除 08 册挂账的范围：
+ * 唯一 UPDATE 方法是 {@link #markPaid} 打款状态机（条件 UPDATE 幂等置 paid），DELETE 仍为零，
+ * 生成账期/对账读路径零改动，其余列语义照 F-118 §1.1 不动）。
  */
 @Mapper
 public interface SettlementMapper extends BaseMapper<Settlement> {
+
+    /**
+     * 打款状态机（P10-5 轨道 B D5，{@code POST /api/admin/settlements/{id}/payout} 的唯一写语句）：
+     * 条件 UPDATE {@code status='accounted' AND paid_time IS NULL} → {@code status='paid',
+     * paid_time=NOW(), pay_channel='MOCK_SIM'}——影响行数 1=本次置态成功，0=已 paid（幂等语义，
+     * 调用方回读当前态返回不报错）。pay_channel 字面量与 AdminServiceImpl 的
+     * {@code SETTLEMENT_PAY_CHANNEL_MOCK_SIM} 同源（模拟通道显式 MOCK 标注，无真实资金流）；
+     * 06 册纸面预留列 paid_at/payout_voucher 留真实轨，本语句不写。
+     */
+    @Update("UPDATE settlement SET status = 'paid', paid_time = NOW(), pay_channel = 'MOCK_SIM' "
+            + "WHERE id = #{id} AND status = 'accounted' AND paid_time IS NULL")
+    int markPaid(@Param("id") Long id);
 
     /**
      * 该商家既有账期的最晚止日（冲销窗口的左锚，F-118 §1.1「自上一账期 period_end 之后发生退款」）。
@@ -50,14 +65,18 @@ public interface SettlementMapper extends BaseMapper<Settlement> {
 
     /**
      * 运营端结算列表的一页（F-125 §1.2，{@code ORDER BY id DESC} 新账期在前，照既有 listSettlements 排序）：
-     * 只 SELECT 行渲染消费的白名单十二列（coupon_deduct/deduction/paid_at/payout_voucher/created_at/
-     * update_time 等不查询——把「不输出」写成「不查询」，照 MerchantMapper#selectMerchantsPage 口径）。
+     * 只 SELECT 行渲染消费的白名单十五列（P10-5 轨道 B 起追加 pay_channel——已打款行通道显式；
+     * D8/m33 起再追加 deposit_amount——本期代扣入保证金额；
+     * coupon_deduct/deduction/paid_at/payout_voucher/paid_time/created_at/update_time 等不查询
+     * ——把「不输出」写成「不查询」，照 MerchantMapper#selectMerchantsPage 口径）。
      * LIMIT #{offset}, #{size} 的 offset 由调用方用 long 算（防 int 溢出）。
      */
     @Select("<script>SELECT id AS id, settle_no AS settleNo, merchant_id AS merchantId, "
             + "period_start AS periodStart, period_end AS periodEnd, order_count AS orderCount, "
             + "gmv_amount AS gmvAmount, refund_amount AS refundAmount, retain_amount AS retainAmount, "
-            + "payable AS payable, commission AS commission, status AS status "
+            + "deposit_amount AS depositAmount, "
+            + "payable AS payable, commission AS commission, status AS status, "
+            + "pay_channel AS payChannel "
             + "FROM settlement " + SETTLEMENT_LIST_WHERE
             + " ORDER BY id DESC LIMIT #{offset}, #{size}</script>")
     List<Settlement> selectSettlementsPage(@Param("merchantId") Long merchantId,

@@ -433,7 +433,7 @@
       </view>
     </view>
 
-    <!-- ==================== 13. 模拟收银台弹窗（M2-T-05：下单成功后弹出，确认后调 mock-pay） ==================== -->
+    <!-- ==================== 13. 模拟收银台弹窗（M2-T-05：下单成功后弹出，P10-5 D3 起确认后走 sim-create→sim-pay 模拟微信链路） ==================== -->
     <view class="popup-mask cashier-mask" v-if="showCashier" @click="closeCashier">
       <view class="cashier-panel" @click.stop>
         <view class="popup-header">
@@ -473,7 +473,8 @@
 
 <script>
 import { mapState, mapGetters } from 'vuex'
-import { submitOrder, mockPay, decorateDish, getSeckillCurrent, getMyCoupons, claimCoupon, getCouponCenter, freeCurrent } from '@/api/index.js'
+// P10-5 轨道 B D3：收银台切模拟微信链路（sim-create→sim-pay）；mock-pay 端点保留给 smoke/回归，C 端不再直调
+import { submitOrder, simCreate, simPay, decorateDish, getSeckillCurrent, getMyCoupons, claimCoupon, getCouponCenter, freeCurrent } from '@/api/index.js'
 import { getDictGroup, parseCoupon } from '@/api/dict.js'
 import { BASE_URL } from '@/api/config.js'
 import { getCutoffInfo, formatCountdown, formatPickupTimeText, monotonicNow, parseServerTimeMs, sessionEndMs } from '@/utils/time.js'
@@ -565,7 +566,7 @@ export default {
       showCartDetail: false,    // 购物车弹层
       showPersonPopup: false,   // 修改提货人弹窗
       showPayPopup: false,      // 支付弹窗（原有流程）
-      // 模拟收银台（M2-T-05）：下单成功后弹出，确认支付调 mock-pay
+      // 模拟收银台（M2-T-05）：下单成功后弹出，P10-5 D3 起确认支付走 sim-create→sim-pay
       showCashier: false,
       cashierOrderId: '',       // 待支付订单号（服务端雪花 id）
       cashierAmount: '0.00',    // 待支付金额（优先服务端重算 totalPrice）
@@ -1498,8 +1499,10 @@ export default {
     goLogin() {
       uni.navigateTo({ url: '/pages/login/login?redirect=' + encodeURIComponent('/pages/index/index') })
     },
-    // ==================== 模拟收银台（M2-T-05） ====================
-    // 确认支付：调 POST /api/pay/{orderId}/mock-pay（幂等，已支付重复调用直接返回成功）
+    // ==================== 模拟收银台（M2-T-05 → P10-5 轨道 B D3 模拟微信链路） ====================
+    // 确认支付两步：POST /api/pay/{orderId}/sim-create（模拟 jsapi 下单，返回五参数+金额分）
+    // → POST /api/pay/{orderId}/sim-pay（后端扮微信服务器构造真实签名回调打本机 wx-notify，
+    //    走完整验签/解密/三比对/事务结算链路，2xx 同步回读订单返回含 pickupCode，无需前端轮询）
     // → 成功 toast 支付成功 + 关弹窗 + 清购物车；失败 toast message 保留现场
     async confirmCashierPay() {
       if (this.paying || !this.cashierOrderId) return
@@ -1507,11 +1510,21 @@ export default {
       // #ifdef MP-WEIXIN
       // 小程序端支付分叉预留（T-M4-04）：真实环境应先调后端统一下单/预支付接口换取支付参数，
       // 再调 uni.requestPayment({ provider: 'wxpay', timeStamp, nonceStr, package, signType, paySign, ... })
-      // 拉起微信支付，支付回调成功后再查询订单确认；当前小程序与 H5 统一走模拟支付 mock-pay 现状
+      // 拉起微信支付，支付回调成功后再查询订单确认；当前小程序与 H5 统一走模拟微信链路（sim-create→sim-pay）现状
       // await uni.requestPayment({ provider: 'wxpay', ... })
       // #endif
       try {
-        const paid = await mockPay(this.cashierOrderId)
+        // 第一步：模拟 jsapi 下单拿支付参数（五参数 + 金额分）
+        const created = await simCreate(this.cashierOrderId)
+        const createdData = (created && created.data) || {}
+        // 金额对账（防串单）：sim-create 的应付分必须等于收银台展示金额，不一致即中止并保留现场
+        const expectFen = Math.round(Number(this.cashierAmount) * 100)
+        if (createdData.amountFen !== expectFen) {
+          this.showToast('支付金额校验不一致，已中止支付')
+          return
+        }
+        // 第二步：模拟用户在微信侧确认——收银台「确认支付」动作即代表微信侧确认，直接打 sim-pay
+        const paid = await simPay(this.cashierOrderId)
         // F-59：取货码是支付成功那一刻才由服务端生成的（下单时 orders.pickup_code 为 NULL），
         // 此刻正是顾客最该看到它的时点，所以把码直接回进提示，省掉「再跳去订单页找」这一跳。
         // 取不到码（老数据/异常）时退回原来那句「支付成功」，不显示「取货码 undefined」。

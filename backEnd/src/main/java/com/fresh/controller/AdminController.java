@@ -48,6 +48,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDate;
@@ -827,7 +828,8 @@ public class AdminController {
     // settlement 只增不改是契约 §3 红线：无更新无作废端点，冲销走下一期 refund 列承载，06 册 §4.5 定稿）。
     // 闸门/限流姿势逐字照本面其余端点：双轨 checkKeyOrOperator；读 30/60s、写 10/60s，均按 IP。
     // 审计（settlement.create）在 AdminServiceImpl 内与业务同源写。
-    // 红线（契约 §3）：主理人佣金（F-119）/打款（轨道 B）/保证金（m1x）零涉及；
+    // 红线（契约 §3）：主理人佣金（F-119）/保证金（m1x）零涉及；打款（轨道 B）原零涉及，
+    // P10-5 D5 起由下方独立端点承载（settlements/{id}/payout），本段生成/列表/明细零改动；
     // 下单/取消/支付链路零改动（本段只读它们产生的数据）；不新增 yml 键。
     // ==================================================================
 
@@ -893,6 +895,82 @@ public class AdminController {
             return R.fail(denied.getCode(), denied.getMessage());
         }
         return R.ok(adminService.settlementItems(id));
+    }
+
+    /**
+     * 确认打款（P10-5 轨道 B D5）：{@code POST /api/admin/settlements/{id}/payout}——打款状态机，
+     * 08 册挂账「paid 态不实现」由本片契约解除。条件 UPDATE {@code status='accounted' AND
+     * paid_time IS NULL → status='paid', paid_time=NOW(), pay_channel='MOCK_SIM'}（模拟通道显式
+     * MOCK 标注，无真实资金流）；幂等：已 paid 再调返回当前态不报错。判定、审计
+     * （settlement.payout，实际置态才写）钉在 {@code AdminService#confirmSettlementPayout}；
+     * 生成账期/对账逻辑零改动。闸门/限流姿势照上方 generate 写档：双轨 checkKeyOrOperator + IP 10/60s。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（照 generate）
+    @PostMapping("/settlements/{id}/payout")
+    public R<Map<String, Object>> confirmSettlementPayout(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                          @RequestHeader(value = "Authorization", required = false) String authz,
+                                                          @PathVariable("id") Long id) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封内容不变，只重铺泛型参数（同 settlements 的既有处置）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.confirmSettlementPayout(id, grant.actor()), "打款已确认（模拟通道）");
+    }
+
+    // ==================================================================
+    // P10-5 轨道 B D7 保证金管理（两端点）：GET /api/admin/deposits 账户列表（只读档 30/60s）
+    // + POST /api/admin/deposits/required 设置类目档位（写档 10/60s，双轨 checkKeyOrOperator
+    // 照 payouts/generate 同款姿势）。真实触发器①②③在模拟轨由本端点手动置档位等价替代（契约 D7）；
+    // D8 代扣不在 controller 面——它在生成账期事务尾部 ⑦.6（AdminServiceImpl#generateSettlement）。
+    // ==================================================================
+
+    /**
+     * 保证金账户列表（D7 管理区只读）：{@code GET /api/admin/deposits}——全量账户 id 升序，
+     * 行键 {@code merchantId,merchantName,category,requiredAmount,paidAmount,status,updatedAt}；
+     * 判定钉在 {@code AdminService#listDeposits}。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // 只读档（照 partner-wallets）
+    @GetMapping("/deposits")
+    public R<List<Map<String, Object>>> deposits(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                 @RequestHeader(value = "Authorization", required = false) String authz) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        return R.ok(adminService.listDeposits());
+    }
+
+    /**
+     * 设置类目档位（D7 模拟触发器）：{@code POST /api/admin/deposits/required}，body
+     * {@code {merchantId, requiredAmount, category}}——requiredAmount=0 停用、&gt;0 启用/调档；
+     * 判定（merchant 404/金额形状/类目白名单/upsert）与审计（deposit.required）钉在
+     * {@code AdminService#setDepositRequired}。档位数值 8000/5000/3000 为模拟轨草案值，
+     * 待真实 GMV 校准（04 册 §3.3）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（照 generate/payout）
+    @PostMapping("/deposits/required")
+    public R<Map<String, Object>> setDepositRequired(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                     @RequestHeader(value = "Authorization", required = false) String authz,
+                                                     @RequestBody(required = false) Map<String, Object> body) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        if (body == null) {
+            return R.fail(R.CODE_BAD_REQUEST, "请求体不能为空");
+        }
+        Long merchantId = body.get("merchantId") == null ? null
+                : Long.valueOf(String.valueOf(body.get("merchantId")));
+        BigDecimal requiredAmount = body.get("requiredAmount") == null ? null
+                : new BigDecimal(String.valueOf(body.get("requiredAmount")));
+        Object categoryRaw = body.get("category");
+        String category = categoryRaw == null ? null : String.valueOf(categoryRaw);
+        return R.ok(adminService.setDepositRequired(merchantId, requiredAmount, category, grant.actor()),
+                "保证金档位已更新（模拟触发器）");
     }
 
     // ==================================================================

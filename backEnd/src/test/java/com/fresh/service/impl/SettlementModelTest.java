@@ -65,10 +65,12 @@ import static org.mockito.Mockito.when;
  *    0/负数/三位小数 → bean validation 400；dish 999999 → 404。
  * ③ m27 重放幂等（照 m26 门禁断言模式做文本级断言——本仓测试全离线无真库，重放与真库断言由 verify 脚本跑）
  *    + settlement DDL 关键约束存在性断言（uk_settle_no / uk_merchant_period 两索引）
- *    + init.sql 与 m27-migration.sql 的 settlement 建表体逐字一致（两处同步纪律的机器保证）
- *    + 红线（F-118 契约 §3，F-117 片「零读写」临时红线到期后升格）：settlement 只增不改——
- *      OrderItem 映射 settle_id（F-118 挂锚写路径启用、下单链路仍零写），src/main/java 无
- *      UPDATE settlement / DELETE FROM settlement 触点。
+ *    + init.sql 同步断言：m27 时代为逐字一致；P10-5 轨道 B D5/m32 起升格为「m27 基线结构逐字在位
+ *      + m32 增列（paid_time/pay_channel）在位」双层断言（m27 历史文件不可回改）
+ *    + 红线（F-118 契约 §3；P10-5 D5 解除 08 册挂账后收敛）：settlement 只增不改——
+ *      OrderItem 映射 settle_id（F-118 挂锚写路径启用、下单链路仍零写），src/main/java 的
+ *      UPDATE 触点收敛到打款状态机唯一一处（SettlementMapper#markPaid 条件 UPDATE，幂等），
+ *      DELETE 恒零。
  *
  * <p><b>本类测不成什么（免得留假收据）</b>：真库 DECIMAL(10,2) 落值/DEFAULT 兜底、m27 在真库的重放幂等、
  * 双轨闸门/限流（Controller 层）——由 logs/verify-settlement-model.sh 与主会话门禁覆盖；
@@ -389,7 +391,7 @@ class SettlementModelTest {
     }
 
     @Test
-    void settlementDDL_uk两索引存在_且init与迁移两处逐字一致() throws IOException {
+    void settlementDDL_uk两索引存在_且init含m27基线加m32增列() throws IOException {
         String migration = migrationSql();
         String init = initSql();
 
@@ -401,9 +403,18 @@ class SettlementModelTest {
         assertTrue(ddl.contains("KEY idx_merchant_status (merchant_id, status)"), "idx_merchant_status 必须在位");
         assertTrue(ddl.contains("DEFAULT 'accounted'"), "status 本片只登记 accounted（08 册 §2.2-5）：DDL=" + ddl);
 
-        // 「同步：init.sql 建表体与本文件逐字一致」的机器保证（m26 同款两处同步纪律）
-        assertEquals(ddl, settlementDdlOf(init),
-                "init.sql 与 m27-migration.sql 的 settlement 建表体必须逐字一致（改结构须两处同步）");
+        // 两处同步纪律的机器保证（m27 时代=逐字一致；P10-5 轨道 B D5/m32 起 init=m27 基线+增列：
+        //  m32 只 ADD paid_time/pay_channel 两列并改 status 列注释，m27 历史文件不可回改——
+        //  逐字断言相应升格为「m27 关键结构逐字在位 + m32 增列在位」双层断言）：
+        String initDdl = settlementDdlOf(init);
+        assertTrue(initDdl.contains("UNIQUE KEY uk_settle_no (settle_no)"), "init 侧 uk_settle_no 在位");
+        assertTrue(initDdl.contains("UNIQUE KEY uk_merchant_period (merchant_id, period_start, period_end)"),
+                "init 侧 uk_merchant_period 在位");
+        assertTrue(initDdl.contains("KEY idx_merchant_status (merchant_id, status)"), "init 侧 idx_merchant_status 在位");
+        assertTrue(initDdl.contains("DEFAULT 'accounted'"), "init 侧 accounted DEFAULT 在位");
+        assertTrue(initDdl.contains("paid_time"), "m32 增列 paid_time 并库（P10-5 D5 模拟轨打款时间）");
+        assertTrue(initDdl.contains("pay_channel"), "m32 增列 pay_channel 并库（P10-5 D5 模拟通道标注）");
+        assertTrue(initDdl.contains("MOCK_SIM"), "pay_channel 注释显式 MOCK 语义（防演示冒充结算）");
     }
 
     @Test
@@ -428,31 +439,41 @@ class SettlementModelTest {
     }
 
     @Test
-    void 红线_settlement只增不改_主代码无UPDATE或DELETE触点() throws IOException {
+    void 红线_settlement只增不改_改删触点收敛于打款状态机唯一一处() throws IOException {
         // F-117 片「零读写」红线随 F-118 到期（generate 端点启用 INSERT+SELECT）；
-        // 永久红线升格为 F-118 契约 §3「settlement 只增不改」：主代码任何地方不许出现
-        // UPDATE settlement / DELETE FROM settlement / DELETE INTO 之类的改删触点（冲销走下一期 refund 列承载）。
+        // F-118 契约 §3「settlement 只增不改」随 P10-5 轨道 B 契约 D5 解除 08 册挂账再收窄：
+        // UPDATE 触点收敛到打款状态机<b>唯一一处</b>（SettlementMapper#markPaid：条件 UPDATE
+        // status='accounted' AND paid_time IS NULL → paid，幂等，模拟通道 MOCK_SIM），DELETE 仍恒零；
+        // 冲销走下一期 refund 列承载、生成账期/对账逻辑零改动不变。
         Path mainJava = locateMainJava();
         assumeTrue(mainJava != null, "未定位到 src/main/java（工作目录非 backEnd/ 或仓库根），本条跳过");
 
+        List<String> updateFiles = new java.util.ArrayList<>();
+        List<String> deleteFiles = new java.util.ArrayList<>();
         try (Stream<Path> paths = Files.walk(mainJava)) {
-            List<String> violations = paths
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .map(p -> {
-                        try {
-                            return Files.readString(p, StandardCharsets.UTF_8);
-                        } catch (IOException e) {
-                            return "";
-                        }
-                    })
-                    .filter(text -> text.contains("UPDATE settlement")
-                            || text.contains("DELETE FROM settlement")
-                            || text.contains("delete from settlement")
-                            || text.contains("update settlement"))
-                    .toList();
-            assertTrue(violations.isEmpty(),
-                    "settlement 只增不改（F-118 契约 §3）：主代码不允许 UPDATE/DELETE 触点，命中 " + violations.size() + " 个文件");
+            paths.filter(p -> p.toString().endsWith(".java")).forEach(p -> {
+                String text;
+                try {
+                    text = Files.readString(p, StandardCharsets.UTF_8);
+                } catch (IOException e) {
+                    return;
+                }
+                String lower = text.toLowerCase();
+                if (lower.contains("update settlement") || lower.contains("delete from settlement")) {
+                    if (p.getFileName().toString().equals("SettlementMapper.java")
+                            && text.contains("status = 'accounted' AND paid_time IS NULL")) {
+                        updateFiles.add(p.getFileName().toString());   // 契约 D5 允许的唯一触点
+                    } else {
+                        deleteFiles.add(p.getFileName().toString());   // 契约外触点一律违规
+                    }
+                }
+            });
         }
+        assertTrue(deleteFiles.isEmpty(),
+                "settlement 红线（P10-5 D5 后仍有效部分）：DELETE 恒零、UPDATE 只许 markPaid 条件置态一处，"
+                        + "命中契约外触点 " + deleteFiles + "（打款状态机本体在 SettlementMapper.java 的不计）");
+        assertTrue(updateFiles.size() == 1 && updateFiles.contains("SettlementMapper.java"),
+                "打款条件 UPDATE 必须恰好存在且在 SettlementMapper.java（唯一写语句收敛点）");
     }
 
     private static Path locateMainJava() {

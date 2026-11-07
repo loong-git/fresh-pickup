@@ -4,6 +4,7 @@ import com.fresh.common.R;
 import com.fresh.entity.Order;
 import com.fresh.interceptor.AuthInterceptor;
 import com.fresh.pay.PayService;
+import com.fresh.pay.SimWxPayService;
 import com.fresh.pay.WxPayNotifyRejectException;
 import com.fresh.pay.WxPayNotifyService;
 import com.fresh.service.AdminService;
@@ -71,6 +72,23 @@ public class PayController {
     @Value("${pay.mock-enabled:true}")
     private boolean mockEnabled;
 
+    /**
+     * 模拟微信支付通道开关（P10-5 轨道 B / D1）：dev=true；false/缺省 → sim 两端点对外表现 404
+     * （信封 code:404，照 {@code mock-enabled} 模式）。与 {@code SimWxPayService} 的
+     * {@code @ConditionalOnProperty} 读同一枚键——关闸时 Bean 也不装配，闸门与装配互为兜底。
+     * prod yml 不配此键：恒关，模拟平台证书源（SimCertificateSource）也随条件不装配。
+     */
+    @Value("${pay.sim-enabled:false}")
+    private boolean simEnabled;
+
+    /**
+     * 模拟微信支付端点服务（P10-5 / D1）：非 PayService 实现（provider 键与 MockPayService 零改动），
+     * 按<b>具体类型</b>注入且 {@code required=false}——sim-enabled=false 时 Bean 不存在，
+     * 端点闸门先行回 404，永远不会触到 null。
+     */
+    @Autowired(required = false)
+    private SimWxPayService simWxPayService;
+
     /** 微信支付商户号（需求 A 占位配置）：为空视为微信支付未配置，回调直接拒收 */
     @Value("${wxpay.mchid:}")
     private String wxpayMchid;
@@ -88,6 +106,38 @@ public class PayController {
             return R.fail(R.CODE_NOT_FOUND, "资源不存在");
         }
         return R.ok(payService.payResult(orderId, userId), "支付成功");
+    }
+
+    /**
+     * 模拟微信支付-生成支付参数（P10-5 轨道 B / D1，sim-create）：登录 + 本人订单（照 mock-pay 同款登录态），
+     * 校验（本人/pay_status=0/未取消）在 {@code SimWxPayService#simCreate} 里；成功返回模拟 jsapi
+     * 五参数（timeStamp/nonceStr/package/signType/paySign）+ amountFen 金额分。
+     * 闸门照 mock-enabled 模式：sim-enabled=false（prod 缺省）→ 404 信封，不暴露端点能力。
+     * 限流说明：本端点与 wx-notify 同样未标 {@code @RateLimit}，RateLimitInterceptor 对无注解方法直通。
+     */
+    @PostMapping("/{orderId}/sim-create")
+    public R<Map<String, Object>> simCreate(@PathVariable("orderId") String orderId,
+                                            @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
+        if (!simEnabled) {
+            // 关闭模拟通道：按资源不存在返回，不暴露端点能力（照 mockPay 的既有姿势）
+            return R.fail(R.CODE_NOT_FOUND, "资源不存在");
+        }
+        return R.ok(simWxPayService.simCreate(orderId, userId));
+    }
+
+    /**
+     * 模拟微信支付-确认支付（P10-5 轨道 B / D2+D4，sim-pay）：后端以「微信服务器」身份构造真实签名回调
+     * POST 本机 wx-notify（验签/新鲜度/解密/三比对/事务结算全走 {@link WxPayNotifyService} 真实链路），
+     * 2xx 回读订单返回（含 pickupCode，信封 message 沿用 mock-pay 的「支付成功」），4xx/5xx 透传判定
+     * 人话（脱敏，code=真实 HTTP 码）。幂等：pay_status≠0 直接返回当前态。闸门同 sim-create。
+     */
+    @PostMapping("/{orderId}/sim-pay")
+    public R<Order> simPay(@PathVariable("orderId") String orderId,
+                           @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
+        if (!simEnabled) {
+            return R.fail(R.CODE_NOT_FOUND, "资源不存在");
+        }
+        return R.ok(simWxPayService.simPay(orderId, userId), "支付成功");
     }
 
     /**

@@ -83,6 +83,11 @@ class SettlementGenerateTest {
     private final com.fresh.service.PartnerWalletService partnerWalletService =
             mock(com.fresh.service.PartnerWalletService.class);
 
+    /** P10-5 D8 追加依赖（生成账期 ⑦.6 保证金代扣步）：本类不测它（MerchantDepositDeductTest 专测），
+     *  注空 mock 并 stub 安全默认（deduct=0）保既有断言面不变——deduct=0 时 ⑦.6 零回填零审计 */
+    private final com.fresh.service.MerchantDepositService merchantDepositService =
+            mock(com.fresh.service.MerchantDepositService.class);
+
     private AdminServiceImpl adminService;
 
     /**
@@ -108,7 +113,12 @@ class SettlementGenerateTest {
         ReflectionTestUtils.setField(adminService, "adminAuditLogMapper", auditMapper);
         ReflectionTestUtils.setField(adminService, "adminKey", "test-admin-key");
         ReflectionTestUtils.setField(adminService, "partnerWalletService", partnerWalletService);
+        ReflectionTestUtils.setField(adminService, "merchantDepositService", merchantDepositService);
         when(merchantMapper.selectById(MERCHANT_ID)).thenReturn(merchant());
+        // ⑦.6 mock 默认回 null 会让代扣步 NPE——stub 无档位安全默认（deduct=0）
+        java.util.Map<String, Object> noDeposit = new java.util.HashMap<>();
+        noDeposit.put("deduct", BigDecimal.ZERO);
+        when(merchantDepositService.deductOnSettlement(any(), any(), any())).thenReturn(noDeposit);
     }
 
     // ---------------------------------------------------------------- fixtures

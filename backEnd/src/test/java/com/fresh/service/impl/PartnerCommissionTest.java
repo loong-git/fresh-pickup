@@ -134,6 +134,14 @@ class PartnerCommissionTest {
         ReflectionTestUtils.setField(adminService, "adminAuditLogMapper", auditMapper);
         ReflectionTestUtils.setField(adminService, "adminKey", "test-admin-key");
         ReflectionTestUtils.setField(adminService, "partnerWalletService", walletService);
+        // P10-5 D8 追加依赖（生成账期 ⑦.6 保证金代扣步）：本类不测它（MerchantDepositDeductTest 专测），
+        // 注空 mock 并 stub 安全默认（deduct=0）——deduct=0 时 ⑦.6 零回填零审计，既有断言面不变
+        com.fresh.service.MerchantDepositService merchantDepositService =
+                mock(com.fresh.service.MerchantDepositService.class);
+        ReflectionTestUtils.setField(adminService, "merchantDepositService", merchantDepositService);
+        java.util.Map<String, Object> noDeposit = new java.util.HashMap<>();
+        noDeposit.put("deduct", java.math.BigDecimal.ZERO);
+        when(merchantDepositService.deductOnSettlement(any(), any(), any())).thenReturn(noDeposit);
     }
 
     // ---------------------------------------------------------------- fixtures

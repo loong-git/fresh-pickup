@@ -5,6 +5,7 @@ import com.fresh.common.R;
 import com.fresh.entity.Settlement;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.SettlementMapper;
+import com.fresh.service.MerchantDepositService;
 import com.fresh.service.MerchantSettlementService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,10 @@ public class MerchantSettlementServiceImpl implements MerchantSettlementService 
     private SettlementMapper settlementMapper;
     @Autowired
     private OrderItemMapper orderItemMapper;
+
+    /** P10-5 D8 追加依赖：保证金账户读（缴存状态随列表顶层下发一次，accountOf 只读） */
+    @Autowired
+    private MerchantDepositService merchantDepositService;
 
     /**
      * 分页化后的本人账单列表（P5-2 §1，键集/归属口径零改动）：
@@ -82,6 +87,9 @@ public class MerchantSettlementServiceImpl implements MerchantSettlementService 
             out.add(merchantLine(row, anchored.get(row.getId())));
         }
         Map<String, Object> data = new LinkedHashMap<>();
+        // P10-5 D8：缴存状态（账户级，一次下发——代扣额是行级 depositAmount，账户现状是顶层键；
+        // 无 merchant_deposit 行=未启用触发式缴存，下发 null 由前端显「未启用」）
+        data.put("depositAccount", merchantDepositService.accountOf(merchantId));
         data.put("list", out);
         data.put("total", total);
         data.put("pageNum", pageNo);
@@ -139,6 +147,9 @@ public class MerchantSettlementServiceImpl implements MerchantSettlementService 
         line.put("gmvAmount", row.getGmvAmount());
         line.put("refundAmount", row.getRefundAmount());
         line.put("netAmount", row.getPayable());
+        // P10-5 D8/m33：本期代扣入保证金额（无档位商家恒 0；>0 时 netAmount 已是 net−deposit 的实结额）
+        line.put("depositAmount", row.getDepositAmount() == null
+                ? BigDecimal.ZERO : row.getDepositAmount());
         line.put("orderCount", row.getOrderCount());
         line.put("commission", row.getCommission());
         line.put("status", row.getStatus());

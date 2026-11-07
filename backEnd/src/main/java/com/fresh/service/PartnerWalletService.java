@@ -7,15 +7,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 主理人佣金钱包服务（F-119）。三个方法对应三条路径，域内只有「跑批记账」一条写路径：
+ * 主理人佣金钱包服务（F-119）。四条路径，域内两条写路径——「跑批记账」（F-119 起）与
+ * 「主理人提现」（P10-5 轨道 B D6/m32 起，唯一人工写入口；运营侧仍无任何钱包写端点，
+ * 人工调额=资损面不设入口的红线不变）：
  * <ul>
  *   <li>{@link #recordForSettlement}：F-118 生成账期事务的<b>追加步</b>（契约 §2「挂锚成功后同事务追加」）——
  *       grant 入账 + reversal 冲回同批，返回本账单佣金净值供 settlement.commission 回填；</li>
+ *   <li>{@link #withdraw}：主理人提现（{@code POST /api/partner/wallet/withdraw}，P10-5 D6）——
+ *       余额条件扣减 + WITHDRAW 负向流水（通道 MOCK_SIM 标注，模拟轨无真实资金流）；</li>
  *   <li>{@link #walletView}：主理人端本人钱包只读视图（{@code GET /api/partner/wallet}）；</li>
  *   <li>{@link #listWallets}：运营端全量钱包只读列表（{@code GET /api/admin/partner-wallets}）。</li>
  * </ul>
- * <p><b>红线（契约 §3/§4）</b>：无任何钱包写端点——人工调额=资损面不设入口，运营不可手改钱包；
- * 钱包载体独立，本服务零涉及 {@code user.balance}（邀请现金钱包）；提现属轨道 B 不实现。
+ * <p><b>红线（契约 §3/§4）</b>：运营侧无任何钱包写端点——人工调额=资损面不设入口，运营不可手改钱包；
+ * 钱包载体独立，本服务零涉及 {@code user.balance}（邀请现金钱包）。
  */
 public interface PartnerWalletService {
 
@@ -64,4 +68,26 @@ public interface PartnerWalletService {
      *         flowCount 无流水为 0；按钱包 id 升序
      */
     List<Map<String, Object>> listWallets();
+
+    /**
+     * 主理人提现（P10-5 轨道 B D6/m32，{@code POST /api/partner/wallet/withdraw}）：
+     * <ol>
+     *   <li><b>金额形状</b>：null/≤0 → 400「提现金额须大于 0」；&gt;2 位小数 → 400「提现金额最多两位小数」
+     *       （DECIMAL(10,2) 定形）；非数值文本 → 400；</li>
+     *   <li><b>余额校验</b>：钱包不存在或余额 &lt; 金额 → 400「余额不足」（预查只供文案；并发真闸是下一条）；</li>
+     *   <li><b>条件原子扣减</b>（{@code PartnerWalletMapper#deductIfSufficient}：
+     *       {@code balance = balance - ? WHERE balance >= ?}）——影响行数 0（含并发双提落败方）同样
+     *       400「余额不足」，提现绝不可透支减至负（与冲回「如实记负」是两种语义）；</li>
+     *   <li><b>WITHDRAW 负向流水</b>（照 F-119 grant 的事务与流水范式）：flow(bizType=withdraw、
+     *       amount 恒负、balance_after 快照回读、rate_snapshot=0.0000 占位、order_id 位放提现单号
+     *       {@code "WD"+雪花}、remark 通道标注「MOCK_SIM 模拟提现（无真实资金流）」）。</li>
+     * </ol>
+     * 整个方法 {@code @Transactional}：扣减与流水同生同灭，流水落库失败异常上抛整体回滚（不留半态）。
+     * 提现审核态留真实轨（契约 D6 登记）；每次调用即一笔独立提现（无幂等键，限流写档 10/分兜底）。
+     *
+     * @param userId    主理人 user.id（token 解析，钱包按 user 归属）
+     * @param amountRaw 提现金额原文（请求体 amount 键；数值/字符串原文，服务端统一解析定形）
+     * @return {@code {balance=扣减后余额, withdrawNo=提现单号, amount=负向流水额, payChannel="MOCK_SIM"}}
+     */
+    Map<String, Object> withdraw(Long userId, String amountRaw);
 }

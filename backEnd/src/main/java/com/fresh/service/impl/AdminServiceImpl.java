@@ -68,6 +68,7 @@ import com.fresh.mapper.UserMapper;
 import com.fresh.service.AdminService;
 import com.fresh.service.CouponService;
 import com.fresh.service.DictService;
+import com.fresh.service.MerchantDepositService;
 import com.fresh.service.PartnerWalletService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -2692,7 +2693,10 @@ public class AdminServiceImpl implements AdminService {
     // F-118 结算跑批 + 结算中心（三个操作，只写 settlement 一张表 + order_item.settle_id 一列；
     // settlement 只增不改——本段无任何 UPDATE/DELETE settlement 路径，冲销走下一期 refund 列承载，
     // 06 册 §4.5 定稿照抄；主理人佣金自 F-119 起在挂锚成功后同事务并入（⑦.5 追加步，单列 commission
-    // 事务内回填，无作废/重开语义）、打款（轨道 B）/保证金（m1x）零涉及；
+    // 事务内回填，无作废/重开语义）；保证金（m1x）F-118 时代零涉及，P10-5 轨道 B D8 起在 ⑦.5 后同事务
+    // 并入代扣追加步 ⑦.6（无档位商家全跳过=既有行为零变化；代扣=deposit 两表落库+本表 deposit_amount/
+    // payable 两列回填，聚合/冲销/佣金逻辑零改动）；打款（轨道 B）原零涉及，P10-5 D5 起
+    // 由文件末尾追加的 confirmSettlementPayout 承载（唯一写语句=SettlementMapper#markPaid），本方法零改动；
     // 下单/取消/支付链路零改动，本段只读它们产生的数据）。
     // 读端点不写审计；generate 成功后写审计 settlement.create（旁路走本类唯一那份 writeAudit）。
     // 新依赖与常量一律追加在文件末尾（本类被仓内行号指针引用的追加式纪律，同 F-63/F-113 段头注）。
@@ -2724,6 +2728,11 @@ public class AdminServiceImpl implements AdminService {
     /** F-119 追加依赖：佣金记账（generateSettlement 挂锚成功后的同事务追加步 ⑦.5 调用，见该处注释） */
     @Autowired
     private PartnerWalletService partnerWalletService;
+
+    /** P10-5 D8 追加依赖：保证金代扣（generateSettlement ⑦.5 后的同事务追加步 ⑦.6 调用，见该处注释；
+     *  无档位商家在服务首段短路跳过——既有行为零变化）+ D7 保证金管理区两方法（文件末尾追加段） */
+    @Autowired
+    private MerchantDepositService merchantDepositService;
 
     /**
      * 生成账期（F-118 §1.1，判据顺序见接口注释）。聚合口径<b>逐字照契约</b>（selectSettleCandidates 的
@@ -2832,6 +2841,30 @@ public class AdminServiceImpl implements AdminService {
                 .eq(Settlement::getId, row.getId())
                 .set(Settlement::getCommission, commissionNet));
 
+        // ⑦.6 保证金代扣（P10-5 轨道 B D8 追加步，只新增不动上方任何既有行——聚合/冲销/佣金逻辑零改动）：
+        // 无档位商家（无 merchant_deposit 行或 required_amount≤0/已缴足/净额≤0）在 deductOnSettlement
+        // 首段短路返回 deduct=0，settlement 与 deposit_flow 零触碰（既有行为零变化，契约红线）；
+        // 有档位且已缴不足时 deduct=min(gap,net)，同事务回填 deposit_amount 与 payable=net−deduct
+        // （与 ⑦.5 commission 单列回填同姿势），merchant_deposit.paid_amount+=deduct 与 deposit_flow
+        // （type=2、channel=MOCK）落库全在本事务——deductOnSettlement 异常上抛即整体回滚
+        // （REQUIRED 并入主事务，不新增第二事务）。
+        Map<String, Object> depositResult = merchantDepositService.deductOnSettlement(
+                merchantId, row.getSettleNo(), net);
+        BigDecimal depositDeducted = (BigDecimal) depositResult.get("deduct");
+        if (depositDeducted != null && depositDeducted.signum() > 0) {
+            settlementMapper.update(null, new LambdaUpdateWrapper<Settlement>()
+                    .eq(Settlement::getId, row.getId())
+                    .set(Settlement::getDepositAmount, depositDeducted)
+                    .set(Settlement::getPayable, net.subtract(depositDeducted)));
+            // 审计 settlement.deposit（代扣实际发生才写；通道 MOCK 显式落在 detail；
+            // 旁路走本类唯一那份 writeAudit，写失败不打断主事务——照 settlement.payout 同姿势）
+            writeAudit(auditActor(actor), AUDIT_SETTLEMENT_DEPOSIT, AUDIT_TARGET_SETTLEMENT,
+                    String.valueOf(row.getId()), null,
+                    "merchantId=" + merchantId + ",settleNo=" + row.getSettleNo()
+                            + ",deposit=" + depositDeducted
+                            + ",payable=" + net.subtract(depositDeducted) + ",channel=MOCK");
+        }
+
         // ⑧ 审计 settlement.create（含 merchant/期/三金额/明细数；旁路，写失败不打断主事务）
         writeAudit(auditActor(actor), AUDIT_SETTLEMENT_CREATE, AUDIT_TARGET_SETTLEMENT,
                 String.valueOf(row.getId()), null,
@@ -2850,6 +2883,8 @@ public class AdminServiceImpl implements AdminService {
         out.put("gross", gross);
         out.put("refund", refund);
         out.put("net", net);
+        // P10-5 D8：本期代扣额（无档位/已缴足恒 0；>0 时 payable 已按 net−deposit 回填）
+        out.put("deposit", depositDeducted == null ? BigDecimal.ZERO : depositDeducted);
         out.put("itemCount", candidateIds.size());
         out.put("orderCount", orderIds.size());
         out.put("status", row.getStatus());
@@ -2883,7 +2918,8 @@ public class AdminServiceImpl implements AdminService {
      * Σ(supply_price×qty) / 孤儿行数——三条件皆真才 true，不落列、每请求现算：
      * 明细金额被改（①打穿）、行被删（②打穿）、挂锚明细的 orders 行被删即孤儿（③打穿，
      * 2026-10-25 主会话验收裁决补的第三条件——此前孤儿态下弹窗空而对账仍 true，两口径矛盾）。
-     * paidChannelAbsent 恒 true（记账态明示防前端漏显）。
+     * paidChannelAbsent/payChannel 两键按状态互斥（P10-5 D5）：paid 行出 payChannel（模拟通道显式）、
+     * 其余行出 paidChannelAbsent=true（记账态明示防前端漏显）。
      * 商家名批量查（selectBatchIds）不逐行查。periodStart/periodEnd 落 String（服务端定形，照 D-18）。
      */
     @Override
@@ -2963,13 +2999,21 @@ public class AdminServiceImpl implements AdminService {
             line.put("gross", row.getGmvAmount());
             line.put("refund", row.getRefundAmount());
             line.put("retain", row.getRetainAmount());
+            // P10-5 D8/m33：本期代扣入保证金额（无档位商家恒 0；>0 时 payable 已按 net−deposit 落库）
+            line.put("deposit", row.getDepositAmount() == null ? BigDecimal.ZERO : row.getDepositAmount());
             line.put("net", row.getPayable());
             // F-119 §3：commission 列显值（F-118 列已建 m27，F-118 时代恒 0；F-119 起为跑批佣金净值）
             line.put("commission", row.getCommission());
             line.put("itemCount", agg == null ? 0 : ((Number) agg.get("lineCount")).intValue());
             line.put("status", row.getStatus());
             line.put("reconcileOk", reconcileOk);
-            line.put("paidChannelAbsent", Boolean.TRUE);   // 记账态明示：打款通道未接（轨道 B）
+            // P10-5 轨道 B D5：已打款行通道显式（payChannel 恒 MOCK_SIM=模拟），未打款行保留
+            // 既有 paidChannelAbsent 明示键（防前端漏显）——键数不变，两键按状态互斥
+            if (SETTLEMENT_STATUS_PAID.equals(row.getStatus())) {
+                line.put("payChannel", row.getPayChannel());
+            } else {
+                line.put("paidChannelAbsent", Boolean.TRUE);   // 记账态明示：未打款（模拟轨打款可发）
+            }
             list.add(line);
         }
 
@@ -3008,6 +3052,74 @@ public class AdminServiceImpl implements AdminService {
             line.put("orphan", orphan != null && ((Number) orphan).intValue() != 0);
             out.add(line);
         }
+        return out;
+    }
+
+    // ==================================================================
+    // P10-5 轨道 B D5 打款状态机（一端点：POST /api/admin/settlements/{id}/payout）——
+    // 08 册挂账「status 停在 accounted、paid 态不实现」由本片契约解除：唯一写语句是
+    // SettlementMapper#markPaid 的条件 UPDATE（幂等），审计照 settlement.create 同姿势；
+    // 生成账期/对账逻辑零改动，06 册纸面预留列 paid_at/payout_voucher 留真实轨不写。
+    // ==================================================================
+
+    /** paid 打款态（P10-5 D5；唯一写路径=confirmSettlementPayout 的条件 UPDATE） */
+    private static final String SETTLEMENT_STATUS_PAID = "paid";
+
+    /** 模拟打款通道（D5：通道显式 MOCK 防演示冒充结算；与 SettlementMapper#markPaid 的 SQL 字面量同源） */
+    private static final String SETTLEMENT_PAY_CHANNEL_MOCK_SIM = "MOCK_SIM";
+
+    /** 审计动作（照 settlement.create 的命名族：动作=实体.动作）与 400 文案 */
+    private static final String AUDIT_SETTLEMENT_PAYOUT = "settlement.payout";
+    private static final String SETTLE_PAYOUT_ONLY_ACCOUNTED_MSG = "仅记账态账单可确认打款";
+
+    /** 保证金代扣审计动作（P10-5 D8；照 settlement.payout 同命名族，代扣实际发生才写） */
+    private static final String AUDIT_SETTLEMENT_DEPOSIT = "settlement.deposit";
+
+    /**
+     * 确认打款（P10-5 轨道 B D5，见 {@code AdminService#confirmSettlementPayout}）：
+     * 先读当前态分流——已 paid 幂等直返；仅 accounted 可置态；其余状态 400。
+     * 置态走条件 UPDATE（markPaid），影响行数 1=实际置态（写审计 settlement.payout 后回读出参），
+     * 0=并发双开的落败方（他端已置 paid）——按幂等语义回读当前态返回，不报错。
+     * paid_time 是本端点的唯一写者，不存在「accounted 且 paid_time 非 NULL」的第三态。
+     */
+    @Override
+    public Map<String, Object> confirmSettlementPayout(Long id, String actor) {
+        if (id == null || id <= 0) {
+            throw new BizException(R.CODE_BAD_REQUEST, BAD_REQUEST_MSG);
+        }
+        Settlement row = settlementMapper.selectById(id);
+        if (row == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "结算单不存在");
+        }
+        if (SETTLEMENT_STATUS_PAID.equals(row.getStatus())) {
+            return payoutLine(row, false);   // 幂等：已打款返回当前态，不再 UPDATE、不再写审计
+        }
+        if (!SETTLEMENT_STATUS_ACCOUNTED.equals(row.getStatus())) {
+            throw new BizException(R.CODE_BAD_REQUEST, SETTLE_PAYOUT_ONLY_ACCOUNTED_MSG);
+        }
+        int updated = settlementMapper.markPaid(id);
+        if (updated > 0) {
+            // 审计 settlement.payout（old=accounted → new=paid；通道 MOCK 显式落在 detail；
+            // 旁路走本类唯一那份 writeAudit，写失败不打断主流程——照 settlement.create 同姿势）
+            writeAudit(auditActor(actor), AUDIT_SETTLEMENT_PAYOUT, AUDIT_TARGET_SETTLEMENT,
+                    String.valueOf(id), row.getStatus(),
+                    "status=paid,payChannel=" + SETTLEMENT_PAY_CHANNEL_MOCK_SIM
+                            + ",settleNo=" + row.getSettleNo() + ",net=" + row.getPayable());
+        }
+        // updated==0 只可能是他端并发已置 paid（本端点是 paid_time 唯一写者）——幂等回读当前态
+        Settlement current = settlementMapper.selectById(id);
+        return payoutLine(current == null ? row : current, updated > 0);
+    }
+
+    /** 打款出参白名单（键序固定；payChannel 恒 MOCK_SIM=模拟通道显式标注） */
+    private static Map<String, Object> payoutLine(Settlement row, boolean transitioned) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", row.getId());
+        out.put("settleNo", row.getSettleNo());
+        out.put("merchantId", row.getMerchantId());
+        out.put("status", row.getStatus());
+        out.put("payChannel", row.getPayChannel());
+        out.put("transitioned", transitioned);
         return out;
     }
 
@@ -3449,5 +3561,49 @@ public class AdminServiceImpl implements AdminService {
             return "";
         }
         return "accounted".equals(status) ? "记账态" : status;
+    }
+
+    // ==================================================================
+    // P10-5 轨道 B D7 保证金管理（两端点：GET /api/admin/deposits 列表只读 +
+    // POST /api/admin/deposits/required 设置档位）——真实触发器①②③（营销白名单/风险阈值/
+    // 信用分级，04 册 §3.1）在模拟轨由运营端手动置档位等价替代（契约 D7）；写侧判定/闸门
+    // 钉在 MerchantDepositServiceImpl#setRequired，本段只做委托 + 实际写才落审计（照
+    // confirmSettlementPayout 同姿势）。代扣（D8）不在本段——它在生成账期事务尾部 ⑦.6。
+    // ==================================================================
+
+    /** 保证金档位审计动作（照 settlement.create 命名族；档位实际写入才写） */
+    private static final String AUDIT_DEPOSIT_REQUIRED = "deposit.required";
+    private static final String AUDIT_TARGET_DEPOSIT = "merchant_deposit";
+
+    /**
+     * 保证金账户列表（D7 管理区只读，{@code GET /api/admin/deposits}）：全量账户 id 升序，
+     * 行键 {@code merchantId,merchantName,category,requiredAmount,paidAmount,status,updatedAt}
+     * （判定与键序钉在 {@code MerchantDepositService#listAccounts}）；无账户行的商家不出现在本列表
+     * （置档位时才建户）。读端点不写审计。
+     */
+    @Override
+    public List<Map<String, Object>> listDeposits() {
+        return merchantDepositService.listAccounts();
+    }
+
+    /**
+     * 设置类目档位（D7，{@code POST /api/admin/deposits/required}）：判定链（merchant 404/
+     * 金额形状 400/类目白名单 400/required=0 停用/upsert 建户）钉在
+     * {@code MerchantDepositService#setRequired}；实际写入成功才写审计 {@code deposit.required}
+     * （旁路，old=原档位 → new=新档位+通道语义注记；照 settlement.payout 同姿势）。
+     */
+    @Override
+    public Map<String, Object> setDepositRequired(Long merchantId, java.math.BigDecimal requiredAmount,
+                                                  String category, String actor) {
+        // old 值留痕：写入前读一次现状（账户可能不存在=首次启用，old=null）
+        Map<String, Object> before = merchantDepositService.accountOf(merchantId);
+        Map<String, Object> out = merchantDepositService.setRequired(merchantId, requiredAmount, category);
+        writeAudit(auditActor(actor), AUDIT_DEPOSIT_REQUIRED, AUDIT_TARGET_DEPOSIT,
+                String.valueOf(merchantId),
+                before == null ? null : String.valueOf(before.get("requiredAmount"))
+                        + "/" + before.get("status"),
+                "requiredAmount=" + out.get("requiredAmount") + ",category=" + out.get("category")
+                        + ",status=" + out.get("status") + ",模拟触发器=D7（档位数值待真实 GMV 校准）");
+        return out;
     }
 }

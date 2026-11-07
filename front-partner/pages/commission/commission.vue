@@ -21,14 +21,25 @@
 
     <!-- ==================== 3. 就绪：余额卡（含记账态标注）→ 流水列表 → 加载更多 ==================== -->
     <template v-else>
-      <!-- 余额卡：记账态恒显标注（F-119 §3「标注『记账态：提现通道未接入』」）——
-           佣金余额只被跑批记账增减，本页零任何写入口（无提现/无调额，轨道 B） -->
+      <!-- 余额卡：记账态标注（P10-5 D6 起提现走模拟通道 MOCK_SIM——通道标注必须显式，红线：
+           资金文案不得无通道标注）；提现是本页唯一写入口（人工调额仍无入口） -->
       <view class="card balance-card">
         <text class="balance-label">佣金余额（元）</text>
         <text class="balance-value">{{ balanceText }}</text>
         <view class="balance-tag-row">
-          <text class="balance-tag">记账态：提现通道未接入</text>
+          <text class="balance-tag">记账态余额 · 提现走模拟通道 MOCK_SIM（无真实资金流）</text>
         </view>
+        <view class="withdraw-row">
+          <input class="withdraw-input" type="digit" v-model="withdrawAmount"
+                 placeholder="提现金额（元）" :disabled="withdrawing || retryLock > 0" />
+          <view class="withdraw-btn"
+                :class="{ 'withdraw-btn-disabled': !canWithdraw }"
+                :hover-class="canWithdraw ? 'pill-hover' : 'none'"
+                @click="onWithdrawTap">
+            <text class="withdraw-btn-text">{{ withdrawing ? '提交中…' : '提现' }}</text>
+          </view>
+        </view>
+        <text class="withdraw-note">模拟通道即时入账（无真实资金流）；金额须大于 0 且不超过余额</text>
         <text class="balance-note">佣金由平台结算跑批按订单实付 3% 自动记账（已支付订单入账、退款订单冲回），无需申请</text>
       </view>
 
@@ -75,26 +86,26 @@
 </template>
 
 <script>
-// 我的佣金（F-119 §3）：GET /api/partner/wallet 余额 + 流水分页，只读展示类。
+// 我的佣金（F-119 §3）：GET /api/partner/wallet 余额 + 流水分页 + 提现入口（P10-5 D6，模拟通道）。
 // 页面纪律与到货批次/门店信息同一套：
 // ① 状态位单值互斥 loading|error|ready（本页无 empty 态——后端对无钱包主理人回余额 0 + 空流水，
 //    「从没记过佣金」是正常态不是错误态，空列表提示放在流水卡内）；
 // ② 冷却锁只在 code===429 起（retrySecondsOf 转述后端 data.retryAfterSeconds，取不到回落本地 60）；
-//    主 load 与 loadMore 共用这一把 retryLock（D4/M11：追加页撞限流也起锁），冷却期内本页两个重试入口一起停；
+//    主 load 与 loadMore 共用这一把 retryLock（D4/M11：追加页撞限流也起锁），冷却期内本页重试入口
+//    与提现按钮一起停（提现撞写档 429 同样起这把锁，锁语义=「本页所有在途重试共用一个冷却」）；
 // ③ onUnload 成对清定时器；④ 请求全走 @/api/index.js（页内零原生请求）；
 // ⑤ 只渲染后端白名单键，缺键就如实不渲染，绝不为了好看前端编数据。
 // 分页：追加式加载（loadMore 拼在 flows 尾部），hasMore/total 都取后端回显值；
 // 重进页面（onShow）整体重拉，回到第一页——余额是活跃数值，回到本页就该看最新值。
-import { getPartnerWallet, retrySecondsOf, coolingText } from '@/api/index.js'
+import { getPartnerWallet, withdrawPartnerWallet, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
 const PAGE_ROUTE = 'pages/commission/commission'
 
-// biz_type 两值（后端 PartnerWalletFlow 常量收口，前端只做展示映射，未知值原样透出不猜中文名）
+// biz_type 三值（后端 PartnerWalletFlow 常量收口，前端只做展示映射，未知值原样透出不猜中文名）
 const BIZ_GRANT = 'commission_grant'
-const BIZ_REVERSAL = 'commission_reversal'
-const TYPE_TEXT = { commission_grant: '佣金入账', commission_reversal: '佣金冲回' }
+const TYPE_TEXT = { commission_grant: '佣金入账', commission_reversal: '佣金冲回', withdraw: '提现' }
 
 // 429 冷却回落秒数（与读侧 @RateLimit 的 60s 窗口同档，口径同 workspace/store）
 const RETRY_FALLBACK_SECONDS = 60
@@ -129,13 +140,24 @@ export default {
       retryLockTimer: null,
       // 这把闸门的墙上时钟锚点（ms）——闸门真值改存这里；stop*/onUnload 成对归零：
       // 残留值会让下一实例读到上一实例的数字
-      retryLockUntil: 0
+      retryLockUntil: 0,
+      // 提现（P10-5 D6）：输入金额（字符串原文，提交前本地形状校验）与写侧单飞锁
+      withdrawAmount: '',
+      withdrawing: false
     }
   },
   computed: {
     // 余额两位小数（后端 DECIMAL(10,2)，负值如实显示——冲回余额不足时后端照实记账）
     balanceText() {
       return this.moneyText(this.balance)
+    },
+    // 提现按钮可用性：金额>0、两位小数内、≤余额、非在飞、非冷却（形状终判在后端，这里只挡明显误触）
+    canWithdraw() {
+      if (this.withdrawing || this.retryLock > 0) return false
+      const n = Number(this.withdrawAmount)
+      if (!Number.isFinite(n) || n <= 0) return false
+      if (Math.round(n * 100) !== n * 100) return false   // 两位小数形状
+      return n <= Number(this.balance)
     },
     errorLeadText() {
       // 429 这行不带时长，秒数只在闸门那一处（模板 retryLock 倒计时行）出现一次（FF-1 口径）
@@ -247,14 +269,17 @@ export default {
       const t = f && TYPE_TEXT[f.bizType]
       return t || (f && f.bizType) || '未知类型'
     },
-    // 入账红（本端色板主红=正向强调，与「余额快照」一起构成对账可读的成对信息）；冲回灰
+    // 入账蓝（本端正向强调，与「余额快照」一起构成对账可读的成对信息）；冲回/提现同为负向灰——
+    // 负向不穿危险红也不穿蓝，避免与失败反馈混读（withdraw 落这档灰，语义=扣减不是报错）
     toneOf(f) {
       return f && f.bizType === BIZ_GRANT ? 'grant' : 'reversal'
     },
     amountText(f) {
       const v = this.moneyText(f && f.amount)
       if (!f || f.amount === undefined || f.amount === null) return '—'
-      return (f.bizType === BIZ_REVERSAL ? '' : '+') + v
+      // 负向（reversal 冲回 / withdraw 提现，amount 恒负）不加 '+' 前缀，由数值自带 '-' 号；
+      // 正向（grant）显 '+'。按数值符号判而不是按类型枚举判，新负向类型天然走对
+      return (Number(f.amount) < 0 ? '' : '+') + v
     },
     rateText(f) {
       // 费率快照 DECIMAL(5,4)（0.0300）：有值按原样展示四位小数（与流水行快照逐字一致），缺键如实「未返回」
@@ -280,6 +305,48 @@ export default {
     numOr(v, fallback) {
       const n = Number(v)
       return Number.isFinite(n) ? n : fallback
+    },
+    // ==================== 提现（P10-5 D6，模拟通道 MOCK_SIM） ====================
+    // 二次确认照本端 showModal 既有姿势（store.vue 的 onBackPress 同款 success/fail 双兜底）；
+    // 文案必须显式「模拟通道·无真实资金流」（红线：资金文案不得无通道标注）。
+    // 成功即重拉整页（余额与流水都是后端真值，回到第一页看最新）；失败 toast 后端 message 原文，
+    // 写档 429 与读侧共用同一把 retryLock（口径同 loadMore：同锁同屏只带数一次）。
+    onWithdrawTap() {
+      if (!this.canWithdraw) return
+      const amount = this.withdrawAmount
+      const n = Number(amount)
+      uni.showModal({
+        title: '确认提现',
+        content: '提现 ' + this.moneyText(n) + ' 元到账户余额？走模拟通道（MOCK_SIM，无真实资金流），即时入账不可撤销。',
+        confirmText: '确认提现',
+        cancelText: '再想想',
+        success: (r) => {
+          if (!r || !r.confirm) return
+          this.doWithdraw(amount)
+        },
+        fail: () => {
+          // 弹框起不来的端：不能把人锁死，退化为直接提交（形状校验与后端 400 仍兜底）
+          this.doWithdraw(amount)
+        }
+      })
+    },
+    async doWithdraw(amount) {
+      if (this.withdrawing) return
+      this.withdrawing = true
+      try {
+        const res = await withdrawPartnerWallet(amount)
+        uni.showToast({ title: (res && res.message) || '提现已受理（模拟通道）', icon: 'none', duration: 2000 })
+        this.withdrawAmount = ''
+        // 成功后整体重拉（余额/流水以后端真值为准，绝不本地拼数据——本页纪律⑤）
+        await this.load(true)
+      } catch (e) {
+        const code = Number((e && e.code) || 0)
+        if (code === 401) return   // 登录失效已由请求层收敛回登录页
+        if (code === 429) this.startRetryLock(e)   // 写档限流与读侧共用一把冷却锁
+        uni.showToast({ title: (e && e.message) || '提现失败，请稍后重试', icon: 'none', duration: 2000 })
+      } finally {
+        this.withdrawing = false
+      }
     },
     // ==================== 跳转与 429 冷却（workspace 同款） ====================
     goWorkspace() {
@@ -356,6 +423,21 @@ export default {
   font-size: 22rpx; color: var(--c-gold); background-color: var(--c-warn-soft);
   border: 1rpx solid var(--c-gold-hair); border-radius: 8rpx; padding: 6rpx 16rpx; line-height: 1.5;
 }
+/* ==================== 提现行（P10-5 D6）：输入 + 主按钮，色值全走 var(--c-*) ==================== */
+.withdraw-row { display: flex; align-items: center; gap: 16rpx; width: 100%; margin-top: 8rpx; }
+.withdraw-input {
+  flex: 1; height: 72rpx; padding: 0 20rpx;
+  font-size: 28rpx; color: var(--c-text);
+  background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 12rpx;
+}
+.withdraw-btn {
+  min-width: 160rpx; height: 72rpx; padding: 0 32rpx;
+  display: flex; align-items: center; justify-content: center;
+  background-color: var(--c-primary); border-radius: 12rpx;
+}
+.withdraw-btn-text { font-size: 28rpx; font-weight: 600; color: #FFFFFF; }
+.withdraw-btn-disabled { opacity: .5; }
+.withdraw-note { font-size: 22rpx; color: var(--c-warn); line-height: 1.5; text-align: center; }
 .balance-note { font-size: 22rpx; color: var(--c-text-4); line-height: 1.5; text-align: center; }
 
 /* ==================== 4. 流水卡 ==================== */

@@ -4,14 +4,19 @@
       <h2 class="page-title">结算中心</h2>
       <el-tag type="danger" effect="dark" size="small">本页会改数据</el-tag>
     </div>
-    <!-- F-118 §2：记账态恒显条——打款通道未接入（轨道 B），所有金额为平台-商家核算口径。
-         paidChannelAbsent 由接口层带出（恒 true），页面恒显不依赖它，接口键缺失时也照样显示。 -->
+    <!-- F-118 §2 原记账态恒显条——P10-5 轨道 B D5 起打款走模拟通道：通道显式 MOCK 标注（红线：
+         任何页面不得出现无通道标注的资金文案）。未打款行接口仍带 paidChannelAbsent，已打款行带 payChannel。 -->
     <div class="accounting-banner">
-      记账态：打款通道未接入（轨道 B），所有金额为平台-商家核算口径。
+      打款走模拟通道（pay_channel=MOCK_SIM，无真实资金流），所有金额为平台-商家核算口径。
       账单只增不改（无作废/重开），冲销在下一账期 refund 列负向计入。
     </div>
     <p class="page-note">
-      列表读 GET /api/admin/settlements（十五键行，F-119 §3 在 net 后补 commission 列，含实时对账标志 reconcileOk）；生成走 POST /api/admin/settlements/generate；明细弹窗读 GET /api/admin/settlements/{id}/items。<br />
+      列表读 GET /api/admin/settlements（十六键行，F-119 §3 在 net 后补 commission 列、P10-5 D8 在 refund 后补
+      deposit 列=本期代扣入保证金额，含实时对账标志 reconcileOk；
+      P10-5 D5 起已打款行以 payChannel 替代 paidChannelAbsent 键）；生成走 POST /api/admin/settlements/generate；
+      明细弹窗读 GET /api/admin/settlements/{id}/items；确认打款走 POST /api/admin/settlements/{id}/payout（幂等）。<br />
+      <b>保证金代扣</b>（P10-5 D8）：商家被运营置过档位（下方「保证金管理」）且已缴不足时，生成账期会在同事务内
+      从应结款代扣差额缴存保证金（deposit&gt;0 的行 net 已是扣后实结额），通道 MOCK（无真实资金流）。<br />
       <b>对账 ✗ = 数据事故</b>（理论上不可达：金额或行数与挂锚明细对不上），行整行标红，出现即立即上报，不要自行处理数据。<br />
       缺货明细不结算（fulfill_status=shortage 排除）；未设供货价（supply_price 为空）与未支付单（pay_status≠1）不进聚合。<br />
       <b>佣金</b>=本账单主理人佣金净值（F-119：已支付订单按订单实付 3% 入账、本期窗口退款订单冲回，正负相抵；
@@ -83,6 +88,12 @@
           <el-table-column label="refund" width="90" align="right">
             <template #default="{ row }">{{ row.refund }}</template>
           </el-table-column>
+          <!-- P10-5 D8：本期代扣入保证金额（无档位商家恒 0；>0 时本行 net 已是扣后实结额） -->
+          <el-table-column label="保证金" width="90" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'deposit-cell-active': Number(row.deposit) > 0 }">{{ row.deposit }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="net" width="90" align="right">
             <template #default="{ row }"><b>{{ row.net }}</b></template>
           </el-table-column>
@@ -93,9 +104,12 @@
           <el-table-column label="明细数" width="80" align="right">
             <template #default="{ row }">{{ row.itemCount }}</template>
           </el-table-column>
-          <el-table-column label="状态" width="90">
+          <el-table-column label="状态" width="110">
             <template #default="{ row }">
-              <el-tag type="success" size="small">{{ row.status === 'accounted' ? '记账态' : row.status }}</el-tag>
+              <!-- P10-5 D5：paid 与 accounted 分态显——已打款必须带模拟通道标注（红线：无通道标注的资金文案不得出现） -->
+              <el-tag v-if="row.status === 'paid'" type="warning" size="small">已打款·模拟通道</el-tag>
+              <el-tag v-else-if="row.status === 'accounted'" type="success" size="small">记账态</el-tag>
+              <el-tag v-else type="info" size="small">{{ row.status }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="对账" width="80" align="center">
@@ -104,9 +118,12 @@
               <span v-else class="reconcile-bad" title="对不上即数据事故：立即上报，不要自行处理数据">✗</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="90" fixed="right">
+          <el-table-column label="操作" width="170" fixed="right">
             <template #default="{ row }">
               <el-button size="small" type="primary" plain :disabled="submitting" @click="openItems(row)">明细</el-button>
+              <!-- P10-5 D5：确认打款仅记账态显示（已打款行幂等不可再打）；二次确认照本页生成账期既有姿势 -->
+              <el-button v-if="row.status === 'accounted'" size="small" type="warning" plain
+                         :disabled="submitting || payoutSubmitting" @click="onPayout(row)">确认打款</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -127,6 +144,71 @@
           />
         </div>
       </template>
+    </section>
+
+    <!-- ==================== P10-5 D7 保证金管理区（m1x 模拟触发器） ====================
+         真实触发器①②③（营销白名单/风险阈值/信用分级，04 册 §3.1）在模拟轨由本区手动置档位等价替代；
+         代扣（D8）不在本区——它在生成账期事务内自动发生（MOCK 通道），本区只管「档位现状+置档位」。
+         档位建议值照 04 册 §3.3 三档：高档 8000（meat/fresh 活鲜）/中档 5000（dairy/frozen/wine）/
+         低档 3000（其余六类）——均为模拟轨草案值，待真实 GMV 校准。 -->
+    <section class="panel deposit-panel">
+      <div class="deposit-head">
+        <h3 class="deposit-title">保证金管理</h3>
+        <span class="toolbar-hint">
+          模拟触发器：为商家设置类目档位后，生成账期时若已缴不足会从应结款代扣（MOCK 通道，无真实资金流）；
+          档位数值为模拟轨草案值（8000/5000/3000），待真实 GMV 校准。
+        </span>
+      </div>
+      <div class="deposit-form">
+        <el-select v-model="depositForm.merchantId" filterable :loading="merchantChoicesLoading"
+                   :disabled="merchantChoicesLoading || !!merchantChoicesError"
+                   placeholder="选择商家" style="width: 240px">
+          <el-option v-for="m in merchantChoices" :key="m.id" :label="merchantLabel(m)" :value="String(m.id)">
+            <span>{{ m.name }}</span>
+            <span class="option-meta">#{{ m.id }} · {{ merchantStatusText(m.status) }}</span>
+          </el-option>
+        </el-select>
+        <el-select v-model="depositForm.category" clearable placeholder="类目档位（可空）"
+                   style="width: 220px" @change="onDepositCategoryChange">
+          <el-option v-for="c in DEPOSIT_CATEGORY_OPTIONS" :key="c.value" :value="c.value"
+                     :label="c.label + ' · 建议 ' + c.tier" />
+        </el-select>
+        <el-input v-model="depositForm.requiredAmount" placeholder="应缴额（0=停用）"
+                  style="width: 170px" :disabled="depositSubmitting" />
+        <el-button size="small" type="primary" :loading="depositSubmitting"
+                   :disabled="depositSubmitting || merchantChoicesLoading || !!merchantChoicesError"
+                   @click="onSetDepositRequired">设置档位</el-button>
+        <el-button size="small" :loading="depositsLoading" @click="loadDeposits">刷新</el-button>
+      </div>
+      <el-table :data="deposits" border stripe size="small" max-height="320px" class="deposit-table">
+        <template #empty>
+          <span class="muted">暂无保证金账户（为商家设置档位后此处出现账户行）</span>
+        </template>
+        <el-table-column label="商家" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.merchantName || ('#' + row.merchantId) }}</template>
+        </el-table-column>
+        <el-table-column label="类目档位" width="110">
+          <template #default="{ row }">{{ row.category || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="应缴额" width="110" align="right">
+          <template #default="{ row }">
+            {{ Number(row.requiredAmount) > 0 ? row.requiredAmount : '未启用' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="已缴" width="100" align="right">
+          <template #default="{ row }">{{ row.paidAmount }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.status === 'active'" type="success" size="small">正常</el-tag>
+            <el-tag v-else-if="row.status === 'arrears'" type="danger" size="small">欠费待补</el-tag>
+            <el-tag v-else type="info" size="small">{{ DEPOSIT_STATUS_TEXT[row.status] || row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新时间" min-width="150">
+          <template #default="{ row }">{{ row.updatedAt || '--' }}</template>
+        </el-table-column>
+      </el-table>
     </section>
 
     <!-- 生成账期弹窗 -->
@@ -240,18 +322,22 @@
 <script setup>
 // 结算中心（F-118 §2）：结构与错误处理照 Stores.vue / CouponTemplates.vue（同组菜单 F-113/F-114 模式）。
 //   读   = GET /api/admin/settlements（F-118 十四键行 + F-119 §3 追加 commission，id 倒序；reconcileOk 实时对账标志；
-//          F-125 §2 起分页出参 {list,total,pageNum,pageSize,filters} + 账期窗口闭区间筛选）
+//          F-125 §2 起分页出参 {list,total,pageNum,pageSize,filters} + 账期窗口闭区间筛选；
+//          P10-5 D5 起已打款行以 payChannel 替代 paidChannelAbsent 键）
 //   写   = POST /api/admin/settlements/generate（商家+起止日期；二次确认含聚合口径）
+//          + POST /api/admin/settlements/{id}/payout（确认打款，P10-5 D5：条件置 paid+MOCK_SIM，
+//          幂等——后端已 paid 再调返回当前态；二次确认说明模拟通道语义，仅记账态行显示入口）
 //   明细 = GET /api/admin/settlements/{id}/items（挂锚明细快照，只读）
-// 纪律（契约 §2/§3）：
-//   1) 顶部记账态横幅恒显（打款通道未接入轨道 B），paidChannelAbsent 是接口明示键、页面不依赖它显隐；
+// 纪律（契约 §2/§3；3) 的「无更新」由 P10-5 D5 契约解除为「唯一打款条件 UPDATE」，其余不变）：
+//   1) 顶部横幅恒显打款通道语义：模拟通道 MOCK_SIM 无真实资金流（红线：资金文案必须带通道标注），
+//      paidChannelAbsent/payChannel 是接口按状态互斥的明示键、页面不依赖它显隐；
 //   2) 对账 ✗ 行整行标红——语义是「数据事故，理论上不可达」，页面只上报不提供任何修复入口；
-//   3) 无 PUT/DELETE（settlement 只增不改，冲销走下一期 refund 列）；
-//   4) 生成弹窗二次确认文案说明聚合口径（已支付·非缺货·已设供货价）；
-//   5) 生成成功后重拉列表，绝不本地改行；错误一律 ElMessage + 后端 message 原文。
+//   3) 无 PUT/DELETE（settlement 只增不改，冲销走下一期 refund 列；打款是唯一受契约允许的置态写）；
+//   4) 生成/打款二次确认文案说明口径（聚合口径/模拟通道无真实资金流）；
+//   5) 写成功后重拉列表，绝不本地改行；错误一律 ElMessage + 后端 message 原文。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminSettlements, generateAdminSettlement, getAdminSettlementItems, getAdminMerchants, exportAdminSettlements } from '../api'
+import { getAdminSettlements, generateAdminSettlement, getAdminSettlementItems, getAdminMerchants, exportAdminSettlements, confirmAdminSettlementPayout, getAdminDeposits, setAdminDepositRequired } from '../api'
 
 const settlements = ref([])
 const loading = ref(false)
@@ -584,6 +670,146 @@ async function onGenerate() {
   }
 }
 
+// ==================== P10-5 D7 保证金管理区（m1x 模拟触发器） ====================
+// 列表读 GET /api/admin/deposits（只读），写走 POST /api/admin/deposits/required（二次确认照
+// 本页生成账期/打款既有姿势：ElMessageBox + customClass 'admin-write-confirm'，文案显式说明
+// 模拟轨草案值与 MOCK 代扣语义）；写成功后重拉账户列表，绝不本地改行。
+// 类目档位建议值照 04 册 §3.3：高档 8000（meat/fresh）/中档 5000（dairy/frozen/wine）/低档 3000（其余）。
+const DEPOSIT_CATEGORY_OPTIONS = [
+  { value: 'meat', label: 'meat 肉类（高档）', tier: 8000 },
+  { value: 'fresh', label: 'fresh 活鲜（高档）', tier: 8000 },
+  { value: 'dairy', label: 'dairy 乳品（中档）', tier: 5000 },
+  { value: 'frozen', label: 'frozen 冷冻（中档）', tier: 5000 },
+  { value: 'wine', label: 'wine 酒水（中档）', tier: 5000 },
+  { value: 'vegetable', label: 'vegetable 蔬菜（低档）', tier: 3000 },
+  { value: 'fruit', label: 'fruit 水果（低档）', tier: 3000 },
+  { value: 'grain', label: 'grain 粮油（低档）', tier: 3000 },
+  { value: 'snack', label: 'snack 零食（低档）', tier: 3000 },
+  { value: 'fastfood', label: 'fastfood 快餐（低档）', tier: 3000 },
+  { value: 'general', label: 'general 通用（低档）', tier: 3000 }
+]
+const DEPOSIT_STATUS_TEXT = { none: '未启用', active: '正常', arrears: '欠费待补' }
+const deposits = ref([])
+const depositsLoading = ref(false)
+const depositForm = ref({ merchantId: null, category: null, requiredAmount: '' })
+const depositSubmitting = ref(false)
+
+async function loadDeposits() {
+  if (depositsLoading.value) return
+  depositsLoading.value = true
+  try {
+    const envelope = await getAdminDeposits()
+    deposits.value = Array.isArray(envelope && envelope.data) ? envelope.data : []
+  } catch (err) {
+    const e = err || {}
+    deposits.value = []
+    if (e.message) ElMessage.error(e.message)
+  } finally {
+    depositsLoading.value = false
+  }
+}
+
+// 选类目自动预填建议档位金额（可改；清空类目不动金额）
+function onDepositCategoryChange(category) {
+  const hit = DEPOSIT_CATEGORY_OPTIONS.find((c) => c.value === category)
+  if (hit) depositForm.value.requiredAmount = String(hit.tier)
+}
+
+async function onSetDepositRequired() {
+  if (depositSubmitting.value) return
+  const f = depositForm.value
+  const selected = merchantChoices.value.find((m) => String(m.id) === String(f.merchantId))
+  if (!selected) {
+    ElMessage.warning('请从下拉中选择真实商家')
+    return
+  }
+  const merchantId = Number(selected.id)
+  if (!Number.isInteger(merchantId) || merchantId <= 0) {
+    ElMessage.warning('商家参数不合法，请重新选择')
+    return
+  }
+  const raw = String(f.requiredAmount == null ? '' : f.requiredAmount).trim()
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) {
+    ElMessage.warning('应缴额须为非负数且最多两位小数（0=停用触发式缴存）')
+    return
+  }
+  const requiredAmount = Number(raw)
+  const stop = requiredAmount === 0
+  const tierLine = stop
+    ? '停用后该商家生成账期不再代扣保证金（已缴记录保留，状态回「未启用」）。'
+    : '启用后生成账期时若该商家已缴不足，将从本期应结款代扣差额缴存保证金'
+      + '（MOCK 通道，无真实资金流；代扣后实结 net=net−代扣额）。'
+  try {
+    await ElMessageBox.confirm(
+      '确认为商家「' + selected.name + '」（#' + merchantId + '）设置保证金档位 '
+      + (stop ? '0 元（停用）' : requiredAmount + ' 元')
+      + (f.category ? '（类目 ' + f.category + '）' : '') + ' 吗？\n'
+      + tierLine + '\n'
+      + '档位数值为模拟轨草案值（8000/5000/3000），待真实 GMV 校准（04 册 §3.3）。',
+      '设置保证金档位',
+      {
+        type: 'warning',
+        confirmButtonText: '设置',
+        cancelButtonText: '取消',
+        customClass: 'admin-write-confirm'
+      })
+  } catch (e) {
+    return // 取消确认：不发出任何请求
+  }
+  depositSubmitting.value = true
+  try {
+    const envelope = await setAdminDepositRequired({
+      merchantId,
+      requiredAmount,
+      category: f.category || undefined
+    })
+    ElMessage.success((envelope && envelope.message) || '保证金档位已更新（模拟触发器）')
+    await loadDeposits()
+  } catch (err) {
+    const e = err || {}
+    if (e.message) ElMessage.error(e.message)
+  } finally {
+    depositSubmitting.value = false
+  }
+}
+
+// P10-5 D5 确认打款：仅记账态行可入（模板 v-if 兜底，这里再挡一道）；二次确认照本页生成账期
+// 既有姿势（ElMessageBox + customClass 'admin-write-confirm'），文案显式说明模拟通道语义（红线：
+// 资金文案必须带通道标注）。成功后重拉列表核对，绝不本地改行；幂等不靠前端——后端条件 UPDATE
+// 已 paid 再调返回当前态不报错，前端只把后端 message 原样呈现。
+const payoutSubmitting = ref(false)
+async function onPayout(row) {
+  if (payoutSubmitting.value || submitting.value) return
+  if (!row || row.status !== 'accounted') return
+  try {
+    await ElMessageBox.confirm(
+      '确认为账单 ' + row.settleNo + '（' + (row.merchantName || ('#' + row.merchantId)) + '，'
+      + row.periodStart + ' ~ ' + row.periodEnd + '，net ' + row.net + ' 元）确认打款吗？\n'
+      + '打款走模拟通道（MOCK_SIM，无真实资金流，测试环境演示闭环用），置后状态为「已打款」且不可回退。\n'
+      + '同账单重复调用后端按幂等处理（返回当前态，不重复生效）。',
+      '确认打款',
+      {
+        type: 'warning',
+        confirmButtonText: '确认打款',
+        cancelButtonText: '取消',
+        customClass: 'admin-write-confirm'
+      })
+  } catch (e) {
+    return // 取消确认：不发出任何请求
+  }
+  payoutSubmitting.value = true
+  try {
+    const envelope = await confirmAdminSettlementPayout(row.id)
+    ElMessage.success((envelope && envelope.message) || '打款已确认（模拟通道）')
+    await reloadSettlements()
+  } catch (err) {
+    const e = err || {}
+    if (e.message) ElMessage.error(e.message)
+  } finally {
+    payoutSubmitting.value = false
+  }
+}
+
 async function openItems(row) {
   if (!row) return
   itemsRow.value = row
@@ -606,6 +832,7 @@ async function openItems(row) {
 
 onMounted(() => {
   loadSettlements()
+  loadDeposits()
 })
 </script>
 
@@ -712,5 +939,33 @@ onMounted(() => {
 .orphan-cell {
   color: var(--el-color-danger);
   font-size: 12px;
+}
+/* ==================== P10-5 D7 保证金管理区 ==================== */
+.deposit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.deposit-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.deposit-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+.deposit-table {
+  margin-top: 4px;
+}
+/* 账期列表保证金列：本期有代扣的行加警示色读数（无代扣 0.00 走默认灰阶） */
+.deposit-cell-active {
+  color: var(--el-color-warning);
+  font-weight: 600;
 }
 </style>

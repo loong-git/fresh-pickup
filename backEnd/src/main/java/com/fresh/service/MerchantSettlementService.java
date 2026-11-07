@@ -21,10 +21,13 @@ public interface MerchantSettlementService {
      * id 升序（运营端 DESC 是管理视角，商家端照契约升序）；分页闸门照 F-125 运营端逐字——
      * pageNum/pageSize 缺省 1/20、pageNum≥1、1≤pageSize≤100，越界 400「请求参数有误，请检查后重试」
      * 不夹取，offset ≥ total 短路空 list、total 仍真值。
-     * 出参封口 {@code {list,total,pageNum,pageSize}}（无 filters——商家侧无筛选维度，契约 §1-4 明定），
-     * list 行仍为商家自见子集 {@code id,settleNo,periodStart,periodEnd,gmvAmount,refundAmount,netAmount(==payable),
-     * orderCount,commission,status,createdAt} + {@code reconcileOk,paidChannelAbsent}——
-     * 运营管理字段（merchantId/merchantName/gross/refund/net/retain/itemCount）不下发。
+     * 出参封口 {@code {list,total,pageNum,pageSize}}（无 filters——商家侧无筛选维度，契约 §1-4 明定；
+     * P10-5 D8/m33 起追加顶层 {@code depositAccount} 一键——保证金缴存状态账户级一次下发，
+     * 无 merchant_deposit 行为 null=未启用触发式缴存），
+     * list 行仍为商家自见子集 {@code id,settleNo,periodStart,periodEnd,gmvAmount,refundAmount,
+     * netAmount(==payable),depositAmount,orderCount,commission,status,createdAt} +
+     * {@code reconcileOk,paidChannelAbsent}——运营管理字段（merchantId/merchantName/gross/refund/net/
+     * retain/itemCount）不下发。
      * reconcileOk 实时算照运营端口径（三条件，见实现类，聚合只喂当页 settleIds）；paidChannelAbsent 恒 true（记账态明示）。
      */
     Map<String, Object> list(Long merchantId, Integer pageNum, Integer pageSize);

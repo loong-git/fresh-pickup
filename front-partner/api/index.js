@@ -573,17 +573,18 @@ export function getMyStoreApply() {
   })
 }
 
-// ==================== 我的佣金钱包（F-119 §3） ====================
+// ==================== 我的佣金钱包（F-119 §3 + P10-5 D6 提现） ====================
 // 归属纪律同上：/api/partner/** 的归属由服务端从 token 解析（钱包按主理人 user 建，uk_user_wallet
-// 一人一钱包），本层不拼任何归属参数。只读接口：本功能没有任何钱包写端点（写路径只有生成账期跑批记账）。
+// 一人一钱包），本层不拼任何归属参数。写接口只有一个：提现（P10-5 D6，模拟通道 MOCK_SIM）。
 
 /**
  * 我的佣金：GET /api/partner/wallet?page=&size=（F-119 §3，读 30/分）
  * 出参 data: {userId, balance, total, page, size, hasMore,
  *   flows:[{id, bizType, orderId, settlementId, amount, balanceAfter, rateSnapshot, createdAt}]}。
- * bizType 两值：commission_grant 佣金入账（amount 恒正）/ commission_reversal 佣金冲回（amount 恒负，
- * 绝对值与该单 grant 同额）；balanceAfter 是变动后余额快照，冲回余额不足时可能显负值（后端如实记账，
- * 页面照实展示不修饰）。余额为「记账态」：提现通道未接入（轨道 B），页面恒显该标注。
+ * bizType 三值：commission_grant 佣金入账（amount 恒正）/ commission_reversal 佣金冲回（amount 恒负，
+ * 绝对值与该单 grant 同额）/ withdraw 提现（P10-5 D6，amount 恒负=提现扣减，orderId 位是提现单号）；
+ * balanceAfter 是变动后余额快照，冲回余额不足时可能显负值（后端如实记账，页面照实展示不修饰）。
+ * 余额为「记账态」：提现走模拟通道 MOCK_SIM（P10-5 D6 起可提现，无真实资金流）。
  * page/size 夹而不拒并回显生效值（服务端口径：page<1→1，size<1→20，size>50→50）。
  * @param {{page?:number, size?:number}} [query]
  * @returns {Promise<{code,data:object,message:string}>}
@@ -594,4 +595,22 @@ export function getPartnerWallet(query) {
   if (src.page) data.page = Number(src.page)
   if (src.size) data.size = Number(src.size)
   return request({ url: '/api/partner/wallet', method: 'GET', data })
+}
+
+/**
+ * 提现（写，P10-5 轨道 B D6）：POST /api/partner/wallet/withdraw，body {amount}。
+ * 服务端判定：金额须 >0、至多两位小数、≤余额（不足 400「余额不足」；并发双提落败方同文案）。
+ * 成功即时负向入账（余额条件扣减 + WITHDRAW 负向流水，余额快照范式），通道恒 MOCK_SIM——
+ * 模拟通道无真实资金流（红线：资金文案必须带通道标注，页面确认弹窗与成功提示都须带）。
+ * 出参 data: {balance=扣减后余额, withdrawNo=提现单号, amount=负向流水额, payChannel="MOCK_SIM"}。
+ * 写档限流 USER 10/分；每次调用即一笔独立提现（无幂等键）。
+ * @param {number|string} amount 提现金额（元，两位小数内）
+ * @returns {Promise<{code,data:object,message:string}>}
+ */
+export function withdrawPartnerWallet(amount) {
+  return request({
+    url: '/api/partner/wallet/withdraw',
+    method: 'POST',
+    data: { amount }
+  })
 }

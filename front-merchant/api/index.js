@@ -827,9 +827,14 @@ export function getMerchantMarketing() {
  * 结算单列表：GET /api/merchant/settlements?pageNum=&pageSize=（P5-2 分页对齐，对象传参；id 升序——
  * F-120 §1 刻意差异，与运营端 F-125 的 DESC 相反，页面别按 id 顺序自行脑补新旧）
  * 出参 data 是分页对象（商家侧无筛选维度，无 filters 键，这是与 F-125 出参的明确差异）：
- * {list,total,pageNum,pageSize}；list 每行十三键商家自见子集：{id,settleNo,periodStart,periodEnd,
- * gmvAmount,refundAmount,netAmount,orderCount,commission,status,createdAt,reconcileOk,paidChannelAbsent}——
+ * {list,total,pageNum,pageSize,depositAccount}；list 每行十四键商家自见子集：
+ * {id,settleNo,periodStart,periodEnd,gmvAmount,refundAmount,netAmount,depositAmount,
+ * orderCount,commission,status,createdAt,reconcileOk,paidChannelAbsent}——
  * 运营管理字段（merchantId/merchantName/gross/refund/net/retain/itemCount）后端不下发。
+ * depositAmount=本期代扣入保证金额（P10-5 D8/m33，无档位商家恒 0；>0 时 netAmount 已是
+ * net−deposit 的扣后实结额，代扣走 MOCK 通道无真实资金流）；depositAccount=保证金缴存状态
+ * （账户级一次下发：{merchantId,merchantName,category,requiredAmount,paidAmount,status,updatedAt}，
+ * null=未启用触发式缴存——运营未为该商家设置档位，生成账期不会代扣）。
  * reconcileOk 是服务端实时对账标志（✓ 账面金额/订单数与挂锚明细实时对得上；✗ 对不上=数据异常口径，
  * 页面只转述不推算）；paidChannelAbsent 恒 true（打款通道未接，记账态明示——说明横幅恒显，不依赖它做显隐，
  * 照运营端 Settlements.vue 同一口径）。归属由服务端 @RequestAttribute 解析，本层不拼任何归属入参

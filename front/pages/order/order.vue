@@ -116,7 +116,7 @@
           <text class="of-label">合计</text>
           <!-- M3-T-07：totalPrice 脏数据（null/undefined/非数字）由 $fmtMoney 按 0 兜底显示 0.00，不崩溃 -->
           <text class="of-price">¥{{ $fmtMoney(order.totalPrice) }}</text>
-          <!-- 待支付单"去支付"（M2-T-05）：同收银台逻辑调 mock-pay，支付中禁用防重；
+          <!-- 待支付单"去支付"（M2-T-05，P10-5 D3 起同收银台走 sim-create→sim-pay 模拟微信链路）：支付中禁用防重；
                仅 payStatus===0 展示（已支付/已退款均不入口） -->
           <button
             v-if="order.status === 'pending_pickup' && payStatus(order) === 0"
@@ -187,7 +187,8 @@
 
 <script>
 import { mapState } from 'vuex'
-import { getOrders, cancelOrder, mockPay } from '@/api/index.js'
+// P10-5 轨道 B D3：去支付切模拟微信链路（sim-create→sim-pay）；mock-pay 端点保留给 smoke/回归，C 端不再直调
+import { getOrders, cancelOrder, simCreate, simPay } from '@/api/index.js'
 
 // 订单三态 -> 中文徽标（pending_pickup/completed/cancelled）
 const STATUS_MAP = { pending_pickup: '待自提', completed: '已完成', cancelled: '已取消' }
@@ -339,8 +340,9 @@ export default {
       this.cancelingId = order.id
       try {
         await cancelOrder(order.id)
-        // 已支付单取消即退款（后端置 pay_status=2），文案区分；未支付单维持原提示
-        uni.showToast({ title: paid ? '订单已取消，退款已原路退回' : '订单已取消', icon: 'success' })
+        // 已支付单取消即退款（后端置 pay_status=2），文案区分；未支付单维持原提示。
+        // P10-5 轨道 B 假话 toast 诚实化：本仓无真实资金流，「退款已原路退回」改成如实口径
+        uni.showToast({ title: paid ? '订单已取消；退款按原通道处理（测试环境为模拟通道，无真实资金流）' : '订单已取消', icon: 'success' })
         // 重置到第一页刷新（状态变化后各 tab 数据同步更新）
         this.loadOrders(true)
       } catch (e) {
@@ -365,18 +367,28 @@ export default {
         })
       })
     },
-    // 待支付单"去支付"：同收银台逻辑调 mock-pay（幂等），成功后刷新列表同步支付徽标
+    // 待支付单"去支付"：P10-5 D3 起同收银台走模拟微信链路——sim-create 拿参数并对账金额分，
+    // sim-pay 由后端扮微信服务器打本机 wx-notify 走完整真实链路（幂等），成功后刷新列表同步支付徽标
     async onPay(order) {
       if (this.payingId) return
       this.payingId = order.id
       // #ifdef MP-WEIXIN
       // 小程序端支付分叉预留（T-M4-04）：真实环境应先调后端预支付接口换取支付参数，
       // 再调 uni.requestPayment({ provider: 'wxpay', timeStamp, nonceStr, package, signType, paySign, ... })
-      // 拉起微信支付；当前小程序与 H5 统一走模拟支付 mock-pay 现状
+      // 拉起微信支付；当前小程序与 H5 统一走模拟微信链路（sim-create→sim-pay）现状
       // await uni.requestPayment({ provider: 'wxpay', ... })
       // #endif
       try {
-        const paid = await mockPay(order.id)
+        // 第一步：模拟 jsapi 下单拿支付参数（五参数 + 金额分）；金额分与本单展示金额对账，不一致即中止
+        const created = await simCreate(order.id)
+        const createdData = (created && created.data) || {}
+        const expectFen = Math.round(Number(order.totalPrice) * 100)
+        if (createdData.amountFen !== expectFen) {
+          this.showToast('支付金额校验不一致，已中止支付')
+          return
+        }
+        // 第二步：模拟用户在微信侧确认——「去支付」点击即代表微信侧确认，直接打 sim-pay
+        const paid = await simPay(order.id)
         // F-59：与首页收银台同一处理——码在这这一刻才存在，先回进提示；随后 loadOrders 刷新，
         // 该单的「取货码」行也就出现了（两处支付入口行为必须一致，不能一处有一处没有）
         const picked = paid && paid.data && paid.data.pickupCode

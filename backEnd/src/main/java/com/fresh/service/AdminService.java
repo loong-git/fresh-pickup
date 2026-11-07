@@ -487,9 +487,10 @@ public interface AdminService {
     /**
      * 账期列表（{@code GET /api/admin/settlements}，F-118 §1.2 初版 + F-125 §1.2 分页/账期筛选）：
      * 按 id DESC（新账期在前）返回一页。每单键序固定
-     * {@code id,settleNo,merchantId,merchantName,periodStart,periodEnd,gross,refund,retain,net,
-     * commission,itemCount,status,reconcileOk,paidChannelAbsent}（F-118 契约逐字十四键，F-119 §3
-     * 在 net 后追加 commission 一键成十五键——佣金列显值，F-118 时代恒 0；仍不加 orderCount）。
+     * {@code id,settleNo,merchantId,merchantName,periodStart,periodEnd,gross,refund,retain,deposit,
+     * net,commission,itemCount,status,reconcileOk,paidChannelAbsent}（F-118 契约逐字十四键，F-119 §3
+     * 在 net 后追加 commission 一键成十五键——佣金列显值，F-118 时代恒 0；P10-5 D8/m33 在 retain 后
+     * 追加 deposit 一键成十六键——本期代扣入保证金额，无档位商家恒 0；仍不加 orderCount）。
      *
      * <p><b>分页与筛选（F-125 §1.2，闸门照 merchants 族）</b>：pageNum 缺省 1、pageSize 缺省 20，
      * 值域 [1,100]，越界 400「请求参数有误，请检查后重试」不夹取；merchantId 可空（空=全量，非空只做
@@ -506,7 +507,9 @@ public interface AdminService {
      * 只对本页 settleIds 一次批量聚合，无 N+1）。settlement 表（06 册 §4.5 定稿）无 item_count 列，明细行数
      * 账面无落点——计数对账以表内唯一计数列 order_count 对实时去重订单数承载；出参 {@code itemCount}
      * 取实时挂锚行数（明细弹窗行数与它天然一致）。
-     * <b>paidChannelAbsent 恒 true</b>：「打款通道未接」是 UI 恒显语义，接口层带出防前端漏显。
+     * <b>paidChannelAbsent/payChannel 两键按状态互斥</b>（P10-5 D5）：未打款行 paidChannelAbsent=true
+     * （「打款通道未接」时代的明示键，防前端漏显）；已打款（paid）行出 payChannel（模拟轨恒
+     * MOCK_SIM=通道显式标注）——行键总数不变，一键按状态替换。
      *
      * @return {@code {list:[行…], total, pageNum, pageSize, filters:{merchantId, dateStart, dateEnd}}}
      *         （filters 内 merchantId 与入参同，dateStart/dateEnd 为归一后 null 或 YYYY-MM-DD 字符串）
@@ -521,6 +524,49 @@ public interface AdminService {
      * （2026-10-25 主会话验收裁决：不静默丢行，前端标「订单已不存在」警示）。
      */
     List<Map<String, Object>> settlementItems(Long id);
+
+    /**
+     * 确认打款（P10-5 轨道 B D5，{@code POST /api/admin/settlements/{id}/payout}）——打款状态机，
+     * 08 册挂账「paid 态不实现」由本片契约解除：
+     * <ul>
+     *   <li>条件 UPDATE（唯一写语句 {@code SettlementMapper#markPaid}）：
+     *       {@code status='accounted' AND paid_time IS NULL → status='paid', paid_time=NOW(),
+     *       pay_channel='MOCK_SIM'}——模拟通道显式 MOCK 标注，无真实资金流，防「演示冒充结算」；</li>
+     *   <li><b>幂等</b>：已 paid 再调直接返回当前态（不再 UPDATE、不再写审计）不报错；
+     *       并发双开的落败方（读时 accounted、条件 UPDATE 影响行数 0）同样回读当前态按幂等成功处理；</li>
+     *   <li>判据：id 缺失/非法 400、结算单不存在 404「结算单不存在」、非 accounted/paid 状态 400
+     *       「仅记账态账单可确认打款」；</li>
+     *   <li>实际置态成功才写审计 {@code settlement.payout}（旁路，照 {@code settlement.create} 同姿势）；
+     *       06 册纸面预留列 paid_at/payout_voucher 留真实轨不写；生成账期/对账逻辑零改动。</li>
+     * </ul>
+     *
+     * @return {@code {id, settleNo, merchantId, status, payChannel, transitioned}}
+     *         （transitioned=true=本次实际置态；false=幂等返回已打款现状）
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    Map<String, Object> confirmSettlementPayout(Long id, String actor);
+
+    /**
+     * 保证金账户列表（P10-5 轨道 B D7，{@code GET /api/admin/deposits}，只读）：全量账户 id 升序，
+     * 行键 {@code merchantId,merchantName,category,requiredAmount,paidAmount,status,updatedAt}；
+     * 判定钉在 {@code MerchantDepositService#listAccounts}；读端点不写审计。
+     */
+    List<Map<String, Object>> listDeposits();
+
+    /**
+     * 设置类目档位（P10-5 轨道 B D7，{@code POST /api/admin/deposits/required}）——模拟触发器
+     * （真实触发器①②③由运营手动置等价）：merchant 不存在 404「商家不存在」、requiredAmount 缺失/
+     * 负数/超两位小数 400、category 非空须为 dish.category 11 类之一否则 400；requiredAmount=0
+     * 停用（required=0、status='none'，保留已缴记录）、&gt;0 upsert 档位（status 按已缴 vs 新档位落
+     * active/arrears）。实际写入成功才写审计 {@code deposit.required}（old=原档位/状态 → new=新值，
+     * 旁路照 settlement.payout 同姿势）。档位数值 8000/5000/3000 为模拟轨草案值，待真实 GMV 校准
+     * （04 册 §3.3）；D8 代扣消费 required_amount（生成账期事务尾部 ⑦.6）。
+     *
+     * @return {@code {merchantId, merchantName, category, requiredAmount, paidAmount, status}}
+     * @param actor 本次调用者身份，见类注释（null = 静态密钥轨）
+     */
+    Map<String, Object> setDepositRequired(Long merchantId, java.math.BigDecimal requiredAmount,
+                                           String category, String actor);
 
     // ==================================================================
     // F-122 封禁体系（四个端点，全部追加到本接口文件末尾）

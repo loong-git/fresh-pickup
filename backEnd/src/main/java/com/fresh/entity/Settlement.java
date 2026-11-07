@@ -12,9 +12,11 @@ import java.time.LocalDateTime;
 /**
  * 商家结算单 settlement（F-118 三期第二片启用读写；建表=F-117/m27 照 06 册 §4.5 纸面定稿，
  * 列清单与 init.sql:447 起的建表体逐字一致——本类不新增任何列映射）。
- * <p><b>只增不改</b>（F-118 契约 §3 红线）：本表无任何运行期 UPDATE/DELETE 路径，
- * 冲销走<b>下一期</b> refund_amount 列承载（06 册 §4.5 定稿），status 恒 accounted（08 册 §2.2-5，
- * paid 态不实现留轨道 B）。金额口径本片落法（F-118 §1.1 为唯一实现依据）：
+ * <p><b>只增不改</b>（F-118 契约 §3 红线）：冲销走<b>下一期</b> refund_amount 列承载（06 册 §4.5 定稿），
+ * status 恒 accounted（08 册 §2.2-5）——<b>P10-5 轨道 B（本契约 D5）解除 08 册挂账</b>：新增
+ * paid_time/pay_channel 两列（m32），status 增 paid 打款态且唯一写路径=运营「确认打款」条件 UPDATE
+ * （{@code SettlementMapper#markPaid}，幂等），其余列语义照 F-118 §1.1 不动；
+ * 生成账期/对账逻辑零改动。金额口径本片落法（F-118 §1.1 为唯一实现依据）：
  * gmv_amount=gross=Σ(supply_price×qty)（供货价基数，覆盖 06 册列注释的成交价口径）；
  * coupon_deduct/commission/deduction 恒 0；retain_amount 轨道 B 留存抵扣才有值，本片恒 0；
  * refund_amount=冲销（正数存储，net 里减）；payable=net=gross−refund−retain。
@@ -56,6 +58,11 @@ public class Settlement {
     /** 应结款留存划转（保证金替代物）：轨道 B 留存抵扣才有值，本片恒 0（列位保留） */
     private BigDecimal retainAmount;
 
+    /** 本期代扣入保证金额（P10-5 轨道 B D8/m33 新列）：生成账期事务尾部代扣步写入——
+     *  无档位商家恒 0（列 DEFAULT 0）；代扣后 payable=net−deposit_amount（同一条回填 UPDATE 落两列），
+     *  net（gmv−refund−retain）口径零改动 */
+    private BigDecimal depositAmount;
+
     /** 扣罚/理赔抵扣：本片恒 0（列位保留，联动 deposit_flow） */
     private BigDecimal deduction;
 
@@ -65,14 +72,24 @@ public class Settlement {
     /** 应结=本片 net=gross−refund−retain（其余四项本片恒 0，公式退化为两元，与 06 册列公式兼容） */
     private BigDecimal payable;
 
-    /** accounted 记账态（唯一运行期值；m27 DDL DEFAULT 'accounted'，08 册 §2.2-5 status 停在 accounted） */
+    /** accounted 记账态（m27 DDL DEFAULT 'accounted'；08 册 §2.2-5「status 停在 accounted」的挂账由
+     *  P10-5 轨道 B（m32）解除——paid 打款态唯一写路径=运营「确认打款」条件 UPDATE，见 {@code markPaid}） */
     private String status;
 
-    /** 打款时间：本片恒 null（打款通道未接，轨道 B） */
+    /** 打款时间：模拟轨（P10-5 D5/m32）由「确认打款」写入；06 册纸面预留列（打款通道未接时代建列），
+     *  与新列 paidTime 分立——paid_at/payout_voucher 留真实轨（微信商家转账）不启用，两套列不混写 */
     private LocalDateTime paidAt;
 
-    /** 打款凭证号：本片恒 null（轨道 B） */
+    /** 打款凭证号：06 册纸面预留列，留真实轨恒 null（轨道 B 模拟打款不写本列） */
     private String payoutVoucher;
+
+    /** 模拟轨打款时间（P10-5 轨道 B D5/m32 新列）：「确认打款」条件 UPDATE 写 NOW()；
+     *  与纸面预留列 paidAt 语义分立（见其注释） */
+    private LocalDateTime paidTime;
+
+    /** 打款通道（P10-5 轨道 B D5/m32 新列）：模拟轨恒 'MOCK_SIM'——显式 MOCK 标注，无真实资金流，
+     *  防「演示冒充结算」；真实轨另行登记通道值 */
+    private String payChannel;
 
     private LocalDateTime createdAt;
 

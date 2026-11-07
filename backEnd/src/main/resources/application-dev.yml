@@ -17,9 +17,14 @@ auth:
 
 # 支付渠道选择：mock=模拟收银台（MockPayService，默认走此渠道）；
 # wx=微信支付（WxPayService，@ConditionalOnProperty 按此值装配）。当前占位期固定 mock。
+# P10-5 轨道 B D1：sim-enabled=true 额外启用「模拟微信支付」通道（SimWxPayService 的
+# /api/pay/{orderId}/sim-create、/sim-pay 两端点 + SimCertificateSource 模拟平台证书源），
+# 与 mock 并存而非替换（pay.provider 键与 mock-pay 原链路零改动，smoke.sh 不受影响）。
+# prod yml 不配此键 → sim 两端点回 404 信封、模拟证书源不装配，回调链路行为与从前逐字一致。
 pay:
   mock-enabled: true
   provider: mock
+  sim-enabled: true
 
 # 微信支付占位配置（骨架期全部留空 → mchid 为空时 /api/pay/{orderId}/wx-notify 直接返回 400"微信支付未配置"）。
 # 真实接入申请流程（按序操作后回填）：
@@ -29,11 +34,18 @@ pay:
 #      （apiclient_cert.pem / apiclient_key.pem），cert-path 填证书文件所在目录或 pem 路径；
 #   4) 设置 APIv3 密钥：同在 账户中心 → API 安全 → 设置 APIv3 密钥（32 位字符串），回填 api-v3-key。
 # 证书/密钥属敏感信息，生产环境应改由环境变量或外部挂载注入，切勿提交真实值到仓库。
+#
+# 【P10-5 轨道 B D2 偏离登记】mchid / api-v3-key 在 dev 由留空改为模拟值（B1 任务书原只列
+# 「application-dev.yml 加 pay.sim-enabled: true」一处，但这两个键非空是 sim 链路的硬前提：
+# WxPayNotifyService.accept 第一道配置闸要求 mchid/api-v3-key 非空，AES-256-GCM 加密要求
+# api-v3-key 恰 32 字节，留空则 sim-pay 的回调永远死在闸门上）。两值为 dev 专用的**模拟凭据**：
+# mchid 用测试形态号段、api-v3-key 为固定 32 位演示串，绝不写入任何真实凭据；
+# application-prod.yml 不在白名单内保持留空 → prod 回调仍回 400「微信支付未配置」，行为不变。
 wxpay:
-  mchid: ''
+  mchid: '1900006478'
   appid: ''
   cert-path: ''
-  api-v3-key: ''
+  api-v3-key: '0123456789abcdef0123456789abcdef'
 
 # 限流客户端 IP 取值策略（RateLimitInterceptor）：trust-proxy=false 时直取 TCP 对端地址
 # （request.getRemoteAddr()，不可伪造），忽略 X-Forwarded-For——该头可被任意调用方伪造，

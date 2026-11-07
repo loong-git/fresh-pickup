@@ -342,6 +342,37 @@ export function mockPay(orderId) {
 }
 
 /**
+ * 模拟微信支付-生成支付参数（P10-5 轨道 B D1/D3，需登录+本人订单+pay_status=0+未取消）：
+ * POST /api/pay/{orderId}/sim-create
+ * → R{code,data:{timeStamp,nonceStr,package,signType,paySign,amountFen}}（模拟 jsapi 五参数+金额分）
+ * 五参数形状与真实 wx.requestPayment 所需一致（模拟轨由收银台「确认支付」动作代用户确认，不拉起微信）；
+ * amountFen 为服务端应付金额分，调用方应与展示金额对账，不一致即中止支付（防串单）。
+ * sim-enabled=false 时端点回 404 信封，走 request 层统一结构化 reject。
+ * @param {string} orderId - 订单号（雪花字符串）
+ */
+export function simCreate(orderId) {
+  return request({
+    url: `/api/pay/${orderId}/sim-create`,
+    method: 'POST'
+  })
+}
+
+/**
+ * 模拟微信支付-确认支付（P10-5 轨道 B D2/D4，需登录+本人订单）：
+ * POST /api/pay/{orderId}/sim-pay —— 后端以微信服务器身份构造真实签名回调打本机 wx-notify，
+ * 走完整验签/新鲜度/解密/三比对/事务结算链路；2xx 同步回读订单返回（pay_status=1+pickupCode）
+ * → R{code,data:Order}；4xx/5xx 透传判定人话（code=真实 HTTP 码，脱敏），调用方须 toast；
+ * 幂等：pay_status≠0 直接返回当前态。
+ * @param {string} orderId - 订单号（雪花字符串）
+ */
+export function simPay(orderId) {
+  return request({
+    url: `/api/pay/${orderId}/sim-pay`,
+    method: 'POST'
+  })
+}
+
+/**
  * 查询我的邀请信息（登录，F-01）：GET /api/invite/me
  * → R{code,data:{inviteCode,inviteUrl,invitedCount,completedCount,
  *    records:[{phoneMasked,statusText,createdAt,rewardedAt}]}}
@@ -695,6 +726,8 @@ export default {
   loginByPassword,
   setPassword,
   mockPay,
+  simCreate,
+  simPay,
   getInviteInfo,
   getCashInfo,
   withdrawCash,

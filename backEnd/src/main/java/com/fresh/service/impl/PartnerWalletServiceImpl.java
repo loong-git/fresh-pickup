@@ -1,7 +1,10 @@
 package com.fresh.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
+import com.fresh.common.R;
 import com.fresh.entity.Order;
 import com.fresh.entity.PartnerWallet;
 import com.fresh.entity.PartnerWalletFlow;
@@ -309,6 +312,80 @@ public class PartnerWalletServiceImpl implements PartnerWalletService {
             line.put("flowCount", flowCounts.getOrDefault(wallet.getUserId(), 0L));
             out.add(line);
         }
+        return out;
+    }
+
+    // ---------------------------------------------------------------
+    // P10-5 轨道 B D6 主理人提现（m32：本类第二条写路径，唯一人工写入口；
+    // 运营侧仍无任何钱包写端点，人工调额=资损面不设入口的红线不变）
+    // ---------------------------------------------------------------
+
+    /** 提现流水 remark 的通道标注（红线：资金流水通道一律显式 MOCK，无真实资金流） */
+    private static final String WITHDRAW_REMARK_MOCK = "MOCK_SIM 模拟提现（无真实资金流）";
+    private static final String WITHDRAW_AMOUNT_POSITIVE_MSG = "提现金额须大于 0";
+    private static final String WITHDRAW_AMOUNT_SCALE_MSG = "提现金额最多两位小数";
+    private static final String WITHDRAW_AMOUNT_SHAPE_MSG = "提现金额格式不正确";
+    private static final String WITHDRAW_INSUFFICIENT_MSG = "余额不足";
+
+    @Override
+    @Transactional // 扣减与流水同生同灭：流水落库失败异常上抛整体回滚，不留「钱扣了没流水」的半态
+    public Map<String, Object> withdraw(Long userId, String amountRaw) {
+        // ① 金额形状：非数值/≤0/超两位小数一律 400（DECIMAL(10,2) 定形；两位内 setScale 无舍入）
+        BigDecimal amount;
+        try {
+            amount = amountRaw == null || amountRaw.trim().isEmpty()
+                    ? null : new BigDecimal(amountRaw.trim());
+        } catch (NumberFormatException e) {
+            throw new BizException(WITHDRAW_AMOUNT_SHAPE_MSG);
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BizException(WITHDRAW_AMOUNT_POSITIVE_MSG);
+        }
+        if (amount.stripTrailingZeros().scale() > 2) {
+            throw new BizException(WITHDRAW_AMOUNT_SCALE_MSG);
+        }
+        amount = amount.setScale(2, RoundingMode.HALF_UP);
+
+        // ② 余额预查（只供钱包缺失/文案判定；并发真闸是 ③ 的条件扣减）
+        PartnerWallet wallet = partnerWalletMapper.selectOne(new LambdaQueryWrapper<PartnerWallet>()
+                .eq(PartnerWallet::getUserId, userId));
+        BigDecimal balance = wallet == null || wallet.getBalance() == null
+                ? BigDecimal.ZERO.setScale(2) : wallet.getBalance();
+        if (balance.compareTo(amount) < 0) {
+            throw new BizException(WITHDRAW_INSUFFICIENT_MSG);
+        }
+
+        // ③ 条件原子扣减（deductIfSufficient 带 balance>=amount 下限谓词）：0 行=并发双提落败方，
+        //    同样按「余额不足」拒绝——提现绝不可透支减至负（与冲回「如实记负」刻意两种语义）
+        int deducted = partnerWalletMapper.deductIfSufficient(userId, amount);
+        if (deducted != 1) {
+            throw new BizException(WITHDRAW_INSUFFICIENT_MSG);
+        }
+
+        // ④ WITHDRAW 负向流水（照 F-119 grant 的「落流水+余额快照」范式）：
+        //    amount 恒负、balance_after 回读快照、rate_snapshot=0.0000 占位（无费率语义）、
+        //    order_id 位放提现单号 WD+雪花（非订单，uk_order_biz 天然不与佣金流水量撞）、
+        //    remark 通道显式 MOCK（红线：资金流水不得无通道标注）
+        BigDecimal balanceAfter = readBalance(userId);
+        String withdrawNo = "WD" + IdWorker.getIdStr();
+        PartnerWalletFlow flow = new PartnerWalletFlow();
+        flow.setUserId(userId);
+        flow.setBizType(PartnerWalletFlow.BIZ_WITHDRAW);
+        flow.setOrderId(withdrawNo);
+        flow.setSettlementId(null);
+        flow.setAmount(amount.negate());
+        flow.setBalanceAfter(balanceAfter);
+        flow.setRateSnapshot(PartnerWalletFlow.RATE_SNAPSHOT_WITHDRAW);
+        flow.setRemark(WITHDRAW_REMARK_MOCK);
+        partnerWalletFlowMapper.insert(flow);
+        log.info("主理人提现（模拟通道）: userId={}, withdrawNo={}, amount=-{}, balanceAfter={}",
+                userId, withdrawNo, amount, balanceAfter);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("balance", balanceAfter);
+        out.put("withdrawNo", withdrawNo);
+        out.put("amount", amount.negate());
+        out.put("payChannel", "MOCK_SIM");
         return out;
     }
 }

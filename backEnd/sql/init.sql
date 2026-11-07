@@ -66,6 +66,15 @@
 --       商家封禁复用既有 merchant.status='suspended'，本片对 merchant 表零 DDL、零注释改动
 --   m31 review.client_request_id（F-124 评价强幂等）：加列走 m31-migration.sql（可空 UNIQUE，
 --       与 orders.uk_client_request_id 同型），本建表体已同步该列与索引；存量行零 UPDATE 零回填
+--   m32 settlement.paid_time/pay_channel + partner_wallet_flow.biz_type 注释（P10-5 D5/D6 打款状态机
+--       + 提现类型）：加列走 m32-migration.sql 判存幂等骨架，本建表体逐字一致、列序照迁移后物理序；
+--       存量行零 UPDATE 零回填（paid_time/pay_channel 全 NULL=未打款语义）
+--   m33 merchant_deposit + deposit_flow + settlement.deposit_amount（P10-5 D7/D8 m1x 保证金层）：
+--       两表 CREATE TABLE IF NOT EXISTS 天然幂等（照 m28 建表守卫）、deposit_amount 加列走
+--       m33-migration.sql 判存幂等骨架（照 m32 写法），本建表体与 m33-migration.sql 逐字一致；
+--       两表 DDL 逐字基线照 06 册 §4.6 m1x 草案，三处 ADD-only 补齐登记偏离见 m33 头注
+--       （paid_amount 代扣实缴列 / channel MOCK 通道列 / deposit_amount settlement 侧列）；
+--       零种子零回填——写路径只有生成账期事务尾部代扣步（D8）与运营端置档位（D7 模拟触发器）
 --   m19 admin_user 运营账号表（F-20/G-06 Step 1，D-4 列口径）：username + uk_admin_username + password_hash（复用 PasswordUtil 的
 --       PBKDF2 现格式）+ display_name + status（active/disabled）+ last_login_at + create_time/update_time；零外键、无手机号邮箱；
 --       **本文件与 m19-migration.sql 都不放任何 admin_user 种子**（明文口令入仓=RD 红线，连 dev 默认账号也不建），
@@ -452,11 +461,18 @@ CREATE TABLE IF NOT EXISTS merchant_profile (
 
 -- ----------------------------
 -- 商家结算单表（F-117，m27-migration.sql 同步，DDL 逐字照 06 册 §4.5 纸面定稿；账务语义一字不改）：
--- 列清单/金额口径/三枚索引逐字照册，仅两处注释级差异（出处见 m27 头注）：
+-- 列清单/金额口径/三枚索引逐字照册，仅三处注释级差异（出处见 m27 头注）：
 --   · status 枚举本片只登记 accounted（记账态）——08 册 §2.2-5「settlement.status 停在 accounted，
 --     paid 态不实现等轨道 B」；06 册 §4.5 纸面枚举 pending/confirmed/paid/closed 不启用，
 --     DEFAULT 随单态口径落 'accounted'（06 册纸面 DEFAULT 'pending' 指向不启用的枚举值）；
---   · 注释编号更新为 F-117 并注明出处（册内 markdown 链接转纯文本「04/05 册 §N」）。
+--   · 注释编号更新为 F-117 并注明出处（册内 markdown 链接转纯文本「04/05 册 §N」）；
+--   · P10-5 轨道 B（m32-migration.sql 同步，契约 D5）解除 08 册挂账：status 增 paid 打款态
+--     （唯一写路径=运营「确认打款」条件 UPDATE），并加 paid_time/pay_channel 两列（模拟轨打款
+--     状态机，列注释注明 MOCK 语义）——06 册纸面无此两列，为轨道 B 增列；既有列语义照 F-118 §1.1 不动。
+--   · P10-5 轨道 B B3（m33-migration.sql 同步，契约 D8）加 deposit_amount 列（本期代扣入保证金额，
+--     NOT NULL DEFAULT 0 存量行零回填；写路径=生成账期事务尾部代扣步；代扣后 payable=net−deposit_amount）
+--     ——06 册纸面无此列，为 D8 代扣闭环增列；契约 D8 原记「m31 一并加」实由 B3 补建（编号与分面
+--     顺延，见 m33 头注偏离登记①）。
 -- 零物理外键（对齐全库惯例）；本片零读写——无端点无服务逻辑，表先立、F-118 跑批才有生成入口；
 -- 防重复结算的明细锚在 order_item.settle_id（见订单明细表段），uk_settle_no/uk_merchant_period
 -- 一期一单两枚唯一键是 06 册 §4.5「生成结算单事务」幂等模型的库侧前提。
@@ -472,19 +488,22 @@ CREATE TABLE IF NOT EXISTS settlement (
   coupon_deduct DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '券抵扣分摊（与平台「已收款」SUM(total_price) 口径天然对不平，两口径分开命名展示）',
   commission    DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '平台佣金（费率另定）',
   retain_amount DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '应结款留存划转（保证金替代物，04 册 §3.2）',
+  deposit_amount DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '本期代扣入保证金额（P10-5 D8/m33）：生成账期事务尾部代扣步写入；代扣后 payable=net−deposit_amount；06 册 §4.5 纸面无此列，为 D8 代扣闭环增列，04 册 §3.3「代扣优先」的 settlement 侧落点',
   deduction     DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '扣罚/理赔抵扣（联动 deposit_flow）',
   refund_amount DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '退款冲销（逆向资金流唯一落点）：结算后取消/缺货单未打款部分在下一账期负向计入本列（备注关联原 settle_no 可追溯）；已打款（paid）单走留存抵扣，下一账期 retain_amount 同额扣减，不动已打款资金',
   payable       DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '应结=GMV−券分摊−佣金−留存−扣罚−退款冲销（refund_amount）',
-  status        VARCHAR(20)   NOT NULL DEFAULT 'accounted' COMMENT 'accounted记账态（已记账）——本片只登记此值（08 册 §2.2-5「status 停在 accounted」），paid 打款态不实现留轨道 B；06 册 §4.5 纸面枚举 pending/confirmed/paid/closed 不启用',
+  status        VARCHAR(20)   NOT NULL DEFAULT 'accounted' COMMENT 'accounted记账态（已记账）/paid打款态——08 册 §2.2-5「status 停在 accounted」的挂账由 P10-5 轨道 B（m32）解除：paid 唯一写路径=运营「确认打款」条件 UPDATE（settlement.mapper markPaid：status=accounted 且 paid_time IS NULL → paid），06 册 §4.5 纸面枚举 pending/confirmed/closed 仍不启用',
   paid_at       DATETIME      NULL COMMENT '打款时间',
   payout_voucher VARCHAR(64)  NULL COMMENT '打款凭证号（对账补课；打款走微信商家转账，与 C 端提现同通道 TODO InviteServiceImpl.java:261-294）',
+  paid_time     DATETIME      NULL COMMENT '模拟轨打款时间（P10-5 D5/m32）：「确认打款」条件 UPDATE（status=accounted 且本列 IS NULL → status=paid）写入 NOW()；06 册纸面预留列 paid_at/payout_voucher 留真实轨不启用，两套列不混写',
+  pay_channel   VARCHAR(20)   NULL COMMENT '打款通道（P10-5 D5/m32）：模拟轨恒 MOCK_SIM——显式 MOCK 标注，无真实资金流，防「演示冒充结算」；真实轨另行登记通道值',
   created_at    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   update_time   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_settle_no (settle_no),
   UNIQUE KEY uk_merchant_period (merchant_id, period_start, period_end),
   KEY idx_merchant_status (merchant_id, status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家结算单（仅承载商家主体；自提点主理人佣金记账不共表，走独立钱包/流水——05 册 §A7.2；F-117/m27 照 06 册 §4.5 纸面定稿建表，本片零读写、F-118 跑批才写）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家结算单（仅承载商家主体；自提点主理人佣金记账不共表，走独立钱包/流水——05 册 §A7.2；F-117/m27 照 06 册 §4.5 纸面定稿建表，F-118 跑批生成；P10-5/m32 起另有运营「确认打款」写 paid 态——模拟通道 MOCK_SIM；P10-5/m33 起生成账期事务尾部另有保证金代扣步写 deposit_amount——D8）';
 
 -- ----------------------------
 -- 主理人佣金钱包（F-119，m28-migration.sql 同步）：一人一钱包（uk_user_wallet）；
@@ -505,8 +524,9 @@ CREATE TABLE IF NOT EXISTS partner_wallet (
 
 -- ----------------------------
 -- 主理人佣金流水（F-119，m28-migration.sql 同步）：cash_flow 余额快照范式（balance_after=变动后余额）；
--- biz_type 两值 commission_grant 佣金入账 / commission_reversal 佣金冲回，amount 正入负冲
--- （grant 恒正 / reversal 恒负，绝对值同额——冲回冲的就是那一笔 grant）；
+-- biz_type 三值 commission_grant 佣金入账 / commission_reversal 佣金冲回 / withdraw 提现
+-- （第三值 P10-5 D6/m32 起启用），amount 正入负冲（grant 恒正 / reversal 恒负且绝对值同额——
+-- 冲回冲的就是那一笔 grant；withdraw 恒负=提现扣减）；
 -- 佣金锚=订单（order_id，VARCHAR(64) 同 orders.id 雪花串口径）；settlement_id 记产生它的账单（可追溯），
 -- Σ amount 按 settlement_id 归组即 settlement.commission，两处可互核；
 -- rate_snapshot 费率快照 0.0300（05 册 A7.1 防改率追溯歧义）；
@@ -518,13 +538,13 @@ CREATE TABLE IF NOT EXISTS partner_wallet (
 CREATE TABLE IF NOT EXISTS partner_wallet_flow (
   id            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '流水ID',
   user_id       BIGINT        NOT NULL COMMENT '钱包属主 user.id（逻辑外键 user.id；idx_user_time 最左前缀支撑本人流水分页）',
-  biz_type      VARCHAR(20)   NOT NULL COMMENT 'commission_grant 佣金入账 / commission_reversal 佣金冲回（写侧常量收口 PartnerWalletFlow）',
-  order_id      VARCHAR(64)   NOT NULL COMMENT '佣金锚=订单号（orders.id 同款 VARCHAR 雪花串；uk_order_biz 最左前缀支撑按单检索）',
+  biz_type      VARCHAR(20)   NOT NULL COMMENT 'commission_grant 佣金入账 / commission_reversal 佣金冲回 / withdraw 提现（P10-5 D6/m32：负向即时入账，余额条件扣减，通道 MOCK_SIM 标注在 remark；订单锚位放提现单号 WD+雪花；写侧常量收口 PartnerWalletFlow）',
+  order_id      VARCHAR(64)   NOT NULL COMMENT '佣金锚=订单号（orders.id 同款 VARCHAR 雪花串；uk_order_biz 最左前缀支撑按单检索）；withdraw 行放提现单号（WD+雪花，非订单）',
   settlement_id BIGINT        NULL COMMENT '产生它的账单 settlement.id（逻辑外键，可追溯；grant/reversal 都记当期账单，Σ amount 即 settlement.commission 可互核）',
   amount        DECIMAL(10,2) NOT NULL COMMENT '变动金额：正入负冲（grant 恒正 / reversal 恒负）',
   balance_after DECIMAL(10,2) NOT NULL COMMENT '变动后余额快照（cash_flow 范式；冲回可减至负，如实记）',
   rate_snapshot DECIMAL(5,4)  NOT NULL COMMENT '费率快照 0.0300（防改率追溯歧义，05 册 A7.1）',
-  remark        VARCHAR(200)  NULL COMMENT '备注（预留轨道 B 提现等；本片两类流水不填）',
+  remark        VARCHAR(200)  NULL COMMENT '备注（预留轨道 B 提现等）：withdraw 行填通道标注「MOCK_SIM 模拟提现（无真实资金流）」；grant/reversal 两类流水不填',
   created_at    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_order_biz (order_id, biz_type),
@@ -550,6 +570,56 @@ CREATE TABLE IF NOT EXISTS rate_limit_hit (
   PRIMARY KEY (id),
   KEY idx_hit_time (hit_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='限流命中日志（F-121/m29；纯观测旁路轻表：命中即异常流量信号；拦截判定零涉及，插入失败只 warn 不吞拦截；30 天前由 RateLimitHitCleanupTask 每日清理）';
+
+-- ----------------------------
+-- 商家保证金账户（P10-5 D7/D8，m33-migration.sql 同步；两表 DDL 逐字基线照 06 册 §4.6 m1x 草案
+-- 「纸面定稿」，三处 ADD-only 补齐登记偏离见 m33 头注）：
+-- 触发式缴存（04 册 §3.1：不设上架前置保证金，触发器①营销白名单②风险阈值③信用分级任一命中才缴）
+-- ——P10-5 模拟轨由运营手动置档位（D7， Settlements.vue 保证金管理区）等价真实触发器；
+-- 一主体一账户（uk_merchant）；写路径只有两处：admin 置档位（写 required_amount/category/status）
+-- + 生成账期事务尾部代扣步（D8，paid_amount +=deduct、status 维护）——现金预缴（deposit_amount 列）
+-- 无端点无入口（兜底形态不做，登记）、留存划转（retained_amount 列）留真实轨恒 0（登记）。
+-- 档位数值 8000/5000/3000 为模拟轨草案值，待真实 GMV 校准（04 册 §3.3）。
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS merchant_deposit (
+  id              BIGINT        NOT NULL AUTO_INCREMENT COMMENT '账户ID',
+  merchant_id     BIGINT        NOT NULL COMMENT '商家ID（逻辑外键 merchant.id，一主体一账户）',
+  category        VARCHAR(20)   NULL COMMENT '类目档位键（对齐 dish.category 11 类 init.sql:39）；具体金额待真实 GMV 校准，本草案不拍数值',
+  required_amount DECIMAL(10,2) NULL COMMENT '当前档位应缴额；NULL=未启用触发式缴存',
+  deposit_amount  DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '现金预缴余额（兜底形态；P10-5 模拟轨无预缴端点，恒 0——登记）',
+  retained_amount DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '应结款留存累计（优先形态，与 settlement.retain_amount 联动；P10-5 模拟轨留存划转不启用，恒 0——登记）',
+  paid_amount     DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '已缴累计（P10-5 D8/m33 补列，06 册草案无此列——登记偏离）：代扣实缴额累计；D8 代扣判断 required_amount>0 且本列<required_amount → gap=required−本列、deduct=min(gap,payable)、代扣后本列+=deduct',
+  status          VARCHAR(20)   NOT NULL DEFAULT 'none' COMMENT 'none未启用/active正常/arrears欠费待补/forfeited已没收/closed已清退退还（欠费→下架熔断执行口径同 §4.2「商家生命周期出口执行清单」：on_sale+seckill 清除，非仅 on_sale；P10-5 模拟轨只落 none/active/arrears 三态——熔断/没收/清退留真实轨，登记）',
+  created_at      DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_time     DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_merchant (merchant_id),
+  KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家保证金账户（触发式缴存；P10-5 D7/D8 模拟轨：运营手动置档位=模拟触发器，代扣=生成账期事务尾部，档位数值 8000/5000/3000 为模拟轨草案值待真实 GMV 校准——04 册 §3.3）';
+
+-- ----------------------------
+-- 保证金流水（P10-5 D8，m33-migration.sql 同步；06 册 §4.6 DDL 逐字基线 + channel 补列）：
+-- cash_flow 余额快照范式（balance_after=变动后已缴余额快照）；type 定方向 amount 恒正；
+-- P10-5 模拟轨唯一写路径=生成账期事务尾部代扣步（type=2 应结款代扣，channel 恒 MOCK——
+-- 契约红线「资金流水通道字段一律显式 MOCK/SIM」由 channel 列承载）；扣款白名单四类（biz_type）
+-- 与退还/没收等方向留真实轨。
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS deposit_flow (
+  id            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '流水ID',
+  merchant_id   BIGINT        NOT NULL COMMENT '商家ID（逻辑外键 merchant.id）',
+  type          TINYINT       NOT NULL COMMENT '1缴存 2应结款代扣 3扣罚 4退还 5没收 6留存划转（type 定方向，amount 恒正——对齐 cash_flow 惯例 init.sql:237-240）',
+  amount        DECIMAL(10,2) NOT NULL COMMENT '正数金额',
+  balance_after DECIMAL(10,2) NOT NULL COMMENT '变动后余额快照（cash_flow 三范式之一）',
+  biz_type      VARCHAR(30)   NULL COMMENT '扣款白名单来源：claim理赔/act违约/regulatory监管连带/advance垫付（04 册 §3.4 四类）',
+  biz_id        VARCHAR(64)   NULL COMMENT '来源单据号（订单号 VARCHAR(50) 口径对齐）',
+  operator      VARCHAR(64)   NOT NULL COMMENT '操作主体留痕（补 AdminServiceImpl.java:93 缺口；联动 m15 admin_audit_log）',
+  channel       VARCHAR(20)   NOT NULL DEFAULT 'MOCK' COMMENT '通道标注（P10-5 D8/m33 补列，06 册草案无此列——登记偏离）：模拟轨代扣恒 MOCK，无真实资金流（契约红线：资金流水通道字段一律显式 MOCK/SIM）',
+  remark        VARCHAR(100)  NULL COMMENT '备注/申诉窗口指引',
+  created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (id),
+  KEY idx_merchant (merchant_id, created_at),
+  KEY idx_biz (biz_type, biz_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='保证金流水（触发式缴存；P10-5 D8 模拟轨唯一写路径=生成账期事务尾部代扣步 type=2，channel 恒 MOCK）';
 
 -- ----------------------------
 -- 管理/商家操作审计表（F-12/G-01 M-04 补课，m15-migration.sql:89-101 同步）：现状日志不记操作者

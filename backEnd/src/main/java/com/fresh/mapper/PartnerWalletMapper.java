@@ -5,14 +5,15 @@ import com.fresh.entity.PartnerWallet;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 import java.math.BigDecimal;
 
 /**
  * 主理人佣金钱包 mapper（F-119）：BaseMapper 承担读（本人钱包/运营列表）；
- * 余额变动只有一条原子语句（下方 upsertAdjust），无任何按值覆写 balance 的 UPDATE——
- * 钱包数值只允许「在现值上原子加/减」，杜绝 check-then-act 丢更新（照 UserMapper#addBalance 的
- * {@code SET balance = balance + #{amount}} 原子累加先例）。
+ * 余额变动只有两条原子语句（下方 upsertAdjust 跑批记账 + deductIfSufficient P10-5 提现扣减），
+ * 无任何按值覆写 balance 的 UPDATE——钱包数值只允许「在现值上原子加/减」，杜绝 check-then-act
+ * 丢更新（照 UserMapper#addBalance 的 {@code SET balance = balance + #{amount}} 原子累加先例）。
  */
 @Mapper
 public interface PartnerWalletMapper extends BaseMapper<PartnerWallet> {
@@ -27,4 +28,15 @@ public interface PartnerWalletMapper extends BaseMapper<PartnerWallet> {
     @Insert("INSERT INTO partner_wallet (user_id, balance) VALUES (#{userId}, #{delta}) "
             + "ON DUPLICATE KEY UPDATE balance = balance + VALUES(balance)")
     int upsertAdjust(@Param("userId") Long userId, @Param("delta") BigDecimal delta);
+
+    /**
+     * 提现条件扣减（P10-5 轨道 B D6/m32，余额充足的<b>并发真闸</b>）：
+     * {@code SET balance = balance - #{amount} WHERE user_id = #{userId} AND balance >= #{amount}}——
+     * 影响行数 1=扣减成功，0=余额不足（含钱包不存在与并发双提的落败方），调用方一律 400 拒绝。
+     * 与 upsertAdjust 刻意不同：带下限谓词（提现绝不可透支减至负，与冲回「如实记负」是两种语义）、
+     * 无 upsert（提现不为零余额钱包建行）。仍是「现值上原子减」，无按值覆写。
+     */
+    @Update("UPDATE partner_wallet SET balance = balance - #{amount} "
+            + "WHERE user_id = #{userId} AND balance >= #{amount}")
+    int deductIfSufficient(@Param("userId") Long userId, @Param("amount") BigDecimal amount);
 }

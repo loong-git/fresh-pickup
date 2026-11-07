@@ -1201,6 +1201,23 @@ export function generateAdminSettlement(body) {
 }
 
 /**
+ * 确认打款（写，P10-5 轨道 B D5）：POST /api/admin/settlements/{id}/payout——打款状态机。
+ * 服务端条件 UPDATE：status='accounted' AND paid_time IS NULL → status='paid' + paid_time=NOW()
+ * + pay_channel='MOCK_SIM'（模拟通道显式标注，无真实资金流，防「演示冒充结算」）。
+ * 幂等：已 paid 再调返回当前态不报错（data.transitioned=false）；id 不存在 404「结算单不存在」；
+ * 非 accounted/paid 状态 400。成功 message「打款已确认（模拟通道）」，data 为当前单概要
+ * {id, settleNo, merchantId, status, payChannel, transitioned}。
+ * ⚠ 写成功与否由页面重拉列表核对，绝不本地改行（Settlements.vue 纪律 3）。
+ * @param {number|string} id settlement.id（自增小整数）
+ */
+export function confirmAdminSettlementPayout(id) {
+  return request({
+    url: '/api/admin/settlements/' + encodeURIComponent(String(id)) + '/payout',
+    method: 'POST'
+  })
+}
+
+/**
  * 账单明细（只读）：GET /api/admin/settlements/{id}/items——明细弹窗数据源。
  * 出参 data 是数组，行内键：itemId,dishName,supplyPrice,qty,subtotal,orderId,payStatus,fulfillStatus,
  * orphan（2026-10-25 验收裁决：payStatus 经 LEFT JOIN orders 取，orders 行被删的孤儿行不再静默丢行——
@@ -1214,6 +1231,34 @@ export function getAdminSettlementItems(id) {
     url: '/api/admin/settlements/' + encodeURIComponent(String(id)) + '/items',
     method: 'GET'
   })
+}
+
+// ==================== P10-5 D7 保证金管理（m1x 模拟触发器） ====================
+// 真实触发器①②③（营销白名单/风险阈值/信用分级，04 册 §3.1）在模拟轨由运营端手动置档位等价替代
+// （契约 D7）；D8 代扣不在前端面——它在生成账期事务尾部（settlement.deposit 列随账期列表展示）。
+
+/**
+ * 保证金账户列表（只读）：GET /api/admin/deposits——全量账户 id 升序。
+ * 出参 data 是数组，行内键：merchantId,merchantName,category,requiredAmount,paidAmount,status,updatedAt。
+ * status 三运行期值：none 未启用 / active 正常 / arrears 欠费待补（forfeited/closed 留真实轨）；
+ * 无账户行的商家不出现在列表（置档位时才建户）。只读档限流 IP 30/60s。
+ */
+export function getAdminDeposits() {
+  return request({ url: '/api/admin/deposits', method: 'GET' })
+}
+
+/**
+ * 设置类目档位（写，D7 模拟触发器）：POST /api/admin/deposits/required，
+ * body {merchantId, requiredAmount, category}——requiredAmount=0 停用（保留已缴记录，status=none）、
+ * >0 启用/调档（status 按已缴 vs 新档位落 active/arrears）；category 可空，非空须为
+ * dish.category 11 类之一（meat/vegetable/fastfood/wine/fruit/fresh/frozen/snack/dairy/grain/general）。
+ * 档位数值 8000/5000/3000 为模拟轨草案值，待真实 GMV 校准（04 册 §3.3，页面须带此标注）。
+ * 商家不存在 404；金额负数/超两位小数 400；实际写入成功才落审计 deposit.required。
+ * 成功 message「保证金档位已更新（模拟触发器）」；写成功与否由页面重拉列表核对，绝不本地改行。
+ * @param {{merchantId:number|string, requiredAmount:number|string, category?:string}} body
+ */
+export function setAdminDepositRequired(body) {
+  return request({ url: '/api/admin/deposits/required', method: 'POST', data: body })
 }
 
 // ==================== F-119 主理人佣金钱包（只读一端点；无任何钱包写端点） ====================
@@ -1346,8 +1391,8 @@ export function updateAdminMerchantStatus(id, action) {
 }
 
 // ==================== P6-3 运营 CSV 导出（两只读端点，blob 通道） ====================
-// 契约真源：docs/六期规划/P6-3-运营CSV导出契约.md §1/§2。后端（AdminController.java:1196/1212，
-// 2026-10-31 现场核）：
+// 契约真源：docs/六期规划/P6-3-运营CSV导出契约.md §1/§2。后端 = AdminController 的「运营 CSV 导出」两端点
+// （GET orders/export 与 GET settlements/export，按端点路径具名定位，行号不挂——P10-5 追加资金端点后行号会漂）：
 //   GET /api/admin/orders/export          → 无 query 参数，全量导出（上限 5000 行）；
 //   GET /api/admin/settlements/export     → merchantId/dateStart/dateEnd 三个可选 @RequestParam 同参透传；
 // 成功面是 text/csv;charset=UTF-8 字节流 + Content-Disposition（csvDownload 直发，不包 R 信封）；

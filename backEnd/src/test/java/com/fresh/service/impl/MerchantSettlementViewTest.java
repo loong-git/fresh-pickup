@@ -48,9 +48,9 @@ import static org.mockito.Mockito.when;
 /**
  * F-120 商家端结算单只读视图 + 供货价展示单测（不起 Spring 容器、不落库；F-120 §4 三组逐条 + P5-2 §1 分页）：
  * ① 列表归属与分页：merchant_id 等值恒透传 mapper（桩的 eq 匹配器钉住，照 F-125 商家筛修桩先例）、
- *    出参恰为商家自见十三键子集（运营管理字段不下发），netAmount==payable、paidChannelAbsent 恒 true、
+ *    出参恰为商家自见十四键子集（P10-5 D8 加 depositAmount；运营管理字段不下发），netAmount==payable、paidChannelAbsent 恒 true、
  *    reconcileOk 三条件照运营端口径（正常 true / 金额改 false / 孤儿 false / 聚合缺失 false）；
- *    分页闸门 400 族 / 全缺省封口四键无 filters / 越界页空 list 真值 total / ASC 页方法防误复用 DESC。
+ *    分页闸门 400 族 / 全缺省封口五键（P10-5 D8 加 depositAccount）无 filters / 越界页空 list 真值 total / ASC 页方法防误复用 DESC。
  * ② 明细归属：他人账单与不存在同 404「账单不存在」（不泄露存在性、不发明细查询）；
  *    本人账单明细行键与库一致、orphan 归一 Boolean、孤儿行 payStatus 显 null；
  * ③ 商品列表出参补 supplyPrice（NULL 与设值两态；@JsonIgnore 的 merchantId 仍封）。
@@ -91,6 +91,11 @@ class MerchantSettlementViewTest {
         settlementService = new MerchantSettlementServiceImpl();
         ReflectionTestUtils.setField(settlementService, "settlementMapper", settlementMapper);
         ReflectionTestUtils.setField(settlementService, "orderItemMapper", orderItemMapper);
+        // P10-5 D8 追加依赖（list 顶层 depositAccount 账户读）：mock 缺省 accountOf=null=未启用触发式缴存，
+        // 保证金专项断言见 MerchantDepositDeductTest
+        com.fresh.service.MerchantDepositService merchantDepositService =
+                mock(com.fresh.service.MerchantDepositService.class);
+        ReflectionTestUtils.setField(settlementService, "merchantDepositService", merchantDepositService);
         dishService = new MerchantDishServiceImpl();
         ReflectionTestUtils.setField(dishService, "dishMapper", dishMapper);
         // 只读路径不触达 merchantService/adminAuditLogMapper（写闸门与审计都在写路径），留空即可
@@ -178,7 +183,7 @@ class MerchantSettlementViewTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void 列表归属_merchantId恒透传mapper_出参恰为商家自见十三键() {
+    void 列表归属_merchantId恒透传mapper_出参恰为商家自见十四键() {
         stubListPageOneRow();
         when(orderItemMapper.selectAnchoredAggregates(anyList()))
                 .thenReturn(List.of(agg(100L, 2, 2, "20.00", 0)));
@@ -191,10 +196,13 @@ class MerchantSettlementViewTest {
         List<Map<String, Object>> rows = (List<Map<String, Object>>) out.get("list");
 
         // 出参=商家自见子集（F-120 §1 键清单），运营管理字段（merchantId/merchantName/gross/refund/net/retain/itemCount）不下发
+        // P10-5 D8/m33 起行键加 depositAmount（本期代扣入保证金额，无档位商家恒 0）成十四键
         assertEquals(Set.of("id", "settleNo", "periodStart", "periodEnd", "gmvAmount", "refundAmount",
-                        "netAmount", "orderCount", "commission", "status", "createdAt",
+                        "netAmount", "depositAmount", "orderCount", "commission", "status", "createdAt",
                         "reconcileOk", "paidChannelAbsent"),
                 rows.get(0).keySet());
+        assertEquals(0, BigDecimal.ZERO.compareTo((BigDecimal) rows.get(0).get("depositAmount")),
+                "depositAmount 下发在位（无档位商家恒 0）");
         assertEquals(100L, rows.get(0).get("id"));
         assertEquals("SET100", rows.get(0).get("settleNo"));
         assertEquals("2026-10-01", rows.get(0).get("periodStart"), "日期串服务端定形（D-18 同手势）");
@@ -247,7 +255,7 @@ class MerchantSettlementViewTest {
     }
 
     // ================================================================
-    // ①' 列表分页（P5-2 §1）：闸门 / 封口四键无 filters / 越界短路 / ASC 页方法
+    // ①' 列表分页（P5-2 §1）：闸门 / 封口五键（P10-5 D8 加 depositAccount）无 filters / 越界短路 / ASC 页方法
     // ================================================================
 
     @Test
@@ -265,13 +273,14 @@ class MerchantSettlementViewTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void 全缺省_出参四键无filters_缺省页码1页容20() {
+    void 全缺省_出参五键无filters_缺省页码1页容20() {
         stubListPageOneRow();
         when(orderItemMapper.selectAnchoredAggregates(anyList())).thenReturn(List.of());
 
         Map<String, Object> out = settlementService.list(MERCHANT_ID, null, null);
-        assertEquals(Set.of("list", "total", "pageNum", "pageSize"), out.keySet(),
-                "出参封口四键，无 filters（商家侧无筛选维度，契约 §1-4 明定）");
+        // P10-5 D8/m33 起顶层加 depositAccount（缴存状态账户级一次，无账户行 null）成五键
+        assertEquals(Set.of("list", "total", "pageNum", "pageSize", "depositAccount"), out.keySet(),
+                "封口五键（depositAccount=P10-5 D8 追加；商家侧无筛选维度，契约 §1-4 明定）");
         assertEquals(1, out.get("pageNum"), "pageNum 缺省 1");
         assertEquals(20, out.get("pageSize"), "pageSize 缺省 20");
         assertEquals(1L, out.get("total"));

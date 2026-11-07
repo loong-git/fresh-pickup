@@ -8,6 +8,9 @@
       <text class="caliber-line">记账态：打款通道未接入，金额为平台核算口径；有疑问联系平台运营</text>
       <text class="caliber-line">对账 ✓＝账面金额与已结算明细实时对得上；✗＝对不上（请勿自行改单，直接联系平台）</text>
       <text class="caliber-foot">销售额＝已支付·非缺货·已设供货价的明细按供货价核算；退款冲销计入发生期账单</text>
+      <!-- P10-5 D8 保证金缴存状态（只读转述，后端账户级键 depositAccount；null=未启用触发式缴存）：
+           代扣是平台在生成账期时从应结款自动划转（MOCK 模拟通道无真实资金流——红线：资金文案必须带通道标注） -->
+      <text class="caliber-line deposit-line" v-if="depositAccountText">{{ depositAccountText }}</text>
     </view>
 
     <!-- ==================== 1. 加载中（首屏与回页重拉都走这一态，避免旧列表闪现） ==================== -->
@@ -51,8 +54,8 @@
             <text class="settle-tag">{{ statusText(s) }}</text>
           </view>
           <text class="settle-no">账单号 {{ s.settleNo || '--' }}</text>
-          <!-- 金额 2×2 网格：逐键取后端出参，页内零加减（母版 D-4 纪律）；
-               退款冲销是坏消息，与好消息同权重摆出来 -->
+          <!-- 金额网格：逐键取后端出参，页内零加减（母版 D-4 纪律）；
+               退款冲销与保证金代扣是坏消息，与好消息同权重摆出来（P10-5 D8 起加本期代扣格） -->
           <view class="amount-grid">
             <view class="amount-box">
               <text class="amount-value">{{ fmtAmount(s.gmvAmount) }}</text>
@@ -69,6 +72,12 @@
             <view class="amount-box">
               <text class="amount-value">{{ fmtAmount(s.commission) }}</text>
               <text class="amount-label">主理人佣金</text>
+            </view>
+            <view class="amount-box">
+              <text class="amount-value" :class="{ 'amount-value-deposit': Number(s.depositAmount) > 0 }">
+                {{ fmtAmount(s.depositAmount) }}
+              </text>
+              <text class="amount-label">本期代扣（MOCK）</text>
             </view>
           </view>
           <!-- 行 3：订单数 + 对账标志（reconcileOk 是服务端实时结论，页面只转述） -->
@@ -187,6 +196,8 @@ export default {
   data() {
     return {
       settlements: [],
+      // 保证金缴存状态（P10-5 D8，后端账户级键原样转述；null=未启用触发式缴存不显行）
+      depositAccount: null,
       // 分页态（P5-2）：pageNum/pageSize 是换页时下发的参数，total 只从后端回包转述（页内零推算总数）；
       // 初值对齐后端闸门缺省 1/20，PAGE_SIZES 是页大小档位（后端合法域 [1,100] 内的四档）
       pageNum: 1,
@@ -220,6 +231,20 @@ export default {
     }
   },
   computed: {
+    // P10-5 D8：保证金缴存状态一行（纯转述后端 depositAccount 键，金额原样不加工）；
+    // null=运营未为该商家设置档位（未启用触发式缴存），不显该行——诚实口径：没档位就没有代扣这回事；
+    // status 只转述后端三态词（none 未启用 / active 正常 / arrears 欠费待补），未知值原样透传不编词。
+    // 代扣语义行必须带 MOCK 通道标注（红线：资金文案不得无通道标注）。
+    depositAccountText() {
+      const a = this.depositAccount
+      if (!a || a.requiredAmount === null || a.requiredAmount === undefined) return ''
+      const required = Number(a.requiredAmount)
+      if (!(required > 0)) return ''
+      const statusText = a.status === 'active' ? '正常' : a.status === 'arrears' ? '欠费待补' : (a.status || '--')
+      return '保证金：档位 ' + this.fmtAmount(a.requiredAmount) + ' 元（'
+        + (a.category || '未标类目') + '）· 已缴 ' + this.fmtAmount(a.paidAmount) + ' 元 · ' + statusText
+        + ' · 已缴不足时生成账期自动代扣（MOCK 模拟通道，无真实资金流）'
+    },
     // 错误卡主文案四路分流（照 dashboard.vue 的 errorLeadText，归因「结算账单」）
     errorLeadText() {
       if (this.errorCode === 429) return coolingLeadText('结算账单')
@@ -290,6 +315,7 @@ export default {
         // list/total 都只从回包转述，total 取数失败兜 0（0 同时是分页条的显隐判据）
         const payload = (res && res.data) || {}
         this.settlements = Array.isArray(payload.list) ? payload.list : []
+        this.depositAccount = payload.depositAccount === undefined ? null : payload.depositAccount
         this.total = Number(payload.total) || 0
         this.errorText = ''
         this.errorCode = 0
@@ -300,6 +326,7 @@ export default {
         // 失败清空列表与总数（P5-2）：本页四态互斥，错误/引导卡整屏替换 ready 态，
         // 残留旧页数据会构成「屏上没有但状态里还在」的死数据
         this.settlements = []
+        this.depositAccount = null
         this.total = 0
         const code = Number((e && e.code) || 0)
         if (code === 401) {
@@ -501,6 +528,8 @@ export default {
 .caliber-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
 .caliber-line { font-size: 24rpx; color: var(--c-text-2); line-height: 1.7; }
 .caliber-foot { font-size: 20rpx; color: var(--c-text-4); line-height: 1.6; }
+/* P10-5 D8 保证金缴存状态行：警示档色（档位/代扣是商家要盯的负向信息，但不与对账事故同级） */
+.deposit-line { color: var(--c-warn); }
 
 /* ==================== 1. 加载中 ==================== */
 .loading-card { margin-top: 24rpx; display: flex; justify-content: center; }
@@ -544,6 +573,8 @@ export default {
 }
 /* 退款冲销是负向读数：危险语义红 #EF4444 */
 .amount-value-refund { color: var(--c-danger); }
+/* 本期代扣是负向读数（从应结款划走）：警示档橙——与退款红区分（退款=顾客侧，代扣=平台风控侧） */
+.amount-value-deposit { color: var(--c-warn); }
 .amount-label { font-size: 20rpx; color: var(--c-text-3); line-height: 1.4; }
 
 .settle-foot { display: flex; align-items: center; margin-top: 8rpx; }
