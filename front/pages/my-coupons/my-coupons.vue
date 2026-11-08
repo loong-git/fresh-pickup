@@ -239,7 +239,7 @@ export default {
 <style scoped>
 /* ==================== 多多买菜风格 — 我的优惠券页（白底 + 品牌主色 var(--c-primary)，F-10 自领券中心页随块迁移） ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); box-sizing: border-box; }
 
 /* ==================== 白卡通用（照我的页） ==================== */
 .card {
@@ -248,7 +248,7 @@ export default {
   padding: 24rpx;
 }
 .card-head { margin-bottom: 20rpx; }
-.card-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.card-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 
 /* 游客态登录引导行（照我的页） */
 .guide-row {
@@ -256,12 +256,12 @@ export default {
   background-color: var(--c-warn-soft); border-radius: 12rpx;
   padding: 24rpx;
 }
-.guide-text { font-size: 26rpx; color: #666666; }
+.guide-text { font-size: 26rpx; color: var(--c-text-2); }
 .guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-primary); }
 
 /* 错误态行（可点击重试，照我的页） */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
-.error-text { font-size: 24rpx; color: #999999; }
+.error-text { font-size: 24rpx; color: var(--c-text-3); }
 .error-retry {
   font-size: 24rpx; font-weight: 600; color: var(--c-primary);
   border: 1rpx solid var(--c-primary); border-radius: 28rpx;
@@ -287,12 +287,12 @@ export default {
 .coupon-amount { font-size: 44rpx; font-weight: 700; line-height: 1; }
 .coupon-threshold { font-size: 20rpx; color: var(--c-warn); }
 .coupon-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
-.coupon-main { font-size: 28rpx; font-weight: 700; color: #333333; }
-.coupon-expire { font-size: 22rpx; color: #999999; }
+.coupon-main { font-size: 28rpx; font-weight: 700; color: var(--c-text); }
+.coupon-expire { font-size: 22rpx; color: var(--c-text-3); }
 .coupon-flag {
   flex-shrink: 0;
-  font-size: 20rpx; font-weight: 700; color: #999999;
-  border: 1rpx solid #DDDDDD; border-radius: 20rpx;
+  font-size: 20rpx; font-weight: 700; color: var(--c-text-3);
+  border: 1rpx solid var(--c-border); border-radius: 20rpx;
   padding: 4rpx 14rpx;
 }
 /* 已使用/已过期券整体置灰弱化（照我的页） */
@@ -302,15 +302,15 @@ export default {
 .coupon-tabs { display: flex; gap: 12rpx; margin-bottom: 20rpx; }
 .coupon-tab {
   flex: 1; text-align: center;
-  font-size: 26rpx; color: #666666;
-  background-color: #F5F5F5; border-radius: 24rpx;
-  padding: 12rpx 0; border: 1rpx solid #EEEEEE;
+  font-size: 26rpx; color: var(--c-text-2);
+  background-color: var(--c-fill); border-radius: 24rpx;
+  padding: 12rpx 0; border: 1rpx solid var(--c-fill);
 }
 .coupon-tab.active { color: #FFFFFF; font-weight: 700; background-color: var(--c-primary); border-color: var(--c-primary); }
 
 /* 空态行 */
 .empty-row { display: flex; justify-content: center; padding: 40rpx 0; }
-.empty-text { font-size: 24rpx; color: #CCCCCC; }
+.empty-text { font-size: 24rpx; color: var(--c-disabled); }
 
 .page-bottom-space { height: env(safe-area-inset-bottom); }
 </style>

@@ -315,7 +315,7 @@ export default {
   box-sizing: border-box;
   z-index: 10;
 }
-.login-back-icon { font-size: 44rpx; color: #333333; line-height: 1; }
+.login-back-icon { font-size: 44rpx; color: var(--c-text); line-height: 1; }
 
 /* ==================== 1. 顶部品牌区 ==================== */
 .brand-area {
@@ -323,8 +323,8 @@ export default {
   padding-top: 140rpx;
 }
 .brand-emoji { font-size: 108rpx; line-height: 1; }
-.brand-title { margin-top: 24rpx; font-size: 44rpx; font-weight: 700; color: #333333; line-height: 1; }
-.brand-sub { margin-top: 18rpx; font-size: 26rpx; color: #999999; line-height: 1; }
+.brand-title { margin-top: 24rpx; font-size: 44rpx; font-weight: 700; color: var(--c-text); line-height: 1; }
+.brand-sub { margin-top: 18rpx; font-size: 26rpx; color: var(--c-text-3); line-height: 1; }
 
 /* ==================== 0. 邀请横幅（橙红渐变卡，缩品牌区留白避免页面过高） ==================== */
 .invite-banner {
@@ -349,7 +349,7 @@ export default {
   display: flex; flex-direction: column; align-items: center;
   min-width: 160rpx; padding-bottom: 18rpx;
 }
-.tab-text { font-size: 30rpx; color: #666666; line-height: 1; }
+.tab-text { font-size: 30rpx; color: var(--c-text-2); line-height: 1; }
 .tab-text-active { color: var(--c-primary); font-weight: 700; }
 .tab-underline {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
@@ -362,13 +362,13 @@ export default {
 .input-capsule {
   display: flex; align-items: center;
   height: 92rpx; margin-bottom: 24rpx;
-  background-color: #F5F5F5; border-radius: 999rpx;
+  background-color: var(--c-fill); border-radius: 999rpx;
   padding: 0 12rpx 0 36rpx; box-sizing: border-box;
 }
 .capsule-input {
   flex: 1; min-width: 0;
   height: 92rpx; line-height: 92rpx;
-  font-size: 30rpx; color: #333333;
+  font-size: 30rpx; color: var(--c-text);
 }
 .btn-send-code {
   flex-shrink: 0; margin: 0; padding: 0 28rpx;
@@ -377,11 +377,11 @@ export default {
   font-size: 24rpx; font-weight: 600;
   border: none; border-radius: 999rpx;
 }
-.btn-send-code.btn-send-disabled { background-color: #CCCCCC; color: rgba(255, 255, 255, 0.9); }
+.btn-send-code.btn-send-disabled { background-color: var(--c-disabled); color: rgba(255, 255, 255, 0.9); }
 .form-hint {
   display: block;
   margin: 0 24rpx;
-  font-size: 22rpx; color: #999999; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-text-3); line-height: 1.5;
 }
 /* 密码 tab 的提示位于登录按钮下方，与上方拉开间距 */
 .form-hint-loose { margin-top: 24rpx; }

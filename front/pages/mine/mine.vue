@@ -418,12 +418,12 @@ export default {
 <style scoped>
 /* ==================== 多多买菜工具风 — 我的页（白底 + 品牌主色 var(--c-primary)） ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); box-sizing: border-box; }
 
 /* ==================== 1. 红色头部 + 身份卡（白卡叠压红头下缘） ==================== */
 .mine-header {
   position: relative;
-  background: linear-gradient(180deg, var(--c-primary) 0%, var(--c-primary) 55%, #F5F5F5 100%);
+  background: linear-gradient(180deg, var(--c-primary) 0%, var(--c-primary) 55%, var(--c-fill) 100%);
   padding: 24rpx 24rpx 72rpx;
   padding-top: calc(24rpx + env(safe-area-inset-top));
 }
@@ -451,10 +451,10 @@ export default {
 /* 登录态头像可点观感 */
 .avatar-editable { cursor: pointer; }
 .user-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
-.user-phone { font-size: 34rpx; font-weight: 700; color: #333333; }
+.user-phone { font-size: 34rpx; font-weight: 700; color: var(--c-text); }
 .user-phone-guest { color: var(--c-primary); }
-.user-sub { font-size: 22rpx; color: #999999; }
-.user-arrow { flex-shrink: 0; font-size: 36rpx; color: #CCCCCC; }
+.user-sub { font-size: 22rpx; color: var(--c-text-3); }
+.user-arrow { flex-shrink: 0; font-size: 36rpx; color: var(--c-disabled); }
 
 /* ==================== 白卡通用 ==================== */
 .card {
@@ -466,13 +466,13 @@ export default {
 .cell-card { padding: 0; overflow: hidden; }
 .cell { display: flex; align-items: center; gap: 16rpx; padding: 28rpx 24rpx; }
 .cell-icon { font-size: 36rpx; flex-shrink: 0; }
-.cell-title { flex-shrink: 0; font-size: 28rpx; font-weight: 600; color: #333333; }
+.cell-title { flex-shrink: 0; font-size: 28rpx; font-weight: 600; color: var(--c-text); }
 .cell-sub {
   flex: 1; min-width: 0; text-align: right;
-  font-size: 22rpx; color: #BBBBBB;
+  font-size: 22rpx; color: var(--c-text-4);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cell-arrow { flex-shrink: 0; font-size: 34rpx; color: #CCCCCC; }
+.cell-arrow { flex-shrink: 0; font-size: 34rpx; color: var(--c-disabled); }
 
 /* ==================== 7. 退出登录按钮（底部红字；显式覆盖 uni-button 默认圆角/行高/边框） ==================== */
 .btn-logout {

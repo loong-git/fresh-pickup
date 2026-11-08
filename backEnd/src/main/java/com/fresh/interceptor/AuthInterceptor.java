@@ -316,6 +316,12 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (path.equals("/api/merchant-applies") || path.startsWith("/api/merchant-applies/")) {
             return true;
         }
+        // P10-6b 评价带图（m34）：评价图上传为登录用户数据（归属/ dish 匹配/图数校验收口在
+        // ReviewServiceImpl#addImage）；正则多带 /images 尾段，不命中下方既有 ^/api/dishes/\d+/reviews$
+        // （评价提交）判定，两判定互不重叠、既有语义零改动
+        if ("POST".equalsIgnoreCase(method) && path.matches("^/api/dishes/\\d+/reviews/\\d+/images$")) {
+            return true;
+        }
         // 仅评价提交需登录；GET /api/dishes/{dishId}/reviews 列表保持匿名可读
         return "POST".equalsIgnoreCase(method) && path.matches("^/api/dishes/\\d+/reviews$");
     }

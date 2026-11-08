@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -71,5 +72,23 @@ public class ReviewController {
     @GetMapping("/api/reviews/mine")
     public R<List<Map<String, Object>>> myReviews(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
         return R.ok(reviewService.listByUser(userId));
+    }
+
+    /**
+     * 评价图上传（P10-6b D3/m34）：multipart file，需登录（AuthInterceptor 权限矩阵已加
+     * ^/api/dishes/\d+/reviews/\d+/images$ 白名单一行）+ review 归属本人 + dish 匹配 +
+     * 图数 &lt;3，校验链/落盘/落行收口在 ReviewServiceImpl#addImage（service 层，同 addReview 口径）；
+     * 限流照商家上传先例（MerchantController#upload 10 次/分 USER 维度）。
+     * 出参契约 D7：R{code:200, data:{path:"/uploads/reviews/…"}}；错误沿用 R 信封
+     * （400 校验 / 401 / 403 归属 / 404 评价不存在）。既有评价提交/列表两接口一字未动。
+     */
+    @RateLimit(limit = 10, windowSeconds = 60)
+    @PostMapping("/api/dishes/{dishId}/reviews/{reviewId}/images")
+    public R<Map<String, String>> addImage(@PathVariable Long dishId,
+                                           @PathVariable Long reviewId,
+                                           @RequestParam("file") MultipartFile file,
+                                           @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
+        String path = reviewService.addImage(userId, dishId, reviewId, file);
+        return R.ok(Map.of("path", path), "上传成功");
     }
 }

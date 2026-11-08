@@ -857,7 +857,7 @@ export default {
 
 .page-container {
   min-height: 100vh;
-  background-color: #F5F5F5;
+  background-color: var(--c-fill);
 }
 
 /* ==================== 顶部白色导航（fixed 常驻：< 返回 + 浅灰描边圆角搜索框 + 红字"搜索"；底部极浅灰发丝线分隔） ==================== */
@@ -867,20 +867,20 @@ export default {
   padding: 16rpx 24rpx;
   padding-top: calc(16rpx + env(safe-area-inset-top));
   background-color: #FFFFFF;
-  border-bottom: 1rpx solid #F0F0F0;
+  border-bottom: 1rpx solid var(--c-fill);
 }
 .nav-back {
   flex-shrink: 0; width: 48rpx; height: 64rpx;
   display: flex; align-items: center; justify-content: center;
 }
-.nav-back-arrow { font-size: 44rpx; font-weight: 700; color: #333333; line-height: 1; }
+.nav-back-arrow { font-size: 44rpx; font-weight: 700; color: var(--c-text); line-height: 1; }
 /* 浅灰描边圆角胶囊：高 64rpx 圆角 40rpx（border-box 描边不增高），内排 红放大镜 + input(flex:1) + 竖分隔线 + 红字"搜索" */
 .nav-search-box {
   flex: 1; min-width: 0;
   box-sizing: border-box;
   display: flex; align-items: center; gap: 10rpx;
   height: 64rpx; padding: 0 24rpx;
-  background-color: #FFFFFF; border: 1rpx solid #EEEEEE; border-radius: 40rpx;
+  background-color: #FFFFFF; border: 1rpx solid var(--c-fill); border-radius: 40rpx;
   overflow: hidden;
 }
 /* 红色放大镜：CSS 绘制（红圆环 + 45° 手柄），白底上比 emoji 醒目且各端渲染一致 */
@@ -899,12 +899,12 @@ export default {
 }
 .nav-search-input {
   flex: 1; min-width: 0; height: 64rpx; line-height: 64rpx;
-  font-size: 26rpx; color: #333333;
+  font-size: 26rpx; color: var(--c-text);
 }
 .nav-search-divider {
   flex-shrink: 0;
   width: 1rpx; height: 32rpx;
-  background-color: #EEEEEE;
+  background-color: var(--c-fill);
 }
 .nav-search-go {
   flex-shrink: 0; align-self: stretch;
@@ -929,22 +929,22 @@ export default {
 .ss-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
 .ss-title-row { display: flex; align-items: center; gap: 8rpx; }
 .ss-title-icon { font-size: 26rpx; }
-.ss-title { font-size: 28rpx; font-weight: 700; color: #333333; }
+.ss-title { font-size: 28rpx; font-weight: 700; color: var(--c-text); }
 .ss-trash { font-size: 30rpx; padding: 4rpx 8rpx; line-height: 1; }
 .ss-refresh { display: flex; align-items: center; gap: 6rpx; padding: 4rpx 0; }
 .ss-refresh-icon { font-size: 24rpx; }
-.ss-refresh-text { font-size: 22rpx; color: #999999; }
+.ss-refresh-text { font-size: 22rpx; color: var(--c-text-3); }
 
 /* 胶囊组通用 */
 .ss-chips { display: flex; flex-wrap: wrap; gap: 16rpx; }
 /* a. 最近搜索词胶囊 */
 .ss-chip {
   max-width: 100%; box-sizing: border-box;
-  background-color: #F5F5F5; border-radius: 28rpx;
+  background-color: var(--c-fill); border-radius: 28rpx;
   padding: 10rpx 26rpx;
 }
 .ss-chip-text {
-  font-size: 24rpx; color: #333333;
+  font-size: 24rpx; color: var(--c-text);
   display: inline-block; max-width: 420rpx;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -952,12 +952,12 @@ export default {
 .sd-chip {
   position: relative;
   display: flex; align-items: center; gap: 6rpx;
-  background-color: #F5F5F5; border-radius: 28rpx;
+  background-color: var(--c-fill); border-radius: 28rpx;
   padding: 10rpx 24rpx;
 }
 .sd-chip-emoji { font-size: 24rpx; }
 .sd-chip-text {
-  font-size: 24rpx; color: #333333;
+  font-size: 24rpx; color: var(--c-text);
   display: inline-block; max-width: 320rpx;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -980,7 +980,7 @@ export default {
 .rank-card {
   display: inline-block; width: 85vw; margin-left: 24rpx;
   box-sizing: border-box;
-  background-color: #FFFFFF; border: 1rpx solid #EEEEEE; border-radius: 16rpx;
+  background-color: #FFFFFF; border: 1rpx solid var(--c-fill); border-radius: 16rpx;
   vertical-align: top; white-space: normal; overflow: hidden;
   box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04);
 }
@@ -989,24 +989,24 @@ export default {
   display: flex; align-items: center; gap: 8rpx;
   padding: 20rpx 24rpx; min-height: 48rpx; box-sizing: border-box;
 }
-.rank-card-title { font-size: 28rpx; font-weight: 700; color: #333333; }
-.rank-card-sep { font-size: 24rpx; color: #DDDDDD; }
-.rank-card-sub { font-size: 22rpx; color: #999999; }
+.rank-card-title { font-size: 28rpx; font-weight: 700; color: var(--c-text); }
+.rank-card-sep { font-size: 24rpx; color: var(--c-border); }
+.rank-card-sub { font-size: 22rpx; color: var(--c-text-3); }
 /* 榜单 item：排名角标 + 图 + 标题/已售/价格 + 加购按钮 */
 .rank-item {
   display: flex; align-items: center; gap: 16rpx;
   padding: 16rpx 24rpx;
-  border-top: 1rpx solid #F7F7F7;
+  border-top: 1rpx solid var(--c-fill);
 }
 /* 排名角标：1 金 2 银 3 铜，4+ 灰 */
 .rank-no {
   flex-shrink: 0; width: 36rpx; height: 36rpx; line-height: 36rpx;
-  border-radius: 8rpx; background-color: #F0F0F0; color: #CCCCCC;
+  border-radius: 8rpx; background-color: var(--c-fill); color: var(--c-disabled);
   font-size: 20rpx; font-weight: 700; text-align: center;
 }
-.rank-no-1 { background-color: #FFB800; color: #FFFFFF; }
-.rank-no-2 { background-color: #BFC5CD; color: #FFFFFF; }
-.rank-no-3 { background-color: #D2955C; color: #FFFFFF; }
+.rank-no-1 { background-color: var(--c-warn-bright); color: #FFFFFF; }
+.rank-no-2 { background-color: var(--c-disabled); color: #FFFFFF; }
+.rank-no-3 { background-color: var(--c-gold); color: #FFFFFF; }
 .rank-img {
   flex-shrink: 0; width: 120rpx; height: 120rpx;
   border-radius: 12rpx; overflow: hidden;
@@ -1016,10 +1016,10 @@ export default {
 .rank-emoji { font-size: 56rpx; }
 .rank-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
 .rank-name {
-  font-size: 26rpx; font-weight: 600; color: #333333;
+  font-size: 26rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rank-sold { font-size: 20rpx; color: #999999; }
+.rank-sold { font-size: 20rpx; color: var(--c-text-3); }
 .rank-bottom { display: flex; align-items: center; justify-content: space-between; }
 .rank-price-line { display: flex; align-items: baseline; }
 .rank-symbol { font-size: 20rpx; font-weight: 700; color: var(--c-warn); }
@@ -1033,11 +1033,11 @@ export default {
 }
 .rank-add text { font-size: 20rpx; font-weight: 700; color: #FFFFFF; }
 .rank-empty { padding: 40rpx 0; text-align: center; }
-.rank-empty text { font-size: 24rpx; color: #CCCCCC; }
+.rank-empty text { font-size: 24rpx; color: var(--c-disabled); }
 
 /* ==================== 榜单加载失败错误态 ==================== */
 .error-state { display: flex; flex-direction: column; align-items: center; gap: 20rpx; padding: 120rpx 0; }
-.error-text { font-size: 26rpx; color: #999999; }
+.error-text { font-size: 26rpx; color: var(--c-text-3); }
 .error-retry {
   font-size: 26rpx; font-weight: 600; color: var(--c-primary);
   border: 1rpx solid var(--c-primary); border-radius: 32rpx;
@@ -1046,13 +1046,13 @@ export default {
 
 /* ==================== 搜索结果（同首页商品卡样式） ==================== */
 .search-result-head { display: flex; align-items: center; padding: 24rpx 24rpx 8rpx; }
-.srh-text { flex: 1; min-width: 0; font-size: 24rpx; color: #666666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srh-text { flex: 1; min-width: 0; font-size: 24rpx; color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srh-cancel { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-primary); padding: 6rpx 8rpx; }
 .dish-list { padding: 0 24rpx; }
 .dish-card {
   display: flex;
   background-color: #FFFFFF; border-radius: 12rpx;
-  border: 1rpx solid #EEEEEE; box-sizing: border-box;
+  border: 1rpx solid var(--c-fill); box-sizing: border-box;
   padding: 16rpx; margin-bottom: 16rpx;
   box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04);
 }
@@ -1076,17 +1076,17 @@ export default {
 }
 .dish-name {
   flex: 1; min-width: 0;
-  font-size: 28rpx; font-weight: 600; color: #333333;
+  font-size: 28rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dish-tags {
   margin-top: 8rpx;
-  font-size: 20rpx; color: #999999;
+  font-size: 20rpx; color: var(--c-text-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dish-sold-row { display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; }
 .dish-rush { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
-.dish-sold { font-size: 20rpx; color: #999999; }
+.dish-sold { font-size: 20rpx; color: var(--c-text-3); }
 .dish-promo-row { display: flex; align-items: center; gap: 10rpx; margin-top: 8rpx; min-height: 30rpx; }
 .tag-cut {
   font-size: 18rpx; color: var(--c-warn); font-weight: 600;
@@ -1094,11 +1094,11 @@ export default {
   line-height: 26rpx;
 }
 .tag-limit {
-  font-size: 18rpx; color: #999999;
-  border: 1rpx solid #DDDDDD; border-radius: 6rpx; padding: 0 8rpx;
+  font-size: 18rpx; color: var(--c-text-3);
+  border: 1rpx solid var(--c-border); border-radius: 6rpx; padding: 0 8rpx;
   line-height: 26rpx;
 }
-.dish-rate { font-size: 20rpx; color: #999999; }
+.dish-rate { font-size: 20rpx; color: var(--c-text-3); }
 .dish-price-row {
   margin-top: auto;
   display: flex; align-items: flex-end; justify-content: space-between;
@@ -1116,7 +1116,7 @@ export default {
 }
 .add-btn text { font-size: 22rpx; font-weight: 700; color: #FFFFFF; }
 .empty-state { display: flex; align-items: center; justify-content: center; padding: 120rpx 0; }
-.empty-state text { font-size: 26rpx; color: #CCCCCC; }
+.empty-state text { font-size: 26rpx; color: var(--c-disabled); }
 
 /* ==================== 步进器（榜单/结果列表/购物车弹层共用，与首页同款） ==================== */
 .stepper { display: flex; align-items: center; }
@@ -1129,7 +1129,7 @@ export default {
 .step-minus text { color: var(--c-primary); }
 .step-plus { background-color: var(--c-primary); }
 .step-plus text { color: #FFFFFF; }
-.step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: #333333; }
+.step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: var(--c-text); }
 
 /* ==================== 底部购物车栏（复刻首页 cart-bar：🛒+角标 | 价格 | 去支付） ==================== */
 .cart-bar {
@@ -1151,7 +1151,7 @@ export default {
 .cart-price-line { display: flex; align-items: baseline; }
 .cart-total-symbol { font-size: 26rpx; color: var(--c-warn); font-weight: 700; }
 .cart-total-price { font-size: 40rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
-.cart-reduced { font-size: 20rpx; color: #999999; }
+.cart-reduced { font-size: 20rpx; color: var(--c-text-3); }
 /* uniapp button 覆盖默认样式（去边框/圆角/内边距，::after 伪元素边框一并去掉） */
 .btn-pay {
   flex: 3; min-width: 0; margin: 0;
@@ -1184,9 +1184,9 @@ export default {
 .service-bar {
   flex-shrink: 0;
   display: flex; justify-content: space-around; align-items: center;
-  background-color: #F5F5F5; padding: 14rpx 24rpx;
+  background-color: var(--c-fill); padding: 14rpx 24rpx;
 }
-.service-item { display: flex; align-items: center; gap: 4rpx; font-size: 20rpx; color: #666666; }
+.service-item { display: flex; align-items: center; gap: 4rpx; font-size: 20rpx; color: var(--c-text-2); }
 .service-check { color: #07C160; font-weight: 700; }
 .pickup-row {
   flex-shrink: 0;
@@ -1195,21 +1195,21 @@ export default {
 }
 .pr-icon { font-size: 28rpx; flex-shrink: 0; }
 .pr-name {
-  font-size: 26rpx; font-weight: 600; color: #333333;
+  font-size: 26rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pr-phone { font-size: 24rpx; color: #666666; }
-.pr-arrow { margin-left: auto; flex-shrink: 0; font-size: 30rpx; color: #CCCCCC; }
+.pr-phone { font-size: 24rpx; color: var(--c-text-2); }
+.pr-arrow { margin-left: auto; flex-shrink: 0; font-size: 30rpx; color: var(--c-disabled); }
 .cart-title-row {
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: space-between;
   padding: 20rpx 24rpx 4rpx;
 }
-.cart-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.cart-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 .cart-title-right { display: flex; align-items: center; gap: 28rpx; }
-.cart-clear { font-size: 24rpx; font-weight: 600; color: #666666; }
+.cart-clear { font-size: 24rpx; font-weight: 600; color: var(--c-text-2); }
 .cart-edit { font-size: 24rpx; font-weight: 600; color: var(--c-primary); }
-.cart-close { font-size: 32rpx; color: #CCCCCC; }
+.cart-close { font-size: 32rpx; color: var(--c-disabled); }
 .helper-bar {
   flex-shrink: 0;
   display: flex; align-items: center; gap: 12rpx;
@@ -1223,11 +1223,11 @@ export default {
 .cart-items-empty { display: flex; align-items: center; justify-content: center; }
 .cart-item {
   display: flex; align-items: center; gap: 16rpx;
-  padding: 20rpx 0; border-bottom: 1rpx solid #F5F5F5;
+  padding: 20rpx 0; border-bottom: 1rpx solid var(--c-fill);
 }
 .check-circle {
   width: 36rpx; height: 36rpx; flex-shrink: 0;
-  border: 2rpx solid #DDDDDD; border-radius: 50%;
+  border: 2rpx solid var(--c-border); border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background-color: #FFFFFF;
 }
@@ -1250,18 +1250,18 @@ export default {
 }
 .ci-name {
   flex: 1; min-width: 0;
-  font-size: 26rpx; font-weight: 600; color: #333333;
+  font-size: 26rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ci-desc-row { display: flex; align-items: center; gap: 12rpx; overflow: hidden; white-space: nowrap; }
 .ci-restore { font-size: 20rpx; font-weight: 600; color: var(--c-primary); flex-shrink: 0; }
-.ci-sold { font-size: 20rpx; color: #999999; flex-shrink: 0; }
-.ci-limit { font-size: 20rpx; color: #999999; }
+.ci-sold { font-size: 20rpx; color: var(--c-text-3); flex-shrink: 0; }
+.ci-limit { font-size: 20rpx; color: var(--c-text-3); }
 /* 下架行只做视觉告知：只降透明度与字色，不用 pointer-events（那会悄悄改掉交互）；勾选/删除/步进与结算路径零改动 */
 .ci-offsale { opacity: .55; }
-.ci-offsale-tag { font-size: 20rpx; font-weight: 600; color: #666666; flex-shrink: 0; }
+.ci-offsale-tag { font-size: 20rpx; font-weight: 600; color: var(--c-text-2); flex-shrink: 0; }
 .ci-price-row { display: flex; align-items: baseline; gap: 12rpx; }
-.ci-original { font-size: 20rpx; color: #BBBBBB; text-decoration: line-through; }
+.ci-original { font-size: 20rpx; color: var(--c-text-4); text-decoration: line-through; }
 .ci-price-line { display: flex; align-items: baseline; }
 .ci-symbol { font-size: 18rpx; font-weight: 700; color: var(--c-warn); }
 .ci-price { font-size: 30rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
@@ -1278,19 +1278,19 @@ export default {
 }
 .cart-empty { display: flex; flex-direction: column; align-items: center; gap: 16rpx; }
 .cart-empty-icon { font-size: 88rpx; opacity: .4; }
-.cart-empty-text { font-size: 26rpx; color: #999999; }
+.cart-empty-text { font-size: 26rpx; color: var(--c-text-3); }
 .cart-total-bar {
   flex-shrink: 0;
   display: flex; align-items: center;
   padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
-  border-top: 1rpx solid #F0F0F0;
+  border-top: 1rpx solid var(--c-fill);
 }
 .check-all { display: flex; align-items: center; gap: 10rpx; flex-shrink: 0; }
-.check-all-text { font-size: 24rpx; color: #333333; }
+.check-all-text { font-size: 24rpx; color: var(--c-text); }
 .ctb-price { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2rpx; margin-right: 16rpx; }
 .ctb-price-line { display: flex; align-items: baseline; }
 .ctb-price-num { font-size: 36rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
-.ctb-saving { font-size: 20rpx; color: #999999; }
+.ctb-saving { font-size: 20rpx; color: var(--c-text-3); }
 /* uniapp button 覆盖默认样式（含 ::after 伪元素边框） */
 .btn-pay-popup {
   flex-shrink: 0; margin: 0;
@@ -1302,7 +1302,7 @@ export default {
 }
 .btn-pay-popup::after { border: none; }
 /* 空车时支付按钮置灰禁用（点击仍走 payFromCart 的 toast 提示） */
-.btn-pay-popup.btn-pay-disabled { background-color: #CCCCCC; }
+.btn-pay-popup.btn-pay-disabled { background-color: var(--c-disabled); }
 
 /* ==================== 修改提货人弹窗（与首页同款） ==================== */
 .person-popup {
@@ -1311,8 +1311,8 @@ export default {
   padding: 40rpx 32rpx 32rpx;
   position: relative;
 }
-.person-close { position: absolute; top: 20rpx; right: 24rpx; font-size: 30rpx; color: #CCCCCC; padding: 8rpx; }
-.person-title { display: block; text-align: center; font-size: 30rpx; font-weight: 700; color: #333333; margin-bottom: 28rpx; }
+.person-close { position: absolute; top: 20rpx; right: 24rpx; font-size: 30rpx; color: var(--c-disabled); padding: 8rpx; }
+.person-title { display: block; text-align: center; font-size: 30rpx; font-weight: 700; color: var(--c-text); margin-bottom: 28rpx; }
 .btn-save-person {
   width: 100%; height: 80rpx; line-height: 80rpx;
   margin-top: 8rpx; padding: 0;
@@ -1322,10 +1322,10 @@ export default {
 }
 .btn-save-person::after { border: none; }
 .form-group { margin-bottom: 24rpx; }
-.form-label { display: block; font-size: 24rpx; font-weight: 600; color: #666666; margin-bottom: 12rpx; }
+.form-label { display: block; font-size: 24rpx; font-weight: 600; color: var(--c-text-2); margin-bottom: 12rpx; }
 .form-input {
   width: 100%; height: 80rpx; line-height: 80rpx;
-  background-color: #F5F5F5; border-radius: 12rpx; padding: 0 20rpx;
-  font-size: 28rpx; color: #333333; box-sizing: border-box;
+  background-color: var(--c-fill); border-radius: 12rpx; padding: 0 20rpx;
+  font-size: 28rpx; color: var(--c-text); box-sizing: border-box;
 }
 </style>

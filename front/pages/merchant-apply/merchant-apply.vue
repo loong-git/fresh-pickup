@@ -493,7 +493,7 @@ export default {
 <style scoped>
 /* ==================== 多多买菜工具风 — 申请成为商家页（白底 + 品牌绿 --c-primary） ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); box-sizing: border-box; }
 
 /* ==================== 白卡通用（照账号安全页） ==================== */
 .card {
@@ -502,15 +502,15 @@ export default {
   padding: 24rpx;
 }
 .card-head { margin-bottom: 8rpx; }
-.card-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.card-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 .card-desc {
   display: block;
   margin-bottom: 24rpx;
-  font-size: 22rpx; color: #999999; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-text-3); line-height: 1.5;
 }
 .loading-text {
   display: block; padding: 40rpx 0;
-  font-size: 26rpx; color: #999999; text-align: center;
+  font-size: 26rpx; color: var(--c-text-3); text-align: center;
 }
 
 /* ==================== 1. 申请状态卡 ==================== */
@@ -520,18 +520,18 @@ export default {
   font-size: 22rpx; font-weight: 600;
   padding: 4rpx 16rpx; border-radius: 999rpx;
 }
-.status-pending { color: #C77C00; background-color: #FFF4E0; }
+.status-pending { color: var(--c-warn-bright); background-color: var(--c-warn-soft); }
 .status-rejected { color: var(--c-danger); background-color: var(--c-danger-soft); }
-.status-approved { color: #1F9D55; background-color: #E8F7EE; }
+.status-approved { color: var(--c-ok); background-color: var(--c-primary-soft); }
 .status-title {
   flex: 1; min-width: 0;
-  font-size: 30rpx; font-weight: 700; color: #333333;
+  font-size: 30rpx; font-weight: 700; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.status-desc { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: #999999; line-height: 1.5; }
+.status-desc { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: var(--c-text-3); line-height: 1.5; }
 .summary-row { display: flex; align-items: flex-start; padding: 10rpx 0; font-size: 26rpx; line-height: 1.5; }
-.summary-label { flex-shrink: 0; width: 140rpx; color: #999999; }
-.summary-value { flex: 1; min-width: 0; color: #333333; word-break: break-all; }
+.summary-label { flex-shrink: 0; width: 140rpx; color: var(--c-text-3); }
+.summary-value { flex: 1; min-width: 0; color: var(--c-text); word-break: break-all; }
 .summary-remark { color: var(--c-danger); }
 
 /* ==================== 1.1 已提交态证照预览 ==================== */
@@ -540,43 +540,43 @@ export default {
 .license-preview-item { width: 132rpx; }
 .license-preview-img {
   width: 132rpx; height: 132rpx; display: block;
-  border-radius: 12rpx; background-color: #F5F5F5;
+  border-radius: 12rpx; background-color: var(--c-fill);
 }
 .license-preview-name {
   display: block; margin-top: 8rpx;
-  font-size: 20rpx; color: #666666; text-align: center;
+  font-size: 20rpx; color: var(--c-text-2); text-align: center;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* ==================== 2. 表单字段 ==================== */
 .field { margin-bottom: 24rpx; }
-.field-label { display: block; margin-bottom: 12rpx; font-size: 26rpx; font-weight: 600; color: #333333; }
+.field-label { display: block; margin-bottom: 12rpx; font-size: 26rpx; font-weight: 600; color: var(--c-text); }
 .required { color: var(--c-danger); margin-left: 4rpx; }
 .input-capsule {
   display: flex; align-items: center;
   height: 92rpx;
-  background-color: #F5F5F5; border-radius: 16rpx;
+  background-color: var(--c-fill); border-radius: 16rpx;
   padding: 0 28rpx; box-sizing: border-box;
 }
 .capsule-input {
   flex: 1; min-width: 0;
   height: 92rpx; line-height: 92rpx;
-  font-size: 28rpx; color: #333333;
+  font-size: 28rpx; color: var(--c-text);
 }
 
 /* ==================== 2.1 证照（多图 + 类型下拉） ==================== */
-.license-tip-line { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: #999999; line-height: 1.5; }
+.license-tip-line { display: block; margin-bottom: 16rpx; font-size: 22rpx; color: var(--c-text-3); line-height: 1.5; }
 .license-row {
   display: flex; align-items: center; gap: 20rpx;
   margin-bottom: 16rpx; padding: 16rpx;
-  background-color: #F9F9F9; border-radius: 16rpx;
+  background-color: var(--c-bg); border-radius: 16rpx;
   box-sizing: border-box;
 }
 .license-thumb {
   position: relative; flex-shrink: 0;
   width: 120rpx; height: 120rpx;
   border-radius: 12rpx; overflow: hidden;
-  background-color: #F0F0F0;
+  background-color: var(--c-fill);
 }
 .license-thumb-img { width: 120rpx; height: 120rpx; display: block; }
 .license-thumb-placeholder {
@@ -584,8 +584,8 @@ export default {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 4rpx;
 }
-.license-plus { font-size: 36rpx; color: #BBBBBB; line-height: 1; }
-.license-thumb-tip { font-size: 20rpx; color: #999999; }
+.license-plus { font-size: 36rpx; color: var(--c-text-4); line-height: 1; }
+.license-thumb-tip { font-size: 20rpx; color: var(--c-text-3); }
 .license-mask {
   position: absolute; left: 0; top: 0; right: 0; bottom: 0;
   display: flex; align-items: center; justify-content: center;
@@ -602,17 +602,17 @@ export default {
 }
 .license-type-text {
   flex: 1; min-width: 0;
-  font-size: 26rpx; color: #333333;
+  font-size: 26rpx; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.license-type-arrow { flex-shrink: 0; margin-left: 12rpx; font-size: 20rpx; color: #999999; }
+.license-type-arrow { flex-shrink: 0; margin-left: 12rpx; font-size: 20rpx; color: var(--c-text-3); }
 .license-row-actions { display: flex; align-items: center; gap: 28rpx; margin-top: 14rpx; }
 .license-action { font-size: 24rpx; color: var(--c-primary); }
-.license-action-del { color: #999999; }
+.license-action-del { color: var(--c-text-3); }
 .license-add {
   height: 80rpx; line-height: 80rpx;
-  border: 2rpx dashed #DDDDDD; border-radius: 16rpx;
-  text-align: center; font-size: 24rpx; color: #999999;
+  border: 2rpx dashed var(--c-border); border-radius: 16rpx;
+  text-align: center; font-size: 24rpx; color: var(--c-text-3);
 }
 
 /* ==================== 提交按钮（显式覆盖 uni-button 默认圆角/行高/边框） ==================== */
@@ -627,7 +627,7 @@ export default {
 .btn-main.btn-main-disabled { background-color: var(--c-primary-disabled); color: rgba(255, 255, 255, 0.9); }
 .form-tip {
   display: block; margin-top: 16rpx;
-  font-size: 22rpx; color: #999999; text-align: center; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-text-3); text-align: center; line-height: 1.5;
 }
 
 .page-bottom-space { height: env(safe-area-inset-bottom); }

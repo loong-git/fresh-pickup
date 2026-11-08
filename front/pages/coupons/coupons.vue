@@ -206,12 +206,12 @@ export default {
 <style scoped>
 /* ==================== 多多买菜风格 — 领券中心页（白底 + 页头绿 --c-topbar（P10-4 C7）） ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); box-sizing: border-box; }
 
 /* ==================== 1. 红色头部 ==================== */
 .coupons-header {
   position: relative;
-  background: linear-gradient(180deg, var(--c-topbar) 0%, var(--c-topbar) 55%, #F5F5F5 100%);
+  background: linear-gradient(180deg, var(--c-topbar) 0%, var(--c-topbar) 55%, var(--c-fill) 100%);
   padding: 48rpx 24rpx 8rpx;
 }
 .coupons-slogan { display: block; text-align: center; font-size: 38rpx; font-weight: 700; color: #FFFFFF; line-height: 1.3; }
@@ -224,7 +224,7 @@ export default {
   padding: 24rpx;
 }
 .card-head { margin-bottom: 20rpx; }
-.card-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.card-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 
 /* 游客态登录引导行（照我的页） */
 .guide-row {
@@ -232,12 +232,12 @@ export default {
   background-color: var(--c-warn-soft); border-radius: 12rpx;
   padding: 24rpx;
 }
-.guide-text { font-size: 26rpx; color: #666666; }
+.guide-text { font-size: 26rpx; color: var(--c-text-2); }
 .guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-warn); }
 
 /* 错误态行（可点击重试，照我的页） */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
-.error-text { font-size: 24rpx; color: #999999; }
+.error-text { font-size: 24rpx; color: var(--c-text-3); }
 .error-retry {
   font-size: 24rpx; font-weight: 600; color: var(--c-warn);
   border: 1rpx solid var(--c-warn); border-radius: 28rpx;
@@ -263,8 +263,8 @@ export default {
 .coupon-amount { font-size: 44rpx; font-weight: 700; line-height: 1; }
 .coupon-threshold { font-size: 20rpx; color: var(--c-warn); }
 .coupon-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
-.coupon-main { font-size: 28rpx; font-weight: 700; color: #333333; }
-.coupon-desc { font-size: 20rpx; color: #BBBBBB; }
+.coupon-main { font-size: 28rpx; font-weight: 700; color: var(--c-text); }
+.coupon-desc { font-size: 20rpx; color: var(--c-text-4); }
 
 /* 领取按钮（红底白字胶囊；已领取/领取中置灰；显式覆盖 uni-button 默认样式） */
 .btn-claim {
@@ -275,11 +275,11 @@ export default {
   font-size: 24rpx; font-weight: 700;
   border: none; border-radius: 999rpx;
 }
-.btn-claim.btn-claim-disabled { background-color: #CCCCCC; color: rgba(255, 255, 255, 0.9); }
+.btn-claim.btn-claim-disabled { background-color: var(--c-disabled); color: rgba(255, 255, 255, 0.9); }
 
 /* 空态行 */
 .empty-row { display: flex; justify-content: center; padding: 40rpx 0; }
-.empty-text { font-size: 24rpx; color: #CCCCCC; }
+.empty-text { font-size: 24rpx; color: var(--c-disabled); }
 
 .page-bottom-space { height: env(safe-area-inset-bottom); }
 </style>

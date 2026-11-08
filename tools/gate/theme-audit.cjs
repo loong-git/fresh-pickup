@@ -22,6 +22,15 @@ const RE_HEX = /#[0-9a-fA-F]{3,8}\b/g;
 // 不随主题换色，任何主题档都允许内联（P9 各片契约把它们登记为唯一允许留在页面里的两个字面值）。
 // #FFF 是 #FFFFFF 的 3 位缩写，同色同档；大小写变体一并收。
 const SPECIAL = new Set(["#FFFFFF", "#ffffff", "#FFF", "#fff", "#0A0A0B", "#0a0a0b"]);
+// front/ 显式例外色值清单（P10-6 片3 定稿，契约 docs/十期规划/P10-6-收尾三片与演示数据清理契约.md：
+// 「例外保留：#FF6600（评分星标准橙）、#07C160（微信支付绿）、免费领金族 #FFD84D/#FFE14D/#FFEDBE/
+// #FFC55C/#FFF7F0/#E8F8EF」）。整 token 精确匹配（大小写归一）：不含 3 位缩写、不含 #FFB800/#FF8533
+// 等近邻变体——变体属漏网，照 FAIL 回填 var。#FFFFFF/#0A0A0B 不在本清单，走 SPECIAL 特殊档
+// （P10-4 §B4：主色底白字/成功实底近黑字两主题同值、任何主题档允许内联，四端同一口径）。
+const FRONT_ALLOWED = new Set([
+  "#FF6600", "#07C160",
+  "#FFD84D", "#FFE14D", "#FFEDBE", "#FFC55C", "#FFF7F0", "#E8F8EF",
+]);
 
 // 双组完整性对比对象（浅组选择器 → 深组选择器）。C 端 front/App.vue 单主题，契约登记豁免。
 const PAIRS = [
@@ -156,13 +165,10 @@ for (const f of files) {
     // 万一哪天 style 段出现同类行，不因扫描面收窄而假红。
     if (/placeholder-style/.test(code)) { whitelisted++; return; }
     // 契约白名单「JS 业务字面量」：HEX_COLOR_RE、默认背景色等都在 script 段，只扫 style 段天然覆盖——无需代码。
-    // P10-4 §B4 执行后登记（2026-11-06 主会话决策，契约文档 §8 同步）：C 端（front/）一期以来的
-    // 中性灰阶体系（#999999/#333333/#666666/#CCCCCC/#F5F5F5/#DDDDDD/#EEEEEE/#F0F0F0/#BBBBBB/#FAFAFA/
-    // #1a1a1a 等）跨 17 页一致性在用，P10-4 C7 范围=旧红族（已完成）；灰阶语义化留 P10-5 候选——
-    // 本审计器对 front/ 的非旧红残留豁免，防门禁对已完成范围假红：
-    //   第三方对齐功能色 #FF6600（评分星标准橙）/#07C160（微信支付绿）/免费领活动金族随灰阶一并豁免。
-    // 判据：非 front/ 命中照旧报（三端+运营端不留此类残留）；front/ 内旧红族（E02020/FF4A3A/
-    // F5222D/CF1322/E65C4C 系）照旧报——防回潮红线不松。
+    // front/ 豁免口径沿革：P10-4 §B4 执行后曾按「非旧红即豁免」宽口径放行 C 端灰阶/第三方功能色
+    // （2026-11-06 登记，彼时 C7 旧红已收口、灰阶语义化未做）；P10-6 片3 灰阶映射完成后该宽口径
+    // 废止——它连漏网灰阶与新违规一起掩住。收窄后的 front/ 显式例外清单仅四档，见下方
+    // 「P10-6 片3 收窄」分支注释（.seal- 块／「P10-4 登记」锚行／FRONT_ALLOWED 色值／注释行）。
     // 拟物公章豁免档：qualification.vue 营业执照模拟图上的红色公章（「公章是红的」=业务事实）。
     // 块级判据：进入 .seal- 开头的规则块后整块豁免直到闭合——选择器行（无 hex）也必须先走块
     // 追踪，所以这段必须在 hexesHere 提前 return 之前（P10-4 执行后登记，主会话定性；
@@ -180,12 +186,22 @@ for (const f of files) {
     }
     const hexesHere = code.match(RE_HEX);
     if (!hexesHere) return;
+    // P10-6 片3 收窄（契约 docs/十期规划/P10-6-收尾三片与演示数据清理契约.md）：front/ 显式例外清单
+    // 仅四档，其余命中照旧 FAIL——
+    //   ① .seal- 拟物公章块：上方块级判据已整体豁免（选择器行+块内行，公章红=业务事实）；
+    //   ② 含「P10-4 登记」锚的行：各批契约的登记载体（锚写在注释里，codeOf 已剥离，故按原始行 raw 判）；
+    //   ③ 色值 ∈ FRONT_ALLOWED（评分星橙/微信绿/免费领金族，第三方与活动资产）：混行按枚数放行例外、
+    //      违规枚数照报（SPECIAL 特殊档在分支外四端统一生效，#FFFFFF/#0A0A0B 不因收窄变红）；
+    //   ④ 注释行：codeOf 剥空后已在上方「if (!code.trim()) return」提前离场。
+    // 旧红族（E02020/FF4A3A/F5222D/CF1322/E65C4C 系）不在清单内——回潮防线不松，照 FAIL。
+    let hexes = hexesHere;
     if (/^front[/\\]/.test(f)) {
-      const isOldRed = /#(E02020|FF4A3A|F5222D|CF1322|E65C4C)/i.test(code);
-      if (!isOldRed) { whitelisted += hexesHere.length; return; } // C 端灰阶/第三方功能色豁免
+      if (/P10-4 登记/.test(raw)) { whitelisted += hexesHere.length; return; }
+      const allowed = hexesHere.filter((h) => FRONT_ALLOWED.has(h.toUpperCase()));
+      whitelisted += allowed.length;
+      hexes = hexesHere.filter((h) => !FRONT_ALLOWED.has(h.toUpperCase()));
+      if (!hexes.length) return;
     }
-    const hexes = hexesHere;
-    if (!hexes) return;
     const over = hexes.filter((h) => !SPECIAL.has(h));
     if (!over.length) { whitelisted += hexes.length; return; } // 特殊档（主色底白字/成功实底近黑字）
     findings.push({ kind: "HEX_RESIDUE", file: f, line: idx + 1, val: over.join(",") });
@@ -202,7 +218,7 @@ const failCount = findings.length;
 // 汇总行（第一行，f28 §13 展示用；措辞改动同步 f28-gate.sh）
 console.log(`主题审计：双组完整性 ${pairsChecked} 组/${lightVars} 枚浅组变量，缺失 ${missingDark} 枚；hex 残留 ${hexResidue} 行（扫描 ${files.length} 个 .vue，命中 style 段字面 hex ${hexTotal} 处、白名单放行 ${whitelisted} 处），FAIL ${failCount} 条`);
 console.log("分类:", JSON.stringify(byKind, null, 0));
-console.log("口径备注：front/ 为 C 端，其 hex 残留属 P10-4 §C7（237 处旧红→七期 tokens）待治理项，C 组未跑前本审计器报红是预期行为，不是本批缺陷。");
+console.log("口径备注：front/ 显式例外清单四档（.seal- 块／「P10-4 登记」锚行／FRONT_ALLOWED 八色值／注释行）之外，front/ 命中即真违规照 FAIL（P10-6 片3 收窄，含旧红回潮防线），四端已无「预期红」档。");
 console.log("");
 for (const x of findings.sort((p, q) => p.kind.localeCompare(q.kind) || norm(p.file).localeCompare(norm(q.file)) || p.line - q.line)) {
   // 路径打印统一正斜杠：f28 §13 按前缀过滤 C 端命中（grep -v '  front/'），

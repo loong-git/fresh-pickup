@@ -175,6 +175,13 @@
               <text v-for="s in 5" :key="s" :class="s <= clampRating(r.rating) ? 'star active' : 'star'">★</text>
             </view>
             <text class="preview-content">{{ r.content }}</text>
+            <!-- P10-6b（D5）评价图三列网格缩略：后端列表行 images:[相对路径,...]（ReviewServiceImpl D3），
+                 无图不渲染区块；单张 404 @error 兜底隐藏该格（imgFail 记录表姿势照 free/index 同款），点击大图预览 -->
+            <view class="preview-imgs" v-if="reviewImages(r).length">
+              <view class="preview-img-cell" v-for="(p, pi) in reviewImages(r)" :key="'rimg-' + r.id + '-' + pi">
+                <image v-if="!reviewImgFail[r.id + '-' + pi]" class="preview-img" :src="resolveReviewImg(p)" mode="aspectFill" @error="onReviewImgFail(r.id + '-' + pi)" @click="previewReviewImages(r, pi)" />
+              </view>
+            </view>
           </view>
         </view>
       </view>
@@ -376,6 +383,8 @@ export default {
       // 头图轮播当前帧（0-4，指示器显示 galleryCurrent+1/5）
       galleryCurrent: 0,
       recImgFail: {},
+      // P10-6b（D5）评价图加载失败记录表（key 为 `评价id-图序号`，@error 后该格隐藏，姿势照 free/index imgFail 同款）
+      reviewImgFail: {},
       grabbed: false,
       // "商品详情"底部弹层开关（参数表"查看全部"入口）
       showDetailPopup: false,
@@ -640,6 +649,27 @@ export default {
     onRecImgFail(id) {
       this.recImgFail = { ...this.recImgFail, [id]: true }
     },
+    // ==================== 评价图展示（P10-6b D5） ====================
+    // 评价行 images 出参归一（后端列表每行带 images:[相对路径,...]，ReviewServiceImpl D3）：
+    // 脏数据兜底空数组（区块随之隐藏），非字符串项剔除
+    reviewImages(r) {
+      const list = (r && Array.isArray(r.images)) ? r.images : []
+      return list.filter(p => typeof p === 'string' && p)
+    },
+    // 图 URL 解析（照 merchant-apply.vue:360 既有姿势）：绝对 http(s) 直用，相对路径 BASE_URL 拼接
+    //（评价图由后端 /uploads/** 静态映射出，必须带后端地址；dish.image 是前端静态资源故直用不加前缀）
+    resolveReviewImg(p) {
+      return /^https?:\/\//.test(p) ? p : BASE_URL + p
+    },
+    // 单张评价图 404/加载失败：记录表标记该格隐藏（不渲染占位，照 imgFail 家族姿势）
+    onReviewImgFail(key) {
+      this.reviewImgFail = { ...this.reviewImgFail, [key]: true }
+    },
+    // 点击缩略图大图预览：urls 取该评价全部图（已过 reviewImages 归一），current 按 URL 口径传（H5/小程序通吃）
+    previewReviewImages(r, pi) {
+      const urls = this.reviewImages(r).map(p => this.resolveReviewImg(p))
+      uni.previewImage({ urls, current: urls[pi] })
+    },
     // 头图轮播切换：同步指示器序号（current 判空兜底，异常事件不改值）
     onGalleryChange(e) {
       const cur = e && e.detail && e.detail.current
@@ -856,7 +886,7 @@ export default {
 <style scoped>
 /* ==================== 多多买菜风格 — 详情页 ==================== */
 
-.page-container { position: fixed; top: var(--window-top, 0px); left: 0; right: 0; bottom: 0; background-color: #F5F5F5; display: flex; flex-direction: column; overflow: hidden; }
+.page-container { position: fixed; top: var(--window-top, 0px); left: 0; right: 0; bottom: 0; background-color: var(--c-fill); display: flex; flex-direction: column; overflow: hidden; }
 
 /* 可滚动主体 */
 .main-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -879,7 +909,7 @@ export default {
 /* ---------- 0. 空态页（T-M3-05：id 非法/404/加载失败） ---------- */
 .page-error { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24rpx; background-color: #FFFFFF; }
 .pe-icon { font-size: 100rpx; opacity: .4; }
-.pe-text { font-size: 28rpx; color: #666666; }
+.pe-text { font-size: 28rpx; color: var(--c-text-2); }
 .pe-btn {
   margin-top: 8rpx; min-width: 280rpx; height: 80rpx; line-height: 80rpx;
   padding: 0 48rpx; font-size: 28rpx; font-weight: 700; color: #FFFFFF;
@@ -892,7 +922,7 @@ export default {
 .image-sold-text { font-size: 20rpx; color: #FFFFFF; }
 /* 左下：白底圆角服务保障浮层（绿字） */
 .image-service { position: absolute; left: 20rpx; bottom: 20rpx; background-color: #FFFFFF; border-radius: 999rpx; padding: 8rpx 18rpx; }
-.image-service-text { font-size: 20rpx; color: #00B578; font-weight: 600; }
+.image-service-text { font-size: 20rpx; color: var(--c-ok); font-weight: 600; }
 /* 右下：图片指示 1/5 */
 .image-index { position: absolute; right: 20rpx; bottom: 20rpx; background-color: rgba(0,0,0,.45); border-radius: 999rpx; padding: 4rpx 16rpx; }
 .image-index-text { font-size: 20rpx; color: #FFFFFF; }
@@ -920,8 +950,8 @@ export default {
 .detail-price-row { display: flex; align-items: baseline; margin-bottom: 16rpx; }
 .detail-price-symbol { font-size: 28rpx; color: var(--c-warn); font-weight: 700; }
 .detail-price { font-size: 52rpx; color: var(--c-warn); font-weight: 700; line-height: 1; }
-.detail-unit { font-size: 24rpx; color: #999999; margin-left: 6rpx; }
-.detail-original { font-size: 24rpx; color: #999999; text-decoration: line-through; margin-left: 16rpx; }
+.detail-unit { font-size: 24rpx; color: var(--c-text-3); margin-left: 6rpx; }
+.detail-original { font-size: 24rpx; color: var(--c-text-3); text-decoration: line-through; margin-left: 16rpx; }
 .countdown-box { display: flex; align-items: center; gap: 10rpx; background: linear-gradient(90deg, var(--c-warn-soft), var(--c-warn-soft)); padding: 16rpx 20rpx; border-radius: 10rpx; margin-bottom: 16rpx; }
 .countdown-icon { font-size: 22rpx; }
 .countdown-label { font-size: 22rpx; color: var(--c-warn); }
@@ -930,23 +960,23 @@ export default {
 .title-row { display: flex; align-items: flex-start; gap: 12rpx; margin-bottom: 14rpx; }
 .sec-badge { flex-shrink: 0; background-color: var(--c-warn); color: #FFFFFF; font-size: 20rpx; font-weight: 700; border-radius: 6rpx; padding: 4rpx 10rpx; margin-top: 6rpx; }
 /* 长商品名两行截断（T-M3-07）：超两行省略号收尾 */
-.detail-name { font-size: 36rpx; font-weight: 700; color: #333333; line-height: 1.4; flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+.detail-name { font-size: 36rpx; font-weight: 700; color: var(--c-text); line-height: 1.4; flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
 /* 副标题行：绿色小标 + tags 橙色小字 */
 .title-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 12rpx; margin-bottom: 14rpx; }
-.green-tag { font-size: 20rpx; color: #00B578; background-color: #EAF9F1; border-radius: 6rpx; padding: 4rpx 10rpx; }
+.green-tag { font-size: 20rpx; color: var(--c-ok); background-color: var(--c-primary-soft); border-radius: 6rpx; padding: 4rpx 10rpx; }
 .orange-tags { font-size: 22rpx; color: var(--c-warn); }
 /* 好评率 / 销量 */
 .title-stats { display: flex; align-items: center; gap: 24rpx; margin-bottom: 10rpx; }
 .stat-rate { font-size: 22rpx; color: var(--c-warn); font-weight: 600; }
-.stat-sold { font-size: 22rpx; color: #999999; }
-.stock-text { font-size: 24rpx; color: #CCCCCC; display: block; }
+.stat-sold { font-size: 22rpx; color: var(--c-text-3); }
+.stock-text { font-size: 24rpx; color: var(--c-disabled); display: block; }
 
 /* ---------- 4. 推荐理由格（tags 逐项 + 固定储存条件格） ---------- */
 .reason-card { background-color: #FFFFFF; padding: 24rpx 12rpx; margin-bottom: 12rpx; display: flex; align-items: stretch; }
-.reason-cell { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8rpx; border-right: 2rpx solid #F2F2F2; padding: 4rpx 8rpx; }
+.reason-cell { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8rpx; border-right: 2rpx solid var(--c-fill); padding: 4rpx 8rpx; }
 .reason-cell:last-child { border-right: none; }
-.reason-word { font-size: 26rpx; color: #333333; font-weight: 600; }
-.reason-sub { font-size: 20rpx; color: #999999; }
+.reason-word { font-size: 26rpx; color: var(--c-text); font-weight: 600; }
+.reason-sub { font-size: 20rpx; color: var(--c-text-3); }
 
 /* ---------- 5. 秒杀播报条（仅秒杀商品） ---------- */
 .notice-bar { margin: 0 24rpx 12rpx; background: linear-gradient(90deg, var(--c-warn), var(--c-warn-bright)); border-radius: 16rpx; padding: 16rpx 20rpx; }
@@ -960,53 +990,59 @@ export default {
 
 /* ---------- 6. 服务保障行 ---------- */
 .service-card { background-color: #FFFFFF; padding: 4rpx 28rpx; margin-bottom: 12rpx; }
-.service-item { display: flex; align-items: center; justify-content: space-between; padding: 22rpx 0; border-bottom: 2rpx solid #F5F5F5; }
+.service-item { display: flex; align-items: center; justify-content: space-between; padding: 22rpx 0; border-bottom: 2rpx solid var(--c-fill); }
 .service-item-last { border-bottom: none; }
 .service-left { display: flex; align-items: center; gap: 10rpx; }
-.service-check { font-size: 24rpx; color: #00B578; font-weight: 700; }
+.service-check { font-size: 24rpx; color: var(--c-ok); font-weight: 700; }
 .service-clock { font-size: 24rpx; }
-.service-text { font-size: 24rpx; color: #333333; }
-.service-arrow { font-size: 26rpx; color: #CCCCCC; }
+.service-text { font-size: 24rpx; color: var(--c-text); }
+.service-arrow { font-size: 26rpx; color: var(--c-disabled); }
 
 /* ---------- 通用白卡区块（评价 / 图文详情） ---------- */
 .section-block { background-color: #FFFFFF; padding: 28rpx 28rpx; margin-bottom: 12rpx; }
-.section-title { font-size: 28rpx; font-weight: 700; color: #333333; display: block; margin-bottom: 20rpx; }
-.desc-content { font-size: 26rpx; color: #666666; line-height: 1.9; display: block; margin-bottom: 32rpx; white-space: pre-line; }
+.section-title { font-size: 28rpx; font-weight: 700; color: var(--c-text); display: block; margin-bottom: 20rpx; }
+.desc-content { font-size: 26rpx; color: var(--c-text-2); line-height: 1.9; display: block; margin-bottom: 32rpx; white-space: pre-line; }
 
 /* 参数表：两列灰底 */
 .param-grid { display: flex; flex-wrap: wrap; gap: 12rpx; margin-bottom: 28rpx; }
-.param-cell { width: calc(50% - 6rpx); box-sizing: border-box; background-color: #F7F7F7; border-radius: 8rpx; padding: 16rpx 20rpx; display: flex; flex-direction: column; gap: 6rpx; }
-.param-label { font-size: 22rpx; color: #999999; }
-.param-value { font-size: 24rpx; color: #333333; line-height: 1.5; word-break: break-all; }
+.param-cell { width: calc(50% - 6rpx); box-sizing: border-box; background-color: var(--c-fill); border-radius: 8rpx; padding: 16rpx 20rpx; display: flex; flex-direction: column; gap: 6rpx; }
+.param-label { font-size: 22rpx; color: var(--c-text-3); }
+.param-value { font-size: 24rpx; color: var(--c-text); line-height: 1.5; word-break: break-all; }
 .param-link { color: var(--c-primary); }
 /* 查看全部入口：灰色小字，靠左 */
 .param-more { margin-bottom: 24rpx; }
-.param-more-text { font-size: 24rpx; color: #999999; }
+.param-more-text { font-size: 24rpx; color: var(--c-text-3); }
 
 /* 图文色块图 */
 .desc-images { display: flex; flex-direction: column; gap: 12rpx; }
 .desc-img-item { width: 100%; height: 280rpx; border-radius: 12rpx; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .desc-img-emoji { font-size: 64rpx; margin-bottom: 12rpx; }
-.desc-img-label { font-size: 20rpx; color: #999999; }
+.desc-img-label { font-size: 20rpx; color: var(--c-text-3); }
 
 /* ---------- 7. 评价区（逻辑不变） ---------- */
 .review-entry { cursor: pointer; }
 .entry-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
 .entry-left { display: flex; align-items: center; gap: 12rpx; }
 .entry-icon { font-size: 32rpx; }
-.entry-text { font-size: 28rpx; font-weight: 700; color: #333333; }
+.entry-text { font-size: 28rpx; font-weight: 700; color: var(--c-text); }
 .entry-right { display: flex; align-items: center; gap: 12rpx; }
 .entry-rate { font-size: 24rpx; color: var(--c-warn); font-weight: 600; }
-.entry-count { font-size: 24rpx; color: #999999; }
+.entry-count { font-size: 24rpx; color: var(--c-text-3); }
 .review-preview { display: flex; flex-direction: column; gap: 20rpx; }
 .preview-item { background-color: var(--c-warn-soft); border-radius: 12rpx; padding: 20rpx; }
 .preview-user { display: flex; align-items: center; gap: 10rpx; margin-bottom: 10rpx; }
 .preview-avatar { width: 44rpx; height: 44rpx; background: linear-gradient(135deg, var(--c-primary), var(--c-primary)); border-radius: 50%; font-size: 20rpx; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
-.preview-name { font-size: 24rpx; color: #333333; font-weight: 600; }
+.preview-name { font-size: 24rpx; color: var(--c-text); font-weight: 600; }
 .preview-stars { display: flex; gap: 2rpx; margin-bottom: 8rpx; }
-.star { font-size: 22rpx; color: #DDDDDD; }
+.star { font-size: 22rpx; color: var(--c-border); }
 .star.active { color: var(--c-gold); }
-.preview-content { font-size: 24rpx; color: #666666; line-height: 1.6; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.preview-content { font-size: 24rpx; color: var(--c-text-2); line-height: 1.6; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* P10-6b（D5）评价图三列网格（新代码一律 var(--c-*)，配合片 3 灰阶语义化）：
+   三列 = (100% - 2×8rpx 列距) / 3；无图整块 v-if 隐藏，404 单格隐藏 */
+.preview-imgs { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 12rpx; }
+.preview-img-cell { width: calc((100% - 16rpx) / 3); height: 200rpx; border-radius: 8rpx; overflow: hidden; background-color: var(--c-fill); }
+.preview-img { width: 100%; height: 100%; display: block; }
 
 /* ---------- 9. 底部操作栏 ---------- */
 .bottom-bar { background-color: #FFFFFF; box-shadow: 0 -2rpx 20rpx rgba(0,0,0,.06); flex-shrink: 0; }
@@ -1024,7 +1060,7 @@ export default {
 /* 中：去支付 + 已减 */
 .bar-pay { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6rpx; padding: 0 24rpx; overflow: hidden; }
 .pay-main { font-size: 28rpx; font-weight: 700; color: var(--c-warn); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.pay-sub { font-size: 22rpx; color: #999999; }
+.pay-sub { font-size: 22rpx; color: var(--c-text-3); }
 /* 右：直角大红块两行 */
 .btn-grab-right { width: auto; min-width: 300rpx; flex-shrink: 0; padding: 14rpx 28rpx 22rpx; }
 
@@ -1035,8 +1071,8 @@ export default {
 .detail-popup { position: absolute; left: 0; right: 0; bottom: 0; background-color: #FFFFFF; border-radius: 24rpx 24rpx 0 0; max-height: 55vh; display: flex; flex-direction: column; animation: popupSlideUp .25s ease both; }
 /* 顶部标题栏：标题居中，✕ 绝对定位右上 */
 .popup-header { position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 28rpx 0 20rpx; }
-.popup-title { font-size: 30rpx; font-weight: 700; color: #333333; }
-.popup-close { position: absolute; right: 28rpx; top: 50%; transform: translateY(-50%); font-size: 30rpx; color: #999999; line-height: 1; padding: 8rpx; }
+.popup-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
+.popup-close { position: absolute; right: 28rpx; top: 50%; transform: translateY(-50%); font-size: 30rpx; color: var(--c-text-3); line-height: 1; padding: 8rpx; }
 /* 内容区：超出 55vh 时内部滚动（复用 main-scroll 的 flex:1 + min-height:0 模式） */
 .popup-scroll { flex: 1; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: 0 28rpx 28rpx; }
 .popup-param-grid { margin-bottom: 0; }
@@ -1047,24 +1083,24 @@ export default {
 
 /* ---------- 11. 价格说明（白卡） ---------- */
 .price-note-card { background-color: #FFFFFF; padding: 28rpx; }
-.pn-title { display: block; font-size: 28rpx; font-weight: 700; color: #333333; margin-bottom: 16rpx; }
-.pn-text { display: block; font-size: 24rpx; color: #999999; line-height: 1.8; margin-bottom: 16rpx; }
+.pn-title { display: block; font-size: 28rpx; font-weight: 700; color: var(--c-text); margin-bottom: 16rpx; }
+.pn-text { display: block; font-size: 24rpx; color: var(--c-text-3); line-height: 1.8; margin-bottom: 16rpx; }
 .pn-text-last { margin-bottom: 0; }
-.pn-subtitle { display: block; font-size: 26rpx; font-weight: 700; color: #333333; margin-bottom: 12rpx; }
+.pn-subtitle { display: block; font-size: 26rpx; font-weight: 700; color: var(--c-text); margin-bottom: 12rpx; }
 
 /* ---------- 12. 查看精选推荐（居中胶囊按钮：白底 + 浅灰描边，展开/收起同款，与上下内容各留 20rpx） ---------- */
-.rec-toggle { display: flex; align-items: center; justify-content: center; width: fit-content; margin: 20rpx auto; background-color: #FFFFFF; border: 1rpx solid #EEEEEE; border-radius: 40rpx; padding: 14rpx 40rpx; box-sizing: border-box; }
-.rec-toggle-text { font-size: 26rpx; color: #666666; }
+.rec-toggle { display: flex; align-items: center; justify-content: center; width: fit-content; margin: 20rpx auto; background-color: #FFFFFF; border: 1rpx solid var(--c-fill); border-radius: 40rpx; padding: 14rpx 40rpx; box-sizing: border-box; }
+.rec-toggle-text { font-size: 26rpx; color: var(--c-text-2); }
 /* CSS chevron：12rpx 方块取右+下两条 3rpx 边框，rotate(45deg) 成 ⌄；展开态 -135° 成 ^；flex 子项随父级 align-items:center 垂直居中 */
-.rec-arrow { width: 12rpx; height: 12rpx; margin-left: 8rpx; box-sizing: border-box; border-right: 3rpx solid #666666; border-bottom: 3rpx solid #666666; transform: rotate(45deg); transition: transform .2s; }
+.rec-arrow { width: 12rpx; height: 12rpx; margin-left: 8rpx; box-sizing: border-box; border-right: 3rpx solid var(--c-text-2); border-bottom: 3rpx solid var(--c-text-2); transform: rotate(45deg); transition: transform .2s; }
 .rec-arrow-up { transform: rotate(-135deg); }
 
 /* ---------- 13. 精选推荐（卡片复刻首页多多卡：240rpx 图 + 信息列 + 步进器） ---------- */
 .rec-section { animation: recFadeIn .25s ease both; }
 .rec-header { display: flex; align-items: center; justify-content: center; gap: 10rpx; padding: 8rpx 0 20rpx; }
 .rec-heart { font-size: 30rpx; }
-.rec-title { font-size: 30rpx; font-weight: 700; color: #333333; }
-.rec-card { display: flex; background-color: #FFFFFF; border-radius: 12rpx; border: 1rpx solid #EEEEEE; box-sizing: border-box; padding: 16rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
+.rec-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
+.rec-card { display: flex; background-color: #FFFFFF; border-radius: 12rpx; border: 1rpx solid var(--c-fill); box-sizing: border-box; padding: 16rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
 .rec-img { width: 240rpx; height: 240rpx; flex-shrink: 0; border-radius: 8rpx; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .rec-emoji { font-size: 100rpx; }
 /* 推荐卡真实图片（T-M3-01）：铺满 240rpx 色块容器，@error 回退 emoji */
@@ -1072,15 +1108,15 @@ export default {
 .rec-body { flex: 1; min-width: 0; margin-left: 20rpx; display: flex; flex-direction: column; }
 .rec-title-row { display: flex; align-items: center; min-width: 0; }
 .rec-sec-tag { flex-shrink: 0; margin-right: 8rpx; font-size: 18rpx; font-weight: 700; color: #FFFFFF; background-color: var(--c-warn); border-radius: 4rpx; padding: 0 8rpx; line-height: 30rpx; }
-.rec-name { flex: 1; min-width: 0; font-size: 28rpx; font-weight: 600; color: #333333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rec-tags { margin-top: 8rpx; font-size: 20rpx; color: #999999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-name { flex: 1; min-width: 0; font-size: 28rpx; font-weight: 600; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-tags { margin-top: 8rpx; font-size: 20rpx; color: var(--c-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-sold-row { display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; }
 .rec-rush { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
-.rec-sold { font-size: 20rpx; color: #999999; }
+.rec-sold { font-size: 20rpx; color: var(--c-text-3); }
 .rec-promo-row { display: flex; align-items: center; gap: 10rpx; margin-top: 8rpx; min-height: 30rpx; }
 .rec-tag-cut { font-size: 18rpx; color: var(--c-warn); font-weight: 600; border: 1rpx solid var(--c-warn); border-radius: 6rpx; padding: 0 8rpx; line-height: 26rpx; }
-.rec-tag-limit { font-size: 18rpx; color: #999999; border: 1rpx solid #DDDDDD; border-radius: 6rpx; padding: 0 8rpx; line-height: 26rpx; }
-.rec-rate { font-size: 20rpx; color: #999999; }
+.rec-tag-limit { font-size: 18rpx; color: var(--c-text-3); border: 1rpx solid var(--c-border); border-radius: 6rpx; padding: 0 8rpx; line-height: 26rpx; }
+.rec-rate { font-size: 20rpx; color: var(--c-text-3); }
 .rec-price-row { margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; }
 .rec-price-left { display: flex; align-items: baseline; min-width: 0; }
 .rec-price-label { font-size: 20rpx; font-weight: 700; color: var(--c-warn); margin-right: 4rpx; }
@@ -1096,7 +1132,7 @@ export default {
 .rec-step-minus text { color: var(--c-primary); }
 .rec-step-plus { background-color: var(--c-primary); }
 .rec-step-plus text { color: #FFFFFF; }
-.rec-step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: #333333; }
+.rec-step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: var(--c-text); }
 /* 秒杀卡内超级秒杀条：红底圆角小条，左标题右倒计时（全场共用同一倒计时） */
 .rec-seckill-bar { margin-top: 12rpx; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(90deg, var(--c-warn), var(--c-warn-bright)); border-radius: 8rpx; padding: 8rpx 16rpx; }
 .rec-seckill-label { font-size: 20rpx; color: #FFFFFF; font-weight: 700; }
@@ -1104,12 +1140,12 @@ export default {
 /* 推荐卡内归零展示态：置灰（T-M3-04） */
 .rec-seckill-countdown.rec-countdown-zero { color: rgba(255,255,255,.72); font-weight: 600; }
 .rec-empty { display: flex; align-items: center; justify-content: center; padding: 60rpx 0; }
-.rec-empty text { font-size: 24rpx; color: #CCCCCC; }
+.rec-empty text { font-size: 24rpx; color: var(--c-disabled); }
 
 /* ---------- 14. 回顶部悬浮钮（精选推荐展开且下滚超过阈值时出现） ---------- */
 .back-top-btn { position: fixed; right: 24rpx; bottom: 280rpx; z-index: 50; width: 88rpx; height: 88rpx; border-radius: 50%; background-color: #FFFFFF; box-shadow: 0 4rpx 16rpx rgba(0,0,0,.15); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4rpx; animation: recFadeIn .2s ease both; }
-.bt-arrow { font-size: 26rpx; color: #333333; line-height: 1; }
-.bt-text { font-size: 18rpx; color: #666666; line-height: 1; }
+.bt-arrow { font-size: 26rpx; color: var(--c-text); line-height: 1; }
+.bt-text { font-size: 18rpx; color: var(--c-text-2); line-height: 1; }
 /* 动画：精选推荐展开 / 悬浮钮出现时的淡入上移 */
 @keyframes recFadeIn { from { opacity: 0; transform: translateY(20rpx); } to { opacity: 1; transform: translateY(0); } }
 </style>

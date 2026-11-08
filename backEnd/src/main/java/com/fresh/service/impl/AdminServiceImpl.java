@@ -70,6 +70,7 @@ import com.fresh.service.CouponService;
 import com.fresh.service.DictService;
 import com.fresh.service.MerchantDepositService;
 import com.fresh.service.PartnerWalletService;
+import com.fresh.service.ReviewService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -209,6 +210,10 @@ public class AdminServiceImpl implements AdminService {
     /** F-106 片 A：商家自助入驻申请审核（只被 auditMerchantApply 使用） */
     @Autowired
     private MerchantApplyMapper merchantApplyMapper;
+
+    /** P10-6b D4（m34）：评价 reject 驳回时联动删 review_image 行 + 文件尽力删（只被 auditReview 使用） */
+    @Autowired
+    private ReviewService reviewService;
 
     /** 管理密钥：与 AdminController.checkKey 同源配置（ADMIN_KEY 环境变量优先），仅用于算摘要做审计 actor */
     @Value("${ADMIN_KEY:admin-dev-key}")
@@ -384,6 +389,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @Transactional   // P10-6b D4（m34）：reject 联动删图行与 deleteById 同事务（updateOrderStatus/createMerchant 同姿势）；approve 单条 UPDATE 原本即原子，加注解无行为变化
     public void auditReview(Long reviewId, String action, String actor) {
         String op = action == null ? "" : action.trim();
         if (!ALLOWED_AUDIT_ACTIONS.contains(op)) {
@@ -403,7 +409,11 @@ public class AdminServiceImpl implements AdminService {
             log.info("管理端过审评价: reviewId={}, dishId={}", reviewId, review.getDishId());
         } else {
             // 驳回：删除记录（避免违规内容留存）；重复执行因查无此评价返回 404，语义明确
+            // P10-6b D4（m34）联动：先删评价行再删图行（同事务，任一失败整体回滚不留孤儿），
+            // 文件尽力删在 ReviewServiceImpl#deleteImagesByReviewId 内（失败仅日志不回滚）；
+            // 文件先于行删走的窗口由 deleteIfExists 幂等收口，见该方法注释
             reviewMapper.deleteById(reviewId);
+            reviewService.deleteImagesByReviewId(reviewId);
             log.info("管理端驳回删除评价: reviewId={}, dishId={}", reviewId, review.getDishId());
         }
         // R6 补课：审核动作成对留痕（旧值 audit_status 可能为 null=已过审，新值记本次动作）

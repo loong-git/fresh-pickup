@@ -3,6 +3,7 @@ package com.fresh.entity;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class Review {
@@ -23,4 +24,8 @@ public class Review {
     private String auditStatus;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
+    /** 评价图路径列表（P10-6b D3/m34）：非持久化展示字段（review 本体零加列，图落 review_image 表），
+     * 仅列表出参由 ReviewServiceImpl 批量填充（一条 IN 查询防 N+1），无图恒为空数组不出 null */
+    @TableField(exist = false)
+    private List<String> images;
 }

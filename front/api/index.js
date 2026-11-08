@@ -697,6 +697,55 @@ export function submitReview(dishId, reviewData) {
 }
 
 /**
+ * 上传评价图（P10-6b D3/D5，登录，multipart 字段名 file）：POST /api/dishes/{dishId}/reviews/{reviewId}/images
+ * → R{code,data:{path:"/uploads/reviews/…"}}（契约 D7）；错误沿用 R 信封（400 校验/401/403 归属/404 评价不存在）
+ * uni.request 不支持 multipart 选文件，此处直接用 uni.uploadFile，token 注入与 401 处理同 request 层口径
+ * （姿势照上方 uploadMerchantLicense 先例逐段对齐）
+ * @param {number} dishId - 菜品ID（须与评价归属一致，后端校验）
+ * @param {number} reviewId - 评价ID（submitReview 成功返回的 res.data.id）
+ * @param {string} filePath - uni.chooseImage 返回的临时文件路径
+ */
+export function uploadReviewImage(dishId, reviewId, filePath) {
+  const stored = getStoredUser()
+  const token = (stored && typeof stored.token === 'string' && stored.token) ? stored.token : ''
+  const header = {}
+  if (token) header.Authorization = 'Bearer ' + token
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: BASE_URL + `/api/dishes/${dishId}/reviews/${reviewId}/images`,
+      filePath,
+      name: 'file',
+      timeout: TIMEOUT_SUBMIT,
+      header,
+      success: (res) => {
+        let body = null
+        try {
+          body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+        } catch (e) {
+          body = null
+        }
+        // 401 与 request 层同口径：清登录态并结构化 reject
+        if (res.statusCode === 401 || (body && body.code === 401)) {
+          rejectUnauthorized(reject)
+          return
+        }
+        if (res.statusCode === 200 && body && body.code === 200) {
+          resolve(body)
+          return
+        }
+        reject({
+          code: body && body.code != null ? body.code : res.statusCode,
+          message: (body && body.message) || '服务开小差了，请稍后重试'
+        })
+      },
+      fail: () => {
+        reject({ code: -1, message: '网络异常' })
+      }
+    })
+  })
+}
+
+/**
  * 查询当前登录用户的全部评价（登录，token 由 request 层自动携带，写法对照 getMyCoupons）：
  * GET /api/reviews/mine → R{code,data:[{id,dishId,dishName,content,auditStatus,createdAt,...}]}
  * - dishName 由服务端按 dish_id 填充；按评价时间倒序
@@ -744,5 +793,6 @@ export default {
   uploadMerchantLicense,
   getReviews,
   submitReview,
+  uploadReviewImage,
   getMyReviews
 }

@@ -94,7 +94,7 @@ export default {
 	--c-border: #E7E5E0;
 	--c-text: #1C1917;
 	--c-text-2: #57534E;
-	--c-text-3: #A8A29E;
+	--c-text-3: #746F69;
 	--c-primary: #0F7B4A;
 	--c-primary-soft: #E8F5EE;
 	--c-primary-hair: #C8E6D5;
@@ -102,7 +102,7 @@ export default {
 	--c-ok: #0F7B4A;
 	--c-warn: #B45309;
 	--c-warn-soft: #FFF7E6;
-	--c-danger: #DC2626;
+	--c-danger: #C81E1E;
 	--c-danger-soft: #FEF2F2;
 	--c-text-4: #BBBBBB;
 	--c-fill: #F5F5F5;

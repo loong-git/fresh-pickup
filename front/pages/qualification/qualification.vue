@@ -123,7 +123,7 @@ export default {
 	width: 560rpx;
 	height: 784rpx;
 	background-color: #ffffff;
-	border: 2rpx solid #e8e8e8;
+	border: 2rpx solid var(--c-border);
 	border-radius: 12rpx;
 	padding: 14rpx;
 	box-sizing: border-box;
@@ -134,7 +134,7 @@ export default {
 .license-body {
 	position: relative;
 	height: 100%;
-	border: 1rpx solid #f2f2f2;
+	border: 1rpx solid var(--c-fill);
 	padding: 32rpx 30rpx 24rpx;
 	box-sizing: border-box;
 	display: flex;
@@ -165,14 +165,14 @@ export default {
 	text-align: center;
 	font-size: 46rpx;
 	font-weight: bold;
-	color: #1a1a1a;
+	color: var(--c-text);
 	letter-spacing: 6rpx;
 	line-height: 1.2;
 }
 .license-sub {
 	text-align: center;
 	font-size: 24rpx;
-	color: #1a1a1a;
+	color: var(--c-text);
 	margin-top: 6rpx;
 	line-height: 1.4;
 }
@@ -181,7 +181,7 @@ export default {
 .qr-box {
 	margin: 22rpx auto 0;
 	padding: 8rpx;
-	border: 1rpx solid #eeeeee;
+	border: 1rpx solid var(--c-fill);
 	background-color: #ffffff;
 }
 .qr-grid {
@@ -196,7 +196,7 @@ export default {
 	height: 12rpx;
 }
 .qr-on {
-	background-color: #000000;
+	background-color: var(--c-text);
 }
 .qr-off {
 	background-color: #ffffff;
@@ -214,13 +214,13 @@ export default {
 	width: 190rpx;
 	flex-shrink: 0;
 	font-size: 22rpx;
-	color: #1a1a1a;
+	color: var(--c-text);
 	line-height: 1.5;
 }
 .info-value {
 	flex: 1;
 	font-size: 22rpx;
-	color: #1a1a1a;
+	color: var(--c-text);
 	line-height: 1.5;
 }
 
@@ -249,7 +249,7 @@ export default {
 	margin-top: auto;
 	text-align: center;
 	font-size: 20rpx;
-	color: #999999;
+	color: var(--c-text-3);
 	line-height: 1.4;
 }
 </style>

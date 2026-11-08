@@ -392,7 +392,7 @@ export default {
 <style scoped>
 /* ==================== 多多买菜工具风 — 账号安全页（白底 + 品牌绿 var(--c-primary)） ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); box-sizing: border-box; }
 
 /* ==================== 白卡通用（照我的页） ==================== */
 .card {
@@ -401,24 +401,24 @@ export default {
   padding: 24rpx;
 }
 .card-head { margin-bottom: 8rpx; }
-.card-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.card-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 .card-desc {
   display: block;
   margin-bottom: 24rpx;
-  font-size: 22rpx; color: #999999; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-text-3); line-height: 1.5;
 }
 
 /* ==================== 1. 登录密码（输入胶囊/主按钮照登录页同款） ==================== */
 .input-capsule {
   display: flex; align-items: center;
   height: 92rpx; margin-bottom: 24rpx;
-  background-color: #F5F5F5; border-radius: 999rpx;
+  background-color: var(--c-fill); border-radius: 999rpx;
   padding: 0 12rpx 0 36rpx; box-sizing: border-box;
 }
 .capsule-input {
   flex: 1; min-width: 0;
   height: 92rpx; line-height: 92rpx;
-  font-size: 30rpx; color: #333333;
+  font-size: 30rpx; color: var(--c-text);
 }
 /* uni-button 默认圆角与 line-height 必须显式覆盖（本项目前科坑） */
 .btn-main {
@@ -432,7 +432,7 @@ export default {
 
 /* ==================== 2. 绑定手机号（当前号一行 + 行尾胶囊按钮） ==================== */
 .phone-row { display: flex; align-items: center; justify-content: space-between; padding: 8rpx 0 4rpx; }
-.phone-now { font-size: 30rpx; font-weight: 600; color: #333333; }
+.phone-now { font-size: 30rpx; font-weight: 600; color: var(--c-text); }
 .cell-action {
   flex-shrink: 0;
   font-size: 24rpx; font-weight: 600; color: var(--c-primary);
@@ -443,22 +443,22 @@ export default {
 /* ==================== 2.1 F-08 更换手机号卡区（自 mine.vue 整体搬入，样式与观感不变） ==================== */
 .phone-change {
   padding: 24rpx 0 4rpx;
-  border-top: 1rpx solid #F5F5F5;
+  border-top: 1rpx solid var(--c-fill);
   margin-top: 16rpx;
 }
-.pc-title { display: block; font-size: 28rpx; font-weight: 700; color: #333333; }
+.pc-title { display: block; font-size: 28rpx; font-weight: 700; color: var(--c-text); }
 .pc-desc {
   display: block;
   margin: 8rpx 0 24rpx;
-  font-size: 22rpx; color: #999999; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-text-3); line-height: 1.5;
 }
 .pc-capsule {
   display: flex; align-items: center;
   height: 84rpx; margin-bottom: 20rpx;
-  background-color: #F5F5F5; border-radius: 999rpx;
+  background-color: var(--c-fill); border-radius: 999rpx;
   padding: 0 10rpx 0 32rpx; box-sizing: border-box;
 }
-.pc-input { flex: 1; min-width: 0; height: 84rpx; line-height: 84rpx; font-size: 28rpx; color: #333333; }
+.pc-input { flex: 1; min-width: 0; height: 84rpx; line-height: 84rpx; font-size: 28rpx; color: var(--c-text); }
 .pc-send {
   flex-shrink: 0; margin: 0; padding: 0 24rpx;
   height: 64rpx; line-height: 64rpx;
@@ -468,10 +468,10 @@ export default {
 }
 /* uni-button 默认伪元素边框必须显式覆盖（本项目前科坑） */
 .pc-send::after { border: none; }
-.pc-send.pc-send-disabled { background-color: #CCCCCC; color: rgba(255, 255, 255, 0.9); }
+.pc-send.pc-send-disabled { background-color: var(--c-disabled); color: rgba(255, 255, 255, 0.9); }
 .pc-hint {
   display: block;
-  font-size: 22rpx; color: #999999; line-height: 1.5;
+  font-size: 22rpx; color: var(--c-text-3); line-height: 1.5;
 }
 .pc-main {
   display: block;

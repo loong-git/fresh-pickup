@@ -3,12 +3,14 @@ package com.fresh.service.impl;
 import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
+import com.fresh.entity.Review;
 import com.fresh.mapper.AdminAuditLogMapper;
 import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.ReviewMapper;
 import com.fresh.mapper.StoreApplyMapper;
 import com.fresh.service.AdminV2Service;
+import com.fresh.service.ReviewService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -169,6 +171,9 @@ public class AdminV2ServiceImpl implements AdminV2Service {
     private DishMapper dishMapper;
     @Autowired
     private ReviewMapper reviewMapper;
+    /** P10-6 A5 收尾：评价列表出参的图路径批量填充复用 {@link ReviewService#fillImages}（一条 IN 查询防 N+1） */
+    @Autowired
+    private ReviewService reviewService;
     @Autowired
     private StoreApplyMapper storeApplyMapper;
 
@@ -413,6 +418,10 @@ public class AdminV2ServiceImpl implements AdminV2Service {
      * 于是页 SQL 与 COUNT SQL 用的是同一个已映射形态（D-16），而 D-19 要的「回显 UI 伪值本身」
      * 也就自动成立——Java 侧全程只握着那一枚伪值（归一后的那一枚）。
      * <p>行里的 {@code auditStatus} 出库里原值（'pending' 或 null），null 就是「展示中」（D-18 出原值纪律）。
+     * <p>P10-6 A5 收尾：每行纯追加第 8 键 {@code images}（{@code /uploads/reviews/...} 相对路径列表，
+     * 与 C 端列表同源同口径）——行是手工白名单 Map 不是实体，故按行 id 造只带 id 的 Review 壳
+     * 复用 {@link ReviewService#fillImages} 批量填充（一条 IN 查询防 N+1，纪律同 ReviewServiceImpl#listByUser
+     * 的「两查询收敛」），无图行填空数组不出 null。
      */
     @Override
     @Transactional(readOnly = true)
@@ -430,9 +439,26 @@ public class AdminV2ServiceImpl implements AdminV2Service {
                 ? List.of()
                 : reviewMapper.selectReviewsPage(fAuditStatus, offset, size);
 
+        // P10-6 A5 收尾（评价带图出参）：复用 ReviewService#fillImages 的一条 IN 查询（防 N+1）。
+        // 行 Map 的 id 经 BIGINT 回来（Long/BigInteger 都是 Number），统一 longValue 取值；
+        // fillImages 对非空列表必给每壳填非 null 列表，这里仍按 listByUser 同款 null 兜底回空数组
+        Map<Long, List<String>> imagesByReviewId = new LinkedHashMap<>();
+        if (!rows.isEmpty()) {
+            List<Review> stubs = new ArrayList<>(rows.size());
+            for (Map<String, Object> row : rows) {
+                Review stub = new Review();
+                stub.setId(((Number) row.get("id")).longValue());
+                stubs.add(stub);
+            }
+            reviewService.fillImages(stubs);
+            for (Review stub : stubs) {
+                imagesByReviewId.put(stub.getId(), stub.getImages());
+            }
+        }
+
         List<Map<String, Object>> list = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
-            // 白名单（D-15）：user_id 在 SQL 层就没选，这里也不补。七键恒定存在。
+            // 白名单（D-15）：user_id 在 SQL 层就没选，这里也不补。前七键恒定存在；images 为 P10-6 A5 纯加键。
             Map<String, Object> line = new LinkedHashMap<>();
             line.put("id", row.get("id"));
             line.put("dishId", row.get("dishId"));
@@ -441,6 +467,8 @@ public class AdminV2ServiceImpl implements AdminV2Service {
             line.put("reviewer", row.get("reviewer"));
             line.put("auditStatus", row.get("auditStatus"));
             line.put("createTime", row.get("createTime"));
+            List<String> imgs = imagesByReviewId.get(((Number) row.get("id")).longValue());
+            line.put("images", imgs == null ? List.of() : imgs);
             list.add(line);
         }
 

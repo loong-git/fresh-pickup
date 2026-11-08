@@ -74,6 +74,20 @@
             <textarea class="review-textarea" v-model="reviewContent" placeholder="分享您的购物体验..." maxlength="200" :adjust-position="true" cursor-spacing="24" />
             <text class="char-count">{{ reviewContent.length }}/200</text>
           </view>
+          <!-- P10-6b（D5）评价图选择区：添加图片（最多3张）入口 + 已选缩略预览可删（点缩略图可预览）；
+               ≤3 上限由入口 v-if + chooseImage 动态余量 + 服务端图数<3 闸门三重把关 -->
+          <view class="img-pick-group">
+            <view class="img-thumbs">
+              <view class="img-thumb" v-for="(img, i) in pickedImages" :key="img.local">
+                <image class="img-thumb-img" :src="img.local" mode="aspectFill" @click="previewPicked(i)" />
+                <text class="img-thumb-del" @click.stop="removePicked(i)">✕</text>
+              </view>
+              <view class="img-add" v-if="pickedImages.length < 3" @click="chooseImage">
+                <text class="img-add-plus">＋</text>
+                <text class="img-add-text">添加图片（最多3张）</text>
+              </view>
+            </view>
+          </view>
           <!-- P4-2（D3）提交单飞：submitting 中灰态禁用 + 文案切换（姿势照 index.vue btn-confirm）；同帧双击由方法首行早退拦 -->
           <button class="btn-submit" :class="{ 'btn-submit-disabled': submitting }" :disabled="submitting" @click="submitReview">{{ submitting ? '提交中…' : '提交评价' }}</button>
         </view>
@@ -83,7 +97,7 @@
 </template>
 
 <script>
-import { getDishDetail, getReviews, submitReview } from '@/api/index.js'
+import { getDishDetail, getReviews, submitReview, uploadReviewImage } from '@/api/index.js'
 
 // M4-T-05：本地预检硬词表（与后端 backEnd/src/main/resources/sensitive-words.txt 硬词同款，
 // 共 10 个，后端词表更新时须同步此数组）。命中硬词前端直接拦截不提交、保留输入；
@@ -106,6 +120,10 @@ export default {
       showPopup: false,
       newRating: 5,
       reviewContent: '',
+      // P10-6b（D5）弹窗已选评价图：{ local: chooseImage 临时路径, remote: 上传成功后回填的后端
+      // 相对路径（/uploads/reviews/…，未传为 null）}。remote 有两用——重试时跳过已传成功的图
+      // （防服务端图数<3 闸门把重复上传拒掉）、上传态随数据走不另立第二套状态
+      pickedImages: [],
       // P4-2（D3）提交单飞标志：校验全过后置 true，finally 退回（成功/失败都退），失败后可再点重试
       submitting: false
     }
@@ -176,12 +194,44 @@ export default {
     openWrite() {
       this.newRating = 5
       this.reviewContent = ''
+      // P10-6b（D5）新弹窗会话 = 新提交意图：已选图一并清空（失败重试不经 openWrite，预览保留）
+      this.pickedImages = []
       // F-124 §1.3 配套：每次新开弹窗即备新键（新弹窗会话 = 新提交意图 = 新键）。提交失败弹窗保留、
       // 不经 openWrite 直接重试 → 仍复用同键（同意图重试幂等才有效）；成功作废后的下一条评价
       // 也经此处拿到新键，不会带着 null 提交。无条件换新另防一类边缘：失败实为响应丢失（服务端
       // 已落库）时，旧键若被「关弹窗重开的新内容」复用会被误判幂等吞掉新输入
       this._clientRequestId = this.genClientRequestId()
       this.showPopup = true
+    },
+    // ==================== 评价图选择（P10-6b D5） ====================
+    // chooseImage 选图：count 按剩余余量传（≤3 总上限由本方法早退 + 入口 v-if + 服务端闸门三重把关）；
+    // 取消/失败静默（H5 文件选择器取消走 fail，不提示）
+    chooseImage() {
+      const remain = 3 - this.pickedImages.length
+      if (remain <= 0) {
+        uni.showToast({ title: '最多添加3张图片', icon: 'none' })
+        return
+      }
+      uni.chooseImage({
+        count: remain,
+        success: (res) => {
+          const paths = (res && res.tempFilePaths) || []
+          paths.slice(0, remain).forEach(p => {
+            this.pickedImages.push({ local: p, remote: null })
+          })
+        },
+        fail: () => {}
+      })
+    },
+    // 点已选缩略图本地预览（uni.previewImage，current 按 URL 口径传）
+    previewPicked(i) {
+      const urls = this.pickedImages.map(img => img.local)
+      uni.previewImage({ urls, current: urls[i] })
+    },
+    // 删除已选图（已传成功的图删后服务端行保留——后端无删图端点，图行仅驳回时随评价同删）；
+    // @click.stop 防误触缩略图预览
+    removePicked(i) {
+      this.pickedImages.splice(i, 1)
     },
     async submitReview() {
       // P4-2（D3）单飞早退：模板 :disabled 要等一次重渲染才生效，同帧双击靠方法首行拦第二发
@@ -206,13 +256,37 @@ export default {
         // 前端随机昵称是「昵称由前端生成」的误导源死代码，只传 rating/content
         // F-124 §1.3：body 带客户端幂等键——失败保留原值（同图重试复用同键，服务端幂等返回首次评价）；
         // 成功在下方置 null 作废（下一条评价换新键），DTO 可空不强制、向后兼容
-        await submitReview(this.dishId, {
+        const reviewRes = await submitReview(this.dishId, {
           rating: this.newRating,
           content: this.reviewContent.trim(),
           clientRequestId: this._clientRequestId
         })
         // P4-2（D4）request 层业务失败必 reject（api/index.js 封装），resolve 到手即业务已成功，
         // 上一版恒真的业务码等值判断已删，直接使用 resolve 值不再判
+        // P10-6b（D5/D7）带图提交：submitReview 成功返回 R<Review>（后端 ReviewController#addReview
+        // R.ok(saved) 透出实体，data.id 即评价主键，已实读核实）→ 逐张上传弹窗已选图。
+        // 拍板口径：任一张失败即 toast 后端 message 并 return（保留弹窗与预览可重试）——
+        // 幂等键未作废（成功支才置 null），重试按 clientRequestId 幂等返回同一评价不产生重复行；
+        // 已传成功的图按 remote 跳过只补传失败张（防服务端图数<3 闸门拒重复上传）
+        const reviewId = reviewRes && reviewRes.data && reviewRes.data.id
+        if (this.pickedImages.length && reviewId == null) {
+          // 理论不达分支（契约出参含 id 已核实）：评价已落库但拿不到 id，图无处挂——
+          // 诚实 toast 且不关弹窗不静默丢图，用户可 ✕ 退出
+          uni.showToast({ title: '评价已提交，图片上传失败', icon: 'none' })
+          return
+        }
+        for (let i = 0; i < this.pickedImages.length; i++) {
+          const img = this.pickedImages[i]
+          if (img.remote) continue
+          try {
+            const upRes = await uploadReviewImage(this.dishId, reviewId, img.local)
+            img.remote = (upRes && upRes.data && upRes.data.path) || null
+          } catch (upErr) {
+            // 单张失败即停：toast 后端人话（400 校验/429 限流等透出），弹窗+预览保留可重试
+            uni.showToast({ title: (upErr && upErr.message) || '图片上传失败，请重试', icon: 'none' })
+            return
+          }
+        }
         // P4-2（D5）成功 → 关弹窗 → toast → 重拉列表；重拉包 catch 置 loadError 走既有错误态+重试
         // （loadAll），成功 toast 不撤回——评价已成功的事实不被列表刷新失败抹掉
         this.showPopup = false
@@ -258,63 +332,73 @@ export default {
 <style scoped>
 /* ==================== 评价页 ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; padding-bottom: 120rpx; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); padding-bottom: 120rpx; }
 
 /* 商品简要 */
 .dish-brief { display: flex; align-items: center; gap: 20rpx; padding: 24rpx; background-color: #FFFFFF; margin-bottom: 12rpx; }
 .dish-emoji { width: 120rpx; height: 120rpx; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; font-size: 64rpx; flex-shrink: 0; }
 .dish-info { display: flex; flex-direction: column; gap: 10rpx; }
-.dish-name { font-size: 30rpx; font-weight: 700; color: #333333; }
+.dish-name { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 .dish-price { font-size: 28rpx; color: #FF6600; font-weight: 700; }
 
 /* 评价区 */
 .review-section { background-color: #FFFFFF; padding: 24rpx; }
 .section-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24rpx; }
-.section-title { font-size: 28rpx; font-weight: 700; color: #333333; }
-.review-count { font-size: 22rpx; color: #999999; }
+.section-title { font-size: 28rpx; font-weight: 700; color: var(--c-text); }
+.review-count { font-size: 22rpx; color: var(--c-text-3); }
 .review-list { display: flex; flex-direction: column; gap: 32rpx; }
-.review-item { border-bottom: 1rpx solid #F5F5F5; padding-bottom: 32rpx; }
+.review-item { border-bottom: 1rpx solid var(--c-fill); padding-bottom: 32rpx; }
 .review-item:last-child { border-bottom: none; padding-bottom: 0; }
 .review-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14rpx; }
 .review-user { display: flex; align-items: center; gap: 12rpx; }
-.review-avatar { width: 52rpx; height: 52rpx; background: linear-gradient(135deg, #FF6600, #FF8533); border-radius: 50%; font-size: 24rpx; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 700; }
-.review-name { font-size: 26rpx; color: #333333; font-weight: 600; }
+.review-avatar { width: 52rpx; height: 52rpx; background: linear-gradient(135deg, #FF6600, var(--c-warn-bright)); border-radius: 50%; font-size: 24rpx; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.review-name { font-size: 26rpx; color: var(--c-text); font-weight: 600; }
 .review-stars { display: flex; gap: 2rpx; }
-.star { font-size: 26rpx; color: #DDDDDD; }
+.star { font-size: 26rpx; color: var(--c-border); }
 .star.active { color: #FF6600; }
 /* 超长评价内容折叠为 2 行（M3-T-07 line-clamp），expanded 时解除折叠 */
-.review-content { font-size: 26rpx; color: #666666; line-height: 1.7; margin-bottom: 12rpx; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-all; }
+.review-content { font-size: 26rpx; color: var(--c-text-2); line-height: 1.7; margin-bottom: 12rpx; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-all; }
 .review-content.expanded { -webkit-line-clamp: 999; }
 .review-expand { display: block; font-size: 24rpx; color: #FF6600; margin-bottom: 12rpx; }
-.review-time { font-size: 22rpx; color: #CCCCCC; }
+.review-time { font-size: 22rpx; color: var(--c-disabled); }
 
 /* 空状态 */
 .review-empty { display: flex; flex-direction: column; align-items: center; padding: 80rpx 0; gap: 16rpx; }
 .empty-icon { font-size: 80rpx; }
-.empty-text { font-size: 26rpx; color: #CCCCCC; }
+.empty-text { font-size: 26rpx; color: var(--c-disabled); }
 /* 错误态重试按钮（M3-T-05 部分） */
 .btn-retry { margin-top: 24rpx; min-width: 240rpx; font-size: 26rpx; font-weight: 600; color: #FF6600; background-color: #FFFFFF; border: 1rpx solid #FF6600; border-radius: 0; padding: 14rpx 48rpx; line-height: 1.4; }
 
 /* 底部栏 */
 .bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 100rpx; background-color: #FFFFFF; display: flex; align-items: center; justify-content: center; box-shadow: 0 -2rpx 16rpx rgba(0,0,0,.06); z-index: 100; }
-.btn-write { flex: 1; margin: 0 24rpx; height: 80rpx; background: linear-gradient(135deg, #FF6600, #FF8533); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+.btn-write { flex: 1; margin: 0 24rpx; height: 80rpx; background: linear-gradient(135deg, #FF6600, var(--c-warn-bright)); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
 
 /* 弹窗 */
 .popup-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,.5); z-index: 200; display: flex; align-items: flex-end; justify-content: center; }
 .popup-panel { width: 100%; background-color: #FFFFFF; border-radius: 24rpx 24rpx 0 0; }
-.popup-header { display: flex; justify-content: space-between; align-items: center; padding: 28rpx 32rpx; border-bottom: 1rpx solid #F0F0F0; }
-.popup-title { font-size: 30rpx; font-weight: 700; color: #333333; }
-.popup-close { font-size: 32rpx; color: #CCCCCC; }
+.popup-header { display: flex; justify-content: space-between; align-items: center; padding: 28rpx 32rpx; border-bottom: 1rpx solid var(--c-fill); }
+.popup-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
+.popup-close { font-size: 32rpx; color: var(--c-disabled); }
 .popup-body { padding: 32rpx; }
 .rating-row { display: flex; align-items: center; gap: 20rpx; margin-bottom: 24rpx; }
-.rating-label { font-size: 26rpx; color: #666666; font-weight: 600; }
+.rating-label { font-size: 26rpx; color: var(--c-text-2); font-weight: 600; }
 .star-picker { display: flex; gap: 8rpx; }
-.star-picker .star { font-size: 48rpx; color: #DDDDDD; }
+.star-picker .star { font-size: 48rpx; color: var(--c-border); }
 .star-picker .star.active { color: #FF6600; }
 .form-group { margin-bottom: 24rpx; position: relative; }
-.review-textarea { width: 100%; height: 240rpx; background-color: #F5F5F5; border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; color: #333333; box-sizing: border-box; line-height: 1.7; }
-.char-count { position: absolute; bottom: 12rpx; right: 16rpx; font-size: 20rpx; color: #CCCCCC; }
-.btn-submit { width: 100%; height: 88rpx; background: linear-gradient(135deg, #FF6600, #FF8533); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+.review-textarea { width: 100%; height: 240rpx; background-color: var(--c-fill); border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; color: var(--c-text); box-sizing: border-box; line-height: 1.7; }
+.char-count { position: absolute; bottom: 12rpx; right: 16rpx; font-size: 20rpx; color: var(--c-disabled); }
+.btn-submit { width: 100%; height: 88rpx; background: linear-gradient(135deg, #FF6600, var(--c-warn-bright)); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
 /* 提交飞行中禁用态（P4-2 D3）：置灰提示「提交中…」，姿势照 index.vue btn-confirm-disabled（浅色底 + 降透明白字） */
-.btn-submit-disabled { background: #FFB27F; color: rgba(255,255,255,.9); }
+.btn-submit-disabled { background: var(--c-warn-hair); color: rgba(255,255,255,.9); }
+
+/* P10-6b（D5）评价图选择区（新代码一律 var(--c-*)，配合片 3 灰阶语义化） */
+.img-pick-group { margin-bottom: 24rpx; }
+.img-thumbs { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.img-thumb { position: relative; width: 160rpx; height: 160rpx; border-radius: 12rpx; overflow: hidden; border: 1rpx solid var(--c-border); background-color: var(--c-fill); }
+.img-thumb-img { width: 100%; height: 100%; display: block; }
+.img-thumb-del { position: absolute; top: 0; right: 0; width: 40rpx; height: 40rpx; line-height: 40rpx; text-align: center; font-size: 24rpx; color: var(--c-text-3); background-color: var(--c-fill); border-radius: 0 0 0 12rpx; }
+.img-add { width: 160rpx; height: 160rpx; border: 2rpx dashed var(--c-border); border-radius: 12rpx; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8rpx; background-color: var(--c-fill); }
+.img-add-plus { font-size: 48rpx; color: var(--c-text-4); line-height: 1; }
+.img-add-text { font-size: 20rpx; color: var(--c-text-3); }
 </style>

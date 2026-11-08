@@ -141,6 +141,15 @@ const SUITES = [
   },
 ];
 
+// —— P10-6a 设计取舍（DESIGN_TAKE）豁免清单（契约 docs/十期规划/P10-6-收尾三片与演示数据清理契约.md 片 1 登记）——
+// 登记的对为品牌定稿色 / placeholder 语义档的设计取舍：实测低于 AA 时报告标 DESIGN_TAKE 且**不计入 FAIL 数**；
+// 若后续迭代使该对实测达标（≥4.5），按普通 PASS 输出、标注自动消失。app+sem 双键定位，
+// 避免误伤商家/主理人组的同名「弱提示 × 页底」（那两对必须真达标，不在豁免之列）。
+const DESIGN_TAKE = [
+  { app: "front-admin/src/App.vue", sem: "按钮白字 × 主色实底", reason: "EP 品牌蓝 #3B82F6 为品牌定稿色不许动（大字 3.0 过，浅/深两档同豁免）" },
+  { app: "front-admin/src/App.vue", sem: "弱提示 × 页底", reason: "placeholder 语义档（html.dark 深组；P10-6a 迭代 #85858B 实测达标后不再标注）" },
+];
+
 const OUT = "logs/out/contrast-report.txt";
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 
@@ -148,9 +157,9 @@ const rep = [];
 rep.push("P10-4 B5 四端语义色对 WCAG 对比度报告");
 rep.push(`生成：${new Date().toISOString().replace("T", " ").slice(0, 19)}   判定：AA 正文 ≥ 4.5:1；大字(≥18pt/14pt粗) ≥ 3.0:1`);
 rep.push("口径：sRGB 相对亮度（WCAG 2.x 公式，实现见本仓库 tools/gate/contrast-audit.cjs）；值从各端 App.vue 变量定义现场解析。");
-rep.push("契约 §B5 定案：本报告为呈报型——低于 AA 的对逐条列出并标「设计取舍」，交用户过目后另行定夺，本片不动 P7/P9 定稿色。");
+rep.push("契约 §B5 呈报型定案 + P10-6a 收口：语义对一律以 AA 4.5 为达标线迭代；DESIGN_TAKE 豁免清单（见脚本内登记）中的对低于 AA 时标注豁免、不计 FAIL。");
 rep.push("");
-let lowAA = 0, totalPairs = 0, unresolvable = 0;
+let lowAA = 0, totalPairs = 0, unresolvable = 0, designTake = 0;
 
 for (const suite of SUITES) {
   const vars = parseSelectorVars(suite.app, suite.label.includes("深组") ? "html.dark" : ":root");
@@ -168,16 +177,18 @@ for (const suite of SUITES) {
     }
     const r = contrastRatio(fg, bg);
     const aa = r >= 4.5, big = r >= 3.0;
-    if (!aa) lowAA++;
+    const take = DESIGN_TAKE.find((t) => t.app === suite.app && t.sem === sem);
+    if (!aa && take) designTake++;
+    else if (!aa) lowAA++;
     rep.push(
-      `  ${sem}  |  ${fgName}=${fg} × ${bgName}=${bg}  |  ${r.toFixed(2)}:1  |  AA(4.5):${aa ? "PASS" : "FAIL"}  大字(3.0):${big ? "PASS" : "FAIL"}${aa ? "" : "  ←设计取舍（契约 §B5：不动定稿色，呈报用户）"}`
+      `  ${sem}  |  ${fgName}=${fg} × ${bgName}=${bg}  |  ${r.toFixed(2)}:1  |  AA(4.5):${aa ? "PASS" : take ? "DESIGN_TAKE" : "FAIL"}  大字(3.0):${big ? "PASS" : "FAIL"}${aa ? "" : take ? `  ←DESIGN_TAKE 豁免（${take.reason}；P10-6a 登记，不算 FAIL）` : "  ←FAIL（未豁免，需继续迭代达标）"}`
     );
   }
   rep.push("");
 }
 
-rep.push(`汇总：${totalPairs} 对里 AA 达标 ${totalPairs - lowAA - unresolvable} 对、低于 AA ${lowAA} 对（均为弱提示/警示/危险等设计取舍档，见逐条标注）、解析失败 ${unresolvable} 对。`);
-rep.push("低于 AA 不是缺陷清单：placeholder 已随 B5 治理改 var(--c-text-3)（即上方「弱提示」对，登记设计取舍档；契约 §B5 记 2.37:1 为其对输入框 fill 底的口径，本报告列的是对页底/卡片底两档）；其余低对比对为 P7/P9 定稿 token 的既有设计意图，处置权在用户。");
+rep.push(`汇总：${totalPairs} 对里 AA 达标 ${totalPairs - lowAA - designTake - unresolvable} 对、DESIGN_TAKE 豁免 ${designTake} 对（登记例外，不算 FAIL）、FAIL ${lowAA} 对（未豁免，需继续迭代）、解析失败 ${unresolvable} 对。`);
+rep.push("DESIGN_TAKE 豁免清单登记在 tools/gate/contrast-audit.cjs（P10-6a 契约片 1）：按钮白字×主色蓝=EP 品牌色定稿不许动；深组弱提示×页底=placeholder 语义档。清单外任何对 FAIL 即未达标；清单内对若实测 ≥4.5 则按 PASS 输出、标注自动消失。");
 fs.writeFileSync(OUT, rep.join("\n") + "\n");
-console.log(`对比度报告已写 ${OUT}：${totalPairs} 对，AA 达标 ${totalPairs - lowAA - unresolvable}，低于 AA ${lowAA}（设计取舍档），解析失败 ${unresolvable}`);
+console.log(`对比度报告已写 ${OUT}：${totalPairs} 对，AA PASS ${totalPairs - lowAA - designTake - unresolvable}，DESIGN_TAKE 豁免 ${designTake}，FAIL ${lowAA}，解析失败 ${unresolvable}`);
 process.exitCode = 0; // 报告型，退出码恒 0（契约 §B5：不进 FAILS）

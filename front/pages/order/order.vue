@@ -519,33 +519,33 @@ export default {
 <style scoped>
 /* ==================== 天猫生鲜风格 — 订单页 ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; padding: 24rpx; box-sizing: border-box; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); padding: 24rpx; box-sizing: border-box; }
 .page-header { display: flex; align-items: baseline; justify-content: space-between; padding: 12rpx 8rpx 24rpx; }
-.page-title { font-size: 34rpx; font-weight: 700; color: #333333; }
-.page-sub { font-size: 24rpx; color: #999999; }
+.page-title { font-size: 34rpx; font-weight: 700; color: var(--c-text); }
+.page-sub { font-size: 24rpx; color: var(--c-text-3); }
 
 /* 四状态 tab */
 .status-tabs { display: flex; gap: 12rpx; margin-bottom: 20rpx; }
 .status-tab {
   flex: 1; text-align: center;
-  font-size: 26rpx; color: #666666;
+  font-size: 26rpx; color: var(--c-text-2);
   background-color: #FFFFFF; border-radius: 24rpx;
-  padding: 12rpx 0; border: 1rpx solid #EEEEEE;
+  padding: 12rpx 0; border: 1rpx solid var(--c-fill);
 }
 .status-tab.active { color: #FFFFFF; font-weight: 700; background-color: var(--c-primary); border-color: var(--c-primary); }
 
 /* P4-1：刷新保留旧列表时的轻提示；首屏加载态（无旧数据） */
-.refresh-tip { text-align: center; font-size: 22rpx; color: #999999; padding: 4rpx 0 12rpx; }
+.refresh-tip { text-align: center; font-size: 22rpx; color: var(--c-text-3); padding: 4rpx 0 12rpx; }
 .loading-state { display: flex; align-items: center; justify-content: center; padding-top: 240rpx; }
 
 /* 订单卡片 */
 .order-card { background-color: #FFFFFF; border-radius: 12rpx; margin-bottom: 20rpx; overflow: hidden; }
-.order-top { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 24rpx; border-bottom: 1rpx solid #F5F5F5; }
-.order-id { font-size: 24rpx; color: #999999; }
+.order-top { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 24rpx; border-bottom: 1rpx solid var(--c-fill); }
+.order-id { font-size: 24rpx; color: var(--c-text-3); }
 .order-status { font-size: 22rpx; font-weight: 700; padding: 4rpx 16rpx; border-radius: 20rpx; }
 .st-pending_pickup { color: var(--c-warn); background-color: var(--c-warn-soft); }
-.st-completed { color: #999999; background-color: #F5F5F5; }
-.st-cancelled { color: #BBBBBB; background-color: #FAFAFA; }
+.st-completed { color: var(--c-text-3); background-color: var(--c-fill); }
+.st-cancelled { color: var(--c-text-4); background-color: var(--c-bg); }
 
 /* 支付状态徽标（M2-T-05）：已支付绿 / 待支付橙 */
 .order-badges { display: flex; align-items: center; gap: 8rpx; flex-shrink: 0; }
@@ -553,40 +553,40 @@ export default {
 .pay-paid { color: #07C160; background-color: #E8F8EF; }
 .pay-unpaid { color: var(--c-warn); background-color: var(--c-warn-soft); }
 /* 已退款徽标（已支付单取消后端置 pay_status=2）：灰底灰字弱化展示 */
-.pay-refund { color: #999999; background-color: #F5F5F5; }
+.pay-refund { color: var(--c-text-3); background-color: var(--c-fill); }
 
 /* F-62 到货提示条：绿底整行，与下方取货码高亮行同色系（同一条「到店取货」动线的两步：能不能来 / 来了报什么） */
-.arrive-tip { display: flex; align-items: center; gap: 10rpx; padding: 14rpx 24rpx; background-color: #E8F8EF; border-bottom: 1rpx solid #D6EFDF; }
+.arrive-tip { display: flex; align-items: center; gap: 10rpx; padding: 14rpx 24rpx; background-color: #E8F8EF; border-bottom: 1rpx solid var(--c-primary-hair); }
 .arrive-icon { font-size: 26rpx; }
 .arrive-text { font-size: 26rpx; font-weight: 700; color: #07C160; }
 
 .order-items { padding: 14rpx 24rpx; }
 .order-item { display: flex; align-items: center; padding: 10rpx 0; }
 /* 超长商品名 clamp（M3-T-07）：单行省略，min-width:0 允许 flex 子项收缩触发 ellipsis */
-.oi-name { flex: 1; min-width: 0; font-size: 26rpx; color: #333333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.oi-qty { font-size: 24rpx; color: #999999; margin: 0 20rpx; }
+.oi-name { flex: 1; min-width: 0; font-size: 26rpx; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oi-qty { font-size: 24rpx; color: var(--c-text-3); margin: 0 20rpx; }
 .oi-price { font-size: 26rpx; font-weight: 600; color: var(--c-warn); }
-.order-item-empty { padding: 12rpx 0; font-size: 22rpx; color: #CCCCCC; }
+.order-item-empty { padding: 12rpx 0; font-size: 22rpx; color: var(--c-disabled); }
 
-.order-info { padding: 0 24rpx; border-top: 1rpx solid #F5F5F5; }
+.order-info { padding: 0 24rpx; border-top: 1rpx solid var(--c-fill); }
 .info-row { display: flex; align-items: flex-start; padding: 12rpx 0; }
-.info-label { font-size: 22rpx; color: #999999; width: 80rpx; flex-shrink: 0; }
-.info-val { font-size: 22rpx; color: #666666; flex: 1; }
+.info-label { font-size: 22rpx; color: var(--c-text-3); width: 80rpx; flex-shrink: 0; }
+.info-val { font-size: 22rpx; color: var(--c-text-2); flex: 1; }
 
 /* F-59 取货码行与出示层：字号刻意大于其余信息行——这一行是顾客在店门口唯一要递出去看的东西，
    和「地址/手机/时间」不是一个优先级。颜色跟站内已支付徽标同族（#07C160 系），不新造色板。 */
 .info-row-code { align-items: center; }
-.code-val { font-size: 34rpx; font-weight: 700; letter-spacing: 4rpx; color: #07A05A; }
-.code-hint { font-size: 20rpx; color: #BBBBBB; flex-shrink: 0; }
+.code-val { font-size: 34rpx; font-weight: 700; letter-spacing: 4rpx; color: var(--c-ok); }
+.code-hint { font-size: 20rpx; color: var(--c-text-4); flex-shrink: 0; }
 .code-mask { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.72); display: flex; align-items: center; justify-content: center; z-index: 9999; }
 .code-panel { width: 600rpx; padding: 56rpx 40rpx 40rpx; background: #FFFFFF; border-radius: 24rpx; display: flex; flex-direction: column; align-items: center; }
-.code-lead { font-size: 26rpx; color: #666666; }
-.code-digits { font-size: 108rpx; font-weight: 800; letter-spacing: 12rpx; color: #1A1A1A; margin: 24rpx 0 8rpx; }
-.code-meta { font-size: 24rpx; color: #999999; margin-top: 8rpx; text-align: center; }
-.code-close { margin-top: 40rpx; width: 320rpx; height: 76rpx; line-height: 76rpx; font-size: 28rpx; color: #FFFFFF; background: #07A05A; border-radius: 38rpx; border: none; }
+.code-lead { font-size: 26rpx; color: var(--c-text-2); }
+.code-digits { font-size: 108rpx; font-weight: 800; letter-spacing: 12rpx; color: var(--c-text); margin: 24rpx 0 8rpx; }
+.code-meta { font-size: 24rpx; color: var(--c-text-3); margin-top: 8rpx; text-align: center; }
+.code-close { margin-top: 40rpx; width: 320rpx; height: 76rpx; line-height: 76rpx; font-size: 28rpx; color: #FFFFFF; background: var(--c-ok); border-radius: 38rpx; border: none; }
 
-.order-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12rpx; padding: 18rpx 24rpx; border-top: 1rpx solid #F5F5F5; }
-.of-label { font-size: 24rpx; color: #999999; }
+.order-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12rpx; padding: 18rpx 24rpx; border-top: 1rpx solid var(--c-fill); }
+.of-label { font-size: 24rpx; color: var(--c-text-3); }
 .of-price { font-size: 34rpx; font-weight: 700; color: var(--c-warn); }
 /* 取消订单按钮：白底红字描边，取消中禁用置灰 */
 .btn-cancel {
@@ -595,7 +595,7 @@ export default {
   background-color: #FFFFFF; border: 1rpx solid var(--c-danger); border-radius: 28rpx;
   padding: 8rpx 28rpx; line-height: 1.4;
 }
-.btn-cancel[disabled] { color: #CCCCCC; border-color: #DDDDDD; background-color: #FAFAFA; }
+.btn-cancel[disabled] { color: var(--c-disabled); border-color: var(--c-border); background-color: var(--c-bg); }
 
 /* 待支付单"去支付"按钮：红底白字主按钮（覆盖 uniapp button 默认样式含 ::after） */
 .btn-pay-order {
@@ -610,19 +610,19 @@ export default {
 /* 加载更多 */
 .load-more { display: flex; justify-content: center; padding: 8rpx 0 24rpx; }
 .btn-more {
-  min-width: 240rpx; font-size: 24rpx; color: #666666;
-  background-color: #FFFFFF; border: 1rpx solid #EEEEEE; border-radius: 28rpx;
+  min-width: 240rpx; font-size: 24rpx; color: var(--c-text-2);
+  background-color: #FFFFFF; border: 1rpx solid var(--c-fill); border-radius: 28rpx;
   padding: 10rpx 40rpx; line-height: 1.4;
 }
-.btn-more[disabled] { color: #CCCCCC; background-color: #FAFAFA; border-color: #EEEEEE; }
-.no-more { font-size: 22rpx; color: #CCCCCC; padding: 10rpx 0; }
+.btn-more[disabled] { color: var(--c-disabled); background-color: var(--c-bg); border-color: var(--c-fill); }
+.no-more { font-size: 22rpx; color: var(--c-disabled); padding: 10rpx 0; }
 
 /* 引导态/空状态 */
 .guide-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 240rpx; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 240rpx; }
 .empty-icon { font-size: 80rpx; margin-bottom: 20rpx; }
-.empty-label { font-size: 30rpx; font-weight: 700; color: #333333; margin-bottom: 10rpx; }
-.empty-sub { font-size: 24rpx; color: #999999; margin-bottom: 40rpx; }
+.empty-label { font-size: 30rpx; font-weight: 700; color: var(--c-text); margin-bottom: 10rpx; }
+.empty-sub { font-size: 24rpx; color: var(--c-text-3); margin-bottom: 40rpx; }
 .btn-go { background: linear-gradient(90deg, var(--c-primary), var(--c-primary)); color: #FFFFFF; font-size: 26rpx; font-weight: 700; border: none; border-radius: 0; padding: 18rpx 56rpx; }
 
 /* 错误态（M3-T-05 部分）：白底红字描边重试按钮 */
@@ -631,13 +631,13 @@ export default {
 
 /* ==================== P6-1 再来一单 + 进展时间线 ==================== */
 /* 时间线区：节点行沿用本页既有色板（--c-primary 品牌绿高亮、#07C160 到货/已支付绿系 tag、既有灰阶），零新色系 */
-.order-timeline { padding: 4rpx 24rpx 12rpx; border-top: 1rpx solid #F5F5F5; }
+.order-timeline { padding: 4rpx 24rpx 12rpx; border-top: 1rpx solid var(--c-fill); }
 .tl-node { display: flex; align-items: center; gap: 12rpx; padding: 8rpx 0; }
-.tl-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background-color: #DDDDDD; flex-shrink: 0; }
-.tl-label { font-size: 24rpx; color: #999999; }
-.tl-time { font-size: 22rpx; color: #BBBBBB; }
+.tl-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background-color: var(--c-border); flex-shrink: 0; }
+.tl-label { font-size: 24rpx; color: var(--c-text-3); }
+.tl-time { font-size: 22rpx; color: var(--c-text-4); }
 .tl-active .tl-dot { background-color: var(--c-primary); }
-.tl-active .tl-label { color: #333333; font-weight: 600; }
+.tl-active .tl-label { color: var(--c-text); font-weight: 600; }
 .tl-tag { font-size: 20rpx; font-weight: 700; color: #07C160; background-color: #E8F8EF; padding: 2rpx 12rpx; border-radius: 16rpx; }
 /* 再来一单按钮：白底红字描边（btn-cancel 同族色系，但不带 margin-right:auto——常驻右侧操作区） */
 .btn-reorder {

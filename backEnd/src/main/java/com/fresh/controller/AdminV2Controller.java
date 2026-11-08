@@ -180,7 +180,7 @@ public class AdminV2Controller {
     /**
      * 运营端评价审核队列（F-20.18，{@code GET /api/admin/v2/reviews}）：
      * {@code ?pageNum=&pageSize=&auditStatus=} →
-     * {@code {list:[{id,dishId,rating,content,reviewer,auditStatus,createTime}], total, pageNum, pageSize, filters:{auditStatus}}}。
+     * {@code {list:[{id,dishId,rating,content,reviewer,auditStatus,createTime,images}], total, pageNum, pageSize, filters:{auditStatus}}}。
      * <p>闸门/限流/分页/取数同前（D-14/D-16/RB），两条 SQL 共用 {@code ReviewMapper.REVIEW_FILTER_WHERE}。
      * <p>{@code auditStatus} 是两枚 <b>UI 伪值</b>（D-17）：{@code pending}（待人工复审）与 {@code visible}（展示中），
      * SQL 侧映射钉死 {@code pending → audit_status='pending'}、{@code visible → audit_status IS NULL}，

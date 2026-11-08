@@ -358,6 +358,22 @@ CREATE TABLE review (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价表';
 
 -- ----------------------------
+-- 评价图表（P10-6b D2/m34）：一评价 ≤3 张，服务端计数拒绝；review 本体零加列（图是新增附着物）。
+-- review reject 为物理删行（AdminServiceImpl#auditReview），本表行与文件随之联动删除（契约 D4）。
+-- 落盘 {fresh.upload-dir}/reviews/{yyyyMM}/{uuid}.{ext}，入库值 /uploads/reviews/...（静态映射
+-- /uploads/** 已覆盖子目录，CorsConfig 零新增映射）。列定义与 m34-migration.sql 逐字一致。
+-- ----------------------------
+DROP TABLE IF EXISTS review_image;
+CREATE TABLE review_image (
+    id          BIGINT       NOT NULL    AUTO_INCREMENT  COMMENT '评价图ID',
+    review_id   BIGINT       NOT NULL                    COMMENT '评价ID（逻辑外键 review.id；评价 reject 物理删行时联动删除，契约 D4）',
+    file_path   VARCHAR(255) NOT NULL                    COMMENT '图片路径（/uploads/reviews/{yyyyMM}/{uuid}.{ext}；类型白名单 jpg/jpeg/png/webp 魔数校验，契约 D1）',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP    COMMENT '上传时间',
+    PRIMARY KEY (id),
+    INDEX idx_review_id (review_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价图（P10-6b D2/m34：一评价≤3张服务端计数拒绝；review 本体零加列）';
+
+-- ----------------------------
 -- 免费领商品活动表（M7）：单活动模型（种子固定 id=1），跨日首次领取由
 -- FreeActivityMapper.tryClaimQuota 条件 UPDATE 原子重置 daily_date/daily_claimed（无 COUNT+INSERT 竞态）
 -- threshold（m8-migration.sql 同步，M8 满额赠）：当日实付满此金额可领，免费单不计入；

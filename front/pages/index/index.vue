@@ -1587,7 +1587,7 @@ export default {
 .page-container {
   position: fixed; top: var(--window-top, 0px); left: 0; right: 0; bottom: var(--window-bottom, 0px);
   display: flex; flex-direction: column; overflow: hidden;
-  background-color: #F5F5F5;
+  background-color: var(--c-fill);
 }
 
 /* ==================== 吸顶层（仅搜索框；分类 tab 已移至券区之后独立吸顶，样式见下方 4 区块） ==================== */
@@ -1623,13 +1623,13 @@ export default {
 /* 白条占位文案节点（<text>，非 input，故无 placeholder 概念与 placeholder-style）：flex:1 撑满剩余宽度，文字深灰 */
 .search-input {
   flex: 1; min-width: 0; height: 64rpx; line-height: 64rpx;
-  font-size: 26rpx; color: #333333;
+  font-size: 26rpx; color: var(--c-text);
 }
 /* 竖分隔线：1rpx 浅灰高 32rpx，两态均显示（白条底色不变，浅灰始终可见） */
 .search-divider {
   flex-shrink: 0;
   width: 1rpx; height: 32rpx;
-  background-color: #EEEEEE;
+  background-color: var(--c-fill);
 }
 /* "搜索"：红字加粗 28rpx，点击区域 padding 0 28rpx */
 .search-go {
@@ -1661,7 +1661,7 @@ export default {
   border-radius: 10rpx;
   padding: 10rpx 20rpx;
 }
-.cutoff-bar-text { font-size: 22rpx; font-weight: 600; color: #7A2B00; }
+.cutoff-bar-text { font-size: 22rpx; font-weight: 600; color: var(--c-gold); }
 /* 店铺行（白色小字行） */
 .store-row {
   display: flex; align-items: center; gap: 10rpx;
@@ -1724,13 +1724,13 @@ export default {
 }
 .cat-tabs { display: flex; gap: 44rpx; }
 .cat-tab { position: relative; padding: 12rpx 0; }
-.cat-tab text { font-size: 30rpx; font-weight: 700; color: #666666; }
+.cat-tab text { font-size: 30rpx; font-weight: 700; color: var(--c-text-2); }
 .cat-tab.active text { color: var(--c-primary); }
 .cat-tab.active::after {
   content: ''; position: absolute; bottom: 2rpx; left: 50%; transform: translateX(-50%);
   width: 44rpx; height: 6rpx; background-color: var(--c-primary); border-radius: 3rpx;
 }
-.cat-all text { font-size: 26rpx; color: #666666; }
+.cat-all text { font-size: 26rpx; color: var(--c-text-2); }
 
 /* ==================== 6. 金刚区（白色面板直接衔接分类 tab；tab 独立后不再负 margin 叠压红区） ==================== */
 .cat-sheet {
@@ -1746,7 +1746,7 @@ export default {
   display: flex; align-items: center; justify-content: center;
 }
 .kingkong-icon text { font-size: 44rpx; }
-.kingkong-label { font-size: 22rpx; color: #333333; }
+.kingkong-label { font-size: 22rpx; color: var(--c-text); }
 
 /* ==================== 7. 超级秒杀区块 ==================== */
 .seckill-card {
@@ -1800,7 +1800,7 @@ export default {
 .dish-card {
   display: flex;
   background-color: #FFFFFF; border-radius: 12rpx;
-  border: 1rpx solid #EEEEEE; box-sizing: border-box;
+  border: 1rpx solid var(--c-fill); box-sizing: border-box;
   padding: 16rpx; margin-bottom: 16rpx;
   box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04);
 }
@@ -1825,17 +1825,17 @@ export default {
 }
 .dish-name {
   flex: 1; min-width: 0;
-  font-size: 28rpx; font-weight: 600; color: #333333;
+  font-size: 28rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dish-tags {
   margin-top: 8rpx;
-  font-size: 20rpx; color: #999999;
+  font-size: 20rpx; color: var(--c-text-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dish-sold-row { display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; }
 .dish-rush { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
-.dish-sold { font-size: 20rpx; color: #999999; }
+.dish-sold { font-size: 20rpx; color: var(--c-text-3); }
 .dish-promo-row { display: flex; align-items: center; gap: 10rpx; margin-top: 8rpx; min-height: 30rpx; }
 .tag-cut {
   font-size: 18rpx; color: var(--c-warn); font-weight: 600;
@@ -1843,11 +1843,11 @@ export default {
   line-height: 26rpx;
 }
 .tag-limit {
-  font-size: 18rpx; color: #999999;
-  border: 1rpx solid #DDDDDD; border-radius: 6rpx; padding: 0 8rpx;
+  font-size: 18rpx; color: var(--c-text-3);
+  border: 1rpx solid var(--c-border); border-radius: 6rpx; padding: 0 8rpx;
   line-height: 26rpx;
 }
-.dish-rate { font-size: 20rpx; color: #999999; }
+.dish-rate { font-size: 20rpx; color: var(--c-text-3); }
 .dish-price-row {
   margin-top: auto;
   display: flex; align-items: flex-end; justify-content: space-between;
@@ -1875,16 +1875,16 @@ export default {
 .step-minus text { color: var(--c-primary); }
 .step-plus { background-color: var(--c-primary); }
 .step-plus text { color: #FFFFFF; }
-.step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: #333333; }
+.step-num { min-width: 56rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: var(--c-text); }
 
 .empty-state { display: flex; align-items: center; justify-content: center; padding: 120rpx 0; }
-.empty-state text { font-size: 26rpx; color: #CCCCCC; }
+.empty-state text { font-size: 26rpx; color: var(--c-disabled); }
 
 /* 本页无搜索结果头（关键词 + 取消）节点，故无对应规则 */
 
 /* 加载失败错误态（T-M3-05，≠空态）：文案 + 点击重试按钮 */
 .error-state { display: flex; flex-direction: column; align-items: center; gap: 20rpx; padding: 120rpx 0; }
-.error-text { font-size: 26rpx; color: #999999; }
+.error-text { font-size: 26rpx; color: var(--c-text-3); }
 .error-retry {
   font-size: 26rpx; font-weight: 600; color: var(--c-danger);
   border: 1rpx solid var(--c-danger); border-radius: 32rpx;
@@ -1898,12 +1898,12 @@ export default {
   display: flex; align-items: center; gap: 12rpx;
   padding: 0 24rpx;
   background-color: #FFFFFF;
-  border-top: 1rpx solid #F0F0F0;
+  border-top: 1rpx solid var(--c-fill);
 }
-.pb-label { font-size: 22rpx; font-weight: 700; color: #333333; }
-.pb-divider { font-size: 22rpx; color: #DDDDDD; }
+.pb-label { font-size: 22rpx; font-weight: 700; color: var(--c-text); }
+.pb-divider { font-size: 22rpx; color: var(--c-border); }
 .pb-coupon { font-size: 22rpx; font-weight: 600; color: var(--c-warn); }
-.pb-arrow { margin-left: auto; font-size: 22rpx; color: #999999; }
+.pb-arrow { margin-left: auto; font-size: 22rpx; color: var(--c-text-3); }
 
 /* ==================== 10. 底部购物车栏（三段结构，保持直角大红块） ==================== */
 .cart-bar {
@@ -1925,7 +1925,7 @@ export default {
 .cart-price-line { display: flex; align-items: baseline; }
 .cart-total-symbol { font-size: 26rpx; color: var(--c-warn); font-weight: 700; }
 .cart-total-price { font-size: 40rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
-.cart-reduced { font-size: 20rpx; color: #999999; }
+.cart-reduced { font-size: 20rpx; color: var(--c-text-3); }
 .btn-pay {
   flex: 3; min-width: 0; margin: 0;
   background-color: var(--c-primary);
@@ -1948,10 +1948,10 @@ export default {
 .popup-panel { width: 100%; background-color: #FFFFFF; border-radius: 24rpx 24rpx 0 0; max-height: 70vh; }
 .popup-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 28rpx 32rpx; border-bottom: 1rpx solid #F0F0F0;
+  padding: 28rpx 32rpx; border-bottom: 1rpx solid var(--c-fill);
 }
-.popup-title { font-size: 30rpx; font-weight: 700; color: #333333; }
-.popup-close { font-size: 32rpx; color: #CCCCCC; padding: 0 8rpx; }
+.popup-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
+.popup-close { font-size: 32rpx; color: var(--c-disabled); padding: 0 8rpx; }
 .popup-body { padding: 32rpx; }
 
 /* ==================== 5. 全部分类弹层（顶部下拉） ==================== */
@@ -1982,7 +1982,7 @@ export default {
   display: flex; justify-content: space-between; align-items: center;
   padding: 28rpx 32rpx 8rpx;
 }
-.category-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.category-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 .category-grid { display: flex; flex-wrap: wrap; padding: 12rpx 12rpx 8rpx; }
 .category-item {
   width: 25%; box-sizing: border-box;
@@ -1994,7 +1994,7 @@ export default {
   display: flex; align-items: center; justify-content: center;
 }
 .category-icon text { font-size: 48rpx; }
-.category-name { margin-top: 12rpx; font-size: 22rpx; color: #333333; }
+.category-name { margin-top: 12rpx; font-size: 22rpx; color: var(--c-text); }
 
 /* ==================== 11. 购物车弹层 ==================== */
 .cart-popup {
@@ -2008,9 +2008,9 @@ export default {
 .service-bar {
   flex-shrink: 0;
   display: flex; justify-content: space-around; align-items: center;
-  background-color: #F5F5F5; padding: 14rpx 24rpx;
+  background-color: var(--c-fill); padding: 14rpx 24rpx;
 }
-.service-item { display: flex; align-items: center; gap: 4rpx; font-size: 20rpx; color: #666666; }
+.service-item { display: flex; align-items: center; gap: 4rpx; font-size: 20rpx; color: var(--c-text-2); }
 .service-check { color: #07C160; font-weight: 700; }
 /* 提货人行（固定头部，不滚动；自提点行已移除） */
 .pickup-row {
@@ -2020,22 +2020,22 @@ export default {
 }
 .pr-icon { font-size: 28rpx; flex-shrink: 0; }
 .pr-name {
-  font-size: 26rpx; font-weight: 600; color: #333333;
+  font-size: 26rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pr-phone { font-size: 24rpx; color: #666666; }
-.pr-arrow { margin-left: auto; flex-shrink: 0; font-size: 30rpx; color: #CCCCCC; }
+.pr-phone { font-size: 24rpx; color: var(--c-text-2); }
+.pr-arrow { margin-left: auto; flex-shrink: 0; font-size: 30rpx; color: var(--c-disabled); }
 /* 标题行（固定头部，不滚动） */
 .cart-title-row {
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: space-between;
   padding: 20rpx 24rpx 4rpx;
 }
-.cart-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.cart-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 .cart-title-right { display: flex; align-items: center; gap: 28rpx; }
 /* 管理入口：灰字（红留给管理模式内的勾选态与删除按钮），进入管理模式后文案变"退出管理" */
-.cart-manage-btn { font-size: 24rpx; font-weight: 600; color: #666666; }
-.cart-close { font-size: 32rpx; color: #CCCCCC; }
+.cart-manage-btn { font-size: 24rpx; font-weight: 600; color: var(--c-text-2); }
+.cart-close { font-size: 32rpx; color: var(--c-disabled); }
 /* 凑单助手条（固定头部，不滚动） */
 .helper-bar {
   flex-shrink: 0;
@@ -2044,18 +2044,18 @@ export default {
   background-color: #FFF7F0; border-radius: 10rpx;
 }
 .hb-title { font-size: 22rpx; font-weight: 700; color: var(--c-warn); }
-.hb-divider { font-size: 22rpx; color: #F0D8C0; }
+.hb-divider { font-size: 22rpx; color: var(--c-gold-hair); }
 .hb-text { font-size: 22rpx; color: var(--c-warn); }
 /* 商品行滚动区（flex:1 占满剩余高度内部滚动；空车时兼作居中占位容器） */
 .cart-items { flex: 1; min-height: 0; padding: 0 24rpx; box-sizing: border-box; }
 .cart-items-empty { display: flex; align-items: center; justify-content: center; }
 .cart-item {
   display: flex; align-items: center; gap: 16rpx;
-  padding: 20rpx 0; border-bottom: 1rpx solid #F5F5F5;
+  padding: 20rpx 0; border-bottom: 1rpx solid var(--c-fill);
 }
 .check-circle {
   width: 36rpx; height: 36rpx; flex-shrink: 0;
-  border: 2rpx solid #DDDDDD; border-radius: 50%;
+  border: 2rpx solid var(--c-border); border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background-color: #FFFFFF;
 }
@@ -2079,18 +2079,18 @@ export default {
 }
 .ci-name {
   flex: 1; min-width: 0;
-  font-size: 26rpx; font-weight: 600; color: #333333;
+  font-size: 26rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ci-desc-row { display: flex; align-items: center; gap: 12rpx; overflow: hidden; white-space: nowrap; }
 .ci-restore { font-size: 20rpx; font-weight: 600; color: var(--c-warn); flex-shrink: 0; }
-.ci-sold { font-size: 20rpx; color: #999999; flex-shrink: 0; }
-.ci-limit { font-size: 20rpx; color: #999999; }
+.ci-sold { font-size: 20rpx; color: var(--c-text-3); flex-shrink: 0; }
+.ci-limit { font-size: 20rpx; color: var(--c-text-3); }
 /* 下架行只做视觉告知：只降透明度与字色，不用 pointer-events（那会悄悄改掉交互）；勾选/删除/步进与结算路径零改动 */
 .ci-offsale { opacity: .55; }
-.ci-offsale-tag { font-size: 20rpx; font-weight: 600; color: #666666; flex-shrink: 0; }
+.ci-offsale-tag { font-size: 20rpx; font-weight: 600; color: var(--c-text-2); flex-shrink: 0; }
 .ci-price-row { display: flex; align-items: baseline; gap: 12rpx; }
-.ci-original { font-size: 20rpx; color: #BBBBBB; text-decoration: line-through; }
+.ci-original { font-size: 20rpx; color: var(--c-text-4); text-decoration: line-through; }
 .ci-price-line { display: flex; align-items: baseline; }
 .ci-symbol { font-size: 18rpx; font-weight: 700; color: var(--c-warn); }
 .ci-price { font-size: 30rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
@@ -2108,18 +2108,18 @@ export default {
 /* 空购物车占位（由 .cart-items-empty 水平垂直居中） */
 .cart-empty { display: flex; flex-direction: column; align-items: center; gap: 16rpx; }
 .cart-empty-icon { font-size: 88rpx; opacity: .4; }
-.cart-empty-text { font-size: 26rpx; color: #999999; }
+.cart-empty-text { font-size: 26rpx; color: var(--c-text-3); }
 /* 底部合计栏（固定面板底部，不滚动） */
 .cart-total-bar {
   flex-shrink: 0;
   display: flex; align-items: center;
   padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
-  border-top: 1rpx solid #F0F0F0;
+  border-top: 1rpx solid var(--c-fill);
 }
 .check-all { display: flex; align-items: center; gap: 10rpx; flex-shrink: 0; }
-.check-all-text { font-size: 24rpx; color: #333333; }
+.check-all-text { font-size: 24rpx; color: var(--c-text); }
 /* 管理模式底部操作条：全选圈复用 check-circle 红勾选态，右侧红「删除」批量按钮（显式覆盖 uni-button 默认圆角/行高/边框） */
-.manage-count { margin-left: 20rpx; font-size: 24rpx; color: #666666; }
+.manage-count { margin-left: 20rpx; font-size: 24rpx; color: var(--c-text-2); }
 .btn-manage-delete {
   margin: 0 0 0 auto;
   min-width: 160rpx; height: 72rpx; line-height: 72rpx;
@@ -2132,7 +2132,7 @@ export default {
 .ctb-price { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2rpx; margin-right: 16rpx; }
 .ctb-price-line { display: flex; align-items: baseline; }
 .ctb-price-num { font-size: 36rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
-.ctb-saving { font-size: 20rpx; color: #999999; }
+.ctb-saving { font-size: 20rpx; color: var(--c-text-3); }
 .btn-pay-popup {
   flex-shrink: 0; margin: 0;
   min-width: 200rpx; height: 76rpx; line-height: 76rpx;
@@ -2142,7 +2142,7 @@ export default {
   text-align: center;
 }
 /* 空车时支付按钮置灰禁用（点击仍走 payFromCart 的 toast 提示） */
-.btn-pay-popup.btn-pay-disabled { background-color: #CCCCCC; }
+.btn-pay-popup.btn-pay-disabled { background-color: var(--c-disabled); }
 
 /* ==================== 12. 修改提货人弹窗 ==================== */
 .person-popup {
@@ -2151,16 +2151,16 @@ export default {
   padding: 40rpx 32rpx 32rpx;
   position: relative;
 }
-.person-close { position: absolute; top: 20rpx; right: 24rpx; font-size: 30rpx; color: #CCCCCC; padding: 8rpx; }
-.person-title { display: block; text-align: center; font-size: 30rpx; font-weight: 700; color: #333333; margin-bottom: 28rpx; }
+.person-close { position: absolute; top: 20rpx; right: 24rpx; font-size: 30rpx; color: var(--c-disabled); padding: 8rpx; }
+.person-title { display: block; text-align: center; font-size: 30rpx; font-weight: 700; color: var(--c-text); margin-bottom: 28rpx; }
 /* 弹窗底部按钮组：清空（次级）+ 保存（主级）并排 */
 .person-btns { display: flex; gap: 20rpx; margin-top: 8rpx; }
 .btn-clear-person {
   flex: 1; height: 80rpx; line-height: 80rpx;
   margin: 0; padding: 0;
-  background-color: #FFFFFF; color: #666666;
+  background-color: #FFFFFF; color: var(--c-text-2);
   font-size: 28rpx; font-weight: 700;
-  border: 1rpx solid #DDDDDD; border-radius: 44rpx;
+  border: 1rpx solid var(--c-border); border-radius: 44rpx;
 }
 .btn-save-person {
   flex: 1; height: 80rpx; line-height: 80rpx;
@@ -2172,11 +2172,11 @@ export default {
 
 /* ==================== 表单（原有流程 + 提货人弹窗共用） ==================== */
 .form-group { margin-bottom: 24rpx; }
-.form-label { display: block; font-size: 24rpx; font-weight: 600; color: #666666; margin-bottom: 12rpx; }
+.form-label { display: block; font-size: 24rpx; font-weight: 600; color: var(--c-text-2); margin-bottom: 12rpx; }
 .form-input {
   width: 100%; height: 80rpx; line-height: 80rpx;
-  background-color: #F5F5F5; border-radius: 12rpx; padding: 0 20rpx;
-  font-size: 28rpx; color: #333333; box-sizing: border-box;
+  background-color: var(--c-fill); border-radius: 12rpx; padding: 0 20rpx;
+  font-size: 28rpx; color: var(--c-text); box-sizing: border-box;
 }
 .btn-confirm {
   width: 100%; height: 80rpx; line-height: 80rpx;
@@ -2190,33 +2190,33 @@ export default {
 
 /* ==================== 支付弹窗（原有流程） ==================== */
 .pay-section { margin-bottom: 24rpx; }
-.section-title { display: block; font-size: 24rpx; font-weight: 700; color: #999999; margin-bottom: 14rpx; }
+.section-title { display: block; font-size: 24rpx; font-weight: 700; color: var(--c-text-3); margin-bottom: 14rpx; }
 .pay-item { display: flex; align-items: center; padding: 10rpx 0; }
-.pay-item-name { flex: 1; font-size: 26rpx; color: #333333; }
-.pay-item-qty { font-size: 22rpx; color: #999999; margin: 0 20rpx; }
+.pay-item-name { flex: 1; font-size: 26rpx; color: var(--c-text); }
+.pay-item-qty { font-size: 22rpx; color: var(--c-text-3); margin: 0 20rpx; }
 .pay-item-price { font-size: 26rpx; color: var(--c-warn); font-weight: 600; }
-.pay-info { display: block; font-size: 24rpx; color: #666666; margin-bottom: 8rpx; }
-.pay-total { display: flex; justify-content: space-between; align-items: baseline; padding: 20rpx 0; border-top: 1rpx solid #F0F0F0; }
-.pay-total text:first-child { font-size: 24rpx; color: #666666; }
+.pay-info { display: block; font-size: 24rpx; color: var(--c-text-2); margin-bottom: 8rpx; }
+.pay-total { display: flex; justify-content: space-between; align-items: baseline; padding: 20rpx 0; border-top: 1rpx solid var(--c-fill); }
+.pay-total text:first-child { font-size: 24rpx; color: var(--c-text-2); }
 .pay-total-price { font-size: 44rpx; font-weight: 700; color: var(--c-warn); }
 /* M4-T-02：合计右侧组（已抵扣提示 + 抵扣后金额） */
 .pay-total-right { display: flex; align-items: baseline; gap: 14rpx; }
 .pay-deducted { font-size: 22rpx; color: var(--c-warn); }
 /* M4-T-02：确认订单优惠券选择行（满足门槛可选，不满足置灰） */
 .coupon-empty { padding: 4rpx 0 8rpx; }
-.coupon-empty text { font-size: 24rpx; color: #999999; }
+.coupon-empty text { font-size: 24rpx; color: var(--c-text-3); }
 .coupon-option { display: flex; align-items: center; gap: 14rpx; padding: 14rpx 0; }
 .coupon-radio {
   width: 34rpx; height: 34rpx; box-sizing: border-box; flex-shrink: 0;
-  border: 2rpx solid #DDDDDD; border-radius: 50%;
+  border: 2rpx solid var(--c-border); border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
 }
 .coupon-radio text { font-size: 20rpx; font-weight: 700; color: #FFFFFF; line-height: 1; }
 .coupon-option-active .coupon-radio { border: none; background-color: var(--c-primary); }
-.coupon-option-text { font-size: 26rpx; color: #333333; font-weight: 600; }
+.coupon-option-text { font-size: 26rpx; color: var(--c-text); font-weight: 600; }
 .coupon-option-state { margin-left: auto; font-size: 22rpx; color: var(--c-warn); }
 .coupon-option-disabled .coupon-option-text,
-.coupon-option-disabled .coupon-option-state { color: #BBBBBB; }
+.coupon-option-disabled .coupon-option-state { color: var(--c-text-4); }
 /* M4-T-01：自提门店停业红色警示（点击跳自提点页切换） */
 .pay-closed-warn { display: block; font-size: 24rpx; color: var(--c-danger); font-weight: 600; margin: 4rpx 0 8rpx; }
 /* M4-T-02：确认订单弹窗内容区内部滚动（清单+券行内容增多时不超面板 70vh） */
@@ -2225,7 +2225,7 @@ export default {
 /* ==================== 确认订单弹窗未登录兜底引导（防御性：正常被游客拦截不可达） ==================== */
 /* 轻量引导条：灰字提示 + 白底红字描边"去登录"小按钮（覆盖 uniapp button 默认样式含 ::after） */
 .inline-login-guide { margin-top: 16rpx; display: flex; align-items: center; gap: 16rpx; }
-.ilg-tip { flex: 1; min-width: 0; font-size: 22rpx; color: #999999; }
+.ilg-tip { flex: 1; min-width: 0; font-size: 22rpx; color: var(--c-text-3); }
 .ilg-btn {
   flex-shrink: 0; margin: 0;
   height: 64rpx; line-height: 64rpx;
@@ -2239,10 +2239,10 @@ export default {
 .cashier-mask { z-index: 400; align-items: center; }
 .cashier-panel { width: 590rpx; background-color: #FFFFFF; border-radius: 24rpx; overflow: hidden; }
 .cashier-amount-row { display: flex; flex-direction: column; align-items: center; padding: 8rpx 0 20rpx; }
-.cashier-amount-label { font-size: 24rpx; color: #999999; margin-bottom: 10rpx; }
+.cashier-amount-label { font-size: 24rpx; color: var(--c-text-3); margin-bottom: 10rpx; }
 .cashier-amount-line { display: flex; align-items: baseline; }
 .cashier-symbol { font-size: 30rpx; font-weight: 700; color: var(--c-warn); }
 .cashier-amount { font-size: 64rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
-.cashier-order { display: block; text-align: center; font-size: 22rpx; color: #999999; margin-bottom: 12rpx; word-break: break-all; }
-.cashier-tip { display: block; text-align: center; font-size: 20rpx; color: #CCCCCC; margin-bottom: 8rpx; }
+.cashier-order { display: block; text-align: center; font-size: 22rpx; color: var(--c-text-3); margin-bottom: 12rpx; word-break: break-all; }
+.cashier-tip { display: block; text-align: center; font-size: 20rpx; color: var(--c-disabled); margin-bottom: 8rpx; }
 </style>

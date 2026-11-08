@@ -186,7 +186,7 @@ export default {
 <style scoped>
 /* ==================== 多多买菜风格 — 我的评价页（白底 + 品牌绿 var(--c-primary)，F-11 自我的页随块迁移） ==================== */
 
-.page-container { min-height: 100vh; background-color: #F5F5F5; box-sizing: border-box; }
+.page-container { min-height: 100vh; background-color: var(--c-fill); box-sizing: border-box; }
 
 /* ==================== 白卡通用（照我的页） ==================== */
 .card {
@@ -195,7 +195,7 @@ export default {
   padding: 24rpx;
 }
 .card-head { margin-bottom: 20rpx; }
-.card-title { font-size: 30rpx; font-weight: 700; color: #333333; }
+.card-title { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
 
 /* 游客态登录引导行（照我的页） */
 .guide-row {
@@ -203,12 +203,12 @@ export default {
   background-color: var(--c-primary-soft); border-radius: 12rpx;
   padding: 24rpx;
 }
-.guide-text { font-size: 26rpx; color: #666666; }
+.guide-text { font-size: 26rpx; color: var(--c-text-2); }
 .guide-go { flex-shrink: 0; margin-left: 16rpx; font-size: 26rpx; font-weight: 600; color: var(--c-primary); }
 
 /* 错误态行（可点击重试，照我的页） */
 .error-row { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 32rpx 0; }
-.error-text { font-size: 24rpx; color: #999999; }
+.error-text { font-size: 24rpx; color: var(--c-text-3); }
 .error-retry {
   font-size: 24rpx; font-weight: 600; color: var(--c-primary);
   border: 1rpx solid var(--c-primary); border-radius: 28rpx;
@@ -218,36 +218,36 @@ export default {
 /* ==================== 评价列表项 ==================== */
 .review-list { display: flex; flex-direction: column; }
 /* 可点行手型光标（H5 PC 端可点/禁点区分，照 detail.vue .review-entry 评价入口惯例） */
-.review-item { padding: 20rpx 0; border-bottom: 1rpx solid #F5F5F5; cursor: pointer; }
+.review-item { padding: 20rpx 0; border-bottom: 1rpx solid var(--c-fill); cursor: pointer; }
 .review-item:last-child { border-bottom: none; padding-bottom: 4rpx; }
 /* 脏数据行（dishName 缺失，禁点）整体弱化：仅降透明度（opacity .55 为 F-11 规格钦定字面，券页惯例的 grayscale 滤镜未随迁）；cursor 显式回退 default 与可点行区分 */
 .review-item-disabled { opacity: .55; cursor: default; }
 .review-top { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 10rpx; }
 .review-dish {
   flex: 1; min-width: 0;
-  font-size: 26rpx; font-weight: 600; color: #333333;
+  font-size: 26rpx; font-weight: 600; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .review-badge { flex-shrink: 0; font-size: 20rpx; font-weight: 700; padding: 4rpx 14rpx; border-radius: 20rpx; }
 /* 审核状态徽标：approved 绿 / pending 橙 / rejected 灰（配色照订单页支付徽标体系） */
 .ra-approved { color: #07C160; background-color: #E8F8EF; }
 .ra-pending { color: var(--c-warn); background-color: var(--c-warn-soft); }
-.ra-rejected { color: #999999; background-color: #F5F5F5; }
+.ra-rejected { color: var(--c-text-3); background-color: var(--c-fill); }
 /* 星级行（照详情页 preview-stars 逐键，容器改名 review-stars） */
 .review-stars { display: flex; gap: 2rpx; margin-bottom: 8rpx; }
-.star { font-size: 22rpx; color: #DDDDDD; }
+.star { font-size: 22rpx; color: var(--c-border); }
 .star.active { color: var(--c-gold); }
-.review-content { display: block; font-size: 24rpx; color: #666666; line-height: 1.6; word-break: break-all; white-space: pre-wrap; }
+.review-content { display: block; font-size: 24rpx; color: var(--c-text-2); line-height: 1.6; word-break: break-all; white-space: pre-wrap; }
 /* 底部行：时间 + 右箭头两端对齐，与 content 的间距由本行 margin-top 承载 */
 .review-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 8rpx; }
 /* 时间从独立块改行内元素并去掉 margin-top（防与 review-bottom 的 margin-top 双重间距） */
-.review-time { font-size: 20rpx; color: #CCCCCC; }
+.review-time { font-size: 20rpx; color: var(--c-disabled); }
 /* 右箭头（可跳行展示，观感照我的页 cell-arrow） */
-.review-arrow { flex-shrink: 0; font-size: 34rpx; color: #CCCCCC; }
+.review-arrow { flex-shrink: 0; font-size: 34rpx; color: var(--c-disabled); }
 
 /* 空态行 */
 .empty-row { display: flex; justify-content: center; padding: 40rpx 0; }
-.empty-text { font-size: 24rpx; color: #CCCCCC; }
+.empty-text { font-size: 24rpx; color: var(--c-disabled); }
 
 .page-bottom-space { height: env(safe-area-inset-bottom); }
 </style>

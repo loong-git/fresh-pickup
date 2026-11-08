@@ -1142,7 +1142,7 @@ page {
 	align-items: center;
 	background-color: #ffffff;
 	height: 88rpx;
-	border-bottom: 1rpx solid #f0f0f0;
+	border-bottom: 1rpx solid var(--c-fill);
 }
 .tab-item {
 	flex: 1;
@@ -1155,7 +1155,7 @@ page {
 }
 .tab-text {
 	font-size: 30rpx;
-	color: #333333;
+	color: var(--c-text);
 }
 .tab-active .tab-text {
 	color: var(--c-primary);
@@ -1176,7 +1176,7 @@ page {
 /* ============ 分组标题 ============ */
 .group-title {
 	font-size: 26rpx;
-	color: #999999;
+	color: var(--c-text-3);
 	padding: 28rpx 24rpx 16rpx;
 }
 .group-title-row {
@@ -1191,7 +1191,7 @@ page {
 }
 .manage-text {
 	font-size: 26rpx;
-	color: #666666;
+	color: var(--c-text-2);
 }
 
 /* ============ 门店卡片（白卡 12rpx 圆角） ============ */
@@ -1215,7 +1215,7 @@ page {
 	opacity: 0.55;
 }
 .card-disabled .store-name {
-	color: #999999;
+	color: var(--c-text-3);
 }
 
 /* 门店 emoji 图标块 */
@@ -1248,7 +1248,7 @@ page {
 .store-name {
 	font-size: 32rpx;
 	font-weight: bold;
-	color: #222222;
+	color: var(--c-text);
 	margin-bottom: 8rpx;
 }
 .store-name.small {
@@ -1256,13 +1256,13 @@ page {
 }
 .store-address {
 	font-size: 24rpx;
-	color: #999999;
+	color: var(--c-text-3);
 	line-height: 1.5;
 	margin-bottom: 8rpx;
 }
 .store-open-time {
 	font-size: 24rpx;
-	color: #999999;
+	color: var(--c-text-3);
 	margin-bottom: 8rpx;
 }
 .tag-row {
@@ -1279,8 +1279,8 @@ page {
 	padding: 4rpx 14rpx;
 }
 .service-tag.plain {
-	color: #666666;
-	background-color: #f5f5f5;
+	color: var(--c-text-2);
+	background-color: var(--c-fill);
 }
 
 /* 选择按钮：红底白字（显式覆盖 uni-button 默认圆角与行高） */
@@ -1309,7 +1309,7 @@ page {
 	flex-shrink: 0;
 	align-self: center;
 	font-size: 26rpx;
-	color: #999999;
+	color: var(--c-text-3);
 }
 
 /* 当前门店停业警示（M4-T-01）：红字醒目 */
@@ -1329,7 +1329,7 @@ page {
 }
 .stores-empty-text {
 	font-size: 26rpx;
-	color: #bbbbbb;
+	color: var(--c-text-4);
 }
 
 	/* ============ 选择其他自提点 ============ */
@@ -1342,7 +1342,7 @@ page {
 	margin: 24rpx;
 	padding: 0 24rpx;
 	height: 72rpx;
-	background-color: #f5f5f5;
+	background-color: var(--c-fill);
 	border-radius: 36rpx;
 }
 .search-icon {
@@ -1353,10 +1353,10 @@ page {
 	flex: 1;
 	height: 72rpx;
 	font-size: 26rpx;
-	color: #333333;
+	color: var(--c-text);
 }
 .search-placeholder {
-	color: #bbbbbb;
+	color: var(--c-text-4);
 	font-size: 26rpx;
 }
 
@@ -1386,7 +1386,7 @@ page {
 }
 .empty-text {
 	font-size: 26rpx;
-	color: #999999;
+	color: var(--c-text-3);
 	margin-bottom: 48rpx;
 }
 .btn-row {
@@ -1444,7 +1444,7 @@ page {
 .map-inner {
 	width: 100%;
 	height: 560rpx;
-	background-color: #eaeaea;
+	background-color: var(--c-fill);
 	z-index: 1;
 }
 /* 图例条：三种 marker 颜色语义 */
@@ -1458,8 +1458,8 @@ page {
 	row-gap: 8rpx;
 	flex-wrap: wrap;
 	padding: 14rpx 24rpx;
-	background-color: #fafafa;
-	border-top: 1rpx solid #f0f0f0;
+	background-color: var(--c-bg);
+	border-top: 1rpx solid var(--c-fill);
 }
 .legend-item {
 	display: flex;
@@ -1476,14 +1476,14 @@ page {
 }
 .legend-text {
 	font-size: 22rpx;
-	color: #666666;
+	color: var(--c-text-2);
 }
 /* F-06.7 R4：中文地图来源尾注（来源 © 高德地图，图面右下另有高德自带 logo+版权条）；
    字号复用 .legend-text 的 22rpx，颜色降为 #999 弱化；margin-left: auto 推到图例条尾部与图例项分离 */
 .legend-source {
 	margin-left: auto;
 	font-size: 22rpx;
-	color: #999999;
+	color: var(--c-text-3);
 	/* U7：尾注不内部折行，整项参与换行布局（放不下时整体落到下一行行尾） */
 	white-space: nowrap;
 }
