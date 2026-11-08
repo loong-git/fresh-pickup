@@ -94,7 +94,7 @@ export default {
 	--c-border: #E7E5E0;
 	--c-text: #1C1917;
 	--c-text-2: #57534E;
-	--c-text-3: #A8A29E;
+	--c-text-3: #746F69;
 	--c-primary: #0F7B4A;
 	--c-primary-soft: #E8F5EE;
 	--c-primary-hair: #C8E6D5;
@@ -102,7 +102,7 @@ export default {
 	--c-ok: #0F7B4A;
 	--c-warn: #B45309;
 	--c-warn-soft: #FFF7E6;
-	--c-danger: #DC2626;
+	--c-danger: #C81E1E;
 	--c-danger-soft: #FEF2F2;
 	/* 补充变量（契约 §1.4「八期新增暗色 tint……也按语义入表或补充变量」授权；浅值取七期同位点实值，
 	   深值 = 八期现值，深色渲染不变）：text-4 弱提示文字 / fill 卡内嵌入面（输入框·胶囊·灰徽标底·行间弱分隔）/
@@ -157,7 +157,7 @@ page {
 	--c-border: #E7E5E0;
 	--c-text: #1C1917;
 	--c-text-2: #57534E;
-	--c-text-3: #A8A29E;
+	--c-text-3: #746F69;
 	--c-primary: #0F7B4A;
 	--c-primary-soft: #E8F5EE;
 	--c-primary-hair: #C8E6D5;
@@ -165,7 +165,7 @@ page {
 	--c-ok: #0F7B4A;
 	--c-warn: #B45309;
 	--c-warn-soft: #FFF7E6;
-	--c-danger: #DC2626;
+	--c-danger: #C81E1E;
 	--c-danger-soft: #FEF2F2;
 	--c-text-4: #BBBBBB;
 	--c-fill: #F5F5F5;

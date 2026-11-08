@@ -228,9 +228,9 @@ setForbiddenHandler((payload) => {
   --admin-warn-bg: #FDF6EC;
   --admin-warn-text: #B45309;
   --admin-danger-bg: #FEF0F0;
-  --admin-danger-text: #DC2626;
+  --admin-danger-text: #C81E1E;
   --admin-ok-bg: #E9F9EF;
-  --admin-ok-text: #1B9E4B;
+  --admin-ok-text: #15803D;
   /* 「运营端」金胶囊浅值（P9-fix 增补族，浅色档） */
   --admin-gold-bg: #FDF6EC;
   --admin-gold-border: #E4A051;
@@ -317,7 +317,7 @@ html.dark {
   --el-text-color-primary: #F2F2F2;
   --el-text-color-regular: #D6D6D9;
   --el-text-color-secondary: #A6A6AA;
-  --el-text-color-placeholder: #6F6F76;
+  --el-text-color-placeholder: #85858B;
   --el-text-color-disabled: #6F6F76;
   /* 填充（§0 fill 三档 #262629/#202023/#0A0A0B 映进 EP 暗色阶：base 最亮、逐级向页面底逼近） */
   --el-fill-color: #262629;

@@ -15,6 +15,9 @@
       所以本页只有「待人工复审」和「展示中」两档，没有「已驳回列表」这种东西。<br />
       ⚠ 行内<b>没有菜品名</b>（出参只有 dishId 这个指针）：要看名字请点上方「按菜品 ID 对齐名称」，
       本页拿商品列表的 id→名称映射在前端对齐，绝不为此改动后端。<br />
+      图片列（P10-6 A5 评价带图）：出参每行带 images（/uploads/reviews/... 相对路径列表，每评价 ≤3 张，无图为空数组）；
+      前端经请求层 resolveFileUrl 拼后端基址直读（运营端刻意不配 vite proxy，见 vite.config.js 注释），
+      点缩略图可放大预览，无图行该格空白不渲染。
       时间列 createTime 是服务端 DATE_FORMAT 定形串，原样显示；行里的 auditStatus 是库里原值（'pending' 或空=展示中）。
     </p>
 
@@ -83,6 +86,21 @@
         <el-table-column prop="content" label="内容" min-width="260" show-overflow-tooltip>
           <template #default="{ row }"><span :class="{ muted: !row.content }">{{ row.content }}</span></template>
         </el-table-column>
+        <!-- P10-6 A5 收尾（评价带图）：images 是后端 /uploads/reviews/... 相对路径列表，经请求层 resolveFileUrl
+             补 BASE_URL 直读后端静态映射（运营端无 vite proxy——vite.config.js 注释点名相对路径必须拼完整后端地址）；
+             点击放大走 el-image 自带 preview-src-list + preview-teleported（防被表格 overflow 裁剪），
+             姿势照 MerchantApplies.vue 的证照缩略图。无图（images 空/缺键）整格不渲染，不出占位假图。 -->
+        <el-table-column label="图片" min-width="150">
+          <template #default="{ row }">
+            <div v-if="reviewImageUrlsOf(row).length" class="review-imgs">
+              <el-image v-for="(url, index) in reviewImageUrlsOf(row)" :key="url + ':' + index"
+                        class="review-thumb" :src="url" :preview-src-list="reviewImageUrlsOf(row)"
+                        :initial-index="index" fit="cover" preview-teleported>
+                <template #error><div class="review-img-fallback">加载失败</div></template>
+              </el-image>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="审核状态" min-width="130">
           <template #default="{ row }">
             <el-tag :type="row.auditStatus === 'pending' ? 'warning' : 'success'" size="small" effect="light">
@@ -134,9 +152,11 @@
 //   ② 出参<b>没有 dishName</b>。对齐名称只能拿同批的 dishes 只读列表在前端做 id→名称映射（契约的指定做法），
 //      绝不为此改后端。这一步做成<b>按需点击</b>的：门禁断言「每页首屏恰 1 条列表请求」，
 //      所以首屏只发 reviews 那一条，名称对齐是运营自己点的第二条只读请求。
+// P10-6 A5 收尾：出参每行新增 images（后端复用 ReviewService#fillImages 一条 IN 查询批量填充的
+// /uploads/reviews/... 相对路径列表），本页经请求层 resolveFileUrl 拼后端基址后用 el-image 展示与预览。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { getAdminReviews, getAdminDishes, auditAdminReview, retryAfterText } from '../api'
+import { getAdminReviews, getAdminDishes, auditAdminReview, retryAfterText, resolveFileUrl } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -296,6 +316,15 @@ const dishNameOf = (dishId) => {
   const map = dishNameMap.value
   if (!map || dishId === null || dishId === undefined) return ''
   return map.get(String(dishId)) || ''
+}
+
+// P10-6 A5 收尾：评价图相对路径（/uploads/reviews/...）→ 后端可直读完整 URL。
+// 拼基址的责任收敛在请求层 resolveFileUrl（页面零自拼 BASE_URL，照 api/index.js 文件头分层纪律；
+// MerchantApplies.vue 证照缩略图同款姿势）。行缺 images 键/非数组/含空串一律滤掉——
+// 绝不给 el-image 喂空 src 渲染成假图；无图回空数组，模板 v-if 据此整格不渲染。
+const reviewImageUrlsOf = (row) => {
+  const imgs = row && Array.isArray(row.images) ? row.images : []
+  return imgs.filter((u) => typeof u === 'string' && u).map((u) => resolveFileUrl(u))
 }
 
 /**
@@ -486,6 +515,29 @@ onMounted(() => {
 }
 .inline-note {
   font-size: 12px;
+}
+/* P10-6 A5：评价图缩略（每评价 ≤3 张，44px 方块横排）；fallback 与缩略同尺寸防行高跳动 */
+.review-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.review-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  cursor: zoom-in;
+}
+.review-img-fallback {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  background: var(--admin-card-soft);
+  border-radius: 4px;
 }
 .align-note {
   margin-top: 10px;
