@@ -862,3 +862,45 @@ export function getMerchantSettlements(params) {
 export function getMerchantSettlementItems(id) {
   return request({ url: '/api/merchant/settlements/' + encodeURIComponent(id) + '/items', method: 'GET' })
 }
+
+// ==================== 评价管理（P11-1a D5/D6） ====================
+// 归属纪律照家族：merchant_id 由后端 @RequestAttribute 解析，本层不拼任何归属入参——
+// 列表归属谓词在 SQL 层（JOIN dish WHERE dish.merchant_id=?），回复归属在 service 层
+// （review.dish_id → dish.merchant_id=自己，非自家评价 404 同文案）。
+
+/**
+ * 商家评价分页列表：GET /api/merchant/reviews?page=&size=
+ * 分页照 order-items 家族：page/size 传后端，出参 {list,page,size,total,hasMore}，
+ * page/size 一律以后端回显为准（本端点 400 拒绝越界值，不夹取——与 order-items 的「夹而不拒」不同，
+ * 页面照回显值渲染即可两家族通吃）。
+ * list 行键（照 C 端 listByUser 全键 + images）：id/dishId/dishName/userId/rating/content/reviewer/
+ * auditStatus/createTime/createdAt/replyContent/replyTime/replyer/images。
+ * auditStatus 不过滤：商家可见自己菜品的待审（pending）评价；replyContent/replyTime/replyer
+ * 未回复恒 null；images 恒为数组（无图为空数组，不缺键）。
+ * 限流 30 次/分 USER 维度（商家端 GET 读档，照 settlements/me 同款）。
+ * @param {{page?:number, size?:number}} [query]
+ * @returns {Promise<{code,data:{list:Array<object>,page:number,size:number,total:number,hasMore:boolean},message:string}>}
+ */
+export function getMerchantReviews(query) {
+  const src = query && typeof query === 'object' ? query : {}
+  const data = {}
+  if (src.page) data.page = Number(src.page)
+  if (src.size) data.size = Number(src.size)
+  return request({ url: '/api/merchant/reviews', method: 'GET', data })
+}
+
+/**
+ * 商家回复评价：POST /api/merchant/reviews/{id}/reply，body {content}（一评一回，重复回复=覆盖更新）。
+ * 校验在服务端收口：空/超长（>500 字）400、软词命中 400「回复包含违规内容，请修改后重新提交」、
+ * 非自家评价/不存在 404 同文案——本层不预检不重写这些口径（口径交服务端唯一裁决，页面只 toast message）。
+ * @param {number|string} id - 评价行 id（列表出参的 id 原值）
+ * @param {string} content - 回复内容原文（1~500 字，服务端转义落库）
+ * @returns {Promise<{code:number,data:null,message:string}>} message '回复成功'
+ */
+export function replyMerchantReview(id, content) {
+  return request({
+    url: '/api/merchant/reviews/' + encodeURIComponent(id) + '/reply',
+    method: 'POST',
+    data: { content }
+  })
+}

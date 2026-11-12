@@ -70,10 +70,13 @@
 
     <template v-else>
       <!-- FE-G6-9 表头粘性（理由与 offset 实算见 Orders.vue 同名注释）：表体内部滚动、表头常驻 -->
-      <el-table :data="rows" border stripe size="small" class="table" max-height="calc(100vh - 420px)">
+      <!-- P11-1b D8 批量审核：selection 列全行可选；row-key=id + reserve-selection 让选择跨翻页/刷新保留
+           （reject 物理删行后保选 key 失主，批量回执按条记「评价不存在」，随后本页统一清选）。 -->
+      <el-table ref="tableRef" :data="rows" :row-key="rowKeyOf" border stripe size="small" class="table" max-height="calc(100vh - 420px)" @selection-change="onSelectionChange">
         <template #empty>
           <span class="empty">暂无评价（当前筛选下没有命中；现库 review 表本就可能是空的，这不是故障）</span>
         </template>
+        <el-table-column type="selection" width="42" reserve-selection fixed="left" />
         <el-table-column prop="id" label="ID" min-width="90" />
         <el-table-column label="菜品" min-width="170" show-overflow-tooltip>
           <template #default="{ row }">
@@ -126,6 +129,20 @@
 
       <div v-if="dishNameNote" class="align-note">{{ dishNameNote }}</div>
 
+      <!-- P11-1b D8 底部批量操作条：选中>0 才可点；驳回在 onBatch 内另有 ElMessageBox 强二次确认
+           （文案列出条数与「物理删除不可恢复」警示）。按钮常驻不 v-if 抖动，禁用态即状态。 -->
+      <div class="batch-bar">
+        <span class="batch-count">已选 {{ selectedRows.length }} 条（选择跨翻页保留）</span>
+        <el-button size="small" type="success" plain
+                   :disabled="!selectedRows.length || submitting || viewState === 'loading'"
+                   @click="onBatch('approve')">批量过审</el-button>
+        <el-button size="small" type="danger" plain
+                   :disabled="!selectedRows.length || submitting || viewState === 'loading'"
+                   @click="onBatch('reject')">批量驳回</el-button>
+        <el-button v-if="selectedRows.length" size="small" link
+                   :disabled="submitting" @click="clearSelection">取消选择</el-button>
+      </div>
+
       <div class="pager">
         <el-pagination
           v-model:current-page="pageNum"
@@ -154,9 +171,11 @@
 //      所以首屏只发 reviews 那一条，名称对齐是运营自己点的第二条只读请求。
 // P10-6 A5 收尾：出参每行新增 images（后端复用 ReviewService#fillImages 一条 IN 查询批量填充的
 // /uploads/reviews/... 相对路径列表），本页经请求层 resolveFileUrl 拼后端基址后用 el-image 展示与预览。
+// P11-1b D8 批量审核：POST /api/admin/v2/reviews/batch-audit（body {ids, action}），逐条独立执行、
+// 单条失败不断批；回执 {succeeded, failed:[{id,reason}]}。选择列跨翻页保留（row-key + reserve-selection）。
 import { computed, onMounted, ref } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { getAdminReviews, getAdminDishes, auditAdminReview, retryAfterText, resolveFileUrl } from '../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getAdminReviews, getAdminDishes, auditAdminReview, batchAuditAdminReviews, retryAfterText, resolveFileUrl } from '../api'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -176,6 +195,24 @@ const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(20)
 const filters = ref({ auditStatus: '' })
+
+// P11-1b D8 批量审核：selection 列的选中行数组（selection-change 维护）；tableRef 供 clearSelection 收口。
+// row-key=id + reserve-selection：翻页/刷新后按 id 恢复选中——批量回执后必须显式 clearSelection，
+// 否则被 reject 物理删除的行虽已不在列表，其保选 key 仍会出现在下一次 selection-change 里。
+const tableRef = ref(null)
+const selectedRows = ref([])
+const rowKeyOf = (row) => row.id
+
+function onSelectionChange(val) {
+  selectedRows.value = val || []
+}
+
+function clearSelection() {
+  if (tableRef.value && typeof tableRef.value.clearSelection === 'function') {
+    tableRef.value.clearSelection()
+  }
+  selectedRows.value = []
+}
 
 // dishNameMap === null 表示「还没点过对齐」；点过之后是一个 Map（可能为空 Map）。
 const dishNameMap = ref(null)
@@ -399,6 +436,89 @@ function confirmTextOf(row, action) {
     + '· 仍会写一条 admin_audit_log（action=review.audit），但它记的是留痕，不能用来还原被删的行。'
 }
 
+// P11-1b D8 批量二次确认文案：approve 列语义（逐条幂等）；reject 列条数 +「物理删除不可恢复」警示。
+// 与单条 confirmTextOf 同一份纯文本纪律（ElMessageBox 没开 dangerouslyUseHTMLString，强调用「」不用标签）。
+function batchConfirmTextOf(count, action) {
+  if (action === 'approve') {
+    return '将把选中的 ' + count + ' 条评价批量置为「展示中」（过审）。\n\n'
+      + '· 逐条执行单条过审语义：服务端把每条的 audit_status 置为 NULL，立刻恢复对外展示；'
+      + '已是展示中的行幂等不受影响。\n'
+      + '· 每条各写一条 admin_audit_log（action=review.audit），留痕与单条过审一致。\n'
+      + '· 一次批量=一次写请求（限流按一次计）；单条失败会按条记下原因，不影响其余条继续执行。'
+  }
+  return '将「批量驳回并删除」选中的 ' + count + ' 条评价。\n\n'
+    + '· ⚠ 这是物理删除，不可恢复：服务端逐条删除评价行（连同评价图片行与图片文件一并删除），'
+    + '删除后没有任何撤销入口，本页面与库里都不会出现「已驳回」这一态；确需留证请事先由 DBA 备份。\n'
+    + '· 删除后 C 端不再展示这些评价，评分也不再计入对应菜品。\n'
+    + '· 已被他人先删的行会按条记为失败（「评价不存在」），不影响其余行继续执行。\n'
+    + '· 每条各写一条 admin_audit_log（action=review.audit），但它记的是留痕，不能用来还原被删的行。'
+}
+
+/**
+ * 批量审核（P11-1b D8）：一次请求提交全部选中 id，服务端逐条独立执行。
+ * 反馈双通道：ElMessage toast 念「成功/失败计数」短句（D8 的 toast 语义），
+ * result-bar 常驻承载完整回执（失败明细最多列 5 条，长文案不该塞进 toast）。
+ * 完成后重拉列表 + 清空选择（reject 删的行自然消失；approve 置态由服务端回值刷新）。
+ */
+async function onBatch(action) {
+  if (submitting.value || viewState.value === 'loading') return
+  const ids = selectedRows.value.map((row) => row.id)
+  if (!ids.length) return
+  const ok = await askConfirm(batchConfirmTextOf(ids.length, action))
+  if (!ok) {
+    writeResult.value = {
+      kind: 'info',
+      title: '已取消，未发出任何请求',
+      serverText: '',
+      hint: '确认框点「取消」/关闭/Esc 只关框：选中的评价一条都没有被改动，更没有被告删除。'
+    }
+    return
+  }
+  submitting.value = true
+  writeResult.value = null
+  const actionText = action === 'approve' ? '批量过审' : '批量驳回（删除）'
+  try {
+    const envelope = await batchAuditAdminReviews(ids, action)
+    const data = envelope && envelope.data ? envelope.data : {}
+    const succeeded = Number(data.succeeded) || 0
+    const failed = Array.isArray(data.failed) ? data.failed : []
+    const failedHead = failed.slice(0, 5)
+      .map((f) => '#' + (f && f.id !== null && f.id !== undefined ? f.id : '?')
+        + '：' + (f && f.reason ? f.reason : '（后端未给出原因）'))
+      .join('；')
+    ElMessage({
+      type: failed.length ? 'warning' : 'success',
+      message: actionText + '完成：成功 ' + succeeded + ' 条、失败 ' + failed.length + ' 条',
+      grouping: true
+    })
+    writeResult.value = {
+      kind: failed.length ? 'error' : 'success',
+      title: actionText + '已提交',
+      serverText: envelope && envelope.message ? envelope.message : '',
+      hint: '共提交 ' + ids.length + ' 条：成功 ' + succeeded + ' 条、失败 ' + failed.length + ' 条。'
+        + (failedHead ? '失败明细（最多列 5 条）：' + failedHead + '。' : '')
+        + '列表已重新拉取、选择已清空。'
+    }
+    await load()
+    clearSelection()
+  } catch (err) {
+    const e = err || {}
+    if (e.code === 401) {
+      writeResult.value = { kind: 'error', title: '登录状态已失效', serverText: '', hint: '正在返回登录页…' }
+      return
+    }
+    // 整批 400/404/429/500：请求级失败，服务端保证「整批未生效」，选择保留便于修正后重发
+    writeResult.value = {
+      kind: 'error',
+      title: e.code === 403 ? '没有权限执行该动作' : actionText + '未执行（整批未生效）',
+      serverText: e.message || '（后端未给出 message）',
+      hint: writeHintOf(e.code, e.data) + '（选择已保留，可核对后重发；翻页/刷新会按 id 恢复选中。）'
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
 async function onWrite(row, action) {
   if (submitting.value || viewState.value === 'loading') return
   const ok = await askConfirm(confirmTextOf(row, action))
@@ -543,6 +663,22 @@ onMounted(() => {
   margin-top: 10px;
   font-size: 12px;
   line-height: 1.7;
+  color: var(--el-text-color-secondary);
+}
+/* P11-1b D8 底部批量操作条：表格下、分页前；变量照本页既有体系（--admin- 与 --el- 两族） */
+.batch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+}
+.batch-count {
+  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 .pager {

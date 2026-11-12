@@ -9,6 +9,7 @@ import com.fresh.mapper.DishMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.ReviewMapper;
 import com.fresh.mapper.StoreApplyMapper;
+import com.fresh.service.AdminService;
 import com.fresh.service.AdminV2Service;
 import com.fresh.service.ReviewService;
 import lombok.extern.slf4j.Slf4j;
@@ -176,6 +177,16 @@ public class AdminV2ServiceImpl implements AdminV2Service {
     private ReviewService reviewService;
     @Autowired
     private StoreApplyMapper storeApplyMapper;
+
+    /**
+     * P11-1b D7 批量审核的逐条执行通道：跨 bean 注入 {@link AdminService}，循环里调
+     * {@code auditReview} 走的是 Spring 代理——单条的 {@code @Transactional} 因此对每条独立生效
+     * （同类内 {@code this.} 调用不走代理，事务会失效，这也是业务体不放进 AdminServiceImpl 的原因：
+     * 那边逐条 {@code this.auditReview} 会把 reject 的「删行+删图同事务」拆成无事务两步）。
+     * AdminServiceImpl 不回注本类，无循环依赖。
+     */
+    @Autowired
+    private AdminService adminService;
 
     @Override
     public Map<String, Object> overview(String date) {
@@ -721,5 +732,73 @@ public class AdminV2ServiceImpl implements AdminV2Service {
             return new BigDecimal(number.toString()).setScale(MONEY_SCALE, RoundingMode.HALF_UP).toPlainString();
         }
         return BigDecimal.ZERO.setScale(MONEY_SCALE, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    // ==================================================================
+    // P11-1b D7：运营端评价批量审核（POST /api/admin/v2/reviews/batch-audit）。
+    // 本类唯一的写方法：逐条复用 AdminService#auditReview 的单条语义（approve 条件置 NULL /
+    // reject 物理删行+删图行+文件尽力删），单条失败记 {id,reason} 不断批。
+    // 端点挂 AdminController（双轨闸门，照 merchantApplies 既有先例「按契约走双轨 →
+    // 不进 JWT-only 的 AdminV2Controller」，URL 仍为 /api/admin/v2/**）。
+    // ==================================================================
+
+    /**
+     * 批量审核的动作白名单：与 {@code AdminServiceImpl#ALLOWED_AUDIT_ACTIONS}（private，不跨类共享）
+     * 同值两处；逐条执行时 {@code auditReview} 内还有同一份白名单兜底。这里前置拦不是重复设卡，
+     * 而是把「action 非法」定性成<b>整批 400</b>——不拦的话每条都会落 failed，调用方拿到
+     * 「succeeded=0 + N 条同因失败」却是一个 200，与契约 D7「action 非法 → 400」不符。
+     */
+    private static final Set<String> BATCH_AUDIT_ACTIONS = Set.of("approve", "reject");
+
+    /**
+     * 单批 id 上限（契约 D7：&gt;100 → 400）。<b>不静默截断</b>——截断会让「提交了 120 条」
+     * 和「执行了 100 条」拿到同一句回执，比报错更难发现（同本类分页越界不夹取的口径）。
+     */
+    private static final int BATCH_AUDIT_MAX_IDS = 100;
+
+    @Override
+    public Map<String, Object> batchAuditReviews(List<Long> ids, String action, String actor) {
+        // 形状/值域闸门在本类（同六条只读的既有分工：Service 抛 400；文案对齐既有口径不新造）
+        if (ids == null || ids.isEmpty()) {
+            throw new BizException(R.CODE_BAD_REQUEST, "ids 不能为空（须为数字数组，1~100 条）");
+        }
+        if (ids.size() > BATCH_AUDIT_MAX_IDS) {
+            throw new BizException(R.CODE_BAD_REQUEST, "ids 一次最多 100 条");
+        }
+        String op = action == null ? "" : action.trim();
+        if (!BATCH_AUDIT_ACTIONS.contains(op)) {
+            // 逐字照 AdminServiceImpl#auditReview 的同句文案（RE 纪律：同一语义不立第二句）
+            throw new BizException(R.CODE_BAD_REQUEST, "action 仅允许 approve（过审展示）或 reject（驳回删除）");
+        }
+
+        // 逐条独立执行。<b>本方法不挂 @Transactional</b>：若挂上，内层 auditReview（REQUIRED）会加入
+        // 同一事务，单条异常即使被这里 catch，事务也已被标记 rollback-only，整批在提交点集体回滚——
+        // 「单条失败不断批」就成了空话。跨 bean 调 adminService.auditReview 走 Spring 代理，
+        // 每条自开独立事务：前一条已提交的结果不受后一条失败影响。
+        List<Map<String, Object>> failed = new ArrayList<>();
+        int succeeded = 0;
+        for (Long id : ids) {
+            try {
+                adminService.auditReview(id, op, actor);
+                succeeded++;
+            } catch (RuntimeException e) {
+                // 宽接 RuntimeException 而非只接 BizException：单条的数据层意外（唯一键冲突/连接抖动）
+                // 同样是「这一条失败」；auditReview 的 @Transactional 保证「抛出即回滚即未生效」，
+                // 记 failed 不会把已生效的说成失败。reason 缺失时给异常类简名，出参绝不出 null 值。
+                String reason = e.getMessage() == null || e.getMessage().isBlank()
+                        ? e.getClass().getSimpleName()
+                        : e.getMessage();
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", id);
+                row.put("reason", reason);
+                failed.add(row);
+                log.warn("批量审核单条失败: id={}, action={}, reason={}", id, op, reason);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("succeeded", succeeded);
+        result.put("failed", failed);
+        return result;
     }
 }

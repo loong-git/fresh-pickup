@@ -182,6 +182,16 @@
                 <image v-if="!reviewImgFail[r.id + '-' + pi]" class="preview-img" :src="resolveReviewImg(p)" mode="aspectFill" @error="onReviewImgFail(r.id + '-' + pi)" @click="previewReviewImages(r, pi)" />
               </view>
             </view>
+            <!-- P11-1a（D4）商家回复气泡：出参三键 replyer/replyContent/replyTime（ReviewServiceImpl
+                 listByUser/商家列表均带，未回复恒 null），无回复不渲染本行；replyer 是服务端按
+                 merchant.name 落库的商家主体名，取不到时兜「商家回复」占位不猜具体店名 -->
+            <view class="preview-reply" v-if="r.replyContent">
+              <view class="preview-reply-head">
+                <text class="preview-reply-name">{{ r.replyer || '商家回复' }}</text>
+                <text class="preview-reply-time">{{ r.replyTime || '' }}</text>
+              </view>
+              <text class="preview-reply-content">{{ r.replyContent }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -1043,6 +1053,14 @@ export default {
 .preview-imgs { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 12rpx; }
 .preview-img-cell { width: calc((100% - 16rpx) / 3); height: 200rpx; border-radius: 8rpx; overflow: hidden; background-color: var(--c-fill); }
 .preview-img { width: 100%; height: 100%; display: block; }
+
+/* P11-1a（D4）商家回复气泡（新代码一律 var(--c-*)）：与评价卡同为软底但换品牌语义色拉开层级，
+   底 --c-primary-soft + 左侧 --c-primary 竖线；无回复整块 v-if 不渲染 */
+.preview-reply { margin-top: 12rpx; padding: 16rpx; background-color: var(--c-primary-soft); border-left: 4rpx solid var(--c-primary); border-radius: 8rpx; }
+.preview-reply-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12rpx; }
+.preview-reply-name { font-size: 22rpx; font-weight: 600; color: var(--c-primary); }
+.preview-reply-time { flex-shrink: 0; font-size: 20rpx; color: var(--c-text-3); }
+.preview-reply-content { display: block; margin-top: 6rpx; font-size: 22rpx; color: var(--c-text-2); line-height: 1.6; word-break: break-all; }
 
 /* ---------- 9. 底部操作栏 ---------- */
 .bottom-bar { background-color: #FFFFFF; box-shadow: 0 -2rpx 20rpx rgba(0,0,0,.06); flex-shrink: 0; }

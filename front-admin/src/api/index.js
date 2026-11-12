@@ -563,6 +563,23 @@ export function auditAdminReview(id, action) {
 }
 
 /**
+ * 评价批量审核：POST /api/admin/v2/reviews/batch-audit，body {ids, action}（P11-1b D7）。
+ * 端点物理挂 AdminController（双轨闸门，与单条审核同一鉴权面；URL 语义仍是 v2），
+ * 逐条复用单条语义：approve=audit_status 条件置 NULL（幂等）；reject=物理删行+删图行+删图文件（不可恢复）。
+ * @param {Array<number|string>} ids 评价 id 数组，1~100 条（空/超 100/含非数字 → 400「ids 不能为空…」「ids 一次最多 100 条」）
+ * @param {string} action 'approve' | 'reject'（其余 400「action 仅允许 approve（过审展示）或 reject（驳回删除）」）
+ * @returns {Promise<{code:number,message:string,data:{succeeded:number,failed:Array<{id:number,reason:string}>}}>}
+ *          逐条独立执行、单条失败不断批；failed 恒为数组（全成功为空数组）
+ */
+export function batchAuditAdminReviews(ids, action) {
+  return request({
+    url: '/api/admin/v2/reviews/batch-audit',
+    method: 'POST',
+    data: { ids, action }
+  })
+}
+
+/**
  * 入驻申请审核：PUT /api/admin/store-applies/{id}/audit，body {action, remark?}
  * 服务端读的是 @RequestBody Map<String,String> 的 action / remark 两个键（**无 DTO**，
  * 姿势照 PartnerController#verify），所以本层只发字符串值，remark 为空时**整个键不下发**

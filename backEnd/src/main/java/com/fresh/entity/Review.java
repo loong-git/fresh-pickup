@@ -22,6 +22,12 @@ public class Review {
     private String reviewer;
     /** 审核状态（T-M4-05）：NULL 正常展示 / pending 命中软词待人工复核（默认不展示） */
     private String auditStatus;
+    /** 商家回复内容（P11-1a D1/m35）：一评一回，重复回复覆盖更新保留最新一条；入库前 HTML 转义照评价 content 同款防存储型 XSS；评价行 reject 物理删时随行消失（同表同行）；NULL=未回复 */
+    private String replyContent;
+    /** 商家回复时间（P11-1a D1/m35）：每次回复写入 NOW()；NULL=未回复 */
+    private LocalDateTime replyTime;
+    /** 回复人=商家主体名（P11-1a D1/m35）：服务端按 merchant.name 落库，不收前端直传（照评价 reviewer 服务端生成口径）；NULL=未回复 */
+    private String replyer;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
     /** 评价图路径列表（P10-6b D3/m34）：非持久化展示字段（review 本体零加列，图落 review_image 表），

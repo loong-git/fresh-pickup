@@ -6,10 +6,12 @@ import com.fresh.common.BizException;
 import com.fresh.common.R;
 import com.fresh.common.WordFilter;
 import com.fresh.entity.Dish;
+import com.fresh.entity.Merchant;
 import com.fresh.entity.Review;
 import com.fresh.entity.ReviewImage;
 import com.fresh.entity.User;
 import com.fresh.mapper.DishMapper;
+import com.fresh.mapper.MerchantMapper;
 import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.ReviewImageMapper;
 import com.fresh.mapper.ReviewMapper;
@@ -70,6 +72,8 @@ public class ReviewServiceImpl implements ReviewService {
     private OrderItemMapper orderItemMapper;
     @Autowired
     private ReviewImageMapper reviewImageMapper;
+    @Autowired
+    private MerchantMapper merchantMapper;
 
     /**
      * 落盘根目录：复用既有 yml 键 fresh.upload-dir（P10-6b 契约「复用商家上传基建」，不新增配置键）；
@@ -125,6 +129,10 @@ public class ReviewServiceImpl implements ReviewService {
             item.put("auditStatus", review.getAuditStatus());
             item.put("createTime", review.getCreateTime());
             item.put("createdAt", review.getCreateTime());
+            // P11-1a D6/m35：回复三键（与实体键名一致；C 端「我的评价」展示商家回复用，未回复恒 null）
+            item.put("replyContent", review.getReplyContent());
+            item.put("replyTime", review.getReplyTime());
+            item.put("replyer", review.getReplyer());
             item.put("images", review.getImages() == null ? List.of() : review.getImages());
             return item;
         }).collect(Collectors.toList());
@@ -325,6 +333,109 @@ public class ReviewServiceImpl implements ReviewService {
         Path baseDir = Paths.get(uploadDir).toAbsolutePath().normalize();
         Path f = baseDir.resolve(webPath.substring("/uploads/".length())).normalize();
         return f.startsWith(baseDir) ? f : null;
+    }
+
+    // ------------------------------------------------------------------
+    // P11-1a 商家回复评价（D2 归属鉴权 / D3 软词 400 / D1 一评一回 UPSERT）
+    // ------------------------------------------------------------------
+
+    /** 回复内容长度上限（P11-1a D1：与 review.reply_content 列 VARCHAR(500) 及评价 content 1~500 字口径对齐） */
+    private static final int MAX_REPLY_LENGTH = 500;
+
+    @Override
+    public void replyReview(Long merchantId, Long reviewId, String content) {
+        // ① review 存在（404 同 addImage 的「评价不存在」文案口径，两判据共用文案不泄露存在性）
+        Review review = reviewMapper.selectById(reviewId);
+        if (review == null) {
+            throw new BizException(R.CODE_NOT_FOUND, "评价不存在");
+        }
+        // ② 归属校验（D2）：review.dish_id → dish.merchant_id = 自己（merchantId 由 AuthInterceptor
+        //   /api/merchant/** 分支注入，@RequestAttribute 读取，照家族口径）；dish 缺失（评价挂已删菜品，
+        //   同样不可回复）与非自家评价一律 404 同文案——不泄露他人评价存在性（照家族口径）
+        Dish dish = dishMapper.selectById(review.getDishId());
+        if (dish == null || !merchantId.equals(dish.getMerchantId())) {
+            throw new BizException(R.CODE_NOT_FOUND, "评价不存在");
+        }
+        // ③ 内容非空/长度（D1：与列 VARCHAR(500) 对齐，照评价 ReviewCreateDTO 1~500 字同款口径；
+        //   Map 收参无 bean validation，闸门在 service 收口）；trim 后空串视为未填
+        if (content == null || content.trim().isEmpty()) {
+            throw new BizException(R.CODE_BAD_REQUEST, "回复内容不能为空");
+        }
+        if (content.trim().length() > MAX_REPLY_LENGTH) {
+            throw new BizException(R.CODE_BAD_REQUEST, "回复内容需在 1~" + MAX_REPLY_LENGTH + " 字之间");
+        }
+        // ④ 敏感词过滤（D3，对原文匹配、先于转义——照 addReview 的顺序先例）：
+        //   软词命中 → 400 拒绝提交【登记偏离评价 pending 管线：回复即时生效、无中间态展示需求，
+        //   拒绝让商家改词重提是最短路径（契约 D3 理由）】；硬词比软词更重，同样 400（无 pending 可言）
+        if (wordFilter.matchHard(content) != null || wordFilter.matchSoft(content) != null) {
+            throw new BizException(R.CODE_BAD_REQUEST, "回复包含违规内容，请修改后重新提交");
+        }
+        // ⑤ HTML 转义（照 addReview 先例，防存储型 XSS；对 trim 后原文转义）
+        String escaped = HtmlUtils.htmlEscape(content.trim());
+        // ⑥ 回复人=商家主体名（服务端按 merchant.name 落库，不收前端直传——照评价 reviewer 服务端生成口径；
+        //   merchant 行缺失/无名兜底「商家」，绝不因展示名缺席阻断回复主链路）
+        Merchant merchant = merchantMapper.selectById(merchantId);
+        String replyer = (merchant == null || merchant.getName() == null
+                || merchant.getName().trim().isEmpty()) ? "商家" : merchant.getName().trim();
+        // ⑦ 一评一回（D1）：review 行已存在（①），覆盖更新三列=重复回复保留最新一条；
+        //   实体只带 id+三列走 updateById——MP 默认 NOT_NULL 字段策略下等价精确 UPDATE 三列
+        //   WHERE id=?，绝不把评价本体（content/rating/audit_status）拖进更新集
+        Review upd = new Review();
+        upd.setId(reviewId);
+        upd.setReplyContent(escaped);
+        upd.setReplyTime(LocalDateTime.now());
+        upd.setReplyer(replyer);
+        reviewMapper.updateById(upd);
+    }
+
+    /** 商家评价列表的单页上限（对齐运营端 v2 家族 pageSize 值域上界 100，AdminV2ServiceImpl 同值） */
+    private static final int MERCHANT_PAGE_MAX_SIZE = 100;
+
+    @Override
+    public Map<String, Object> listByMerchant(Long merchantId, Integer page, Integer size) {
+        // ① 分页闸门（照运营端 v2 家族口径：page 缺省 1、size 缺省 20、值域 [1,100]，
+        //   越界/脏值 400 不夹到边界——夹取会让「要 50 拿到 20」静默变形；巨大 offset 由 ② 短路兜住）
+        int p = (page == null) ? 1 : page;
+        int s = (size == null) ? 20 : size;
+        if (p < 1) {
+            throw new BizException(R.CODE_BAD_REQUEST, "页码需从 1 开始");
+        }
+        if (s < 1 || s > MERCHANT_PAGE_MAX_SIZE) {
+            throw new BizException(R.CODE_BAD_REQUEST, "每页数量需在 1 到 " + MERCHANT_PAGE_MAX_SIZE + " 之间");
+        }
+        // ② 总数与空页短路：offset>=total 时不执行页 SQL（照运营端 v2 同款；COUNT 对该商家无评价回 0，
+        //   正常回空页而不是 500——归属谓词在 SQL 层，他人评价与不存在同形）
+        long total = reviewMapper.countMerchantReviews(merchantId);
+        long offset = (long) (p - 1) * s;
+        List<Map<String, Object>> list = offset >= total
+                ? Collections.emptyList()
+                : reviewMapper.selectMerchantReviewsPage(merchantId, offset, s);
+        // ③ 评价图批量填充：照 fillImages 的一条 IN 防 N+1 纪律（fillImages 本体吃 Review 实体、
+        //   本方法行是手写 SQL 的 Map 装不进实体 images 字段，故按同一查询形状在 Map 行上组装 images 键；
+        //   按 review_image.id 升序=上传顺序，与 fillImages 一致；无图恒为空数组不缺键）
+        if (!list.isEmpty()) {
+            List<Long> reviewIds = list.stream()
+                    .map(row -> ((Number) row.get("id")).longValue())
+                    .collect(Collectors.toList());
+            Map<Long, List<String>> byReview = reviewImageMapper.selectList(new LambdaQueryWrapper<ReviewImage>()
+                            .in(ReviewImage::getReviewId, reviewIds)
+                            .orderByAsc(ReviewImage::getId))
+                    .stream()
+                    .collect(Collectors.groupingBy(ReviewImage::getReviewId,
+                            Collectors.mapping(ReviewImage::getFilePath, Collectors.toList())));
+            for (Map<String, Object> row : list) {
+                long rid = ((Number) row.get("id")).longValue();
+                row.put("images", byReview.getOrDefault(rid, List.of()));
+            }
+        }
+        // ④ 分页出参 {list,page,size,total,hasMore}（形状照商家端 order-items 家族，五值全为服务端算定）
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("list", list);
+        data.put("page", p);
+        data.put("size", s);
+        data.put("total", total);
+        data.put("hasMore", offset + s < total);
+        return data;
     }
 
     /**

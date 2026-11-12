@@ -26,6 +26,7 @@ import com.fresh.dto.AdminStoreUpdateDTO;
 import com.fresh.entity.AdminUser;
 import com.fresh.mapper.AdminUserMapper;
 import com.fresh.service.AdminService;
+import com.fresh.service.AdminV2Service;
 import com.fresh.service.DictService;
 import com.fresh.service.PartnerWalletService;
 import com.fresh.service.RateLimitHitService;
@@ -53,6 +54,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -70,6 +72,9 @@ import java.util.Map;
  *   ——<b>静态密钥轨 = null（Service 侧沿用既有 admin:&lt;key 摘要 8&gt;）；运营 JWT 轨 = admin_user:&lt;id&gt;</b>。
  *   不走 ThreadLocal / request 属性（admin 面压根不注入用户属性，见 BE-20-1），也不把密钥明文/口令/token 拼进去。
  * - v2 只读面（Step 3）：{@code AdminV2Controller} 挂 /api/admin/v2/**，复用本包的 {@link #requireAdminJwtOnly}。
+ *   P11-1b D7 起，评价批量审核（POST /api/admin/v2/reviews/batch-audit）是 v2 语义的<b>写</b>端点、
+ *   按契约走双轨故挂本类（理由见 {@link #batchAuditReviews} 方法注释），AdminV2Controller 的
+ *   「写映射 0、GET 恰 6」计数不因此变化。
  * - 运营端点：订单核销/取消、商品改价/补库存/上下架（部分更新）、评价审核（T-M4-05 收口：
  *   命中软词 pending 的评价人工过审/驳回，否则列表默认不展示、永久不可见）、
  *   平台代开通商家（F-12/M-05 一期）、入驻申请审核（F-18.12 第 3 条，第五个端点）、
@@ -101,6 +106,10 @@ public class AdminController {
     /** 双轨第二轨用：解析 Bearer → claims（G-01 起的 parseClaims 通道，本类首次使用；只读 typ 与 subject） */
     @Autowired
     private JwtUtil jwtUtil;
+
+    /** P11-1b D7 评价批量审核的业务体（AdminV2Service 唯一的写方法；端点在本类的原因见该方法注释） */
+    @Autowired
+    private AdminV2Service adminV2Service;
 
     /**
      * 双轨第二轨用：按 subject 查 admin_user，定「账号还在不在、是否仍 active」。
@@ -186,6 +195,59 @@ public class AdminController {
         }
         adminService.auditReview(id, dto.getAction(), grant.actor());
         return R.ok(null, "评价已审核");
+    }
+
+    /**
+     * 评价批量审核（P11-1b D7）：{@code POST /api/admin/v2/reviews/batch-audit}，
+     * body {@code {ids:[数字], action:'approve'|'reject'}} →
+     * {@code {succeeded:N, failed:[{id, reason}]}}（逐条独立执行，单条失败不断批）。
+     * <p><b>为什么在本类而不是 AdminV2Controller</b>（照 {@code GET /merchant-applies} 的既有先例同款话术）：
+     * v2 面是 JWT-only（{@code requireAdminJwtOnly}），本端点是运营批量写动作、按契约 D7 走<b>双轨</b>闸门——
+     * {@code X-Admin-Key} 与运营 JWT 都放行，与同组的 {@code PUT /reviews/{id}/audit}（单条审核）保持
+     * 同一鉴权面；URL 语义仍是 v2（类级 {@code /api/admin} + 本条 {@code /v2/reviews/batch-audit}），
+     * AdminV2Controller「写映射 0、GET 恰 6」的既有计数断言不受影响。限流照单条审核的写档 10/60s（D7）。
+     * <p>body 不建 DTO，照 {@code auditStoreApply} 的既有先例（「允许新增文件清单没点这个位置、
+     * 本端点只读两个键」）：{@code ids} 经 {@link #toLongIds} 归一为 {@code List<Long>}
+     * （元素非数字/整体非数组 → null）；空/超长/action 非法的 400 全在
+     * {@code AdminV2ServiceImpl#batchAuditReviews}（Service 层闸门，同 v2 家族分工）。
+     * 逐条执行=逐条调 {@code AdminService#auditReview}（approve 条件置态 / reject 删行删图，
+     * 单条语义零改动零复制；每条独立事务，审计逐条照写）。
+     */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 10, windowSeconds = 60)  // 写档（P11-1b D7：照同组单条审核 auditReview）
+    @PostMapping("/v2/reviews/batch-audit")
+    public R<Map<String, Object>> batchAuditReviews(@RequestHeader(value = "X-Admin-Key", required = false) String key,
+                                                    @RequestHeader(value = "Authorization", required = false) String authz,
+                                                    @RequestBody Map<String, Object> body) {
+        AdminGrant grant = checkKeyOrOperator(key, authz);
+        R<Void> denied = grant.denied();
+        if (denied != null) {
+            // 信封逐字节内容不变、只重铺泛型参数（同 merchantApplies/arrivalPreview 的既有处置：
+            // AdminGrant 的 denied 定型为 R<Void>，闸门只有一份，这里按同 code/message 重建同形信封）
+            return R.fail(denied.getCode(), denied.getMessage());
+        }
+        Object rawIds = body == null ? null : body.get("ids");
+        String action = body != null && body.get("action") instanceof String s ? s : null;
+        return R.ok(adminV2Service.batchAuditReviews(toLongIds(rawIds), action, grant.actor()));
+    }
+
+    /**
+     * 批量审核的 ids 归一：JSON 数组元素反序列化后是 Integer/Long（Jackson 按位宽选型），
+     * 统一按 JDK Number 的 longValue() 收 {@code Long}；整体不是数组、或含任何非数字元素
+     * （含字符串数字——契约未约定收字符串，收下反而给调用方「形状宽松」的假象）→ null，
+     * 交 Service 层统一 400「ids 不能为空（须为数字数组，1~100 条）」。
+     */
+    private List<Long> toLongIds(Object rawIds) {
+        if (!(rawIds instanceof List<?> list)) {
+            return null;
+        }
+        List<Long> ids = new ArrayList<>(list.size());
+        for (Object item : list) {
+            if (!(item instanceof Number number)) {
+                return null;
+            }
+            ids.add(number.longValue());
+        }
+        return ids;
     }
 
     /** 平台代开通商家（F-12/M-05 一期）：POST /api/admin/merchants，body {name, phone, contactName?} */

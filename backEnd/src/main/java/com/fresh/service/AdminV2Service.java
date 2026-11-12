@@ -1,18 +1,25 @@
 package com.fresh.service;
 
+import java.util.List;
 import java.util.Map;
 
 /**
- * 运营端 v2 只读服务（F-20.9 #2/#3 大盘四指标 + 审计分页，F-20.18 再加四条运营列表：
- * orders / dishes / reviews / store-applies），<b>六个方法全部只读</b>。
+ * 运营端 v2 服务（F-20.9 #2/#3 大盘四指标 + 审计分页，F-20.18 再加四条运营列表：
+ * orders / dishes / reviews / store-applies），原有六方法<b>全部只读</b>。
  *
- * <p>闸门不在本类：{@code /api/admin/v2/**} 只认运营 JWT（D-2「防止新代码更弱」），
+ * <p>闸门不在本类：{@code /api/admin/v2/**} 的六条 GET 只认运营 JWT（D-2「防止新代码更弱」），
  * 由 {@code AdminV2Controller} 调 {@code AdminController#requireAdminJwtOnly} 收口，
- * 静态密钥在这六个端点上是一律 401。本类因此<b>没有任何「调用者是谁」的入参</b>——
+ * 静态密钥在这六个端点上是一律 401。这六条因此<b>没有「调用者是谁」的入参</b>——
  * 只读动作不写审计（RF 只约束写动作），也就不需要 actor。
  *
- * <p>旧 5 个写端点的业务口径仍在 {@link AdminService}，本期不在 v2 重复造写接口（D-7）；
- * 四个 P0 页要的<b>列表数据源</b>在 F-20.18 那四条，二者不重叠。
+ * <p>P11-1b D7 起，本类新增唯一一个<b>写</b>方法 {@link #batchAuditReviews}：评价批量审核。
+ * 它是运营批量写动作，<b>闸门照运营写端点家族走双轨</b>（X-Admin-Key/Operator JWT，契约 D7），
+ * 端点因此挂 {@code AdminController}（照 merchantApplies 的既有先例：「按契约走双轨 → 不进
+ * JWT-only 的 AdminV2Controller」）；业务体在本类，逐条复用 {@link AdminService#auditReview}
+ * 的单条语义（approve 条件置态 / reject 删行删图），单条失败记 {id,reason} 不断批。
+ *
+ * <p>旧 5 个写端点的业务口径仍在 {@link AdminService}，批量不在其内重复造写接口（D-7 同款：
+ * 写口径一份真源）；四个 P0 页要的<b>列表数据源</b>在 F-20.18 那四条，二者不重叠。
  */
 public interface AdminV2Service {
 
@@ -171,4 +178,26 @@ public interface AdminV2Service {
      *         <b>不下发 {@code user_id}</b>、<b>不选生成列 {@code pending_guard}</b>——三者都在 SQL 层就不查
      */
     Map<String, Object> storeApplies(Integer pageNum, Integer pageSize, String status);
+
+    /**
+     * P11-1b D7 运营端批量审核（{@code POST /api/admin/v2/reviews/batch-audit}）：逐条独立执行，
+     * 单条失败记 {@code {id,reason}} 不断批。
+     * <ul>
+     *   <li>{@code approve}：照既有单条 approve 语义——{@code audit_status} 条件置 NULL 恢复展示，天然幂等；</li>
+     *   <li>{@code reject}：照既有单条 reject 语义——物理删评价行 + 联动删 {@code review_image} 行
+     *       与图文件（全部复用 {@link AdminService#auditReview}，单条语义零改动、零复制）。</li>
+     * </ul>
+     * 逐条经 Spring 代理调用 {@code auditReview}（跨 bean 注入），其 {@code @Transactional} 对每条
+     * 独立生效——单条回滚绝不连带他条；本方法自身<b>不挂事务</b>（挂了会因内层 rollback-only 把整批拖回滚）。
+     * 审计照单条姿势逐条各写一条 {@code admin_audit_log}（action=review.audit），actor 透传。
+     *
+     * @param ids 评价 id 数组；null/空/元素形状不合法 → 400「ids 不能为空（须为数字数组，1~100 条）」；
+     *            条数 &gt;100 → 400「ids 一次最多 100 条」
+     * @param action 仅 {@code approve}/{@code reject}（先 trim），其余 → 400「action 仅允许
+     *               approve（过审展示）或 reject（驳回删除）」（与单条端点逐字同句）
+     * @param actor 双轨闸门给出的操作者标识（静态密钥轨 null / JWT 轨 {@code admin_user:<id>}），
+     *              原样透传给每条 {@code auditReview} 写审计
+     * @return {@code {succeeded: 成功条数, failed: [{id, reason}]}}（failed 恒在，全成功为空数组不出 null）
+     */
+    Map<String, Object> batchAuditReviews(List<Long> ids, String action, String actor);
 }

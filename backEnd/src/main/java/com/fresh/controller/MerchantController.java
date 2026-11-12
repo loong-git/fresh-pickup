@@ -6,6 +6,7 @@ import com.fresh.common.R;
 import com.fresh.dto.MerchantProfileUpdateDTO;
 import com.fresh.interceptor.AuthInterceptor;
 import com.fresh.service.MerchantService;
+import com.fresh.service.ReviewService;
 import com.fresh.service.MerchantSettlementService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +66,10 @@ public class MerchantController {
     /** 结算单只读服务（F-120）：归属过滤与 404 校验都在 Service，本类不重复（照 dishes 同一分层） */
     @Autowired
     private MerchantSettlementService merchantSettlementService;
+
+    /** 评价服务（P11-1a/m35）：回复的归属校验/软词闸门/UPSERT 都在 Service，本类不重复（照结算单同一分层） */
+    @Autowired
+    private ReviewService reviewService;
 
     /**
      * 单图上传（§2.8，M-03）：校验链 后缀白名单 → 大小 ≤5MB → 魔数 → 随机文件名 → 落盘，
@@ -173,6 +178,48 @@ public class MerchantController {
         // 闸门与审计都在 Service 内（BE-5：merchant.profile 随建随写 admin_audit_log）
         merchantService.updateProfile(userId, merchantId, dto);   // WHERE merchant_id=? 强制归属（R3 铁律）
         return R.ok(null, "资料已更新");
+    }
+
+    /**
+     * 商家回复评价（P11-1a D2-D3/m35）：POST /api/merchant/reviews/{id}/reply，body {content}。
+     * 鉴权：/api/merchant/** 前缀整体登录 + 拦截器查库定角色注入 ATTR_MERCHANT_ID（类头既有姿势），
+     * 归属校验（review.dish_id → dish.merchant_id = 自己）与软词闸门收口在 ReviewService#replyReview；
+     * review 不存在/非自家评价一律 404 同文案不泄露存在性（契约 D2 照家族口径）。
+     * 软词命中 → 400 拒绝提交（契约 D3 登记偏离评价 pending 管线：回复即时生效、无中间态展示需求）。
+     * 限流照商家端写端点家族姿势（upload/updateProfile 同款 10 次/分 USER 维度）。
+     * <p>请求体用 {@code @RequestBody Map<String, String>} 而非新建 DTO：本片「允许改动文件」清单
+     * 未含新 DTO，本端点只读一个键，姿势照 AdminController#auditStoreApply / PartnerController#verify
+     * 的既有先例（同理由见其类注释）。
+     */
+    @RateLimit(limit = 10, windowSeconds = 60)
+    @PostMapping("/reviews/{id}/reply")
+    public R<Void> replyReview(@RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
+                               @PathVariable Long id,
+                               @RequestBody Map<String, String> body) {
+        reviewService.replyReview(merchantId, id, body == null ? null : body.get("content"));
+        return R.ok(null, "回复成功");
+    }
+
+    /**
+     * 商家端评价管理列表（P11-1a D5/D6）：GET /api/merchant/reviews?page=&size=
+     * → {@code {list,page,size,total,hasMore}}，list 行键 id/dishId/dishName/userId/rating/content/
+     * reviewer/auditStatus/createTime/createdAt/replyContent/replyTime/replyer/images
+     * （照 C 端 listByUser 全键 + dishName JOIN 取 + images 一条 IN 批量组装防 N+1，
+     * 取数与分页闸门全在 {@code ReviewService#listByMerchant}）。
+     * 归属谓词 SQL 层收口（C6 纪律）：JOIN dish WHERE dish.merchant_id = 当前商家ID
+     * （ATTR_MERCHANT_ID 注入，照家族口径）——只出自己菜品的评价，他人评价与不存在同形（空页）。
+     * audit_status 不过滤：商家可见自己菜品的待审评价（理解评分波动），C 端列表只出可见态不变。
+     * 分页照运营端 v2 家族口径：page 缺省 1、size 缺省 20 值域 [1,100]，越界/脏值 400。
+     * 限流照商家端 GET 读档（settlements/me 同款 30 次/分 USER 维度）。
+     * <p>契约 D2 只定义了回复端点、漏定义本列表端点，端点与出参形状由工作流裁决补齐（openIssues 已登记）。
+     */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/reviews")
+    public R<Map<String, Object>> merchantReviews(
+            @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return R.ok(reviewService.listByMerchant(merchantId, page, size));
     }
 
     /**

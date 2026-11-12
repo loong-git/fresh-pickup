@@ -338,7 +338,8 @@ SELECT 'newbie_gift', 30.00, 8.00, 7, 1, NULL, 0, 'active'
 WHERE NOT EXISTS (SELECT 1 FROM coupon_template WHERE coupon_key = 'newbie_gift');
 
 -- ----------------------------
--- 评价表（T-M4-05 加 audit_status；Mock 评价数据见 sql/review.sql）
+-- 评价表（T-M4-05 加 audit_status；P11-1a D1/m35 加商家回复三列 reply_content/reply_time/replyer，
+-- 列定义与 m35-migration.sql 逐字一致；Mock 评价数据见 sql/review.sql）
 -- ----------------------------
 DROP TABLE IF EXISTS review;
 CREATE TABLE review (
@@ -350,6 +351,9 @@ CREATE TABLE review (
     client_request_id VARCHAR(64) NULL                    COMMENT '客户端幂等标识（M31/F-124）：同值重复提交返回首次评价；NULL=历史/种子/不带键的旧前端',
     reviewer     VARCHAR(50)  NOT NULL    DEFAULT '匿名用户' COMMENT '评价人',
     audit_status VARCHAR(20)  NULL                        COMMENT '审核状态（T-M4-05）：NULL 正常展示 / pending 命中软词待人工复核（默认不展示）',
+    reply_content VARCHAR(500) NULL                       COMMENT '商家回复内容（P11-1a D1/m35）：一评一回，重复回复覆盖更新保留最新一条；入库前 HTML 转义照评价 content 同款防存储型 XSS；评价行 reject 物理删时随行消失（同表同行）',
+    reply_time   DATETIME     NULL                        COMMENT '商家回复时间（P11-1a D1/m35）：每次回复写入 NOW()；NULL=未回复',
+    replyer      VARCHAR(50)  NULL                        COMMENT '回复人=商家主体名（P11-1a D1/m35）：服务端按 merchant.name 落库，不收前端直传（照评价 reviewer 服务端生成口径）；NULL=未回复',
     create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP    COMMENT '评价时间',
     PRIMARY KEY (id),
     INDEX idx_dish_id (dish_id),

@@ -53,6 +53,12 @@
       "style": {
         "navigationBarTitleText": "结算账单"
       }
+    },
+    {
+      "path": "pages/reviews/reviews",
+      "style": {
+        "navigationBarTitleText": "评价管理"
+      }
     }
   ],
   "globalStyle": {

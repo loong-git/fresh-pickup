@@ -154,13 +154,15 @@ const AUDIT_TEXT = {
 }
 
 // 入口 key -> 路由（五入口现已全部在册：G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态 /
-// F-120 结算账单只读页）：不在表里的 key 仍按置灰 + 角标兜底；将来加入口只往这张表加一行，页面模板与点击分支都不用再改
+// F-120 结算账单只读页；P11-1a D5 追加第六枚评价管理）：不在表里的 key 仍按置灰 + 角标兜底；
+// 将来加入口只往这张表加一行，页面模板与点击分支都不用再改
 const ENTRY_ROUTES = {
   goods: '/pages/dishes/dishes',
   stock: '/pages/pickup-plan/pickup-plan',
   dashboard: '/pages/dashboard/dashboard',
   marketing: '/pages/marketing/marketing',
-  settlements: '/pages/settlements/settlements'
+  settlements: '/pages/settlements/settlements',
+  reviews: '/pages/reviews/reviews'
 }
 
 export default {
@@ -197,13 +199,16 @@ export default {
       // 真源在 main.js 挂载/切换处（storage 键 app_theme），本页 onShow 按档校准，不持第二套存储
       theme: 'light',
       // 五入口（静态列表放 data，与用户端 my-coupons.vue 的 couponTabs 同款）：
-      // 可点与否由 ENTRY_ROUTES[entry.key] 决定，本页不再持第二个开关字段（两处真值会打架）
+      // 可点与否由 ENTRY_ROUTES[entry.key] 决定，本页不再持第二个开关字段（两处真值会打架）。
+      // P11-1a D5 追加第六枚「评价管理」cell（纯追加一行，既有五枚 cell 与点击分支零改动）；
+      // 注释里的「五入口」字样是历史决策原文照录，现表内实为六枚
       entries: [
         { key: 'goods', icon: '🛒', title: '商品管理', hint: '上新/改价/库存' },
         { key: 'stock', icon: '📦', title: '备货单', hint: '备货/发货' },
         { key: 'dashboard', icon: '📊', title: '数据看板', hint: '销量/取消' },
         { key: 'marketing', icon: '📈', title: '营销参与态', hint: '秒杀/免费领' },
-        { key: 'settlements', icon: '🧾', title: '结算账单', hint: '账期/对账' }
+        { key: 'settlements', icon: '🧾', title: '结算账单', hint: '账期/对账' },
+        { key: 'reviews', icon: '📝', title: '评价管理', hint: '查看/回复评价' }
       ]
     }
   },
