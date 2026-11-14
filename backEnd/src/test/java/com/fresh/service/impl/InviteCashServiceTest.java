@@ -63,7 +63,7 @@ class InviteCashServiceTest {
     private static final Long INVITER_ID = 100L;
     private static final Long INVITEE_ID = 200L;
     private static final String INVITE_CODE = "ABCD2345";
-    private static final String INVITEE_PHONE = "13800001235";
+    private static final String INVITEE_PHONE = "13800001234";
     /** 与主代码 CASH_REWARD_MAX=10 一致（实读口径，闸门参数钉死在此） */
     private static final int CASH_REWARD_MAX = 10;
     private static final BigDecimal CASH_REWARD_AMOUNT = new BigDecimal("5.00");
@@ -113,7 +113,7 @@ class InviteCashServiceTest {
     private static User inviter(BigDecimal balance) {
         User user = new User();
         user.setId(INVITER_ID);
-        user.setPhone("13900001000");
+        user.setPhone("13800138000");
         user.setInviteCode(INVITE_CODE);
         user.setBalance(balance);
         return user;
@@ -146,7 +146,7 @@ class InviteCashServiceTest {
         verify(inviteRelationMapper, times(1)).insert(relCaptor.capture());
         assertEquals(INVITER_ID, relCaptor.getValue().getInviterId());
         assertEquals(INVITEE_ID, relCaptor.getValue().getInviteeId());
-        assertEquals("138****1235", relCaptor.getValue().getInviteePhone(), "invitee_phone 落库即脱敏（表内无原值）");
+        assertEquals("138****1234", relCaptor.getValue().getInviteePhone(), "invitee_phone 落库即脱敏（表内无原值）");
         assertEquals(InviteRelation.STATUS_PENDING, relCaptor.getValue().getStatus());
 
         ArgumentCaptor<CashFlow> flowCaptor = ArgumentCaptor.forClass(CashFlow.class);
