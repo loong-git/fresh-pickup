@@ -38,6 +38,14 @@
           <!-- M3-T-07：超长内容默认折叠 2 行，可展开/收起 -->
           <text class="review-content" :class="{ expanded: expandedReviews[r.id || idx] }">{{ r.content }}</text>
           <text v-if="(r.content || '').length > 60" class="review-expand" @click="toggleExpand(r.id || idx)">{{ expandedReviews[r.id || idx] ? '收起' : '展开全部' }}</text>
+          <!-- P10-6b（D5）评价图三列网格缩略（补渲染，结构照 detail.vue:180-184 评价行同款范式）：
+               后端列表行 images:[相对路径,...]（getReviews 已带，fillImages 防 N+1），无图不渲染区块；
+               单张 404 @error 兜底隐藏该格（imgFail 记录表姿势，不渲染占位），点击大图预览 -->
+          <view class="preview-imgs" v-if="reviewImages(r).length">
+            <view class="preview-img-cell" v-for="(p, pi) in reviewImages(r)" :key="'rimg-' + (r.id || idx) + '-' + pi">
+              <image v-if="!reviewImgFail[(r.id || idx) + '-' + pi]" class="preview-img" :src="resolveReviewImg(p)" mode="aspectFill" @error="onReviewImgFail((r.id || idx) + '-' + pi)" @click="previewReviewImages(r, pi)" />
+            </view>
+          </view>
           <text class="review-time">{{ formatTime(r.createTime) }}</text>
         </view>
       </view>
@@ -98,6 +106,9 @@
 
 <script>
 import { getDishDetail, getReviews, submitReview, uploadReviewImage } from '@/api/index.js'
+// P10-6b（D5）评价图 URL 解析依赖：相对路径须拼后端地址（照 detail.vue:366 同款导入；
+// 评价图由后端 /uploads/** 静态映射出，本页此前未引 BASE_URL 故补）
+import { BASE_URL } from '@/api/config.js'
 
 // M4-T-05：本地预检硬词表（与后端 backEnd/src/main/resources/sensitive-words.txt 硬词同款，
 // 共 10 个，后端词表更新时须同步此数组）。命中硬词前端直接拦截不提交、保留输入；
@@ -117,6 +128,9 @@ export default {
       loaded: false,
       // 长文本展开状态表（M3-T-07）：key 为评价 id，true = 已展开
       expandedReviews: {},
+      // P10-6b（D5）评价图加载失败记录表（照 detail.vue:397 reviewImgFail 同款）：
+      // key 为 `${评价id||行序}-${图序}`，true = 隐藏该格（不渲染占位）
+      reviewImgFail: {},
       showPopup: false,
       newRating: 5,
       reviewContent: '',
@@ -189,6 +203,26 @@ export default {
     // 长文本展开/收起切换（M3-T-07）：超 60 字折叠为 2 行，点击切换
     toggleExpand(id) {
       this.expandedReviews[id] = !this.expandedReviews[id]
+    },
+    // ==================== 评价图展示（P10-6b D5 补渲染，四方法照 detail.vue:665-682 同款范式） ====================
+    // 评价行 images 出参归一（detail 版为 typeof string 硬过滤；本页按任务口径加 String() try 容错：
+    // 非字符串项转字符串，转换 throw 的脏项与空串剔除；脏数据兜底空数组，区块随之隐藏）
+    reviewImages(r) {
+      const list = (r && Array.isArray(r.images)) ? r.images : []
+      return list.map(p => { try { return String(p) } catch (e) { return '' } }).filter(p => p)
+    },
+    // 图 URL 解析（照 detail.vue:671 resolveReviewImg 同款）：绝对 http(s) 直用，相对路径 BASE_URL 拼接
+    resolveReviewImg(p) {
+      return /^https?:\/\//.test(p) ? p : BASE_URL + p
+    },
+    // 单张评价图 404/加载失败：记录表标记该格隐藏（不渲染占位，照 detail.vue:675 onReviewImgFail 家族姿势）
+    onReviewImgFail(key) {
+      this.reviewImgFail = { ...this.reviewImgFail, [key]: true }
+    },
+    // 点击缩略图大图预览：urls 取该评价全部图（已过 reviewImages 归一），current 按 URL 口径传（H5/小程序通吃）
+    previewReviewImages(r, pi) {
+      const urls = this.reviewImages(r).map(p => this.resolveReviewImg(p))
+      uni.previewImage({ urls, current: urls[pi] })
     },
     // F-124 §1.3：客户端幂等键生成（家族命名照 index.vue genClientRequestId；格式 r-{dishId}-{毫秒}-{4位随机}，
     // 长约 22 字符 ≤64 与后端列/DTO 对齐）。一处定义，onLoad 与 openWrite 两处调用，防格式漂移
@@ -366,6 +400,10 @@ export default {
 .review-content.expanded { -webkit-line-clamp: 999; }
 .review-expand { display: block; font-size: 24rpx; color: #FF6600; margin-bottom: 12rpx; }
 .review-time { font-size: 22rpx; color: var(--c-disabled); }
+/* P10-6b（D5）评价图三列网格缩略（样式照 detail.vue:1053-1055 同款照抄：三列 gap/圆角/aspectFill） */
+.preview-imgs { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 12rpx; }
+.preview-img-cell { width: calc((100% - 16rpx) / 3); height: 200rpx; border-radius: 8rpx; overflow: hidden; background-color: var(--c-fill); }
+.preview-img { width: 100%; height: 100%; display: block; }
 
 /* 空状态 */
 .review-empty { display: flex; flex-direction: column; align-items: center; padding: 80rpx 0; gap: 16rpx; }
