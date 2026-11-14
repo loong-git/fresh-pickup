@@ -508,7 +508,7 @@ export function updatePartnerStore(fields) {
  * 两页都显式传 date，是为了让「页面显示的日期」与「请求用的日期」永远同一个值，
  * 不依赖服务端缺省去猜；服务端那个缺省只是给直调接口的调用方兜底。
  * storeId 是 D-22 的「名下多店选一家」选择器（PartnerController 的 arrivals 端点 @RequestParam Long storeId）：
- * 空值 = 取名下 id 最小的一家（PartnerStoreServiceImpl.java:377 Collections.min，方法体 :374-383）；集合外的 id → 404。
+ * 空值 = 取名下 id 最小的一家（PartnerStoreServiceImpl#resolveStoreId 的 Collections.min(storeIds)）；集合外的 id → 404。
  * 它既不是归属也不是可改列（RF），归属仍由服务端解析。
  * 两个调用方的现状读数（FE-2/FE-3，别再当成「遗留项待收口」）：
  * ① 核销台的到货警示条**逐店显式传 storeId**——待取清单覆盖名下全部店，只查最小 id 那一家会漏报别家；

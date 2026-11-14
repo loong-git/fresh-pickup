@@ -132,7 +132,7 @@
 //    绝不为了「页面好看」去前端 JOIN 别的接口补数据。
 // 本表 uk_store_date 保证「一店一日至多一批」，故这一页没有分页（RB 的手写分页在核销台那一页用）。
 // storeId 选择器本页不传（FE-3：一期不提供选店，本页没有选店入口）：留空即由服务端按
-// 「名下 id 最小的一家」解析（PartnerStoreServiceImpl.java:377 Collections.min，方法体 :374-383），
+// 「名下 id 最小的一家」解析（PartnerStoreServiceImpl#resolveStoreId 的 Collections.min(storeIds)），
 // 页内那一行「门店编号 N」就是回包的 data.storeId——显示哪家、确认哪家，永远是那一家。
 // 核销台的到货警示条是另一条通道：它逐店**显式带 storeId** 查后聚合（FE-2），管的是「名下几家没确认」，
 // 与本页「只看一家」各说各的事，不构成同一屏上的矛盾结论。

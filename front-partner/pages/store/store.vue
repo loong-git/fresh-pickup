@@ -100,7 +100,7 @@
           <text class="field-suffix">单/日</text>
         </view>
         <!-- 诚实文案（F-18.19 §2 点名）：一期没有「清空回不限容量」的入参形态（dailyCapacity 只有
-             null=不改这一支，后端没有 blank 分支，见 PartnerStoreServiceImpl.java:163-169），
+             null=不改这一支，后端没有 blank 分支，见 PartnerStoreServiceImpl#updateStore 的 dailyCapacity 段），
              所以这里绝不说「留空即取消限制」——那是把人骗进一次无效的保存 -->
         <text class="field-hint">填了才改、留空表示不修改；要取消容量限制一期请联系平台（S4b-F2 已登记该缺口）</text>
 
@@ -348,7 +348,7 @@ export default {
       // ①/② openTime / closeTime：picker 只会产出 HH:MM，故这一支不存在空串（=不会误清空列）
       if (cur.openTime !== base.openTime) body.openTime = cur.openTime
       if (cur.closeTime !== base.closeTime) body.closeTime = cur.closeTime
-      // ③ dailyCapacity：留空 = 不改（后端没有「清空回不限」这一支，见 PartnerStoreServiceImpl.java:163-169）
+      // ③ dailyCapacity：留空 = 不改（后端没有「清空回不限」这一支，见 PartnerStoreServiceImpl#updateStore 的 dailyCapacity 段）
       const capacity = String(cur.dailyCapacity || '').trim()
       if (capacity !== '' && capacity !== String(base.dailyCapacity || '')) body.dailyCapacity = Number(capacity)
       // ④ accepting：只在真的翻过时下发（1/0 整数，不是 boolean）

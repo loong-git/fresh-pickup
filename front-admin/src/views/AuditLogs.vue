@@ -3,7 +3,8 @@
     <!-- FE-G6-10（读写可辨）：本页只读（它记录的是**别人的**写动作，自己一个写端点都不调）。
          常驻徽标与写页同一套形态；下句「……写动作的留痕」说的是记录对象，不是本页行为。
          F-45 订正：这一句原先写的是「Admin 侧写动作」，与事实不符——admin_audit_log 里也有商家侧的行，
-         MerchantDishServiceImpl:166/272/319/342 与 MerchantServiceImpl:166/175 走的正是
+         MerchantDishServiceImpl 的 create/update/adjustStock/setOnSale 四处 writeAudit 与
+         MerchantServiceImpl 的 updateProfile/auditUpload 两处 writeAudit 走的正是
          AdminAuditLogMapper.insert 这一条通道（actor 前缀 merchant:<userId>）。
          由这个事实得出一条用法约束：**按 action 筛会把两轨的行混在一起**（dish.update 两轨都写），
          要认定「是谁做的」必须看 actor 列——所以下方的预设只给 actor 恒定那一枚配 actor，
@@ -178,7 +179,8 @@ const filters = ref({ actor: '', action: '', targetType: '', targetId: '' })
 //     ← actor = admin:<key 摘要 8>（静态密钥轨）或 admin_user:<id>（运营 JWT 轨，auditActor 归一）
 //   系统 1 个（AdminServiceImpl#recordNotifyReject）  pay.notify_reject  ← actor = system:wx-notify（F-44，没有人在场）
 //   登录 1 个（AdminAuthServiceImpl:361）  admin.login     ← actor = admin_user:<id>
-//   商家轨 6 个（MerchantDishServiceImpl:166/272/319/342、MerchantServiceImpl:166/175）
+//   商家轨 6 个（MerchantDishServiceImpl 的 create/update/adjustStock/setOnSale 四处 writeAudit、
+//     MerchantServiceImpl 的 updateProfile/auditUpload 两处 writeAudit）
 //     dish.create / dish.update / dish.stock / dish.onsale / merchant.profile / merchant.upload
 //     ← actor = merchant:<userId>
 // 选这四枚的理由（上限 4，按运营真要查的频率 + 单轨可追责性）：

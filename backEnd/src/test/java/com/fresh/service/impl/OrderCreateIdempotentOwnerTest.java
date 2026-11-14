@@ -218,7 +218,7 @@ class OrderCreateIdempotentOwnerTest {
     @Test
     void 跨用户撞键_B的新单快照与A行无关() {
         Order aRow = orderOf("ord-a-first", USER_A);
-        aRow.setPhone("13999999999"); // A 的敏感快照
+        aRow.setPhone("13800138000"); // A 的敏感快照（f28 demo_num_exclude 演示号）
         when(orderMapper.selectOne(any())).thenReturn(aRow);
         stubInsertAssignsId("ord-b-new");
         when(orderItemMapper.selectList(any())).thenReturn(List.of());

@@ -515,7 +515,7 @@ export default {
     },
     // ==================== 到货警示条（静默通道：失败不显示、不动四态、不起冷却） ====================
     // FE-2：名下多店时逐店查后聚合。原来只发一次不带 storeId 的请求，服务端按 Collections.min 挑一家
-    // （PartnerStoreServiceImpl.java:377 Collections.min），而待取清单覆盖名下全部门店 → 别家店没确认就是漏报。
+    // （PartnerStoreServiceImpl#resolveStoreId 的 Collections.min），而待取清单覆盖名下全部门店 → 别家店没确认就是漏报。
     // 现在先 GET /api/partner/stores 取名下集合，再逐店**显式带 storeId** 查今日批次，聚合成「几家没确认」。
     // 纪律不变：这一条仍是静默通道——任一次请求没成就整条不亮（宁可少报，也不把「没查到」说成「货没到」），
     // 不并入页面四态、不起 retryLock（Promise.all 一起 reject 就整体落 catch）。
