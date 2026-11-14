@@ -20,7 +20,7 @@ let styleInjected = false
 
 const CSS = `
 .imgp-overlay{position:fixed;left:0;top:0;right:0;bottom:0;z-index:${OVERLAY_Z_INDEX};background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none}
-.imgp-img{max-width:90vw;max-height:90vh;object-fit:contain;transition:opacity .15s;-webkit-user-drag:none;cursor:grab;will-change:transform}
+.imgp-img{max-width:90vw;max-height:90vh;object-fit:contain;transition:opacity .15s;-webkit-user-drag:none;cursor:grab;will-change:transform;touch-action:none}
 .imgp-img--grabbing{cursor:grabbing}
 .imgp-close{position:absolute;top:12px;right:20px;width:44px;height:44px;line-height:44px;text-align:center;font-size:36px;color:#fff;cursor:pointer;z-index:1}
 .imgp-arrow{position:absolute;top:50%;margin-top:-32px;width:44px;height:64px;line-height:60px;text-align:center;font-size:44px;color:rgba(255,255,255,.75);cursor:pointer;z-index:1}
@@ -129,7 +129,7 @@ export function openImgPreview({ urls, current } = {}) {
   // ==================== 切图与计数 ====================
   function updateFooter() {
     const pos = list.length > 1 ? (idx + 1) + ' / ' + list.length + '　' : ''
-    footer.textContent = pos + '滚轮缩放 · 拖动平移 · 双击复位 · Esc 关闭'
+    footer.textContent = pos + '滚轮/双指缩放 · 拖动平移 · 双击复位 · Esc 关闭'
   }
 
   // 加载中先隐去旧图防串图；失败也露出（破图图标可见，不算静默黑屏）
@@ -158,38 +158,103 @@ export function openImgPreview({ urls, current } = {}) {
     zoomAt(e.clientX - oRect.left, e.clientY - oRect.top, scale * Math.exp(-dy * WHEEL_STEP))
   }
 
-  // 拖拽平移：pointer 事件（鼠标/触摸/笔通吃），setPointerCapture 移出图片仍跟手
+  // ==================== 指针交互：单指拖拽平移 / 双指捏合缩放 ====================
+  // 活动指针表：pointerId → { x, y }（client 坐标，move 时原地更新）
+  // 状态机：0 指空闲 → 1 指落 img 上 = 拖拽 → 第 2 指落下（落点任意）= 捏合 →
+  //         捏合中抬 1 指回拖拽（剩余指为新锚点）→ 全抬起回空闲；up/cancel/leave 全清理
+  const pointers = new Map()
+  // 捏合基准：第 2 指落下瞬间的双指间距与当时 scale（相对捏合：dist / dist0 × scale0）
+  let pinchStartDist = 0
+  let pinchStartScale = 1
+  // 最近一次捏合收指时刻：短窗内抑制 dblclick（双指快抬可能被浏览器误判为双击）
+  let lastPinchAt = 0
+  // 单指拖拽状态（沿用原实现：1:1 跟手平移）
   let dragging = false
   let lastX = 0
   let lastY = 0
 
-  function onPointerDown(e) {
+  function startDrag(id, x, y) {
     dragging = true
-    lastX = e.clientX
-    lastY = e.clientY
+    lastX = x
+    lastY = y
     img.classList.add('imgp-img--grabbing')
-    try { img.setPointerCapture(e.pointerId) } catch (err) { /* 老 IE/异常环境降级为不捕获 */ }
-    e.preventDefault() // 防触发原生图片拖拽/文字选择
+    try { img.setPointerCapture(id) } catch (err) { /* 老 IE/异常环境降级为不捕获 */ }
+  }
+
+  function onPointerDown(e) {
+    if (pointers.size >= 1 && !pointers.has(e.pointerId)) {
+      // 第 2 指落下（落点不限：放大后图外遮罩上也常见）→ 切捏合模式
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      e.preventDefault() // 防长按菜单/系统手势劫持（触摸下同时阻断误 click）
+      dragging = false // 捏合期间禁拖拽：双指间 move 不走平移，防抖动
+      img.classList.remove('imgp-img--grabbing')
+      try { img.setPointerCapture(e.pointerId) } catch (err) { /* 降级同上 */ }
+      const pts = Array.from(pointers.values())
+      pinchStartDist = Math.max(Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), 1) // 防除零
+      pinchStartScale = scale
+    } else if (pointers.size === 0 && e.target === img) {
+      // 第 1 指且落在图上 → 拖拽模式（遮罩空白/按钮按下不接管，保留 click 关闭与按钮点击）
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      e.preventDefault() // 防触发原生图片拖拽/文字选择
+      startDrag(e.pointerId, e.clientX, e.clientY)
+    }
   }
 
   function onPointerMove(e) {
-    if (!dragging) return
-    tx += e.clientX - lastX
-    ty += e.clientY - lastY
-    lastX = e.clientX
-    lastY = e.clientY
-    applyTransform(false)
+    const p = pointers.get(e.pointerId)
+    if (!p) return // 无活动指的 move（鼠标 hover 划过）：忽略
+    p.x = e.clientX
+    p.y = e.clientY
+    if (pointers.size >= 2) {
+      // 双指捏合：新 scale = 双指距 / 初始距 × 初始 scale；锚点 = 两指中点（与 wheel 同构走 zoomAt）
+      if (pinchStartDist > 0) {
+        const pts = Array.from(pointers.values())
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+        const oRect = overlay.getBoundingClientRect()
+        zoomAt((pts[0].x + pts[1].x) / 2 - oRect.left, (pts[0].y + pts[1].y) / 2 - oRect.top, pinchStartScale * (dist / pinchStartDist))
+      }
+    } else if (dragging) {
+      // 单指拖拽：1:1 跟手平移
+      tx += e.clientX - lastX
+      ty += e.clientY - lastY
+      lastX = e.clientX
+      lastY = e.clientY
+      applyTransform(false)
+    }
   }
 
-  function onPointerUp(e) {
-    if (!dragging) return
-    dragging = false
-    img.classList.remove('imgp-img--grabbing')
+  // 指针结束（pointerup / pointercancel / 兜底 leave）共用：Map 清理 + 模式降级
+  function removePointer(e) {
+    if (!pointers.has(e.pointerId)) return
+    const wasPinching = pointers.size >= 2
+    pointers.delete(e.pointerId)
     try { img.releasePointerCapture(e.pointerId) } catch (err) { /* 同上 */ }
+    if (pointers.size === 1 && wasPinching) {
+      // 双指 → 单指：回拖拽模式，以剩余指当前位置为新拖拽锚点
+      pinchStartDist = 0
+      const rest = Array.from(pointers.entries())[0]
+      startDrag(rest[0], rest[1].x, rest[1].y)
+    } else if (pointers.size === 0) {
+      // 全部抬起 → 空闲
+      dragging = false
+      pinchStartDist = 0
+      img.classList.remove('imgp-img--grabbing')
+    }
+    if (wasPinching) lastPinchAt = performance.now()
   }
+
+  function onPointerUp(e) { removePointer(e) }
+  function onPointerCancel(e) { removePointer(e) }
+  // 兜底：capture 失败的环境里手指滑出 overlay 也能清 Map，防幽灵指针残留
+  function onPointerLeave(e) { removePointer(e) }
+
+  // iOS Safari 手势事件（系统级双指缩放劫持）：一律 preventDefault，缩放全由 PointerEvent 自管
+  function onGesture(e) { e.preventDefault() }
 
   // 双击：已放大 → 复位；1x → 以双击点为锚放大 2.5x
   function onDblClick(e) {
+    // 双指捏合余波不算双击：捏合进行中 / 刚收指 350ms 内快抬可能被浏览器判成 dblclick
+    if (pointers.size > 0 || performance.now() - lastPinchAt < 350) return
     if (scale > 1.01) {
       resetView(true)
       return
@@ -248,10 +313,16 @@ export function openImgPreview({ urls, current } = {}) {
   bind(window, 'hashchange', close)
 
   bind(overlay, 'wheel', onWheel, { passive: false }) // 需 preventDefault，必须非 passive
-  bind(img, 'pointerdown', onPointerDown)
-  bind(img, 'pointermove', onPointerMove)
-  bind(img, 'pointerup', onPointerUp)
-  bind(img, 'pointercancel', onPointerUp)
+  // pointer 系全绑 overlay：capture 到 img 后事件仍经 img 冒泡至此（一条链不重复处理）；
+  // capture 失败时 overlay 直接兜底；第 2 指落图外（遮罩）也能进捏合
+  bind(overlay, 'pointerdown', onPointerDown)
+  bind(overlay, 'pointermove', onPointerMove)
+  bind(overlay, 'pointerup', onPointerUp)
+  bind(overlay, 'pointercancel', onPointerCancel)
+  bind(overlay, 'pointerleave', onPointerLeave)
+  // iOS Safari 系统级捏合劫持保险：手势事件一律 preventDefault（缩放全走 PointerEvent 自管）
+  bind(overlay, 'gesturestart', onGesture, { passive: false })
+  bind(overlay, 'gesturechange', onGesture, { passive: false })
   bind(img, 'dblclick', onDblClick)
   bind(img, 'load', onLoad)
   bind(img, 'error', onError)
