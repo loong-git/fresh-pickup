@@ -53,7 +53,9 @@ public class FreeController {
                 "0元领取成功，凭订单到自提点自提");
     }
 
-    /** 我的领取记录（需登录）：分页，关联订单状态随行返回（手机号脱敏口径同 getOrders） */
+    /** 我的领取记录（需登录）：分页，关联订单状态随行返回（手机号脱敏口径同 getOrders）。
+     *  P11-2 P3-J：登录读补 USER 档 30/60s（本类 current/claim 已有档，仅此端点缺口）。 */
+    @RateLimit(limit = 30, windowSeconds = 60)  // 登录读档 30/60s（P3-J，USER 维度）
     @GetMapping("/my-claims")
     public R<Map<String, Object>> myClaims(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
                                            @RequestParam(defaultValue = "1") Integer pageNum,

@@ -217,6 +217,27 @@ class CouponTemplateGuardTest {
         verify(userCouponMapper, never()).insert(any(UserCoupon.class));
     }
 
+    /**
+     * A-2b（P11-2 P1-B 新增语义）：lifetime selectCount 读到 0（并发双击双请求都读到 count=0 的
+     * check-then-act 竞态形态）放行到 insert，insert 撞 uk_user_coupon（m36-coupon-uk.sql 库侧唯一键）
+     * → 400「每人限领 1 张」——唯一键封死竞态窗口，与 lifetime selectCount 双防线并存（selectCount
+     * 检查保留不动）。mock selectCount 返回 0 走到 insert 撞键路径（照仓内既有 mock 风格，
+     * insert 桩抛 DuplicateKeyException）。
+     */
+    @Test
+    void selectCount放行后insert撞唯一键_兜底400每人限领1张() {
+        long user = 104L;
+        lifetimeCount = 0L;                       // 竞态形态：lifetime 防线读到 0 → 放行
+        doThrow(new org.springframework.dao.DuplicateKeyException("uk_user_coupon"))
+                .when(userCouponMapper).insert(any(UserCoupon.class)); // 覆盖 setUp 的落行桩：模拟库侧唯一键拒绝
+
+        BizException e = assertThrows(BizException.class, () -> service.claim(user, "coupon_1"));
+
+        assertEquals(400, e.getCode());
+        assertEquals("每人限领 1 张", e.getMessage(), "撞 uk_user_coupon 的 400 文案与 lifetime 防线一致");
+        verify(userCouponMapper, times(1)).insert(any(UserCoupon.class)); // insert 恰好试了一次
+    }
+
     // ================================================================ 【基线对照】防线二：发放时快照
 
     /**

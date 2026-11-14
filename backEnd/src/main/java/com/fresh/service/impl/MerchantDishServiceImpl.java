@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.common.BizException;
 import com.fresh.common.R;
+import com.fresh.common.WordFilter;
 import com.fresh.dto.MerchantDishCreateDTO;
 import com.fresh.dto.MerchantDishOnSaleDTO;
 import com.fresh.dto.MerchantDishStockDTO;
@@ -105,6 +106,13 @@ public class MerchantDishServiceImpl implements MerchantDishService {
     @Autowired
     private AdminAuditLogMapper adminAuditLogMapper;
     /**
+     * P11-2 P3-F：商品自由文本（name/description/tags）接入敏感词（注入姿势照 ReviewServiceImpl:66-67 先例；
+     * 词表 classpath:sensitive-words.txt，热更新机制在该组件内部，本类不触碰）。
+     * 商品名/描述经 C 端匿名公开展示，此前敏感词治理只覆盖评价与商家回复——本处补齐商品侧。
+     */
+    @Autowired
+    private WordFilter wordFilter;
+    /**
      * F-120 listView 的出参转换器：注入 Spring 全局 ObjectMapper（Boot 自动配置，jsr310 已注册），
      * convertValue 与实体直出走同一套序列化配置——日期/tags 形态与改前逐键一致，不另起一套。
      */
@@ -167,6 +175,9 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         merchantService.assertActive(merchantId);
         // BE-3/BE-4 值形态收口（create 侧 name/unit/category 已被 @NotBlank 拦过，这里同判定命中不了、纯属共用一处）
         assertDisplayValue(dto.getImage(), dto.getBgColor(), dto.getName(), dto.getUnit(), dto.getCategory());
+        // P11-2 P3-F：自由文本过敏感词（硬词一票 400；软词命中标记见下方 dish.auditStatus 置 pending）
+        String tagsText = joinTags(dto.getTags());
+        assertNoHardWord(dto.getName(), dto.getDescription(), tagsText);
 
         Dish dish = new Dish();
         dish.setName(dto.getName());
@@ -180,6 +191,13 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         dish.setBgColor(dto.getBgColor());
         dish.setTags(dto.getTags());
         dish.setLimitBuy(dto.getLimitBuy());
+        // P11-2 P3-F 软词 → 先发后审 pending（Dish.AUDIT_PENDING，复用 m26 audit_status 列零迁移）：
+        // C 端可见性恒 =ok（F-116 §2.1 四处读路径），pending 品不进列表/搜索/秒杀/推荐，
+        // 恢复唯一入口=运营端 restore（已有审核态联动不另造）；无软词不写本列，落库走 DB DEFAULT 'ok' 兜底
+        if (hasSoftWord(dto.getName(), dto.getDescription(), tagsText)) {
+            dish.setAuditStatus(Dish.AUDIT_PENDING);
+            log.info("商品自由文本命中软词，转待审 pending: merchantId={}, name={}", merchantId, dto.getName());
+        }
         // 归属唯一来源：服务端 @RequestAttribute 解析出的 merchantId（DTO 无 merchantId/id 字段，R5'）
         dish.setMerchantId(merchantId);
         dishMapper.insert(dish);
@@ -207,6 +225,9 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         // BE-3/BE-4 值形态收口（与 create 共用一处私有方法）：image 外链 / bgColor 的 CSS 简写注入 /
         // name·unit·category 的「非 null 但 blank」清空，全部在写库之前 400（F-13.10 #3 #4 #6）
         assertDisplayValue(dto.getImage(), dto.getBgColor(), dto.getName(), dto.getUnit(), dto.getCategory());
+        // P11-2 P3-F：update 与 create 同口径——本次改写的自由文本（仅非 null 字段参与，部分更新语义）
+        // 过敏感词，硬词一票 400 在写库之前；软词命中标记在下方 before 读取后按当前审核态落（update 侧软词同口径）
+        assertNoHardWord(dto.getName(), dto.getDescription(), joinTags(dto.getTags()));
 
         // 写路径母版 AdminServiceImpl#updateDish（逐字段 set + 全空 400），在其之上必须追加归属条件（R3'）
         LambdaUpdateWrapper<Dish> wrapper = new LambdaUpdateWrapper<Dish>()
@@ -281,6 +302,15 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         if (dto.getPrice() != null && Integer.valueOf(1).equals(before.getSeckill())) {
             throw new BizException(R.CODE_BAD_REQUEST,
                     "该商品正在参加平台秒杀活动，挂牌价由运营统一维护，如需调价请联系运营");
+        }
+        // P11-2 P3-F：软词命中 → 置待审 pending（update 侧与 create 同口径）。仅当品仍 'ok'（正常在售）才写：
+        // rejected 是运营驳回的更强裁定，改品不得改写审核态（F-116 §2.4「改品不洗白」不变式原样保留，
+        // 且 rejected/pending 对 C 端同样不可见，软词内容无暴露面）；pending 品重复命中不重复写。
+        // 恢复唯一入口=运营端 restore，商户端无任何置回 ok 的路径
+        if (hasSoftWord(dto.getName(), dto.getDescription(), joinTags(dto.getTags()))
+                && Dish.AUDIT_OK.equals(before.getAuditStatus())) {
+            wrapper.set(Dish::getAuditStatus, Dish.AUDIT_PENDING);
+            log.info("商品更新文本命中软词，转待审 pending: merchantId={}, dishId={}", merchantId, id);
         }
         if (dishMapper.update(patch, wrapper) == 0) {
             throw new BizException(R.CODE_NOT_FOUND, "商品不存在");
@@ -423,6 +453,44 @@ public class MerchantDishServiceImpl implements MerchantDishService {
     /** 非 null 但去掉首尾空白后为空——部分更新语义下这是「要把 NOT NULL 列写成空」的信号，必须拦 */
     private boolean isBlank(String value) {
         return value != null && value.trim().isEmpty();
+    }
+
+    // ------------------------------------------------------------------
+    // P11-2 P3-F 商品自由文本敏感词（create/update 两写入口共用这一处，不散成两份）
+    // ------------------------------------------------------------------
+
+    /**
+     * 硬词一票拒绝（照评价链 {@code ReviewServiceImpl#addReview}「评价包含违规内容」族文案风格）：
+     * name/description/tags 任一命中 → 400，写库之前拦（create 在 insert 前、update 在 UPDATE 前各调一次）。
+     * 文案给「请修改后重新提交」指引（同商家回复 replyReview 的 400 族），前端保留输入不清空。
+     */
+    private void assertNoHardWord(String... texts) {
+        for (String text : texts) {
+            if (text != null && !text.isEmpty() && wordFilter.matchHard(text) != null) {
+                throw new BizException(R.CODE_BAD_REQUEST, "商品信息包含违规内容，请修改后重新提交");
+            }
+        }
+    }
+
+    /** 软词命中判定（任一字段命中即 true）；硬词更重且已在 assertNoHardWord 拦掉，走到这里的只可能是软词/干净文本 */
+    private boolean hasSoftWord(String... texts) {
+        for (String text : texts) {
+            if (text != null && !text.isEmpty() && wordFilter.matchSoft(text) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * tags 供词表匹配的串化：逗号拼接（词表词条均不含逗号，分隔符不制造跨元素伪命中）。
+     * null/空数组 → null 不参与匹配；元素内空白照原样交给 WordFilter（简单包含匹配，不做归一）。
+     */
+    private String joinTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return null;
+        }
+        return String.join(",", tags);
     }
 
     /**

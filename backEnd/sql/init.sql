@@ -145,7 +145,7 @@ CREATE TABLE dish (
     -- 审核态两列（m26-migration.sql 同步，F-116 先发后审）：ALTER 无 AFTER 子句、列追加在表尾，
     -- 本建表体照迁移后的物理列序摆放（update_time 之后），存量库与新库结构逐列一致；
     -- 存量行由 DEFAULT 语义自动 audit_status='ok' 零 UPDATE，驳回理由 NULL=未驳回
-    audit_status VARCHAR(20)    NOT NULL    DEFAULT 'ok'     COMMENT 'F-116 先发后审：ok 正常 / rejected 运营驳回（驳回即 C 端不可见不可买；恢复唯一入口=运营端）',
+    audit_status VARCHAR(20)    NOT NULL    DEFAULT 'ok'     COMMENT 'F-116 先发后审：ok 正常 / pending 软词命中待审（P11-2 P3-F，C 端不进列表/搜索） / rejected 运营驳回（驳回即 C 端不可见不可买；恢复唯一入口=运营端）',
     audit_reason VARCHAR(200)   NULL                         COMMENT 'F-116 驳回理由（reject 必填 1~200，restore 清空；商家端展示）',
     -- 供货价（m27-migration.sql 同步，F-117 供货价真源）：NULL=未设（不进结算聚合，F-118 聚合基数语义）；
     -- 运营端维护（PUT /api/admin/dishes/{id} 可选 supplyPrice），零回填种子（种子 INSERT 列清单不含本列，
@@ -288,6 +288,9 @@ CREATE TABLE user_coupon (
     created_at DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '领取时间',
     expire_at  DATETIME      NULL                    COMMENT '过期时间（M6）：领取时写 created_at+7 天（见 UserCoupon.VALID_DAYS）；NULL=永不过期',
     PRIMARY KEY (id),
+    -- uk_user_coupon（m36-coupon-uk.sql 同步，P11-2 P1-B）：每人每 key 至多一行，claim 的 lifetime
+    -- 防线（check-then-act）并发兜底；两列均 NOT NULL，无 NULL 进唯一键的边界
+    UNIQUE KEY uk_user_coupon (user_id, coupon_key),
     INDEX idx_user_id (user_id),
     INDEX idx_order_id (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户优惠券表';

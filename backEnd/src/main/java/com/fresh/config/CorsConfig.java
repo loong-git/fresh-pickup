@@ -82,7 +82,9 @@ public class CorsConfig implements WebMvcConfigurer {
                 // 只加不改：5173=C 端、5174=商家端、8080=本地直跑口径照旧。
                 .allowedOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:8080", "http://localhost:5175", "http://localhost:5176", "http://localhost:5177")
                 // PUT：T-M3-09 管理端薄版（/api/admin/** 核销/改价/补库存/上下架）
-                .allowedMethods("GET", "POST", "PUT")
+                // DELETE：P11-2 P3-H 纯加法——运营端字典词条删除/搜索别名删除（front-admin/src/api/index.js
+                // :835/:1029）的 DELETE 预检此前被本行拒绝；DELETE 端点本就在双轨闸门之后，放行方法不扩大攻击面
+                .allowedMethods("GET", "POST", "PUT", "DELETE")
                 .allowedHeaders("*")
                 .maxAge(3600);
     }

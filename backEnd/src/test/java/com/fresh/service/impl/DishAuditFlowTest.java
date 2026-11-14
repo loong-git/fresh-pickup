@@ -426,6 +426,9 @@ class DishAuditFlowTest {
         ReflectionTestUtils.setField(service, "dishMapper", dishMapper);
         ReflectionTestUtils.setField(service, "merchantService", mock(com.fresh.service.MerchantService.class));
         ReflectionTestUtils.setField(service, "adminAuditLogMapper", auditMapper);
+        // P11-2 P3-F：create/update 自由文本过 WordFilter——空词表实例（不调 load()，两表恒 List.of()）= 恒放行，
+        // 本类既有断言（改品不碰审核两列/新建默认 ok）语义不变；词表真值用例在 P3FFreeTextWordFilterTest
+        ReflectionTestUtils.setField(service, "wordFilter", new com.fresh.common.WordFilter());
         return service;
     }
 

@@ -32,7 +32,10 @@ public class ReviewController {
 
     /** 评价列表（签名保持现状）
      *  F-42b 收信封：手工 Map → R.ok(list)；原顶层 total（=list.size()，零信息量）一并去掉，
-     *  data 仍是数组本体（C 端两处调用方均按 reviewRes.data 直接取数组）。 */
+     *  data 仍是数组本体（C 端两处调用方均按 reviewRes.data 直接取数组）。
+     *  P11-2 P3-J：匿名公开读补 IP 档 30/60s（照 StoreController:27 姿势；detail 页一次进页拉
+     *  菜品+评价两条，档位远宽于该节奏，不误伤）。 */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     @GetMapping("/api/dishes/{dishId}/reviews")
     public R<List<Review>> getReviews(@PathVariable Long dishId) {
         return R.ok(reviewService.getReviewsByDishId(dishId));
@@ -68,7 +71,9 @@ public class ReviewController {
         return R.ok(saved, "评价成功");
     }
 
-    /** 我的评价（M7）：/api/reviews/mine 需登录（AuthInterceptor 权限矩阵），userId 同 @RequestAttribute 口径 */
+    /** 我的评价（M7）：/api/reviews/mine 需登录（AuthInterceptor 权限矩阵），userId 同 @RequestAttribute 口径。
+     *  P11-2 P3-J：登录读补 USER 档 30/60s（keyType 缺省 USER 维度，同 OrderController.getOrders 家族）。 */
+    @RateLimit(limit = 30, windowSeconds = 60)  // 登录读档 30/60s（P3-J，USER 维度）
     @GetMapping("/api/reviews/mine")
     public R<List<Map<String, Object>>> myReviews(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
         return R.ok(reviewService.listByUser(userId));

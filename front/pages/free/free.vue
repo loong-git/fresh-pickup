@@ -706,6 +706,8 @@ export default {
       this.claimsPageNum = 1
       this.loadMyClaims()
     } else {
+      // bump 作废登出瞬间在飞的领取记录回包（防内存残影写回列表）；既有清空行为不动
+      this._claimsSeq = (this._claimsSeq || 0) + 1
       this.claims = []
       this.claimsTotal = 0
       this.claimsError = false
@@ -849,23 +851,48 @@ export default {
       // 服务保障标签（轻购物车弹层服务条用，对照首页弹层同款口径）
       this.serviceTags = (tags || []).map(d => d.word)
     },
-    // 我的领取记录（登录，分页）：pageNum=1 替换式加载，翻页追加；401 静默切游客视图
+    // 我的领取记录（登录，分页）：pageNum=1 替换式加载，翻页追加；401 静默切游客视图。
+    // P2-L：onShow 重置/重试/翻页共用本方法，代次守卫只认最后一次发出的请求（照 front/pages/order/order.vue:279
+    // _ordersSeq 范式，|| 0 兜首用 undefined）——翻页在飞 × onShow 重置交错时，旧页响应不得写回新列表
     async loadMyClaims() {
-      if (!this.hasToken) { this.claims = []; this.claimsTotal = 0; return }
+      if (!this.hasToken) {
+        // 未登录早退同样要作废在飞响应并摘掉 loading（照 order.vue loadOrders 未登录分支）：
+        // 否则切游客后旧回包仍会把列表写回来，且没人再清 loading（加载更多永久进不去）
+        this._claimsSeq = (this._claimsSeq || 0) + 1
+        this.claimsLoading = false
+        this.claims = []
+        this.claimsTotal = 0
+        return
+      }
+      const seq = (this._claimsSeq = (this._claimsSeq || 0) + 1)
       this.claimsLoading = true
       try {
         const res = await freeMyClaims(this.claimsPageNum, 10)
+        if (seq !== this._claimsSeq) return
         const data = (res && res.data) || {}
         const list = Array.isArray(data.list) ? data.list : (Array.isArray(data) ? data : [])
-        this.claims = this.claimsPageNum === 1 ? list : this.claims.concat(list)
+        // 追加支按 id 去重（照 front-merchant/pages/plan-orders.vue appendRows 姿势）：跨页边界同一条
+        // 可能在相邻两页各给一次，去重后 concat 出新引用整体替换，不产生重复行
+        if (this.claimsPageNum === 1) {
+          this.claims = list
+        } else {
+          const seen = {}
+          this.claims.forEach(r => { if (r && r.id != null) seen[r.id] = true })
+          this.claims = this.claims.concat(list.filter(r => !(r && r.id != null && seen[r.id])))
+        }
         const total = Number(data.total)
         this.claimsTotal = Number.isFinite(total) && total >= 0 ? total : (this.claimsPageNum === 1 ? list.length : this.claimsTotal)
+        // 空页终止：跨页漂移去重后唯一行数可小于 total，拉到空页即以实际行数封顶 claimsTotal，防「加载更多」按钮永驻
+        if (list.length === 0) this.claimsTotal = this.claims.length
         this.claimsError = false
         this.refreshBroadcast()
       } catch (e) {
+        // 过期请求的失败不作数：不得把新请求的错误态顶掉
+        if (seq !== this._claimsSeq) return
         if (!e || e.code !== 401) this.claimsError = true
       } finally {
-        this.claimsLoading = false
+        // 只由最后一次请求收尾：过期请求不得摘掉在飞请求的 loading
+        if (seq === this._claimsSeq) this.claimsLoading = false
       }
     },
     loadMoreClaims() {

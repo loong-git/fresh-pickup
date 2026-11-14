@@ -33,7 +33,10 @@ public class InviteController {
      * 我的邀请主页（契约 F-01.2）：data = {inviteCode, inviteUrl, invitedCount, completedCount,
      * records:[{phoneMasked, statusText, createdAt, rewardedAt}]}。
      * 首次调用惰性生成 invite_code 并写回（复测幂等，返回同一码）。
+     * P11-2 P3-J：挂登录读档 30/60s——实读 AuthInterceptor 白名单：/api/invite/** 前缀整体登录
+     * （本类并无匿名公开读，按实际登录语义挂 USER 档而非 IP 档）。
      */
+    @RateLimit(limit = 30, windowSeconds = 60)  // 登录读档 30/60s（P3-J，USER 维度）
     @GetMapping("/me")
     public R<Map<String, Object>> me(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
         return R.ok(inviteService.inviteInfo(userId));
@@ -44,7 +47,9 @@ public class InviteController {
      * data = {balance, frozenTotal, totalEarned, canWithdraw, withdrawMin:20,
      * flows:[{type,status,amount,balanceAfter,inviteeId,remark,createdAt}]}（流水倒序上限 50）。
      * 注册只冻结不入账（F-04.2 修订②）：balance 仅含已入账现金，冻结部分 frozenTotal 单列。
+     * P11-2 P3-J：登录读档 30/60s（同 /me）。
      */
+    @RateLimit(limit = 30, windowSeconds = 60)  // 登录读档 30/60s（P3-J，USER 维度）
     @GetMapping("/cash")
     public R<InviteCashVO> cash(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
         return R.ok(inviteService.cashInfo(userId));

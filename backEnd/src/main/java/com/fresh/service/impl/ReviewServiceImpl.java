@@ -151,12 +151,24 @@ public class ReviewServiceImpl implements ReviewService {
             if (trimmed.isEmpty()) {
                 review.setClientRequestId(null);
             } else {
-                review.setClientRequestId(trimmed);
                 Review existing = selectByClientRequestId(trimmed);
-                if (existing != null) {
+                if (existing != null && userId.equals(existing.getUserId())) {
+                    // P11-2 P2-C 归属收窄：幂等命中仅限「同用户同键」（同 P1-A，uk_review_client_request_id
+                    // 全局唯一不带 user 维度）；本人同键照旧幂等返回（存量行为）
+                    review.setClientRequestId(trimmed);
                     log.info("评价幂等命中，重复提交已忽略: clientRequestId={}, firstReviewId={}",
                             trimmed, existing.getId());
                     return existing;
+                }
+                // 命中他人键 → 该请求键视为不存在：置 null 走正常插入（评价表键可空先例已存在，
+                // 同「空白归一为 null 不占唯一索引」口径），绝不返回他人评价行（userId/content/reviewer 都在行上）；
+                // 未命中 → 照旧带键落库（占键，同键重复提交仍走幂等）
+                if (existing != null) {
+                    log.info("评价幂等键归属他人，视为新键落库: clientRequestId={}, existingReviewId={}, userId={}",
+                            trimmed, existing.getId(), userId);
+                    review.setClientRequestId(null);
+                } else {
+                    review.setClientRequestId(trimmed);
                 }
             }
         }

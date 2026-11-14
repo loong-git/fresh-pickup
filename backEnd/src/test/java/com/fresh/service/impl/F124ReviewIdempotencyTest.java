@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -147,6 +148,9 @@ class F124ReviewIdempotencyTest {
     void 带键重提返回首次评价行_不再insert_好评率只回写一次() {
         Review first = review(KEY);
         first.setId(3L);
+        // P11-2 P2-C 桩适配：归属收窄后幂等命中仅限「同用户同键」，首次行须带提交者 userId
+        // 才构成本人同键（补桩数据不改断言语义；未带 userId 的他人键行为由下方跨用户用例单独锁）
+        first.setUserId(9L);
         when(reviewMapper.selectOne(any())).thenReturn(first); // 同键已存在 → 幂等命中
 
         Review out = service().addReview(review(KEY), 9L);
@@ -157,6 +161,35 @@ class F124ReviewIdempotencyTest {
         verify(dishMapper, never()).refreshGoodRate(any());
         // 幂等命中在购买归属校验之前短路：重复提交连归属校验都不再跑
         verify(orderItemMapper, never()).countByUserIdAndDishId(any(), any());
+    }
+
+    // ================================================================
+    // ②b P11-2 P2-C 跨用户撞键：他人键不返回他人行，B 建自己的新评价行
+    // ================================================================
+
+    @Test
+    void 跨用户撞键_他人键视为新键置null_B建自己的新评价行() {
+        stubPurchaseAndUser();
+        Review aRow = review(KEY);
+        aRow.setId(7L);
+        aRow.setUserId(8L); // A 已落的评价行（键归属 A）
+        when(reviewMapper.selectOne(any())).thenReturn(aRow);
+        stubInsertAssignsId(9L);
+        when(dishMapper.refreshGoodRate(1L)).thenReturn(1);
+
+        Review in = review(KEY); // B（userId=9）用 A 的键提交
+        Review out = service().addReview(in, 9L);
+
+        assertSame(in, out, "B 拿到的是自己落库的新行，绝不是 A 的评价行");
+        assertEquals(9L, out.getId().longValue(), "新评价行 id 是本次 insert 回填的，不是 A 行的 7");
+        ArgumentCaptor<Review> captor = ArgumentCaptor.forClass(Review.class);
+        verify(reviewMapper, times(1)).insert(captor.capture());
+        assertNull(captor.getValue().getClientRequestId(),
+                "他人键必须置 null 落库（评价键可空先例，不占 uk_review_client_request_id 唯一索引）");
+        assertEquals(9L, captor.getValue().getUserId().longValue(), "新行归属 B 本人");
+        verify(dishMapper, times(1)).refreshGoodRate(1L); // 正常插入路径照跑：好评率回写不缺
+        verify(orderItemMapper, times(1)).countByUserIdAndDishId(eq(9L), eq(1L)); // 购买归属校验照跑
+        verify(reviewMapper, never()).deleteById(anyLong()); // A 的行零改动
     }
 
     // ================================================================

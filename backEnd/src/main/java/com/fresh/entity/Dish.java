@@ -29,6 +29,13 @@ public class Dish {
     /** F-116 审核态两枚值（m26 迁移列口径）：先发后审，驳回即 C 端不可见不可买，恢复唯一入口=运营端 restore */
     public static final String AUDIT_OK = "ok";
     public static final String AUDIT_REJECTED = "rejected";
+    /**
+     * P11-2 P3-F 新增第三枚值：软词命中待审（复用 m26 的 audit_status 列，VARCHAR(20) 无值域约束，零迁移）。
+     * C 端可见性恒 {@code audit_status='ok'}（F-116 §2.1 四处读路径 eq(AUDIT_OK)），pending 品不进列表/搜索/
+     * 秒杀/推荐；恢复唯一入口=运营端 restore（AdminServiceImpl#auditDish 置 ok 清 reason，reject 照旧可用）。
+     * 红线：软词 pending 只影响商品 create/update 两个写入口，下单拦截/C 端出参等既有审核联动一字不动。
+     */
+    public static final String AUDIT_PENDING = "pending";
     /** 审核态（F-116/m26）：ok 正常 / rejected 运营驳回；与 on_sale 两列正交（驳回不改上下架，商家改品不写本列） */
     private String auditStatus;
     /** 驳回理由（F-116/m26）：reject 必填 1~200，restore 清空；商家端展示 */

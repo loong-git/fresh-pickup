@@ -1,5 +1,6 @@
 package com.fresh.controller;
 
+import com.fresh.annotation.RateLimit;
 import com.fresh.common.R;
 import com.fresh.dto.RecommendVO;
 import com.fresh.entity.Dish;
@@ -32,6 +33,9 @@ public class DishController {
      * data 仍是数组本体（不包成 {list,total}，否则 C 端 decorateDishListResponse 的
      * Array.isArray(res.data) 判据失效）。
      */
+    // P11-2 P3-J：匿名读补 IP 档 30/60s（照 StoreController:27「读 30/分/IP」既有姿势实读后抄；
+    // 本类三端点均匿名可读，IP 维度含未登录访客）
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)
     @GetMapping
     public R<List<Dish>> getDishes(@RequestParam(required = false) String category,
                                    @RequestParam(required = false) String keyword) {
@@ -46,6 +50,7 @@ public class DishController {
      * 不设 phone 等调试参数（F-02.2 明确不带）。路由与参数不变（excludeId/limit）。
      * 注意路由顺序：Spring 精确路径 /recommend 优先于 /{id} 匹配，无冲突。
      */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // P3-J 匿名读档（照 StoreController）
     @GetMapping("/recommend")
     public R<RecommendVO> recommend(@RequestParam(required = false) Long excludeId,
                                     @RequestParam(defaultValue = "5") Integer limit,
@@ -58,6 +63,7 @@ public class DishController {
      * 与 401/403/429/500 同一条信封构造路径 —— 出参显式带 data:null（不是缺键），见 R 的字段声明顺序
      * 与 f28 门禁「401 仍显式带 data:null（不是缺键）」同源判据。
      */
+    @RateLimit(keyType = RateLimit.KeyType.IP, limit = 30, windowSeconds = 60)  // P3-J 匿名读档（照 StoreController）
     @GetMapping("/{id}")
     public R<Dish> getDishDetail(@PathVariable Long id) {
         Dish dish = dishService.getDishById(id);

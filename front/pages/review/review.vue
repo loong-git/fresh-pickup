@@ -5,7 +5,7 @@
       <view class="dish-emoji" :style="{ backgroundColor: dish.bgColor }">{{ dish.emoji }}</view>
       <view class="dish-info">
         <text class="dish-name">{{ dish.name }}</text>
-        <text class="dish-price">¥{{ dish.price }}/{{ dish.unit }}</text>
+        <text class="dish-price">¥{{ fmtPrice(dish.price) }}/{{ dish.unit }}</text>
       </view>
     </view>
 
@@ -180,6 +180,11 @@ export default {
       const n = Number(v)
       if (!Number.isFinite(n) || n <= 0) return 0
       return Math.min(5, Math.max(1, Math.round(n)))
+    },
+    // 金额统一两位小数展示（P3-N，照 front/pages/detail/detail.vue fmtPrice 同口径）：脏数据兜底 0.00
+    fmtPrice(v) {
+      const n = Number(v)
+      return Number.isFinite(n) ? n.toFixed(2) : '0.00'
     },
     // 长文本展开/收起切换（M3-T-07）：超 60 字折叠为 2 行，点击切换
     toggleExpand(id) {

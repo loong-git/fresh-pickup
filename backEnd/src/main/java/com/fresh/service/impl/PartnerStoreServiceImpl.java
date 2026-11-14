@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fresh.common.BizException;
 import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
+import com.fresh.common.WordFilter;
 import com.fresh.dto.PartnerStoreUpdateDTO;
 import com.fresh.entity.Store;
 import com.fresh.mapper.ArrivalBatchMapper;
@@ -89,6 +90,12 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
     private ArrivalItemMapper arrivalItemMapper;
     @Autowired
     private OpsLogWriter opsLogWriter;
+    /**
+     * P11-2 P3-F：门店 service（服务说明，GET /api/stores 匿名公开直出）接入敏感词硬词拦截
+     * （注入姿势照 ReviewServiceImpl 先例）。只拦硬词：store 无审核态管线（清单裁定照既有人工链路），软词不加动作。
+     */
+    @Autowired
+    private WordFilter wordFilter;
 
     // ---------------------------------------------------------------
     // F-18.12 第 4 条：GET /api/partner/store
@@ -130,6 +137,17 @@ public class PartnerStoreServiceImpl implements PartnerStoreService {
         boolean clearContactPhone = dto != null && isProvidedButBlank(dto.getContactPhone());
         if (contactPhone != null && !PHONE_PATTERN.matcher(contactPhone).matches()) {
             throw new BizException(R.CODE_BAD_REQUEST, "联系电话需为 11 位大陆手机号");
+        }
+        // P11-2 P3-F：service 是 C 端匿名公开（GET /api/stores 直出）的自由文本，硬词一票 400、
+        // 在任何写库动作之前拦。匹配对 trimToNull 后的值——与下方 ⑥ 落库值同源；null（未传）与
+        // 空白（清空指令，落 NULL）都不参与匹配。软词不加动作：store 表无审核态列，清单裁定照既有
+        // 人工审核链路（本文件注释与 issue 清单 P3-F 同口径）
+        String serviceRaw = dto == null ? null : dto.getService();
+        if (serviceRaw != null) {
+            String serviceValue = trimToNull(serviceRaw);
+            if (serviceValue != null && wordFilter.matchHard(serviceValue) != null) {
+                throw new BizException(R.CODE_BAD_REQUEST, "门店服务说明包含违规内容，请修改后重新提交");
+            }
         }
 
         // 审计取旧值所需的读也带归属条件（不是授权判定本身，判定在下面那条 UPDATE 的 WHERE）

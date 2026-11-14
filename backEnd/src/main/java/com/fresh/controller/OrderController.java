@@ -42,7 +42,9 @@ public class OrderController {
         return R.ok(order, "下单成功");
     }
 
-    /** 订单分页查询（T-M1-08 + T-M2-03）：按 token userId 过滤（phone 参数废弃）+ 分页 + 手机号脱敏 */
+    /** 订单分页查询（T-M1-08 + T-M2-03）：按 token userId 过滤（phone 参数废弃）+ 分页 + 手机号脱敏。
+     *  P11-2 P3-J：登录读补 USER 档 30/60s（订单页翻页/tab 切换节奏远低于 30/分，不误伤）。 */
+    @RateLimit(limit = 30, windowSeconds = 60)  // 登录读档 30/60s（P3-J，USER 维度）
     @GetMapping
     public R<Map<String, Object>> getOrders(@RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId,
                                             @RequestParam(defaultValue = "1") Integer pageNum,

@@ -11,6 +11,7 @@ import com.fresh.mapper.UserCouponMapper;
 import com.fresh.service.CouponService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,7 +67,11 @@ public class CouponServiceImpl implements CouponService {
             }
         }
         // 防线二（§2.1 第 4 步）快照落券：threshold/amount/expireAt(=now+valid_days) 全取表行，
-        // 不再用 UserCoupon.VALID_DAYS——运营改面额只影响之后的新领取，已发券核销按券上快照
+        // 不再用 UserCoupon.VALID_DAYS——运营改面额只影响之后的新领取，已发券核销按券上快照。
+        // P11-2 P1-B：insert 处撞 uk_user_coupon(user_id, coupon_key)（m36 库侧唯一键）→ 400
+        // 「每人限领 1 张」——上方 lifetime selectCount 是 check-then-act（并发双击双请求都读到
+        // count=0 各插一张），唯一键封死该竞态；selectCount 检查保留不动，两道防线并存。
+        // 同事务语义：撞键抛 400 时 tryIssueQuota 已占的配额随回滚归还，无双扣
         UserCoupon coupon = new UserCoupon();
         coupon.setUserId(userId);
         coupon.setCouponKey(key);
@@ -74,7 +79,11 @@ public class CouponServiceImpl implements CouponService {
         coupon.setAmount(template.getAmount());
         coupon.setStatus(UserCoupon.STATUS_AVAILABLE);
         coupon.setExpireAt(LocalDateTime.now().plusDays(template.getValidDays()));
-        userCouponMapper.insert(coupon);
+        try {
+            userCouponMapper.insert(coupon);
+        } catch (DuplicateKeyException e) {
+            throw new BizException("每人限领 1 张");
+        }
         log.info("发券成功: userId={}, couponKey={}, threshold={}, amount={}",
                 userId, key, template.getThreshold(), template.getAmount());
         return coupon;

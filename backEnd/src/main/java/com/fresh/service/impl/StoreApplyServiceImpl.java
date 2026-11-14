@@ -2,6 +2,7 @@ package com.fresh.service.impl;
 
 import com.fresh.common.BizException;
 import com.fresh.common.R;
+import com.fresh.common.WordFilter;
 import com.fresh.dto.StoreApplyCreateDTO;
 import com.fresh.entity.StoreApply;
 import com.fresh.mapper.StoreApplyMapper;
@@ -49,6 +50,13 @@ public class StoreApplyServiceImpl implements StoreApplyService {
     private StoreApplyMapper storeApplyMapper;
     @Autowired
     private OpsLogWriter opsLogWriter;
+    /**
+     * P11-2 P3-F：申请自由文本（proposedName/proposedAddress/service，过审后原样进 store 行经
+     * GET /api/stores 匿名公开）接入敏感词硬词拦截（注入姿势照 ReviewServiceImpl 先例）。
+     * 只拦硬词：申请侧本就有 Admin 人工审核管线（auditStoreApply），软词无需额外动作（清单裁定）。
+     */
+    @Autowired
+    private WordFilter wordFilter;
 
     @Override
     @Transactional
@@ -64,6 +72,11 @@ public class StoreApplyServiceImpl implements StoreApplyService {
         if (contactPhone != null && !PHONE_PATTERN.matcher(contactPhone).matches()) {
             throw new BizException(R.CODE_BAD_REQUEST, "联系电话需为 11 位大陆手机号");
         }
+
+        // ①b P11-2 P3-F：自由文本硬词一票 400（在 INSERT 与 D-21 在审判定之前，同 ① 的入口校验位）。
+        // 匹配对 trim 后的值——与下方落库值同源（proposedName/proposedAddress 落库前 trim、service trimToNull）；
+        // 软词不加动作：申请本就 status=pending 走 Admin 人工审核（既有管线），驳回即可，无中间态需求
+        assertNoHardWord(dto.getProposedName(), dto.getProposedAddress(), trimToNull(dto.getService()));
 
         // ② D-21：一用户一期最多 1 条在审申请——应用层先查给友好文案；并发窗口（两个请求同时读到 0）
         //    由 m18 ⑦b / init.sql 的生成列唯一键 uk_user_pending(user_id, pending_guard) 在库侧封死（BE-3，F-18.20 C 行），
@@ -138,6 +151,19 @@ public class StoreApplyServiceImpl implements StoreApplyService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * P11-2 P3-F：申请自由文本硬词一票拒绝（文案照评价链「包含违规内容」族 + 修改指引）。
+     * 入参各自判 null（proposedName/proposedAddress 由 DTO @NotBlank 拦过，service 可未填；
+     * 本方法兼做内部直调的纵深防御）。
+     */
+    private void assertNoHardWord(String... texts) {
+        for (String text : texts) {
+            if (text != null && !text.isEmpty() && wordFilter.matchHard(text) != null) {
+                throw new BizException(R.CODE_BAD_REQUEST, "申请信息包含违规内容，请修改后重新提交");
+            }
+        }
     }
 
     /**

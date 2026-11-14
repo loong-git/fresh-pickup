@@ -59,7 +59,11 @@ class SeckillSessionConfigTest {
     void setUp() {
         controller = new SeckillController();
         ReflectionTestUtils.setField(controller, "dishService", dishService);
-        ReflectionTestUtils.setField(controller, "dictService", dictService);
+        // P11-2 P2-D：场次取值自 Controller 私有 sessionTime 迁入公共判定源 SeckillSessionResolver
+        // （与下单计价窗口共用同一判定源）；出参行为逐字不变，测试仍以同一 dictService mock 驱动
+        com.fresh.service.SeckillSessionResolver resolver = new com.fresh.service.SeckillSessionResolver();
+        ReflectionTestUtils.setField(resolver, "dictService", dictService);
+        ReflectionTestUtils.setField(controller, "seckillSessionResolver", resolver);
 
         adminService = new AdminServiceImpl();
         ReflectionTestUtils.setField(adminService, "dictGroupMapper", groupMapper);

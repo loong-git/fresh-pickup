@@ -77,6 +77,9 @@ class MerchantDishSeckillPriceGuardTest {
         ReflectionTestUtils.setField(service, "dishMapper", dishMapper);
         ReflectionTestUtils.setField(service, "merchantService", merchantService);
         ReflectionTestUtils.setField(service, "adminAuditLogMapper", adminAuditLogMapper);
+        // P11-2 P3-F：name 等自由文本 update 现在会过 WordFilter——空词表实例（不调 load()）恒放行，
+        // 本类断言仍只落在秒杀守卫这一条上
+        ReflectionTestUtils.setField(service, "wordFilter", new com.fresh.common.WordFilter());
         // 守卫之前的几道闸门都放行，好让断言只落在秒杀这一条上：
         // name 非 blank、bgColor 合法、image 空串、update 影响行数=1
         when(dishMapper.update(any(), any())).thenReturn(1);

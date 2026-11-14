@@ -802,9 +802,16 @@ export default {
         this.dishes = all
         this.loaded = true
       } catch (e) {
-        // 拉取失败显示错误态（≠空态），列表区出现"点击重试"（T-M3-05）
-        this.dishes = []
-        this.loadError = true
+        // P3-M：口径收窄（照 front/pages/order/order.vue loadOrders reset 分流）——手里已有商品的刷新
+        //（含 onPullRefresh 下拉聚合）失败保留现场：不清空列表、错误态不上位，只 toast，下拉圈照常落下不白屏；
+        // 首屏无数据失败维持 T-M3-05 错误态（dishes=[] + loadError=true + 点击重试不动）
+        if (this.dishes.length > 0) {
+          this.showToast((e && e.message) || '刷新失败，请稍后重试')
+        } else {
+          // 拉取失败显示错误态（≠空态），列表区出现"点击重试"（T-M3-05）
+          this.dishes = []
+          this.loadError = true
+        }
         // 失败同样算「请求返回过」（S1）：错误行与加载行互斥由 loadError 决定，加载行不得在失败后常驻
         this.loaded = true
       }

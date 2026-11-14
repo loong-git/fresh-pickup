@@ -556,6 +556,8 @@ export default {
     // ==================== 搜索 ====================
     // 点击红字"搜索"/键盘确认：词非空才搜（空词 toast 提示）
     onSearch() {
+      // P2-K：在飞早退——置灰类闸门要等一次重渲染才生效，同帧双触发靠方法首行拦第二发（照 review.vue submitReview 单飞早退同款姿势）
+      if (this.searchLoading) return
       const kw = (this.keyword || '').trim()
       if (!kw) { this.showToast('请输入搜索关键词'); return }
       this.doSearch()
@@ -569,16 +571,32 @@ export default {
       this.searchLoading = true
       // 每轮开始先撤销上一轮的失败标记，否则重试成功后错误行会赖在屏上不走
       this.searchFailed = false
+      // P2-K：代次守卫（照 front/pages/order/order.vue:279 _ordersSeq 范式，|| 0 兜首用 undefined）：
+      // 连搜两词只认最后一次发出的请求，先发慢回的旧词响应不得覆盖新词的结果/失败标记/loaded
+      const seq = (this._searchSeq = (this._searchSeq || 0) + 1)
       try {
-        this.searchResults = await this.dishRequest({ keyword: kw })
+        const results = await this.dishRequest({ keyword: kw })
+        if (seq !== this._searchSeq) return
+        this.searchResults = results
       } catch (e) {
-        this.searchResults = []
-        // 置空列表不足以区分「读失败」与「真没结果」（F2）：另记失败标记供错误行判定；toast 保留（即时反馈）
-        this.searchFailed = true
-        this.showToast((e && e.message) || '网络异常')
+        // P2-K：过期请求的失败同样不作数——不得覆盖新请求的状态键
+        if (seq !== this._searchSeq) return
+        // P3-M：口径收窄——结果态手里已有结果时刷新失败保留现场（旧结果不清空、失败行不上位），只 toast；
+        // 手里无结果才置失败态（与「真没结果」空态可分，F2），维持首搜失败可重试的既定设计
+        if (this.searchResults.length > 0) {
+          this.showToast((e && e.message) || '网络异常')
+        } else {
+          this.searchResults = []
+          // 置空列表不足以区分「读失败」与「真没结果」（F2）：另记失败标记供错误行判定；toast 保留（即时反馈）
+          this.searchFailed = true
+          this.showToast((e && e.message) || '网络异常')
+        }
       } finally {
-        this.searchLoading = false
-        this.loaded = true
+        // 只由最后一次请求收尾：过期请求不得摘掉在飞请求的 loading，也不得代写 loaded
+        if (seq === this._searchSeq) {
+          this.searchLoading = false
+          this.loaded = true
+        }
       }
     },
     // 输入时清空关键词：自动退出结果态回发现页（三大块）
@@ -592,6 +610,11 @@ export default {
     },
     // 退出结果态：回发现页三大块
     exitSearch() {
+      // 作废在飞请求（bump seq 后其 finally 因 seq 过期不再清 loading/loaded）；但 onSearch 首行按
+      // searchLoading 早退，被作废请求的 finally 也不会摘 loading——故这里必须与 bump 成对摘掉，
+      // 否则退出后下一次 onSearch 永久早退卡死
+      this._searchSeq = (this._searchSeq || 0) + 1
+      this.searchLoading = false
       this.searchMode = false
       this.keyword = ''
       this.searchResults = []

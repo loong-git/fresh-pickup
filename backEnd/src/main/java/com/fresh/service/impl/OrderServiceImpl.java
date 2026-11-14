@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fresh.common.BizException;
+import com.fresh.common.PhoneMask;
 import com.fresh.common.R;
 import com.fresh.dto.OrderCreateDTO;
 import com.fresh.entity.Dish;
@@ -19,6 +20,7 @@ import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
 import com.fresh.service.CouponService;
 import com.fresh.service.OrderService;
+import com.fresh.service.SeckillSessionResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -29,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -80,6 +83,9 @@ public class OrderServiceImpl implements OrderService {
     private ArrivalBatchMapper arrivalBatchMapper;
     @Autowired
     private CouponService couponService;
+    /** P11-2 P2-D 秒杀计价窗口判定源（与 SeckillController 展示出参共用同一判定，杜绝口径漂移） */
+    @Autowired
+    private SeckillSessionResolver seckillSessionResolver;
 
     // F-111 隔离级别显式降为 READ_COMMITTED（同 PartnerStoreServiceImpl#confirmArrival /
     // PartnerOrderServiceImpl#verify 先例）：RR 下方法开头幂等快查建立的读视图贯穿整个事务，
@@ -96,11 +102,22 @@ public class OrderServiceImpl implements OrderService {
         }
         String clientRequestId = dto.getClientRequestId().trim();
 
-        // T-M1-09 幂等快查：同 clientRequestId 重复提交直接返回首次订单（code:200 同一 id）
+        // T-M1-09 幂等快查：同 clientRequestId 重复提交直接返回首次订单（code:200 同一 id）。
+        // P11-2 P1-A 归属收窄：幂等命中仅限「同用户同键」——uk_client_request_id 全局唯一、不带 user 维度，
+        // 不加比对时 B 用 A 的键提交会领走 A 的订单行（含 A 明文手机号/自提点快照/明细，live 实测实锤）。
+        // 非本人键 → 视为全新请求继续正常建单（B 对此零感知，自己拿到自己的新单），但该请求的
+        // clientRequestId 必须置 null：键全局唯一，不置 null 后续 insert 必撞 uk_client_request_id；
+        // 置 null 与 ReviewServiceImpl「空白归一为 null 不占唯一索引」同一先例（可空 UNIQUE 允许多行 NULL）
         Order existing = selectByClientRequestId(clientRequestId, false);
         if (existing != null) {
-            loadItems(Collections.singletonList(existing));
-            return existing;
+            if (!userId.equals(existing.getUserId())) {
+                log.info("幂等键归属他人，视为新请求建单: clientRequestId={}, existingOrderId={}, userId={}",
+                        clientRequestId, existing.getId(), userId);
+                clientRequestId = null;
+            } else {
+                loadItems(Collections.singletonList(existing));
+                return existing;
+            }
         }
 
         // —— 以下全部为校验/读取，首个写操作是下方 insert 主单 ——
@@ -191,8 +208,11 @@ public class OrderServiceImpl implements OrderService {
             }
             // T-M4-03 秒杀计价：以本事务读出的 dish 行为准，秒杀件按 seckill_price 与前端购物车同口径，
             // 否则现价；服务端重算原则不变（不信任前端任何金额字段），券门槛金额随秒杀价口径联动。
-            // 销量不在下单时累加：统一在支付成功点（PaymentSettlement#settle 的 updated>0 分支）计，未支付/取消不虚计
-            BigDecimal unitPrice = (dish.getSeckill() != null && dish.getSeckill() == 1 && dish.getSeckillPrice() != null)
+            // P11-2 P2-D（用户拍板①）：计价加服务端时钟场次窗口判定——当前时刻落在字典 seckill_session
+            // 配置的窗口内（[start, end)，与 SeckillController 同一判定源 SeckillSessionResolver）才按
+            // seckill_price，窗口外按 price；秒杀标识 dish.seckill 本身不动（展示/结算/销量口径不变），只影响计价
+            BigDecimal unitPrice = (dish.getSeckill() != null && dish.getSeckill() == 1 && dish.getSeckillPrice() != null
+                    && seckillSessionResolver.inWindow(LocalTime.now()))
                     ? dish.getSeckillPrice() : dish.getPrice();
             totalPrice = totalPrice.add(unitPrice.multiply(BigDecimal.valueOf(quantity)));
 
@@ -222,11 +242,15 @@ public class OrderServiceImpl implements OrderService {
         try {
             orderMapper.insert(order); // ASSIGN_ID 此处生成雪花订单号
         } catch (DuplicateKeyException e) {
-            // 并发同 clientRequestId 落到唯一约束：本事务尚无写操作，无副作用。
-            // FOR UPDATE 锁定读绕过 REPEATABLE READ 快照，必能读到已提交的胜出订单。
+            // 并发同 clientRequestId 落到唯一约束。FOR UPDATE 锁定读绕过 REPEATABLE READ 快照，
+            // 必能读到已提交的胜出订单。
+            // P11-2 P1-A 实读修正：原注释「本事务尚无写操作」不成立——dishMapper.decreaseStock
+            // （库存扣减）在本 insert 之前已执行，本事务已有写操作。因此 winner 归属非本人时
+            // 不能置键重插（会把「用他人键提交」的异常请求静默落单），直接 400 让调用方重试，
+            // 已扣库存随事务回滚复原、零副作用；winner 是本人的（同用户并发双提交同键）照旧幂等返回。
             Order winner = selectByClientRequestId(clientRequestId, true);
-            if (winner == null) {
-                // 对方事务回滚的极端场景：让调用方重试
+            if (winner == null || !userId.equals(winner.getUserId())) {
+                // 对方事务回滚的极端场景 / P11-2 P1-A 非本人键：让调用方重试
                 throw new BizException("下单冲突，请重试");
             }
             loadItems(Collections.singletonList(winner));
@@ -320,8 +344,10 @@ public class OrderServiceImpl implements OrderService {
         loadItems(orders);
         // F-62「货已到点」：同样一次批量查，绝不在循环里逐单查 arrival_batch
         markGoodsArrived(orders);
-        // 手机号脱敏 138****1234
-        orders.forEach(o -> o.setPhone(maskPhone(o.getPhone())));
+        // 手机号脱敏 138****1234——P11-2 P3-I：私有 maskPhone 无长度防御（口径漂移），改走
+        // PhoneMask.mask（RD 红线唯一出口；对 11 位号码输出逐字一致，幂等替换零行为变化；
+        // 对非 11 位的历史脏值统一全掩码，不再把尾部明文送进出参）
+        orders.forEach(o -> o.setPhone(PhoneMask.mask(o.getPhone())));
 
         return Map.of("list", orders, "total", total);
     }
@@ -446,8 +472,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /** 138****1234 */
-    private String maskPhone(String phone) {
-        return phone.substring(0, 3) + "****" + phone.substring(7);
-    }
+    // P11-2 P3-I：原私有 maskPhone（无 null/长度守卫的 substring 拼接）已删除，
+    // 唯一调用点 getOrders 改走 PhoneMask.mask——脱敏出口收敛到 common/PhoneMask 一处
 }
