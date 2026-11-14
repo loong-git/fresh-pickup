@@ -20,6 +20,7 @@ import com.fresh.service.ReviewService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -146,12 +147,16 @@ public class ReviewServiceImpl implements ReviewService {
         // 先例（借鉴不改它）。键可空不强制：null/纯空白视为不带键（空白归一为 null，不占唯一索引），
         // 走原插入路径，旧前端行为不变
         String clientRequestId = review.getClientRequestId();
+        // 本请求拟占用的幂等键：仅「未命中 → 照旧带键落库」分支非 null。insert 撞 uk 时按它回查
+        // 并发胜出行；置 null 分支（空白归一/他人键）与不带键路径的 insert 不可能撞
+        // uk_review_client_request_id（NULL 不进唯一索引）
+        String claimedKey = null;
         if (clientRequestId != null) {
             String trimmed = clientRequestId.trim();
             if (trimmed.isEmpty()) {
                 review.setClientRequestId(null);
             } else {
-                Review existing = selectByClientRequestId(trimmed);
+                Review existing = selectByClientRequestId(trimmed, false);
                 if (existing != null && userId.equals(existing.getUserId())) {
                     // P11-2 P2-C 归属收窄：幂等命中仅限「同用户同键」（同 P1-A，uk_review_client_request_id
                     // 全局唯一不带 user 维度）；本人同键照旧幂等返回（存量行为）
@@ -169,6 +174,7 @@ public class ReviewServiceImpl implements ReviewService {
                     review.setClientRequestId(null);
                 } else {
                     review.setClientRequestId(trimmed);
+                    claimedKey = trimmed;
                 }
             }
         }
@@ -195,17 +201,61 @@ public class ReviewServiceImpl implements ReviewService {
         if (review.getContent() != null) {
             review.setContent(HtmlUtils.htmlEscape(review.getContent()));
         }
-        reviewMapper.insert(review);
+        // 并发同键首发撞 uk 兜底（P11-2 登记遗留，与订单侧 OrderServiceImpl#insert catch 同型对称）：
+        // 快查未命中后，另一并发同键请求可能先一步落库占键 → 本事务 insert 抛 DuplicateKeyException（原先
+        // 无 catch 直接 500）。实读事务边界：本 insert 是 addReview 内首个写操作（M6 归属校验/用户查询/
+        // 敏感词判定/HTML 转义全是读或纯内存计算，好评率回写 refreshGoodRate 在 insert 之后），
+        // 撞键只回滚本语句、不损伤任何已做写操作，故走「局部重试 insert」而非重跑整段——
+        // M6 校验/脱敏/软词判定已恰好执行一次且无副作用，重试不双计；refreshGoodRate 只在最终成功的
+        // 那次 insert 之后执行，恰一次（幂等返回路径则与快查命中同口径：零写库、不回写）
+        try {
+            reviewMapper.insert(review);
+        } catch (DuplicateKeyException e) {
+            if (claimedKey == null) {
+                throw e; // 键为 null 不占 uk_review_client_request_id，理论不可达；防御性原样抛，绝不吞真撞键
+            }
+            // FOR UPDATE 锁定读绕过 REPEATABLE READ 快照，必能等到并发胜出事务提交后读到胜出行
+            // （照 OrderServiceImpl#winner 路径姿势；胜出事务已回滚时回 null=键已空出，见下）
+            Review winner = selectByClientRequestId(claimedKey, true);
+            if (winner != null && userId.equals(winner.getUserId())) {
+                // 胜出行是本人（同用户并发双提交同键）→ 幂等返回首次评价行：不重插、不回写好评率，
+                // 与快查命中同语义（零写库）
+                log.info("评价并发撞键，胜出行为本人，幂等返回: clientRequestId={}, firstReviewId={}",
+                        claimedKey, winner.getId());
+                return winner;
+            }
+            if (winner != null) {
+                // 胜出行非本人（他人键）→ 同快查「命中他人键」口径：置 null 走正常插入，绝不返回他人评价行
+                log.info("评价并发撞键，键归属他人，置空键重插: clientRequestId={}, winnerReviewId={}, userId={}",
+                        claimedKey, winner.getId(), userId);
+                review.setClientRequestId(null);
+            }
+            // winner == null（胜出事务已回滚，键已空出）→ 保留原键重插：本次响应仍带键，
+            // 客户端对同一键的重提可继续走快查幂等，幂等契约不因极端场景断档
+            try {
+                reviewMapper.insert(review);
+            } catch (DuplicateKeyException e2) {
+                // 二竞态（重插瞬间键又被占）：不再局部重试，交调用方重试——400 兜底与订单侧同口径
+                throw new BizException(R.CODE_BAD_REQUEST, "评价冲突，请重试");
+            }
+        }
         // 落库后按该 dish 真实评价聚合（rating>=4 占比）回写好评率，替代 init.sql 种子公式静态假值；
         // 无有效评价时回写影响行数 0，good_rate 保留种子兜底文案，详见 DishMapper.refreshGoodRate
         dishMapper.refreshGoodRate(review.getDishId());
         return review;
     }
 
-    /** F-124 同键评价快查：uk_review_client_request_id 唯一约束保证至多一行 */
-    private Review selectByClientRequestId(String clientRequestId) {
+    /**
+     * F-124 同键评价快查：uk_review_client_request_id 唯一约束保证至多一行。
+     * @param forUpdate true 时用锁定读，读并发事务已提交的最新版本而非本事务快照
+     *                  （照 OrderServiceImpl 同名私有方法口径）
+     */
+    private Review selectByClientRequestId(String clientRequestId, boolean forUpdate) {
         QueryWrapper<Review> wrapper = new QueryWrapper<>();
         wrapper.eq("client_request_id", clientRequestId);
+        if (forUpdate) {
+            wrapper.last("FOR UPDATE");
+        }
         return reviewMapper.selectOne(wrapper);
     }
 

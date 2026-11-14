@@ -306,14 +306,33 @@ public class MerchantDishServiceImpl implements MerchantDishService {
         // P11-2 P3-F：软词命中 → 置待审 pending（update 侧与 create 同口径）。仅当品仍 'ok'（正常在售）才写：
         // rejected 是运营驳回的更强裁定，改品不得改写审核态（F-116 §2.4「改品不洗白」不变式原样保留，
         // 且 rejected/pending 对 C 端同样不可见，软词内容无暴露面）；pending 品重复命中不重复写。
-        // 恢复唯一入口=运营端 restore，商户端无任何置回 ok 的路径
-        if (hasSoftWord(dto.getName(), dto.getDescription(), joinTags(dto.getTags()))
-                && Dish.AUDIT_OK.equals(before.getAuditStatus())) {
+        // 恢复唯一入口=运营端 restore，商户端无任何置回 ok 的路径。
+        // P3-4 窄窗口 TOCTOU 收口：before 是非锁定读，「读到 ok」与「UPDATE 生效」之间运营可能已并发裁定
+        // （reject → rejected）。置 pending 的写语句必须自带 audit_status='ok' 条件（条件 UPDATE 原子判定，
+        // 照本类 adjustStock 的 stock>=条件同款姿势）：条件不成立 0 行=竞态败方（rejected 已裁定/pending
+        // 已在管）一字不写，rejected 裁定不被 pending 覆写，与「改品不洗白」不变式闭合；0 行成因区分见下方
+        boolean softPending = hasSoftWord(dto.getName(), dto.getDescription(), joinTags(dto.getTags()))
+                && Dish.AUDIT_OK.equals(before.getAuditStatus());
+        if (softPending) {
             wrapper.set(Dish::getAuditStatus, Dish.AUDIT_PENDING);
+            // WHERE 追加 audit_status='ok'：竞态期被运营 reject/转审的行不再被本语句触达
+            wrapper.eq(Dish::getAuditStatus, Dish.AUDIT_OK);
             log.info("商品更新文本命中软词，转待审 pending: merchantId={}, dishId={}", merchantId, id);
         }
         if (dishMapper.update(patch, wrapper) == 0) {
-            throw new BizException(R.CODE_NOT_FOUND, "商品不存在");
+            if (!softPending) {
+                // 无置 pending 条件时 0 行成因唯一：行不归属/已不存在，维持原 404 口径
+                throw new BizException(R.CODE_NOT_FOUND, "商品不存在");
+            }
+            // 软词路径 0 行有两种成因（照 adjustStock 的 0 行双条件区分姿势，不凭空猜）：
+            // 行不归属/已不存在 → 404；竞态败方（audit_status 已非 ok，商家本次编辑整体未生效）→
+            // 400 指路刷新重试——绝不静默假成功（静默丢弃会让商家以为改成功），重试后 before 读到
+            // 新审核态，rejected 品走「不碰审核两列」的正常编辑路径
+            Dish current = findOwned(id, merchantId);
+            if (current == null) {
+                throw new BizException(R.CODE_NOT_FOUND, "商品不存在");
+            }
+            throw new BizException(R.CODE_BAD_REQUEST, "商品审核状态已变更，请刷新后重试");
         }
 
         StringBuilder newVal = appendField(appendField(new StringBuilder(), "name", dto.getName()), "price", dto.getPrice());

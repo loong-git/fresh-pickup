@@ -13,6 +13,7 @@ import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.ReviewMapper;
 import com.fresh.mapper.UserMapper;
 import jakarta.validation.constraints.Size;
+import org.springframework.dao.DuplicateKeyException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -190,6 +191,73 @@ class F124ReviewIdempotencyTest {
         verify(dishMapper, times(1)).refreshGoodRate(1L); // 正常插入路径照跑：好评率回写不缺
         verify(orderItemMapper, times(1)).countByUserIdAndDishId(eq(9L), eq(1L)); // 购买归属校验照跑
         verify(reviewMapper, never()).deleteById(anyLong()); // A 的行零改动
+    }
+
+    // ================================================================
+    // ②c P11-2 登记遗留：并发同键首发撞 uk_review_client_request_id（快查双双未命中，
+    //     对方事务先 insert 占键 → 本事务 insert 抛 DuplicateKeyException）。mock 侧测 Service
+    //     交付的 catch 分支意图：FOR UPDATE 回查胜出行 → 本人幂等返回 / 他人置空键重插；
+    //     真库唯一约束与锁行为仍是「本类测不成什么」口径（见类注释）
+    // ================================================================
+
+    @Test
+    void 并发撞键本人胜出_幂等返回首次行_零重复回写零重插() {
+        Review first = review(KEY);
+        first.setId(3L);
+        first.setUserId(9L); // 并发胜出行=本人首发行
+        stubPurchaseAndUser();
+        // 第一次 selectOne=幂等快查未命中；第二次=撞键后 FOR UPDATE 回查命中本人首发行
+        when(reviewMapper.selectOne(any())).thenReturn(null, first);
+        when(reviewMapper.insert(any(Review.class)))
+                .thenThrow(new DuplicateKeyException("uk_review_client_request_id")); // 并发对方已占键
+
+        Review in = review(KEY);
+        Review out = service().addReview(in, 9L);
+
+        assertSame(first, out, "胜出行是本人 → 幂等返回首次评价行（与快查命中同语义）");
+        assertEquals(3L, out.getId().longValue());
+        // 回查必须带 FOR UPDATE（锁定读绕过 REPEATABLE READ 快照才能读到并发已提交的胜出行）
+        ArgumentCaptor<Wrapper<Review>> wrappers =
+                (ArgumentCaptor<Wrapper<Review>>) (ArgumentCaptor<?>) ArgumentCaptor.forClass(Wrapper.class);
+        verify(reviewMapper, times(2)).selectOne(wrappers.capture());
+        assertTrue(((QueryWrapper<Review>) wrappers.getAllValues().get(1)).getSqlSegment().contains("FOR UPDATE"),
+                "撞键回查必须是锁定读：segment=" + wrappers.getAllValues().get(1).getSqlSegment());
+        verify(reviewMapper, times(1)).insert(any(Review.class)); // 只有失败那次，无重插
+        verify(dishMapper, never()).refreshGoodRate(any());       // 零重复回写（好评率由首提事务回写）
+    }
+
+    @Test
+    void 并发撞键非本人胜出_置空键重插_B建自己的新评价_好评率恰好一次() {
+        stubPurchaseAndUser();
+        Review aRow = review(KEY);
+        aRow.setId(7L);
+        aRow.setUserId(8L); // A 的并发胜出行（键归属 A）
+        // 第一次 selectOne=幂等快查未命中；第二次=撞键后 FOR UPDATE 回查命中 A 行
+        when(reviewMapper.selectOne(any())).thenReturn(null, aRow);
+        // 键值必须按「调用时刻」记录：service 复用同一实体并在重插前置 null，ArgumentCaptor 存引用，
+        // 事后读到的只会是终态 null，读不出首插时的原键
+        List<String> keyAtInsert = new ArrayList<>();
+        when(reviewMapper.insert(any(Review.class))).thenAnswer(inv -> {
+            keyAtInsert.add(inv.getArgument(0, Review.class).getClientRequestId());
+            if (keyAtInsert.size() == 1) {
+                throw new DuplicateKeyException("uk_review_client_request_id"); // 首插撞 A 的键
+            }
+            inv.getArgument(0, Review.class).setId(10L); // 置空键重插成功
+            return 1;
+        });
+        when(dishMapper.refreshGoodRate(1L)).thenReturn(1);
+
+        Review in = review(KEY); // B（userId=9）与 A 并发用同一首发键
+        Review out = service().addReview(in, 9L);
+
+        assertSame(in, out, "B 拿到的是自己重插落库的新行，绝不是 A 的评价行");
+        assertEquals(10L, out.getId().longValue(), "新行 id 是重插回填的，不是 A 行的 7");
+        verify(reviewMapper, times(2)).insert(any(Review.class));
+        assertEquals(java.util.Arrays.asList(KEY, null), keyAtInsert,
+                "首插带原键（撞键前已认领）；胜出行非本人 → 置 null 重插（同快查他人键口径，不占他人键）");
+        assertEquals(9L, out.getUserId().longValue(), "重插行归属 B 本人");
+        verify(dishMapper, times(1)).refreshGoodRate(1L); // 好评率恰好一次（不因重试双计）
+        verify(orderItemMapper, times(1)).countByUserIdAndDishId(eq(9L), eq(1L)); // M6 校验恰跑一次，无重跑
     }
 
     // ================================================================

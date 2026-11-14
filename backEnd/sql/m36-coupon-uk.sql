@@ -46,9 +46,17 @@ DEALLOCATE PREPARE m36_stmt;
 -- ----------------------------
 -- 门禁断言 SELECT（只读、零副作用）
 -- ----------------------------
--- 断言 1：uk_user_coupon 必须已存在（列 seq 1=user_id, 2=coupon_key）
+-- 断言 1：uk_user_coupon 必须已存在，且列序被断言钉死为注释宣称的 (user_id:1, coupon_key:2)——
+--   MIN/MAX(SEQ_IN_INDEX) 钉 seq 集合恰为 {1,2}（防多列/缺列漂移），逐位 CASE 再钉 seq→列名映射
+--   （防两列换位静默漂移）；information_schema.STATISTICS 列名 SEQ_IN_INDEX/COLUMN_NAME 照 MySQL 8.0 实读
 SELECT CONCAT('[m36] user_coupon index check: ',
-       IF(EXISTS(SELECT 1 FROM information_schema.STATISTICS
-                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_coupon'
-                   AND INDEX_NAME = 'uk_user_coupon'),
-           'uk_user_coupon OK', 'uk_user_coupon MISSING!')) AS note;
+       IF((SELECT COUNT(*) = 2
+                AND MIN(SEQ_IN_INDEX) = 1
+                AND MAX(SEQ_IN_INDEX) = 2
+                AND MIN(CASE WHEN SEQ_IN_INDEX = 1 THEN COLUMN_NAME END) = 'user_id'
+                AND MIN(CASE WHEN SEQ_IN_INDEX = 2 THEN COLUMN_NAME END) = 'coupon_key'
+           FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_coupon'
+             AND INDEX_NAME = 'uk_user_coupon'),
+           'uk_user_coupon OK (user_id:1, coupon_key:2)',
+           'uk_user_coupon MISSING OR COLUMN ORDER WRONG!')) AS note;
