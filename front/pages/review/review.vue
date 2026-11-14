@@ -130,7 +130,7 @@ export default {
       loaded: false,
       // 长文本展开状态表（M3-T-07）：key 为评价 id，true = 已展开
       expandedReviews: {},
-      // P10-6b（D5）评价图加载失败记录表（照 detail.vue:397 reviewImgFail 同款）：
+      // P10-6b（D5）评价图加载失败记录表（照 detail.vue data 段 reviewImgFail 同款）：
       // key 为 `${评价id||行序}-${图序}`，true = 隐藏该格（不渲染占位）
       reviewImgFail: {},
       showPopup: false,
@@ -217,7 +217,7 @@ export default {
     resolveReviewImg(p) {
       return /^https?:\/\//.test(p) ? p : BASE_URL + p
     },
-    // 单张评价图 404/加载失败：记录表标记该格隐藏（不渲染占位，照 detail.vue:675 onReviewImgFail 家族姿势）
+    // 单张评价图 404/加载失败：记录表标记该格隐藏（不渲染占位，照 detail.vue 的 onReviewImgFail 家族姿势）
     onReviewImgFail(key) {
       this.reviewImgFail = { ...this.reviewImgFail, [key]: true }
     },
@@ -404,7 +404,7 @@ export default {
 .review-content.expanded { -webkit-line-clamp: 999; }
 .review-expand { display: block; font-size: 24rpx; color: #FF6600; margin-bottom: 12rpx; }
 .review-time { font-size: 22rpx; color: var(--c-disabled); }
-/* P10-6b（D5）评价图三列网格缩略（样式照 detail.vue:1053-1055 同款照抄：三列 gap/圆角/aspectFill） */
+/* P10-6b（D5）评价图三列网格缩略（样式照 detail.vue 评价图三列网格 CSS 同款：三列 gap/圆角/aspectFill） */
 .preview-imgs { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 12rpx; }
 .preview-img-cell { width: calc((100% - 16rpx) / 3); height: 200rpx; border-radius: 8rpx; overflow: hidden; background-color: var(--c-fill); }
 .preview-img { width: 100%; height: 100%; display: block; }
