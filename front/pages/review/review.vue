@@ -109,6 +109,8 @@ import { getDishDetail, getReviews, submitReview, uploadReviewImage } from '@/ap
 // P10-6b（D5）评价图 URL 解析依赖：相对路径须拼后端地址（照 detail.vue:366 同款导入；
 // 评价图由后端 /uploads/** 静态映射出，本页此前未引 BASE_URL 故补）
 import { BASE_URL } from '@/api/config.js'
+// 评价大图预览改自建层（PC 滚轮缩放/拖拽/切图，替换 uni.previewImage；detail.vue 同款）
+import { openImgPreview } from '@/utils/img-preview.js'
 
 // M4-T-05：本地预检硬词表（与后端 backEnd/src/main/resources/sensitive-words.txt 硬词同款，
 // 共 10 个，后端词表更新时须同步此数组）。命中硬词前端直接拦截不提交、保留输入；
@@ -219,10 +221,12 @@ export default {
     onReviewImgFail(key) {
       this.reviewImgFail = { ...this.reviewImgFail, [key]: true }
     },
-    // 点击缩略图大图预览：urls 取该评价全部图（已过 reviewImages 归一），current 按 URL 口径传（H5/小程序通吃）
+    // 点击缩略图大图预览：urls 取该评价全部图（已过 reviewImages 归一），current 按 URL 口径传。
+    // PC 滚轮缩放需求（用户实测 uni.previewImage 内置层滚轮不能放大）：改调自建预览层
+    // utils/img-preview.js（全屏 DOM 层挂 body，滚轮 0.5~8 缩放/拖拽/切图/Esc 关闭）
     previewReviewImages(r, pi) {
       const urls = this.reviewImages(r).map(p => this.resolveReviewImg(p))
-      uni.previewImage({ urls, current: urls[pi] })
+      openImgPreview({ urls, current: urls[pi] })
     },
     // F-124 §1.3：客户端幂等键生成（家族命名照 index.vue genClientRequestId；格式 r-{dishId}-{毫秒}-{4位随机}，
     // 长约 22 字符 ≤64 与后端列/DTO 对齐）。一处定义，onLoad 与 openWrite 两处调用，防格式漂移

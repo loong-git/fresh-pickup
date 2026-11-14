@@ -365,6 +365,8 @@ import { getDishDetail, getReviews, decorateDish, getSeckillCurrent } from '@/ap
 import { getDictGroup } from '@/api/dict.js'
 import { BASE_URL } from '@/api/config.js'
 import { getCutoffInfo, formatCountdown, formatPickupTimeText, monotonicNow, parseServerTimeMs, sessionEndMs } from '@/utils/time.js'
+// 评价大图预览改自建层（PC 滚轮缩放/拖拽/切图，替换 uni.previewImage；review.vue 同款）
+import { openImgPreview } from '@/utils/img-preview.js'
 
 export default {
   data() {
@@ -675,10 +677,12 @@ export default {
     onReviewImgFail(key) {
       this.reviewImgFail = { ...this.reviewImgFail, [key]: true }
     },
-    // 点击缩略图大图预览：urls 取该评价全部图（已过 reviewImages 归一），current 按 URL 口径传（H5/小程序通吃）
+    // 点击缩略图大图预览：urls 取该评价全部图（已过 reviewImages 归一），current 按 URL 口径传。
+    // PC 滚轮缩放需求（用户实测 uni.previewImage 内置层滚轮不能放大）：改调自建预览层
+    // utils/img-preview.js（全屏 DOM 层挂 body，滚轮 0.5~8 缩放/拖拽/切图/Esc 关闭）
     previewReviewImages(r, pi) {
       const urls = this.reviewImages(r).map(p => this.resolveReviewImg(p))
-      uni.previewImage({ urls, current: urls[pi] })
+      openImgPreview({ urls, current: urls[pi] })
     },
     // 头图轮播切换：同步指示器序号（current 判空兜底，异常事件不改值）
     onGalleryChange(e) {
