@@ -160,7 +160,9 @@
           <view class="entry-right">
             <text v-if="dish.goodRate" class="entry-rate">好评率{{ dish.goodRate }}</text>
             <!-- P4-2（D1）count 三支门禁：成功且有评价 → N条；成功且零评价 → 引导首评；未成功返回（加载中/失败）→ 不显示 -->
-            <text v-if="reviewsOk && reviews.length" class="entry-count">{{ reviews.length }}条 ›</text>
+            <!-- P11-3 N1：列表接口有硬上限 200（ReviewServiceImpl#getReviewsByDishId LIMIT 200），
+                 满 200 时 reviews.length 恒为 200 只是截断样本，直写「200条」失真 → 显示「200+ 条」 -->
+            <text v-if="reviewsOk && reviews.length" class="entry-count">{{ reviews.length >= 200 ? '200+ 条' : reviews.length + '条' }} ›</text>
             <text v-else-if="reviewsOk" class="entry-count">暂无，去写首评 ›</text>
           </view>
         </view>

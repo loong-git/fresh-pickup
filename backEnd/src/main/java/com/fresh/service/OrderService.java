@@ -35,6 +35,8 @@ public interface OrderService {
      * cancelled（不新增状态值）；支付成功只置 pay_status=1 不改 status，故待支付判定
      * 必须叠加 pay_status=0，已支付订单绝不触碰。关单走状态机条件更新，与手动取消/
      * 支付并发互斥，只关一次不双重回补。返回本次实际关单数（供调度日志）。
+     * P11-3 R5 分批语义：每次调用只扫描一批 LIMIT 200（CLOSE_TIMEOUT_BATCH），
+     * 未扫完的剩余单由调度任务下一轮自然续扫。
      */
     int closeTimeoutOrders();
 }

@@ -397,22 +397,33 @@ public class OrderServiceImpl implements OrderService {
             // 双闸下，手动取消/支付并发命中 0 行即不关单不回补，重复扫描天然不二次回补；
             // ③ 每单操作自包含（回补只依赖本单明细与 dish/coupon 行），单与单之间无共享可变状态，
             // 拆开后任何一单失败只回滚该单，不再放大成阻塞支付路径的分钟级大事务。
-            Boolean done = transactionTemplate.execute(tx -> {
-                // 状态机条件更新：与手动取消互斥保证只关一次；pay_status=0 参与条件封住
-                // "扫描查询之后、置态之前恰好完成支付"的并发窗口（此场景 0 行命中，不关单）
-                int updated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
-                        .eq(Order::getId, order.getId())
-                        .eq(Order::getStatus, STATUS_PENDING_PICKUP)
-                        .eq(Order::getPayStatus, 0)
-                        .set(Order::getStatus, STATUS_CANCELLED));
-                if (updated > 0) {
-                    // 复用 cancel 的回补链路（库存/券；pay_status=0 时退款分支自然跳过），
-                    // 状态置为既有终态 cancelled，不新增状态值，前端订单页四状态 tab 零改动
-                    restockAfterCancel(order.getId());
-                    return true;
-                }
-                return false;
-            });
+            // P11-3 N4 毒丸防御：execute 外再包一层 try/catch——本单事务内持续失败（毒丸单）会回滚并
+            // 向上抛，没有这层时 for 在它身上中断、其后同批单本轮全被跳过（每轮 LIMIT 200 都先撞它，
+            // 整批饿死）。捕获后 log.warn 带 orderId 继续：毒丸单本轮跳过、下轮重试（仍未关单，幂等由
+            // 状态机双闸保证不误关），同批其余单不受影响（每单独立事务，单与单间无共享事务上下文）。
+            Boolean done;
+            try {
+                done = transactionTemplate.execute(tx -> {
+                    // 状态机条件更新：与手动取消互斥保证只关一次；pay_status=0 参与条件封住
+                    // "扫描查询之后、置态之前恰好完成支付"的并发窗口（此场景 0 行命中，不关单）
+                    int updated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                            .eq(Order::getId, order.getId())
+                            .eq(Order::getStatus, STATUS_PENDING_PICKUP)
+                            .eq(Order::getPayStatus, 0)
+                            .set(Order::getStatus, STATUS_CANCELLED));
+                    if (updated > 0) {
+                        // 复用 cancel 的回补链路（库存/券；pay_status=0 时退款分支自然跳过），
+                        // 状态置为既有终态 cancelled，不新增状态值，前端订单页四状态 tab 零改动
+                        restockAfterCancel(order.getId());
+                        return true;
+                    }
+                    return false;
+                });
+            } catch (Exception e) {
+                // 状态机/回补语义不动：毒丸单本轮不计 closed，下轮扫描重试
+                log.warn("超时关单单笔失败（毒丸单不阻塞同批后续单，下轮重试）: orderId={}", order.getId(), e);
+                continue;
+            }
             if (Boolean.TRUE.equals(done)) {
                 closed++;
                 log.info("超时未支付自动关单: orderId={}, createTime={}, 阈值={}分钟",

@@ -80,7 +80,8 @@ public class RecommendServiceImpl implements RecommendService {
     /**
      * P11-3 R1 结果缓存 TTL（毫秒）：F-02.4 预告的缓存，C 端首页每次打开都调推荐接口，
      * 60 秒窗口内同 (userId, excludeId, limit) 直接复用上一次全量计算结果；
-     * 量级增长（条目数 ≈ 活跃用户×参数组合，TTL 到期惰性淘汰不常驻清理线程）再升级 Redis。
+     * 量级增长（条目数 ≈ 活跃用户×参数组合，TTL 到期仅惰性失效——条目留存至同键覆盖，
+     * 不常驻清理线程）再升级 Redis。
      */
     private static final long CACHE_TTL_MS = 60_000L;
 
@@ -90,8 +91,8 @@ public class RecommendServiceImpl implements RecommendService {
 
     /**
      * 推荐结果缓存（P11-3 R1 / F-02.4 预告）：key = userId|excludeId|limit 归一后的组合。
-     * ConcurrentHashMap 天然并发安全；过期条目靠读取时判时刻惰性失效，命中窗口内返回
-     * 缓存副本（strategy/items 与首算全等，返回形状/排序口径不动）。
+     * ConcurrentHashMap 天然并发安全；过期条目靠读取时判时刻惰性失效（条目留存至同键覆盖，无清理线程），
+     * 命中窗口内返回缓存副本（strategy/items 与首算全等，返回形状/排序口径不动）。
      */
     private final ConcurrentHashMap<String, CachedRecommend> recommendCache = new ConcurrentHashMap<>();
 
@@ -236,9 +237,10 @@ public class RecommendServiceImpl implements RecommendService {
 
         // F-02.1 s5 输入：候选的过审评论按 dish 聚合 rating 均值。
         // 口径裁定：文档字面写"audit_status=approved"，但本系统审核流不存在 'approved' 值——
-        // 评价正常入库为 NULL、软词命中为 pending（ReviewServiceImpl:98-103）、管理端过审置 NULL、
-        // 驳回物理删除（AdminServiceImpl#auditReview 的 reject 支）。按 F-02.4"评分仅取过审评论、与线上展示口径一致"，
-        // 裁定为"audit_status 非 pending"，与评价列表过滤（ReviewServiceImpl:44-45）及
+        // 评价正常入库为 NULL、软词命中为 pending（ReviewServiceImpl#addReview 的软词分支）、
+        // 管理端过审置 NULL、驳回物理删除（AdminServiceImpl#auditReview 的 reject 支）。
+        // 按 F-02.4"评分仅取过审评论、与线上展示口径一致"，裁定为"audit_status 非 pending"，
+        // 与评价列表过滤（ReviewServiceImpl#getReviewsByDishId 的 audit 过滤段）及
         // 好评率回写（DishMapper#refreshGoodRate）同口径；无过审评论 → 0.5 中性
         Map<Long, Double> reviewScore = new HashMap<>();
         List<Long> candidateIds = candidates.stream().map(Dish::getId).toList();

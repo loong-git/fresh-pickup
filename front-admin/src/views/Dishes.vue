@@ -192,8 +192,9 @@
       <p class="dialog-note">
         价格 / 库存 / 在售<b>都可以留空</b>：服务端语义是「传了才更新」，留空的那一项不会下发、也不会被改动。<br />
         供货价（F-117）<b>不同</b>：留空提交 = 清除（回 NULL，未设供货价的商品不进结算聚合）；填了就设置（须大于 0、最多两位小数）。
-        price/stock/onSale 与 supplyPrice 全都没表态（前三个留空且供货价本就未设）时，服务端会回 400
-        「无更新字段（可传 price / stock / onSale / supplyPrice）」（该 400 在写库之前就抛，不动任何数据），本页把原文如实显示。
+        price/stock/onSale 与 supplyPrice 全都没表态（前三个留空且供货价本就未设）时，不会有字段被更新：
+        本页仍会发出一次 body 仅含 supplyPrice:null 的空更新（服务端照常受理并写一条审计留痕，不回 400），
+        对数据零影响（「清除」本就未设的供货价是空操作）。
       </p>
       <el-form class="dialog-form" label-width="110px" @submit.prevent="onSubmit">
         <el-form-item :label="'价格（当前 ' + displayOf(editing.price) + '）'">
@@ -528,7 +529,8 @@ function openDialog(row) {
 // stock 是整数列：Integer 从字符串 "50" 反序列化走 Jackson 的标量 coercion（默认允许），值不变、形态更留痕。
 // onSale 是 select（值为 0/1 <b>数字</b>），服务端 @Min/@Max 对 Integer 生效得很，不为"统一"把它改成字符串。
 // supplyPrice（F-117）是唯一<b>恒下发</b>的键：它的「留空=清除」必须以显式 null 才能表达（键缺失=服务端不动该列），
-// 填了同 price 的标度保真纪律原样字符串下发。全空提交且原值未设时，服务端 400「无更新字段…」兜底。
+// 填了同 price 的标度保真纪律原样字符串下发。全空提交且原值未设时即一次 supplyPrice:null 的空更新
+//（服务端按「键出现=表态」照常受理、setCount>0 不回 400，仅无实际变更，审计照写）。
 function buildPatch() {
   const patch = {}
   const price = String(form.value.price == null ? '' : form.value.price).trim()
@@ -566,8 +568,8 @@ function patchText(patch) {
   }
   if (patch.price === undefined && patch.stock === undefined && patch.onSale === undefined
     && patch.supplyPrice === null && editing.value.supplyPrice == null) {
-    lines.push('· 注意：四个字段实际都没改变（供货价本就未设，「清除」是空操作），服务端会回 '
-      + '400「无更新字段（可传 price / stock / onSale / supplyPrice）」，不改任何数据。')
+    lines.push('· 注意：四个字段实际都没有变更（供货价本就未设，「清除」是空操作），本次提交只写入一次 '
+      + 'supplyPrice:null 的空更新，服务端照常受理（不回 400）、不改任何数据，并照常写一条审计留痕。')
   }
   lines.push('· 未填的字段不会下发，服务端不会改动它们（供货价除外：它恒下发，留空即清除）。');
   lines.push('· 成功后服务端写一条 admin_audit_log（action=dish.update，detail 记 old/new，未提交的列显式记 null——既有留痕口径）。')

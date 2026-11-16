@@ -44,8 +44,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * P11-2 审计轮 3 P1 缺口 #1：取消/回补/退款链路补测（OrderServiceImpl#cancelOrder :272-286、
- * #restockAfterCancel :294-313、#closeTimeoutOrders :366-393 此前零覆盖）。
+ * P11-2 审计轮 3 P1 缺口 #1：取消/回补/退款链路补测（OrderServiceImpl#cancelOrder、
+ * #restockAfterCancel、#closeTimeoutOrders 此前零覆盖；具名指代，不写行号防漂移）。
  *
  * <p>照 OrderCreateIdempotentOwnerTest / OrderCreateDailyCapacityTest 的桩范式：不起容器、不落库、
  * {@code @Autowired} 字段逐个灌 mock；LambdaUpdateWrapper 的 {@code set()} 解析列名依赖实体 TableInfo，

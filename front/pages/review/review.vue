@@ -13,8 +13,9 @@
     <view class="review-section">
       <view class="section-header">
         <text class="section-title">商品评价</text>
-        <!-- S4（P4-3）：计数须经 loaded——加载中 reviews 恒空，此处会先报出一句假的「共 0 条」 -->
-        <text class="review-count" v-if="loaded && reviews.length > 0">共 {{ reviews.length }} 条</text>
+        <!-- S4（P4-3）：计数须经 loaded——加载中 reviews 恒空，此处会先报出一句假的「共 0 条」；
+             P11-3 N1：接口有硬上限 200（LIMIT 200），满 200 显示「共 200+ 条」防截断样本失真（与 detail 评价入口同口径） -->
+        <text class="review-count" v-if="loaded && reviews.length > 0">共 {{ reviews.length >= 200 ? '200+' : reviews.length }} 条</text>
       </view>
 
       <!-- 错误态（M3-T-05 部分）：接口异常兜底，区别于"暂无评价"空态，可点击重试 -->
@@ -106,7 +107,7 @@
 
 <script>
 import { getDishDetail, getReviews, submitReview, uploadReviewImage } from '@/api/index.js'
-// P10-6b（D5）评价图 URL 解析依赖：相对路径须拼后端地址（照 detail.vue:366 同款导入；
+// P10-6b（D5）评价图 URL 解析依赖：相对路径须拼后端地址（照 detail.vue 的 BASE_URL 导入同款；
 // 评价图由后端 /uploads/** 静态映射出，本页此前未引 BASE_URL 故补）
 import { BASE_URL } from '@/api/config.js'
 // 评价大图预览改自建层（PC 滚轮缩放/拖拽/切图，替换 uni.previewImage；detail.vue 同款）
@@ -206,14 +207,14 @@ export default {
     toggleExpand(id) {
       this.expandedReviews[id] = !this.expandedReviews[id]
     },
-    // ==================== 评价图展示（P10-6b D5 补渲染，四方法照 detail.vue:665-682 同款范式） ====================
+    // ==================== 评价图展示（P10-6b D5 补渲染，四方法照 detail.vue 评价图展示段同款范式） ====================
     // 评价行 images 出参归一（detail 版为 typeof string 硬过滤；本页按任务口径加 String() try 容错：
     // 非字符串项转字符串，转换 throw 的脏项与空串剔除；脏数据兜底空数组，区块随之隐藏）
     reviewImages(r) {
       const list = (r && Array.isArray(r.images)) ? r.images : []
       return list.map(p => { try { return String(p) } catch (e) { return '' } }).filter(p => p)
     },
-    // 图 URL 解析（照 detail.vue:671 resolveReviewImg 同款）：绝对 http(s) 直用，相对路径 BASE_URL 拼接
+    // 图 URL 解析（照 detail.vue 的 resolveReviewImg 同款）：绝对 http(s) 直用，相对路径 BASE_URL 拼接
     resolveReviewImg(p) {
       return /^https?:\/\//.test(p) ? p : BASE_URL + p
     },
