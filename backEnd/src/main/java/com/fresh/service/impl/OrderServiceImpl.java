@@ -27,6 +27,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -67,6 +68,13 @@ public class OrderServiceImpl implements OrderService {
      */
     public static final int ORDER_TIMEOUT_MINUTES = 30;
 
+    /**
+     * P11-3 R5 超时关单单轮扫描上限：此前无 LIMIT 全量扫 + 外层单事务逐单回补（逐明细 dish 行锁），
+     * 故障态积压万单 = 分钟级大事务阻塞支付/手动取消。单轮最多处理 200 单、每单独立小事务，
+     * 未扫完的剩余单由 OrderTimeoutTask 下一轮（60 秒后）自然续扫，关单延迟上限可控。
+     */
+    public static final int CLOSE_TIMEOUT_BATCH = 200;
+
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
@@ -86,6 +94,12 @@ public class OrderServiceImpl implements OrderService {
     /** P11-2 P2-D 秒杀计价窗口判定源（与 SeckillController 展示出参共用同一判定，杜绝口径漂移） */
     @Autowired
     private SeckillSessionResolver seckillSessionResolver;
+    /**
+     * P11-3 R5：超时关单每单独立事务的执行模板（Spring Boot TransactionAutoConfiguration 按
+     * PlatformTransactionManager 单候选自动装配，与 @Transactional 同一套事务管理器）。
+     */
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     // F-111 隔离级别显式降为 READ_COMMITTED（同 PartnerStoreServiceImpl#confirmArrival /
     // PartnerOrderServiceImpl#verify 先例）：RR 下方法开头幂等快查建立的读视图贯穿整个事务，
@@ -362,28 +376,44 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    @Transactional
     public int closeTimeoutOrders() {
         // 只扫待支付单：支付成功只置 pay_status=1 不改 status（PaymentSettlement#settle），已支付单
-        // status 仍是 pending_pickup，故必须叠加 pay_status=0，否则会误杀已支付订单
+        // status 仍是 pending_pickup，故必须叠加 pay_status=0，否则会误杀已支付订单。
+        // P11-3 R5 分批：扫描加 LIMIT 200（CLOSE_TIMEOUT_BATCH），单轮只处理一批；
+        // 未扫完的剩余单由 OrderTimeoutTask 下一轮（60 秒后）自然续扫，不轮内循环清空
+        // （批间让出连接/锁，故障态积压再多也以固定步长消化）。
         LocalDateTime deadline = LocalDateTime.now().minusMinutes(ORDER_TIMEOUT_MINUTES);
         List<Order> timeoutOrders = orderMapper.selectList(new LambdaQueryWrapper<Order>()
                 .eq(Order::getStatus, STATUS_PENDING_PICKUP)
                 .eq(Order::getPayStatus, 0)
-                .lt(Order::getCreateTime, deadline));
+                .lt(Order::getCreateTime, deadline)
+                .last("LIMIT " + CLOSE_TIMEOUT_BATCH));
         int closed = 0;
         for (Order order : timeoutOrders) {
-            // 状态机条件更新：与手动取消互斥保证只关一次；pay_status=0 参与条件封住
-            // "扫描查询之后、置态之前恰好完成支付"的并发窗口（此场景 0 行命中，不关单）
-            int updated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
-                    .eq(Order::getId, order.getId())
-                    .eq(Order::getStatus, STATUS_PENDING_PICKUP)
-                    .eq(Order::getPayStatus, 0)
-                    .set(Order::getStatus, STATUS_CANCELLED));
-            if (updated > 0) {
-                // 复用 cancel 的回补链路（库存/券；pay_status=0 时退款分支自然跳过），
-                // 状态置为既有终态 cancelled，不新增状态值，前端订单页四状态 tab 零改动
-                restockAfterCancel(order.getId());
+            // P11-3 R5 每单独立事务（本方法去外层 @Transactional）：单轮 200 单从「一个大事务」拆成
+            // ≤200 个小事务，每单「置态 UPDATE + 回补」在 transactionTemplate.execute 内原子完成。
+            // 拆分无正确性代价：① 同一单原子性由独立事务保证（回补链的前置条件约定见其方法注释）；
+            // ② 幂等/并发由状态机条件 UPDATE 保证——status=pending_pickup + pay_status=0
+            // 双闸下，手动取消/支付并发命中 0 行即不关单不回补，重复扫描天然不二次回补；
+            // ③ 每单操作自包含（回补只依赖本单明细与 dish/coupon 行），单与单之间无共享可变状态，
+            // 拆开后任何一单失败只回滚该单，不再放大成阻塞支付路径的分钟级大事务。
+            Boolean done = transactionTemplate.execute(tx -> {
+                // 状态机条件更新：与手动取消互斥保证只关一次；pay_status=0 参与条件封住
+                // "扫描查询之后、置态之前恰好完成支付"的并发窗口（此场景 0 行命中，不关单）
+                int updated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                        .eq(Order::getId, order.getId())
+                        .eq(Order::getStatus, STATUS_PENDING_PICKUP)
+                        .eq(Order::getPayStatus, 0)
+                        .set(Order::getStatus, STATUS_CANCELLED));
+                if (updated > 0) {
+                    // 复用 cancel 的回补链路（库存/券；pay_status=0 时退款分支自然跳过），
+                    // 状态置为既有终态 cancelled，不新增状态值，前端订单页四状态 tab 零改动
+                    restockAfterCancel(order.getId());
+                    return true;
+                }
+                return false;
+            });
+            if (Boolean.TRUE.equals(done)) {
                 closed++;
                 log.info("超时未支付自动关单: orderId={}, createTime={}, 阈值={}分钟",
                         order.getId(), order.getCreateTime(), ORDER_TIMEOUT_MINUTES);

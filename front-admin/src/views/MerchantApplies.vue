@@ -21,7 +21,8 @@
           {{ opt.label }}
         </el-radio-button>
       </el-radio-group>
-      <el-button size="small" :disabled="loading || submitting" @click="load">刷新</el-button>
+      <!-- P2-1：load 现带 force 参数，模板裸引用会把点击事件对象当 force 传入，统一改显式调用（照 Orders.vue:84 口径） -->
+      <el-button size="small" :disabled="loading || submitting" @click="load()">刷新</el-button>
       <!-- 代开通与自助申请并存：一期只有这条路（运营拿到手机号直接开），二期起两条都在。
            它不产生 merchant_apply 行，所以提交后列表不会多一行，这是预期。 -->
       <el-button size="small" type="primary" plain :disabled="submitting" @click="openCreate">代开通商家</el-button>
@@ -36,7 +37,7 @@
       <div class="state-title">读取失败</div>
       <!-- 只展示请求层透出的后端原文（见 api/index.js 的 handleEnvelope），本页不补猜原因的文案。 -->
       <div class="state-desc">{{ loadError }}</div>
-      <el-button size="small" @click="load">重试</el-button>
+      <el-button size="small" @click="load()">重试</el-button>
     </div>
 
     <template v-else>
@@ -88,6 +89,8 @@
       </el-table>
 
       <div class="pager">
+        <!-- P2-1（照 Orders.vue:168 同款）：写请求在飞时禁用分页器——审核/代开通成功后要重拉列表，
+             在飞翻页会跟重拉竞态。禁用但不消失，与工具条同一口径。 -->
         <el-pagination
           v-model:current-page="pageNum"
           v-model:page-size="pageSize"
@@ -95,6 +98,7 @@
           :page-sizes="PAGE_SIZES"
           layout="total, sizes, prev, pager, next"
           background
+          :disabled="submitting"
           @size-change="onSizeChange"
           @current-change="onPageChange"
         />
@@ -292,7 +296,9 @@ async function onSubmitCreate() {
     const envelope = await createAdminMerchant({ name, phone, contactName })
     ElMessage.success(envelope.message || '商家已开通')
     createVisible.value = false
-    await load()
+    // P2-1（照 Orders.vue:530 口径）：force=true —— 若列表恰有一笔读在飞，load 会排队并在其落地后补拉，
+    // 不会被在飞守卫静默吞掉（代开通不产生申请行，列表虽不变也得与「读到了什么」同源核对一次）。
+    await load(true)
   } catch (err) {
     const e = err || {}
     if (e.message) ElMessage.error(e.message)
@@ -305,8 +311,18 @@ async function onSubmitCreate() {
 // 服务端对越界页回「空 list + 定值 total」而不是 400，所以「空行 + total>0 + 页码>1 且超过末页」是唯一可靠判据。
 let pageFixPending = false
 
-async function load() {
-  if (loading.value) return
+// P2-1（A9/D5 同款，范式逐行出自 Orders.vue:293-345；本页 loading 布尔结构与 Settlements.vue:432-485 同款）：
+// 写成功那一刻列表可能正有一笔读在飞，既有在飞守卫会把这次重拉直接吞掉。
+// force=true 的在飞不丢弃，只置这个标志，由当前请求落地后的 finally 补拉一次。模块级布尔，不参与渲染。
+let reloadQueued = false
+
+async function load(force) {
+  // 在飞守卫：请求未回时不再发第二条（状态切换、分页器、「刷新/重试」同守这一条）。
+  // P2-1：写后重拉（force=true）在飞时不静默丢弃，只置排队标志，落地后由 finally 补拉一次。
+  if (loading.value) {
+    if (force) reloadQueued = true
+    return
+  }
   loading.value = true
   loadError.value = ''
   try {
@@ -335,6 +351,12 @@ async function load() {
     if (e.message) ElMessage.error(e.message)
   } finally {
     loading.value = false
+    // P2-1（照 Orders.vue/Settlements.vue 的 finally 消费姿势）：补拉放在 finally 里——此刻 loading 已落，
+    // 重入 load(true) 不会被在飞守卫吞掉，也不会自我循环（第二趟进 finally 时标志已被本块清空）。
+    if (reloadQueued) {
+      reloadQueued = false
+      load(true)
+    }
   }
   // 补拉必须放在 finally 之后：此时 loading 已落，在飞守卫才放行；不得在 try 里 await load()。
   if (pageFixPending) {
@@ -436,7 +458,9 @@ async function runAudit(row, action, remark) {
   try {
     const envelope = await auditMerchantApply(row.id, action, remark)
     if (envelope && envelope.message) ElMessage.success(envelope.message)
-    await load()
+    // P2-1（照 Orders.vue:530 口径）：force=true —— 若列表恰有一笔读在飞（确认框开着时翻了页），
+    // load 会排队并在其落地后补拉，不会被在飞守卫静默吞掉（姿势见本页 load 的 reloadQueued 注释）。
+    await load(true)
     return true
   } catch (err) {
     const e = err || {}

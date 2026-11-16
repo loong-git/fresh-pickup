@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -34,11 +35,13 @@ import java.util.stream.Collectors;
  * - F-02.1 打散：score 降序后贪心扫描，同 category 连续 &gt;2 与下一个异类目项交换（尾段不足则保持）；
  * - F-02.1 tiebreak：score desc → sold_count desc → id asc，禁止 Random/时间参与排序；
  * - F-02.1 策略标签：用户无任何订单 → 跳过 s1/s2，strategy="best-seller"；否则 "personalized"；
- * - F-02.4 边界：28 商品量级下每请求实时计算可接受（全量订单明细/商品映射直接内存聚合），
- *   数据量增长后再引入缓存；评分仅取过审评论，与线上展示口径一致。
+ * - F-02.4 边界：28 商品量级下每请求实时计算可接受；P11-3 轮6 R1 落地 F-02.4 预告的两件优化——
+ *   ① s2 共现数据源按「已购 ∪ 候选」dish_id IN 收窄（不再拉 order_item 全表进 JVM 两两共现），
+ *   ② 结果缓存 60 秒（{@link #recommendCache}，量级增长再升级 Redis）；评分仅取过审评论，与线上展示口径一致。
  *
- * 确定性保证：排序仅依赖 Comparator 链（score/sold_count/id），无 Random、无时间源，
- * 同输入（同用户数据 + 同参数）两次调用输出全等（F-02.2 单测断言、F-02.3 回归场景 3）。
+ * 确定性保证：排序仅依赖 Comparator 链（score/sold_count/id），打分/排序全程无 Random、无时间源，
+ * 同输入（同用户数据 + 同参数）两次调用输出全等（F-02.2 单测断言、F-02.3 回归场景 3）；
+ * 时间源仅出现在缓存过期判定（不影响任何打分/排序输入，命中窗口内同输入同输出）。
  */
 @Service
 public class RecommendServiceImpl implements RecommendService {
@@ -74,6 +77,24 @@ public class RecommendServiceImpl implements RecommendService {
     /** T-M3-12 字典 11 类：s1 拉普拉斯平滑分母 +11（F-02.1"(cnt+1)/(total+11类数)"） */
     private static final int CATEGORY_DICT_SIZE = 11;
 
+    /**
+     * P11-3 R1 结果缓存 TTL（毫秒）：F-02.4 预告的缓存，C 端首页每次打开都调推荐接口，
+     * 60 秒窗口内同 (userId, excludeId, limit) 直接复用上一次全量计算结果；
+     * 量级增长（条目数 ≈ 活跃用户×参数组合，TTL 到期惰性淘汰不常驻清理线程）再升级 Redis。
+     */
+    private static final long CACHE_TTL_MS = 60_000L;
+
+    /** 缓存条目：命中结果（items 已定形为不可变副本）+ 过期时刻 */
+    private record CachedRecommend(RecommendVO vo, long expiresAtMs) {
+    }
+
+    /**
+     * 推荐结果缓存（P11-3 R1 / F-02.4 预告）：key = userId|excludeId|limit 归一后的组合。
+     * ConcurrentHashMap 天然并发安全；过期条目靠读取时判时刻惰性失效，命中窗口内返回
+     * 缓存副本（strategy/items 与首算全等，返回形状/排序口径不动）。
+     */
+    private final ConcurrentHashMap<String, CachedRecommend> recommendCache = new ConcurrentHashMap<>();
+
     private final DishMapper dishMapper;
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
@@ -96,6 +117,13 @@ public class RecommendServiceImpl implements RecommendService {
     public RecommendVO recommend(Long userId, Long excludeId, Integer limit) {
         // F-02.1：limit 默认 5、上限 MAX_RECOMMEND_LIMIT（沿用旧 recommend 的钳制口径）
         int n = (limit == null || limit < 1) ? DEFAULT_LIMIT : Math.min(limit, MAX_RECOMMEND_LIMIT);
+        // P11-3 R1 / F-02.4 预告的缓存：60 秒窗口内同参数复用首算结果（副本不可变，
+        // 返回形状/排序口径与首算全等）。时间只参与过期判定，不进打分/排序。
+        String cacheKey = userId + "|" + excludeId + "|" + n;
+        CachedRecommend cached = recommendCache.get(cacheKey);
+        if (cached != null && cached.expiresAtMs() > System.currentTimeMillis()) {
+            return RecommendVO.of(cached.vo().getStrategy(), cached.vo().getItems());
+        }
 
         // F-02.1 候选集：on_sale=1 硬过滤 + excludeId 硬剔除（SQL 层表达）。
         // F-116 §2.1：候选集再叠 audit_status='ok'（运营驳回品不进推荐，SQL+内存双保险照 on_sale 同款模式）。
@@ -157,9 +185,18 @@ public class RecommendServiceImpl implements RecommendService {
                     historyTotal++;
                 }
             }
-            // F-02.1 s2：item-CF 共现矩阵 co(d,c)=同 order_id 共现次数（订单内 dish 对、行去重），
-            // 基于全体订单明细统计（selectList(null)=全表）；F-02.4 认可该量级下每请求实时计算
-            orderItemMapper.selectList(null).stream()
+            // F-02.1 s2：item-CF 共现矩阵 co(d,c)=同 order_id 共现次数（订单内 dish 对、行去重）。
+            // P11-3 R1 收窄（替代原 selectList(null)=order_item 全表进 JVM 两两共现的 O(n²)）：
+            // co 的两端恒为 d∈已购 D、c∈候选集（rawCf 只读这两类对，见下方打分段），故只拉
+            // 「已购 ∪ 候选」dish 出现过的明细行（dish_id IN，服务端过滤后传输/建对象量级骤减），
+            // 再按 order_id 分组组内去重两两共现——集合内两 dish 同单 ⇒ 两行都落在本行集 ⇒
+            // co(d,c) 与全表口径逐值相等（集合外 dish 的共现对从不被读取，裁剪零行为差异）
+            Set<Long> cfDishScope = new HashSet<>(purchased);
+            for (Dish c : candidates) {
+                cfDishScope.add(c.getId());
+            }
+            orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>()
+                            .in(OrderItem::getDishId, cfDishScope)).stream()
                     .filter(it -> it.getOrderId() != null && it.getDishId() != null)
                     .collect(Collectors.groupingBy(OrderItem::getOrderId))
                     .values()
@@ -286,6 +323,11 @@ public class RecommendServiceImpl implements RecommendService {
 
         List<Dish> items = scored.stream().map(Scored::dish).limit(n).collect(Collectors.toList());
         String strategy = personalized ? RecommendVO.STRATEGY_PERSONALIZED : RecommendVO.STRATEGY_BEST_SELLER;
+        // P11-3 R1：首算结果写缓存（items 定形为不可变副本，防调用方改动污染缓存条目）；
+        // 本请求仍返回新建可变 VO，与改前返回形状一致
+        recommendCache.put(cacheKey, new CachedRecommend(
+                RecommendVO.of(strategy, List.copyOf(items)),
+                System.currentTimeMillis() + CACHE_TTL_MS));
         return RecommendVO.of(strategy, items);
     }
 }

@@ -117,7 +117,17 @@ const toggleSide = () => {
 // —— P9-fix 双主题读数（纯 UI 状态，照 P8-1 放宽条款先例显式披露；本 script 段唯一新增）——
 // 读数与 storage 同源：初始读档（main.js 已按同口径在挂载前挂 class），切换走 main.js 的
 // window.__setAdminTheme（写档 + toggle class 一步完成，切换唯一入口），返回值回填读数。
-const adminTheme = ref(localStorage.getItem('admin_theme') === 'dark' ? 'dark' : 'light')
+// P3-1（同 api 层 getStoredToken 的守卫纪律，防禁存储环境白屏）：setup 期裸读抛异常同样整站白屏，
+// 读失败按「没存过」回落 'light'，与 main.js 挂载前那一次同口径读保持一致。
+function readAdminTheme() {
+  try {
+    return localStorage.getItem('admin_theme') === 'dark' ? 'dark' : 'light'
+  } catch (e) {
+    // 隐私模式 / 存储被禁：默认浅色档，页面照常可用
+    return 'light'
+  }
+}
+const adminTheme = ref(readAdminTheme())
 const toggleAdminTheme = () => {
   adminTheme.value = window.__setAdminTheme(adminTheme.value === 'dark' ? 'light' : 'dark')
 }

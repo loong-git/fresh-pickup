@@ -50,7 +50,8 @@
         <div v-else-if="userError" class="state-box">
           <div class="state-title">读取失败</div>
           <div class="state-desc">{{ userError }}</div>
-          <el-button size="small" @click="loadUsers">重试</el-button>
+          <!-- P2-1：loadUsers 现带 force 参数，模板裸引用会把点击事件对象当 force 传入，统一改显式调用（照 Orders.vue:84 口径） -->
+          <el-button size="small" @click="loadUsers()">重试</el-button>
         </div>
         <template v-else>
           <el-table :data="userRows" border stripe size="small" class="table" max-height="calc(100vh - 520px)">
@@ -93,6 +94,8 @@
           </el-table>
 
           <div class="pager">
+            <!-- P2-1（照 Orders.vue:168 同款）：写请求在飞时禁用分页器——封禁/解封成功后要重拉列表，
+                 在飞翻页会跟重拉竞态。禁用但不消失，与本 tab 工具条同一口径。 -->
             <el-pagination
               v-model:current-page="userPageNum"
               v-model:page-size="userPageSize"
@@ -100,6 +103,7 @@
               :page-sizes="PAGE_SIZES"
               layout="total, sizes, prev, pager, next"
               background
+              :disabled="userSubmitting"
               @size-change="onUserSizeChange"
               @current-change="onUserPageChange"
             />
@@ -131,7 +135,7 @@
         <div v-else-if="merchantError" class="state-box">
           <div class="state-title">读取失败</div>
           <div class="state-desc">{{ merchantError }}</div>
-          <el-button size="small" @click="loadMerchants">重试</el-button>
+          <el-button size="small" @click="loadMerchants()">重试</el-button>
         </div>
         <template v-else>
           <el-table :data="merchantRows" border stripe size="small" class="table" max-height="calc(100vh - 520px)">
@@ -178,6 +182,7 @@
           </el-table>
 
           <div class="pager">
+            <!-- P2-1（照 Orders.vue:168 同款）：商家 tab 同口径——写在飞禁用分页器，防与写后重拉竞态 -->
             <el-pagination
               v-model:current-page="merchantPageNum"
               v-model:page-size="merchantPageSize"
@@ -185,6 +190,7 @@
               :page-sizes="PAGE_SIZES"
               layout="total, sizes, prev, pager, next"
               background
+              :disabled="merchantSubmitting"
               @size-change="onMerchantSizeChange"
               @current-change="onMerchantPageChange"
             />
@@ -301,8 +307,19 @@ function isPositiveInt(raw) {
 let userPageFixPending = false
 let merchantPageFixPending = false
 
-async function loadUsers() {
-  if (userLoading.value) return
+// P2-1（A9/D5 同款，范式逐行出自 Orders.vue:293-345；本页 loading 布尔结构照 Settlements.vue:432-485 同款）：
+// 写成功那一刻列表可能正有一笔读在飞，既有在飞守卫会把这次重拉直接吞掉——封禁成功后行仍显「正常」。
+// force=true 的在飞不丢弃，只置这个标志，由当前请求落地后的 finally 补拉一次。两个 tab 各一份，互不串扰。
+let userReloadQueued = false
+let merchantReloadQueued = false
+
+async function loadUsers(force) {
+  // 在飞守卫：请求未回时不再发第二条（筛选/分页/重试同守这一条）。
+  // P2-1：写后重拉（force=true）在飞时不静默丢弃，只置排队标志，落地后由 finally 补拉一次。
+  if (userLoading.value) {
+    if (force) userReloadQueued = true
+    return
+  }
   userLoading.value = true
   userError.value = ''
   const rawUserId = String(userFilters.value.userId == null ? '' : userFilters.value.userId).trim()
@@ -339,6 +356,12 @@ async function loadUsers() {
     if (e.message) ElMessage.error(e.message)
   } finally {
     userLoading.value = false
+    // P2-1（照 Orders.vue/Settlements.vue 的 finally 消费姿势）：补拉放在 finally 里——此刻 userLoading 已落，
+    // 重入 loadUsers(true) 不会被在飞守卫吞掉，也不会自我循环（第二趟进 finally 时标志已被本块清空）。
+    if (userReloadQueued) {
+      userReloadQueued = false
+      loadUsers(true)
+    }
   }
   // 补拉必须放在 finally 之后：此时 userLoading 已落，在飞守卫才放行；不得在 try 里 await loadUsers()。
   if (userPageFixPending) {
@@ -347,8 +370,12 @@ async function loadUsers() {
   }
 }
 
-async function loadMerchants() {
-  if (merchantLoading.value) return
+async function loadMerchants(force) {
+  // P2-1：在飞守卫 + force 排队姿势与 loadUsers 同款（见上方 userReloadQueued 注释）。
+  if (merchantLoading.value) {
+    if (force) merchantReloadQueued = true
+    return
+  }
   merchantLoading.value = true
   merchantLoaded.value = true
   merchantError.value = ''
@@ -379,6 +406,11 @@ async function loadMerchants() {
     if (e.message) ElMessage.error(e.message)
   } finally {
     merchantLoading.value = false
+    // P2-1：商家 tab 的 finally 消费与用户 tab 同款（见上方 merchantReloadQueued 注释）。
+    if (merchantReloadQueued) {
+      merchantReloadQueued = false
+      loadMerchants(true)
+    }
   }
   // 同上：finally 之后才补拉（不得在 try 里 await loadMerchants()）。
   if (merchantPageFixPending) {
@@ -491,7 +523,9 @@ async function runUserStatus(row, action) {
   try {
     const envelope = await updateAdminUserStatus(row.id, action)
     ElMessage.success((envelope && envelope.message) || (action === 'ban' ? '用户已封禁' : '用户已解封'))
-    await loadUsers()
+    // P2-1（照 Orders.vue:530 口径）：force=true —— 若列表恰有一笔读在飞（确认框开着时翻了页），
+    // loadUsers 会排队并在其落地后补拉，不会被在飞守卫静默吞掉（否则封禁后该行仍显「正常」）。
+    await loadUsers(true)
   } catch (err) {
     const e = err || {}
     if (e.message) ElMessage.error(e.message)
@@ -548,7 +582,8 @@ async function runMerchantStatus(row, action) {
   try {
     const envelope = await updateAdminMerchantStatus(row.id, action)
     ElMessage.success((envelope && envelope.message) || (action === 'ban' ? '商家已封禁' : '商家已解封'))
-    await loadMerchants()
+    // P2-1（照 Orders.vue:530 口径）：force=true 防在飞守卫吞掉写后重拉（姿势见本页 userReloadQueued 注释）。
+    await loadMerchants(true)
   } catch (err) {
     const e = err || {}
     if (e.message) ElMessage.error(e.message)

@@ -5,6 +5,15 @@ server:
 spring:
   profiles:
     active: dev
+  # P11-3 R8 连接池显式配置（dev/prod 同口径，profile 文件只差 URL/账号，故放公共段）：
+  # Hikari 默认池 10 连接、取连接等待 30s——R1/R3/R4 任一秒级慢查询叠加并发即可占满默认池，
+  # 后续请求排队 30s 才报错 = 全站级联超时。上限 20 + 等待 5s 封顶：等待失败快速失败，
+  # 不让慢查询把线程池拖成「假死」。JDBC URL 层的 connectTimeout/socketTimeout（连接建立/套接字读）
+  # 在 dev/prod 两份 URL 上各自追加（毫秒，MySQL Connector/J 参数名）。
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 5000
   # 商家上传件上限（F-12/G-01 §2.8）：全仓原无任何 multipart 配置，Spring Boot 默认 1MB，
   # 与 R5 允许的 ≤5MB 冲突——不配则 1~5MB 真实照片会被框架层先行打断。
   # request 上限略高于 file 上限，留 multipart 边界（boundary/表单头）余量。

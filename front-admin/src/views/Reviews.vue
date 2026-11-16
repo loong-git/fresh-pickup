@@ -58,14 +58,15 @@
       <div class="state-title">没有访问权限</div>
       <div class="state-desc">{{ errorText }}</div>
       <div class="state-desc">403 与 401 不同义：登录态是有效的，但服务端判定本账号不能读这一面。请核对运营账号的角色与授权。</div>
-      <el-button size="small" @click="load">重试</el-button>
+      <!-- P2-1：load 现带 force 参数，模板裸引用会把点击事件对象当 force 传入，统一改显式调用（照 Orders.vue:84 口径） -->
+      <el-button size="small" @click="load()">重试</el-button>
     </div>
 
     <div v-else-if="viewState === 'error'" class="state-box">
       <div class="state-title">读取失败</div>
       <div class="state-desc">{{ errorText }}</div>
       <div v-if="codeHint" class="state-desc">{{ codeHint }}</div>
-      <el-button size="small" @click="load">重试</el-button>
+      <el-button size="small" @click="load()">重试</el-button>
     </div>
 
     <template v-else>
@@ -144,6 +145,8 @@
       </div>
 
       <div class="pager">
+        <!-- P2-1（照 Orders.vue:168 同款）：写请求在飞时禁用分页器——批量审核/单条审核成功后要重拉列表，
+             在飞翻页会跟重拉竞态。禁用但不消失，与工具条同一口径。 -->
         <el-pagination
           v-model:current-page="pageNum"
           v-model:page-size="pageSize"
@@ -151,6 +154,7 @@
           :page-sizes="PAGE_SIZES"
           layout="total, sizes, prev, pager, next"
           background
+          :disabled="submitting"
           @size-change="onSizeChange"
           @current-change="onPageChange"
         />
@@ -243,7 +247,9 @@ const codeHint = computed(() => (CODE_HINTS[String(errorCode.value)] || '')
 const WRITE_CODE_HINTS = {
   400: '这笔写请求被 400 拒绝。400 不说明命中哪一句，本页不猜：通用两句是'
     + '「请求参数有误，请检查后重试」与「参数格式不正确」；本端点自己的业务文案是'
-    + '「action 仅允许 approve（过审展示）或 reject（驳回删除）」、「action 不能为空」。'
+    + '「action 仅允许 approve（过审展示）或 reject（驳回删除）」、「action 不能为空」；'
+    + '批量端点（batch-audit）另有「ids 不能为空（须为数字数组，1~100 条）」与「ids 一次最多 100 条」'
+    + '（P3-3 补记：跨页累积选择可静默超过 100 条，超限整批 400、一条都不执行，分批提交即可）。'
     + '请以「服务端原文」那一行为准。',
   403: '登录态有效但服务端判定本账号不能审评价（403 ≠ 登录失效，本页不清登录态）。'
     + '请核对运营账号的角色与授权。',
@@ -280,8 +286,19 @@ function writeHintOf(code, data) {
 // 服务端对越界页回「空 list + 定值 total」而不是 400，所以「空行 + total>0 + 页码>1 且超过末页」是唯一可靠判据。
 let pageFixPending = false
 
-async function load() {
-  if (viewState.value === 'loading') return
+// P2-1（A9/D5 同款，范式逐行出自 Orders.vue:293-345）：写成功那一刻列表可能正有一笔读在飞，
+// 既有在飞守卫会把这次重拉直接吞掉——批量驳回后表格仍显已删行、结果条却写着「列表已重新拉取」。
+// force=true 的在飞不丢弃，只置这个标志，由当前请求落地后的 finally 补拉一次——结果条与列表才同源。
+// 模块级布尔，不参与渲染。
+let reloadQueued = false
+
+async function load(force) {
+  // 在飞守卫：请求未回时不再发第二条（筛选 @change、分页器、「重试」同守这一条）。
+  // P2-1：写后重拉（force=true）在飞时不静默丢弃，只置排队标志，落地后由 finally 补拉一次。
+  if (viewState.value === 'loading') {
+    if (force) reloadQueued = true
+    return
+  }
   viewState.value = 'loading'
   errorText.value = ''
   errorCode.value = 0
@@ -309,6 +326,8 @@ async function load() {
       viewState.value = 'error'
       errorCode.value = 401
       errorText.value = '登录状态已失效，正在返回登录页…'
+      // P2-1：请求层已清态跳登录，本页不再补拉（否则会在登录页背后白打一次读请求），排队标志一并清掉
+      reloadQueued = false
       return
     }
     if (e.code === 403) {
@@ -320,6 +339,14 @@ async function load() {
     errorCode.value = Number(e.code) || 0
     errorData.value = e.data || null
     errorText.value = e.message || '评价队列读取失败，请稍后重试'
+  } finally {
+    // P2-1（照 Orders.vue finally 消费姿势）：补拉放在 finally 里——catch 的 401/403 分支带 return，
+    // 也必经这里；401 已在分支内清掉标志。此刻 viewState 已落定（不再是 'loading'），
+    // 重入 load(true) 不会被在飞守卫吞掉，也不会自我循环（第二趟进 finally 时标志已被本块清空）。
+    if (reloadQueued) {
+      reloadQueued = false
+      load(true)
+    }
   }
   // 补拉必须放在 try/catch 全部结束之后：此时 viewState 已离开 'loading'，在飞守卫才放行；
   // 不得在 try 里 await load()。（catch 的 401/403 分支已 return，走到这里时 pageFixPending 必为 false。）
@@ -438,20 +465,32 @@ function confirmTextOf(row, action) {
 
 // P11-1b D8 批量二次确认文案：approve 列语义（逐条幂等）；reject 列条数 +「物理删除不可恢复」警示。
 // 与单条 confirmTextOf 同一份纯文本纪律（ElMessageBox 没开 dangerouslyUseHTMLString，强调用「」不用标签）。
+// P3-3：批量端点对 ids 有 100 条上限（后端 AdminV2ServiceImpl#batchAuditReviews 原句
+// 「ids 一次最多 100 条」，超限整批 400、整批未生效）。选择列跨翻页保留（row-key + reserve-selection），
+// 跨页累积可静默超限，所以两个动作的确认文案<b>恒显示</b>上限说明；已超限时再点名当前条数，提醒先分批。
+function batchLimitLine(count) {
+  return '· 一次最多 100 条，超出的请分批提交：服务端对 ids 上限 100，超限整批 400、一条都不会执行。'
+    + (count > 100
+      ? '⚠ 当前已选 ' + count + ' 条、已超限——请先取消部分选择，按每批 ≤100 条分开提交。\n'
+      : '\n')
+}
+
 function batchConfirmTextOf(count, action) {
   if (action === 'approve') {
     return '将把选中的 ' + count + ' 条评价批量置为「展示中」（过审）。\n\n'
       + '· 逐条执行单条过审语义：服务端把每条的 audit_status 置为 NULL，立刻恢复对外展示；'
       + '已是展示中的行幂等不受影响。\n'
       + '· 每条各写一条 admin_audit_log（action=review.audit），留痕与单条过审一致。\n'
-      + '· 一次批量=一次写请求（限流按一次计）；单条失败会按条记下原因，不影响其余条继续执行。'
+      + '· 一次批量=一次写请求（限流按一次计）；单条失败会按条记下原因，不影响其余条继续执行。\n'
+      + batchLimitLine(count)
   }
   return '将「批量驳回并删除」选中的 ' + count + ' 条评价。\n\n'
     + '· ⚠ 这是物理删除，不可恢复：服务端逐条删除评价行（连同评价图片行与图片文件一并删除），'
     + '删除后没有任何撤销入口，本页面与库里都不会出现「已驳回」这一态；确需留证请事先由 DBA 备份。\n'
     + '· 删除后 C 端不再展示这些评价，评分也不再计入对应菜品。\n'
     + '· 已被他人先删的行会按条记为失败（「评价不存在」），不影响其余行继续执行。\n'
-    + '· 每条各写一条 admin_audit_log（action=review.audit），但它记的是留痕，不能用来还原被删的行。'
+    + '· 每条各写一条 admin_audit_log（action=review.audit），但它记的是留痕，不能用来还原被删的行。\n'
+    + batchLimitLine(count)
 }
 
 /**
@@ -499,7 +538,9 @@ async function onBatch(action) {
         + (failedHead ? '失败明细（最多列 5 条）：' + failedHead + '。' : '')
         + '列表已重新拉取、选择已清空。'
     }
-    await load()
+    // P2-1（照 Orders.vue:530 口径）：force=true —— 若列表恰有一笔读在飞（确认框开着时翻了页），
+    // load 会排队并在其落地后补拉，不会被在飞守卫静默吞掉——否则批量驳回后表格仍显已删行。
+    await load(true)
     clearSelection()
   } catch (err) {
     const e = err || {}
@@ -543,7 +584,8 @@ async function onWrite(row, action) {
         ? '列表已按当前筛选重新拉取（本页不本地改行）：这一行的 auditStatus 应由服务端回成空值，文案显示「展示中」。'
         : '列表已按当前筛选重新拉取：这一行应当「不再出现」（行已被物理删除）。若它还在，说明删除未生效，请核对服务端原文。'
     }
-    await load()
+    // P2-1（照 Orders.vue:530 口径）：force=true 防在飞守卫吞掉写后重拉（姿势见本页 load 的 reloadQueued 注释）
+    await load(true)
   } catch (err) {
     const e = err || {}
     if (e.code === 401) {

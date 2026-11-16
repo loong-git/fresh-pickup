@@ -21,6 +21,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -105,6 +107,10 @@ class OrderCancelRestockTest {
         ReflectionTestUtils.setField(orderService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", arrivalBatchMapper);
         ReflectionTestUtils.setField(orderService, "couponService", couponService);
+        // P11-3 R5：closeTimeoutOrders 每单独立事务走 TransactionTemplate——mock 管理器下
+        // execute 直通执行 lambda（getTransaction/commit 都是空操作），行为断言语义不变
+        ReflectionTestUtils.setField(orderService, "transactionTemplate",
+                new TransactionTemplate(mock(PlatformTransactionManager.class)));
         // 默认：本人未支付待自提单 + 两件明细（菠菜×2、白菜×1），各用例按需覆盖
         when(orderMapper.selectById(ORDER_ID)).thenReturn(order(USER_ID, 0));
         when(orderItemMapper.selectList(any()))

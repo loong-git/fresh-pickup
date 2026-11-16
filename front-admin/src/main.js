@@ -18,11 +18,23 @@ import router from './router'
 // 切换唯一入口 window.__setAdminTheme（App.vue topbar 切换钮调用）：写档 + toggle class 一步完成，
 // 返回最终档位供屏上读数同源。
 const ADMIN_THEME_KEY = 'admin_theme'
-const initialTheme = localStorage.getItem(ADMIN_THEME_KEY) === 'dark' ? 'dark' : 'light'
+// P3-1（同 api 层 getStoredToken/setStoredToken 的守卫纪律，防禁存储环境白屏）：隐私模式/存储配额异常下
+// 裸读写会在本模块执行期直接抛异常——main.js 是入口，模块期抛异常 = 整站白屏（api 层同纪律已守卫，壳层此前漏网）。
+// 读失败回落 'light'（默认浅色档，语义与「没存过」一致）；写失败静默（只丢主题记忆，不影响本会话的 class 切换）。
+let initialTheme = 'light'
+try {
+  initialTheme = localStorage.getItem(ADMIN_THEME_KEY) === 'dark' ? 'dark' : 'light'
+} catch (e) {
+  // 禁存储环境：按默认浅色档渲染，页面照常可用
+}
 document.documentElement.classList.toggle('dark', initialTheme === 'dark')
 window.__setAdminTheme = (theme) => {
   const next = theme === 'dark' ? 'dark' : 'light'
-  localStorage.setItem(ADMIN_THEME_KEY, next)
+  try {
+    localStorage.setItem(ADMIN_THEME_KEY, next)
+  } catch (e) {
+    // 落盘失败只影响「刷新后是否记住主题」，本会话的切换照常生效
+  }
   document.documentElement.classList.toggle('dark', next === 'dark')
   return next
 }

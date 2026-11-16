@@ -1,8 +1,10 @@
 # 开发环境数据源（T-M1-11）：本地 root 账号，仅限开发调试，禁止用于生产
+# P11-3 R8：URL 追加 connectTimeout=3000&socketTimeout=10000（毫秒，MySQL Connector/J 参数名，
+# 与 prod 同口径）——连接建立 3 秒、套接字读 10 秒封顶；连接池容量等 Hikari 配置在公共 application.yml。
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/fresh_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/fresh_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&connectTimeout=3000&socketTimeout=10000
     username: root
     password: ${DB_PASSWORD:change-me}
 

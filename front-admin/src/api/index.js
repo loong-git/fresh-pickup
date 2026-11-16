@@ -413,13 +413,18 @@ export function getAdminOrders(pageNum, pageSize, filters) {
  * 运营端商品列表（商品管理台数据源，一期**只改不建**——Admin 面本就没有「新建商品」端点，F-20.17 事实 3 附注）：
  * GET /api/admin/v2/dishes
  * 行内键：id,name,price,stock,onSale,soldCount,category,unit,image,goodRate,seckill,seckillPrice,limitBuy,
- * merchantId,createTime,updateTime。onSale/seckill 出 0/1 原值由页面映射文案（D-18）；
- * seckillPrice 非秒杀恒 null；goodRate 是服务端算好的 "94.3%" 串（可为 null），不二次格式化。
+ * merchantId,auditStatus,auditReason,supplyPrice,createTime,updateTime（P3-2 补记审核态/供货价三键，
+ * 与后端 AdminV2Controller#dishes 的行键清单逐键对齐）。onSale/seckill 出 0/1 原值由页面映射文案（D-18）；
+ * seckillPrice 非秒杀恒 null；goodRate 是服务端算好的 "94.3%" 串（可为 null），不二次格式化；
+ * auditStatus/auditReason 出库里原值（F-116：'ok'/'rejected' + 驳回理由，供审核态列与 tooltip）、
+ * supplyPrice 未设出 null（F-117，页面显「—」，未设供货价的商品不进结算聚合）。
  * 排序 id ASC（不是新建在前）。
  * ⚠ 没有关键字搜索参数（D-17 把「商品搜索框」登记为边界，不许顺手加）。
- * @param {{merchantId?:string|number, onSale?:string|number, category?:string}} [filters]
+ * @param {{merchantId?:string|number, onSale?:string|number, category?:string, auditStatus?:string}} [filters]
  *        onSale ∈ {0,1}；category 精确等值且**允许中文**（库里确有一行分类是「蔬菜」，BE-G6-1 已将闸门放宽到
- *        「长度 ≤64 且不含控制字符」，所以点分类名不会是 400）
+ *        「长度 ≤64 且不含控制字符」，所以点分类名不会是 400）；
+ *        auditStatus ∈ {ok,rejected}（F-116 §2.3 审核态筛选：其余值 400、空=全量；实参下发见本函数实现，
+ *        后端白名单见 AdminV2Controller#dishes——P3-2 补记，此前 CODE_HINTS 取口径的注释漏了这一参）
  */
 export function getAdminDishes(pageNum, pageSize, filters) {
   const f = filters || {}
@@ -438,7 +443,10 @@ export function getAdminDishes(pageNum, pageSize, filters) {
 
 /**
  * 运营端评价队列（评价审核页数据源）：GET /api/admin/v2/reviews
- * 行内键：id,dishId,rating,content,reviewer,auditStatus,createTime。
+ * 行内键：id,dishId,rating,content,reviewer,auditStatus,createTime,images。
+ * images（P10-6 A5 评价带图，P3-2 补记）：/uploads/reviews/... 相对路径<b>字符串数组</b>（后端复用
+ * ReviewService#fillImages 一条 IN 批量填充；每评价 ≤3 张、无图为空数组）——页面经请求层 resolveFileUrl
+ * 补后端基址后直读，本层与页面都不自拼 BASE_URL；行缺 images 键/非数组由页面容错为无图。
  * ⚠ **没有 dishName**（AdminV2ServiceImpl 侧不 JOIN dish，ReviewMapper 的注释点名「菜品名由同批的 dishes 列表
  *   在前端对齐」）→ 要显示菜品名只能拿 getAdminDishes 的 id→name 映射，绝不为此改后端。
  * ⚠ `user_id` 禁下发（D-15）。
@@ -511,12 +519,23 @@ export function updateAdminOrderStatus(id, status, reason) {
 }
 
 /**
- * 商品改价/补库存/上下架：PUT /api/admin/dishes/{id}，body {price?, stock?, onSale?}（**部分更新**）
- * 只下发运营实际填过的那几项（服务端语义是「传了才更新」，三项都不传 → 400「无更新字段（可传 price / stock / onSale）」，
- * 该 400 在 setCount==0 处抛、不触库，是零副作用的诚实回答，页面原样渲染即可）。
+ * 商品改价/补库存/上下架：PUT /api/admin/dishes/{id}，body {price?, stock?, onSale?, supplyPrice?}（**部分更新**）
+ * 只下发运营实际填过的那几项（服务端语义是「传了才更新」；price/stock/onSale 全缺且 supplyPrice 键也未出现
+ * → 400「无更新字段（可传 price / stock / onSale / supplyPrice）」，该 400 在 setCount==0 处抛、不触库，
+ * 是零副作用的诚实回答，页面原样渲染即可）。
+ * supplyPrice（F-117）是**三态语义**，由「键是否出现在 JSON」区分（后端 AdminDishUpdateDTO 手写 setter 捕捉：
+ * Jackson 显式 null 也调 setter、键缺失不调；AdminServiceImpl 按 present 计 setCount）：
+ *   · 键出现 + null = 清除（回 NULL——未设供货价的商品不进结算聚合，即运营弹窗「留空=清除」）；
+ *   · 键出现 + 值   = 设置（须 >0「供货价必须大于 0」、最多两位小数「供货价最多两位小数」）；
+ *   · 键缺失        = 不参与本次更新（对不带该键的既有调用方/历史脚本保持部分更新语义不变）。
+ * 本工程页面（Dishes.vue buildPatch）**恒下发**该键——「留空=清除」必须以显式 null 才能表达，
+ * 键缺失在页面侧无法构造；所以该页「四个字段全没填」提交的是 {supplyPrice:null}（setCount≥1，走一次
+ * 置 NULL 的空操作写），不会命中上面的 400。
  * @param {number|string} id 菜品 id（列表里的数字 id）
- * @param {{price?:number, stock?:number, onSale?:number}} patch
- *        price @DecimalMin 0.01「价格必须大于 0」；stock @Min 0「库存不能为负数」且是**直接置值**不是累加；
+ * @param {{price?:number|string, stock?:number|string, onSale?:number, supplyPrice?:string|null}} patch
+ *        price/stock 允许原样字符串下发（FE-G6-8 标度保真：Jackson 把 "4.40" 绑进 BigDecimal 保住 scale=2，
+ *        留痕与库值逐字相同；非数字串由服务端回诚实的 400）；price @DecimalMin 0.01「价格必须大于 0」；
+ *        stock @Min 0「库存不能为负数」且是**直接置值**不是累加；
  *        onSale @Min0 @Max1「onSale 仅允许 0（下架）或 1（上架）」；查无此菜 404「菜品不存在」
  * @returns {Promise<{code:number,message:string,data:null}>} 成功 message「商品已更新」
  */

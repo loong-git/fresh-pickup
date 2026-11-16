@@ -187,7 +187,12 @@ CREATE TABLE orders (
     INDEX idx_phone (phone),
     INDEX idx_user_id (user_id),
     INDEX idx_status (status),
-    INDEX idx_create_time (create_time)
+    INDEX idx_create_time (create_time),
+    -- idx_store_pickup（m37-orders-store-pickup-idx.sql 同步，P11-3 轮6 R3/R4）：下单热路径容量
+    -- COUNT（store_id+pickup_date 等值，status<>'cancelled' 不等值不进索引、回表后小集判断）与
+    -- 运营发车两条 F-63 平台视角聚合（OrderItemMapper#selectArrivalPlanByStore/#countArrivalOrdersForStore）
+    -- 共用的复合索引；列序 (store_id, pickup_date) 与两处 WHERE 谓词顺序一致，幂等增量走 m37 文件
+    INDEX idx_store_pickup (store_id, pickup_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单表';
 
 -- ----------------------------

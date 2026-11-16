@@ -1,11 +1,20 @@
 # 生产环境数据源（T-M1-11）：最小权限账号 fresh_app（仅 SELECT/INSERT/UPDATE/DELETE），
-# 密码从环境变量 DB_PASSWORD 注入，禁止在配置文件中硬编码明文。其余配置同 dev。
+# 密码从环境变量 DB_PASSWORD 注入，禁止在配置文件中硬编码明文。
+# P11-3 R8：JDBC URL 追加 connectTimeout/socketTimeout（毫秒，MySQL Connector/J 参数名，
+# 与 dev 同口径）——连接建立 3 秒、套接字读 10 秒封顶，防慢库把请求线程和连接池挂死。
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/fresh_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/fresh_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&connectTimeout=3000&socketTimeout=10000
     username: fresh_app
     password: ${DB_PASSWORD}
+
+# P11-3 R7（清 HANDOFF §9 挂账）：prod 关 SQL stdout——application.yml 全局默认 StdOutImpl
+# 供 dev 联调，prod 在此覆盖为 NoLoggingImpl（三行照 logback-spring.xml:17-22 注释的原承诺落定）；
+# 应用日志走 FILE appender（logback-spring.xml prod springProfile），SQL 不再双写 stdout。
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
 # JWT（T-M2-02）：生产密钥从环境变量注入，未配置则启动即失败（防呆：不允许带默认弱密钥上线）
 jwt:

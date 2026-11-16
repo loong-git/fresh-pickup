@@ -113,6 +113,18 @@ class AdminCsvExportTest {
         return row;
     }
 
+    /**
+     * P11-3 R2 批量挂明细后，明细按 orderId 分组挂载——内容断言用例的 fixture 须带 orderId
+     * 才能落到目标行；无 orderId（null 组）的旧签名保留给行数/结构类用例（不落组 → 明细列空串）。
+     */
+    private static OrderItem item(String orderId, String dishName, int qty) {
+        OrderItem item = new OrderItem();
+        item.setOrderId(orderId);
+        item.setDishName(dishName);
+        item.setQuantity(qty);
+        return item;
+    }
+
     private static OrderItem item(String dishName, int qty) {
         OrderItem item = new OrderItem();
         item.setDishName(dishName);
@@ -177,8 +189,9 @@ class AdminCsvExportTest {
         when(orderMapper.countOrders(isNull(), isNull(), isNull())).thenReturn(1L);
         when(orderMapper.selectOrdersPage(isNull(), isNull(), isNull(), anyLong(), anyInt()))
                 .thenReturn(List.of(orderRow("O1", "13800001234", "pending_pickup", "东门店")));
+        // P11-3 R2 批量 IN：fixture 带 orderId 落到 O1 组（分组挂载语义与旧逐单查一致）
         when(orderItemMapper.selectList(any()))
-                .thenReturn(List.of(item("苹果", 2), item("香蕉", 1)));
+                .thenReturn(List.of(item("O1", "苹果", 2), item("O1", "香蕉", 1)));
 
         byte[] body = adminService.exportOrdersCsv(ACTOR);
         String text = csvText(body);
@@ -226,7 +239,7 @@ class AdminCsvExportTest {
         when(orderMapper.selectOrdersPage(isNull(), isNull(), isNull(), anyLong(), anyInt()))
                 .thenReturn(List.of(orderRow("O1", "13800001234", "pending_pickup", "东门店")));
         when(orderItemMapper.selectList(any()))
-                .thenReturn(List.of(item("草莓,罐头", 1), item("\"有机\"菜", 2)));
+                .thenReturn(List.of(item("O1", "草莓,罐头", 1), item("O1", "\"有机\"菜", 2)));
 
         String text = csvText(adminService.exportOrdersCsv(ACTOR));
 
@@ -251,6 +264,8 @@ class AdminCsvExportTest {
                     }
                     return rows;
                 });
+        // P11-3 R2 批量挂载：本用例只断言行数/尾注/审计，明细列内容不在断言面——fixture 不带 orderId
+        //（null 组不落任何行 → 各行明细列空串），5000 行统一命中同一批查 stub
         when(orderItemMapper.selectList(any())).thenReturn(List.of(item("菜", 1)));
 
         String text = csvText(adminService.exportOrdersCsv(ACTOR));

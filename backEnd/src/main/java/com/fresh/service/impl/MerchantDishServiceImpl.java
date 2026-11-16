@@ -106,7 +106,7 @@ public class MerchantDishServiceImpl implements MerchantDishService {
     @Autowired
     private AdminAuditLogMapper adminAuditLogMapper;
     /**
-     * P11-2 P3-F：商品自由文本（name/description/tags）接入敏感词（注入姿势照 ReviewServiceImpl:66-67 先例；
+     * P11-2 P3-F：商品自由文本（name/description/tags）接入敏感词（注入姿势照 ReviewServiceImpl 的 WordFilter 注入先例；
      * 词表 classpath:sensitive-words.txt，热更新机制在该组件内部，本类不触碰）。
      * 商品名/描述经 C 端匿名公开展示，此前敏感词治理只覆盖评价与商家回复——本处补齐商品侧。
      */

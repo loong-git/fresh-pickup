@@ -99,6 +99,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 管理端薄版服务实现（T-M3-09）：
@@ -3428,6 +3429,14 @@ public class AdminServiceImpl implements AdminService {
             if (rows.isEmpty()) {
                 break;   // 并发删空兜底：COUNT 与页之间数据消失即止，不再空转
             }
+            // P11-3 R2（消逐行 N+1）：本页 rows 的订单号先收集，一次 order_id IN 批量查明细并按
+            // orderId 分组（照 OrderServiceImpl#loadItems 批量范式）——5000 行上限的导出
+            // 从最多 5000 次点查变「页数×1 次批查」（EXPORT_PAGE_SIZE=50 → ≤100 次），CSV 内容列零变化
+            List<String> pageOrderIds = new ArrayList<>();
+            for (Map<String, Object> row : rows) {
+                pageOrderIds.add((String) row.get("id"));
+            }
+            Map<String, List<OrderItem>> itemsByOrder = loadItemsGroupedByOrder(pageOrderIds);
             for (Map<String, Object> row : rows) {
                 if (exported >= limit) {
                     break;
@@ -3439,7 +3448,8 @@ public class AdminServiceImpl implements AdminService {
                         .append(csvCell(row.get("storeName"))).append(',')
                         // PII 红线：手机号出库前必过 PhoneMask，明文零出现（同 v2 orders 面）
                         .append(csvCell(PhoneMask.mask((String) row.get("phone")))).append(',')
-                        .append(csvCell(orderItemsText((String) row.get("id")))).append(',')
+                        .append(csvCell(orderItemsText(
+                                itemsByOrder.getOrDefault((String) row.get("id"), List.of())))).append(',')
                         .append(csvCell(row.get("totalPrice"))).append(CSV_EOL);
                 exported++;
             }
@@ -3535,10 +3545,25 @@ public class AdminServiceImpl implements AdminService {
         return needQuote ? '"' + text.replace("\"", "\"\"") + '"' : text;
     }
 
-    /** 某单的商品明细定形：order_item 行的「品名×数量」以 / 连接（契约 §1；空明细出空串） */
-    private String orderItemsText(String orderId) {
-        List<OrderItem> items = orderItemMapper.selectList(
-                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, orderId));
+    /**
+     * P11-3 R2 批量挂明细：按订单号集合一次 IN 查回全部明细并按 orderId 分组
+     * （照 OrderServiceImpl#loadItems 批量范式；空集合直接短路返回空 Map，绝不下发空 IN）。
+     * order_id 真库 NOT NULL（init.sql 建表），分组前仍显式剔除 null 键——groupingBy 对 null
+     * 分类键抛 NPE（element cannot be mapped to a null key），不让脏行打断整份导出。
+     */
+    private Map<String, List<OrderItem>> loadItemsGroupedByOrder(List<String> orderIds) {
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        return orderItemMapper.selectList(
+                        new LambdaQueryWrapper<OrderItem>().in(OrderItem::getOrderId, orderIds))
+                .stream()
+                .filter(it -> it.getOrderId() != null)
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
+    }
+
+    /** 商品明细定形（P11-3 R2 由「orderId 逐单查」改为接收已批查好的明细组）：「品名×数量」以 / 连接（契约 §1；空明细出空串） */
+    private static String orderItemsText(List<OrderItem> items) {
         StringBuilder text = new StringBuilder();
         for (OrderItem item : items) {
             if (text.length() > 0) {

@@ -20,8 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -165,11 +166,13 @@ class RecommendServiceTest {
     private void stubPersonalizedHistory() {
         when(orderMapper.selectList(anyWrapper())).thenReturn(List.of(order("order_1", USER_ID)));
         List<OrderItem> userItems = List.of(item("order_1", 10), item("order_1", 3));
-        when(orderItemMapper.selectList(anyWrapper())).thenReturn(userItems);
-        // 全体订单明细（含他人 order_2）：item-CF 共现数据源（selectList(null)=全表）
-        when(orderItemMapper.selectList(isNull()))
-                .thenReturn(List.of(item("order_1", 10), item("order_1", 3),
-                        item("order_2", 2), item("order_2", 10)));
+        // P11-3 R1 收窄后实现里 orderItemMapper.selectList 恰两次（mock 不执行 SQL 条件，按调用序区分）：
+        // ① 用户历史明细（orderId IN 本人订单）→ userItems；
+        // ② s2 共现行集（dishId IN 已购∪候选，替代原 selectList(null)=全表）→ 含他人 order_2 的 fixture，
+        //    收窄口径下共现计算只读「已购∪候选」内的 dish 对，与改前全表口径逐值相等（实现注释有证明）
+        List<OrderItem> cfItems = List.of(item("order_1", 10), item("order_1", 3),
+                item("order_2", 2), item("order_2", 10));
+        when(orderItemMapper.selectList(anyWrapper())).thenReturn(userItems, cfItems);
     }
 
     @Test
@@ -252,9 +255,10 @@ class RecommendServiceTest {
         when(dishMapper.selectList(anyWrapper())).thenReturn(dishes);
         when(dishMapper.selectBatchIds(anyCollection())).thenReturn(dishes);
         when(orderMapper.selectList(anyWrapper())).thenReturn(List.of(order("order_1", USER_ID)));
-        when(orderItemMapper.selectList(anyWrapper())).thenReturn(List.of(item("order_1", 1)));
-        // 全体明细仅该单一行：无 dish 对 → 共现全 0 → s2 恒 0，隔离出 ×0.5 的效果
-        when(orderItemMapper.selectList(isNull())).thenReturn(List.of(item("order_1", 1)));
+        // P11-3 R1 收窄后按调用序 stub：① 用户历史明细、② s2 共现行集——两次 fixture 同为该单一行：
+        // 无 dish 对 → 共现全 0 → s2 恒 0，隔离出 ×0.5 的效果
+        when(orderItemMapper.selectList(anyWrapper()))
+                .thenReturn(List.of(item("order_1", 1)), List.of(item("order_1", 1)));
 
         RecommendVO vo = recommendService.recommend(USER_ID, null, null);
         assertEquals(List.of(2L, 1L), ids(vo), "已购商品应被 score×0.5 降到同质未购商品之后（复购降权不剔除）");
@@ -353,5 +357,28 @@ class RecommendServiceTest {
         RecommendVO vo = recommendService.recommend(null, null, null);
         assertFalse(ids(vo).contains(7L), "on_sale=0 硬过滤（F-02.1 候选集口径）");
         assertEquals(List.of(4L, 1L, 3L, 2L), ids(vo), "maxSold 须按过滤后的候选集计算");
+    }
+
+    // —— P11-3 R1 结果缓存（F-02.4 预告的缓存）：TTL 窗口内同参数复用首算，不再触达 mapper ——
+
+    /**
+     * T10 缓存命中：同 (userId, excludeId, limit) 第二次调用输出与首算全等，且 mapper 恰只被
+     * 首算调用（dish 1 次、订单 1 次、明细 2 次=① 历史+② 共现行集）。stub 顺序只有两段：
+     * 若第二次没走缓存而是再打 mapper，明细② 会拿到 userItems（第三段无 stub）→ 共现畸变
+     * 排序改变，与「输出全等」断言相悖——输出与调用次数双断言互为印证。
+     */
+    @Test
+    void cachedResultReusedWithinTtlWindow() {
+        stubDishes(personalizedDishes());
+        stubPersonalizedHistory();
+
+        RecommendVO first = recommendService.recommend(USER_ID, null, 6);
+        RecommendVO second = recommendService.recommend(USER_ID, null, 6);
+
+        assertEquals(RecommendVO.STRATEGY_PERSONALIZED, second.getStrategy(), "缓存命中标签不变");
+        assertEquals(ids(first), ids(second), "缓存命中输出必须与首算全等（F-02.1 排序口径不动）");
+        verify(dishMapper, times(1)).selectList(anyWrapper());
+        verify(orderMapper, times(1)).selectList(anyWrapper());
+        verify(orderItemMapper, times(2)).selectList(anyWrapper());
     }
 }

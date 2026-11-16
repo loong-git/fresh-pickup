@@ -22,6 +22,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -87,6 +89,9 @@ class OrderCreateDailyCapacityTest {
         ReflectionTestUtils.setField(orderService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", arrivalBatchMapper);
         ReflectionTestUtils.setField(orderService, "couponService", couponService);
+        // P11-3 R5：closeTimeoutOrders 每单独立事务走 TransactionTemplate（mock 管理器直通执行 lambda）
+        ReflectionTestUtils.setField(orderService, "transactionTemplate",
+                new TransactionTemplate(mock(PlatformTransactionManager.class)));
         when(orderMapper.selectOne(any())).thenReturn(null); // 幂等快查未命中 → 进入校验段
         // F-122：既有用例的 dish 不带 merchantId（null 键同样被 any() 命中），默认商家 active，不改变原断言语义
         Merchant activeMerchant = new Merchant();

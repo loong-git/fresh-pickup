@@ -51,14 +51,15 @@
       <div class="state-title">没有访问权限</div>
       <div class="state-desc">{{ errorText }}</div>
       <div class="state-desc">403 与 401 不同义：登录态是有效的，但服务端判定本账号不能读这一面。请核对运营账号的角色与授权。</div>
-      <el-button size="small" @click="load">重试</el-button>
+      <!-- P2-1：load 现带 force 参数，模板裸引用会把点击事件对象当 force 传入，统一改显式调用（照 Orders.vue:84 口径） -->
+      <el-button size="small" @click="load()">重试</el-button>
     </div>
 
     <div v-else-if="viewState === 'error'" class="state-box">
       <div class="state-title">读取失败</div>
       <div class="state-desc">{{ errorText }}</div>
       <div v-if="codeHint" class="state-desc">{{ codeHint }}</div>
-      <el-button size="small" @click="load">重试</el-button>
+      <el-button size="small" @click="load()">重试</el-button>
     </div>
 
     <template v-else>
@@ -112,6 +113,8 @@
       </el-table>
 
       <div class="pager">
+        <!-- P2-1（照 Orders.vue:168 同款）：写请求在飞时禁用分页器——审核成功后要重拉列表，
+             在飞翻页会跟重拉竞态。禁用但不消失，与工具条同一口径。 -->
         <el-pagination
           v-model:current-page="pageNum"
           v-model:page-size="pageSize"
@@ -119,6 +122,7 @@
           :page-sizes="PAGE_SIZES"
           layout="total, sizes, prev, pager, next"
           background
+          :disabled="submitting"
           @size-change="onSizeChange"
           @current-change="onPageChange"
         />
@@ -264,8 +268,20 @@ function writeHintOf(code, data) {
 // D4：空页回退的待补拉标志。模块级普通布尔而非 ref——它不参与渲染，只是本次 load 与下一次 load 之间的信号
 let pageFixPending = false
 
-async function load() {
-  if (viewState.value === 'loading') return
+// P2-1（A9/D5 同款，范式逐行出自 Orders.vue:293-345）：写成功那一刻列表可能正有一笔读在飞，
+// 既有在飞守卫会把这次重拉直接吞掉，而结果条已经写下「列表已按当前筛选重新拉取」。
+// force=true 的在飞不丢弃，只置这个标志，由当前请求落地后的 finally 补拉一次——结果条与列表才同源。
+// 模块级布尔，不参与渲染。
+let reloadQueued = false
+
+async function load(force) {
+  // 在飞守卫：请求未回时不再发第二条（筛选 @change、分页器、「重试」同守这一条），
+  // 否则乱序回包会把上一页的行画在下一页的高亮下。复用本页已有的单值 viewState。
+  // P2-1：写后重拉（force=true）在飞时不静默丢弃，只置排队标志，落地后由 finally 补拉一次。
+  if (viewState.value === 'loading') {
+    if (force) reloadQueued = true
+    return
+  }
   viewState.value = 'loading'
   errorText.value = ''
   errorCode.value = 0
@@ -293,6 +309,8 @@ async function load() {
       viewState.value = 'error'
       errorCode.value = 401
       errorText.value = '登录状态已失效，正在返回登录页…'
+      // P2-1：请求层已清态跳登录，本页不再补拉（否则会在登录页背后白打一次读请求），排队标志一并清掉
+      reloadQueued = false
       return
     }
     if (e.code === 403) {
@@ -304,6 +322,14 @@ async function load() {
     errorCode.value = Number(e.code) || 0
     errorData.value = e.data || null
     errorText.value = e.message || '入驻申请列表读取失败，请稍后重试'
+  } finally {
+    // P2-1（照 Orders.vue finally 消费姿势）：补拉放在 finally 里——catch 的 401/403 分支带 return，
+    // 也必经这里；401 已在分支内清掉标志。此刻 viewState 已落定（不再是 'loading'），
+    // 重入 load(true) 不会被在飞守卫吞掉，也不会自我循环（第二趟进 finally 时标志已被本块清空）。
+    if (reloadQueued) {
+      reloadQueued = false
+      load(true)
+    }
   }
   // D4：补拉必须在 try/catch 全部结束之后——此时 viewState 已落成 ready，在飞守卫才放行；
   // 若在 try 里 await load()，请求会被自己的 loading 守卫吞掉，页码回退了却没有新数据。
@@ -415,7 +441,9 @@ async function onSubmit() {
         : '列表已按当前筛选重新拉取：这一行应显示 rejected、审核意见与审核时间都由服务端回。'
     }
     dialogVisible.value = false
-    await load()
+    // P2-1（照 Orders.vue:530 口径）：force=true —— 若列表恰有一笔读在飞（确认框开着时翻了页），load 会
+    // 排队并在其落地后补拉，不会被在飞守卫静默吞掉；结果条「列表已按当前筛选重新拉取」才与列表同源。
+    await load(true)
   } catch (err) {
     const e = err || {}
     if (e.code === 401) {

@@ -298,9 +298,17 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
     // 与上方 F-17 那组的归属规则不同，这一组是<b>平台全量视角</b>：运营点发车读的是全平台该店该日的订单，
     // 本就没有 merchant_id 可带——「不存在不带该条件的读路径」那条归属纪律管的是商家面
     // （值只来自 AuthInterceptor.ATTR_MERCHANT_ID），不适用于本组，也不构成对本组的豁免（这里无归属方）。
+    // <b>连接顺序（P11-3 轮6 R3 修订）</b>：本组两条此前照抄商家端的 STRAIGHT_JOIN 钉死 oi 驱动——
+    // 但 G-6/M1 那套论证只在「带 oi.merchant_id 等值」的商家端成立（oi 先走 idx_merchant 裁掉本人明细）；
+    // 本组两条 WHERE 里没有任何 oi 谓词，oi 驱动 = 全表扫完再逐行回 orders 判店/判日，十万行级必炸。
+    // 现去 STRAIGHT_JOIN 改普通 JOIN，让优化器以 orders 为驱动表走 m37 的 idx_store_pickup
+    // （store_id + pickup_date 双等值恰为本索引前两列，P11-3 R4 容量 COUNT 同款）先裁出该店该日的
+    // 少量订单，再以 PRIMARY 回查 oi（idx_order_id）；商家端 8 条带 merchant_id 的 STRAIGHT_JOIN
+    // 是正确用法，一字未动。同入参逐组数字与改前完全一致（只改连接顺序，SQL 谓词/GROUP BY/聚合列零变化）。
     // 一致性硬断言（F-63 的存在理由）：selectArrivalPlanByStore 必须与 selectPickupPlanByStore
-    // <b>逐字同口径</b>——STRAIGHT_JOIN、pickup_date 等值、store_id 等值、排除 cancelled、
-    // GROUP BY dish 两列、SUM(quantity)、不过滤 pay_status（决策点 7）——只差去掉 merchant_id 过滤；
+    // <b>逐字同口径</b>——pickup_date 等值、store_id 等值、排除 cancelled、GROUP BY dish 两列、
+    // SUM(quantity)、不过滤 pay_status（决策点 7）——只差去掉 merchant_id 过滤（连接顺序两套各按
+    // 各的谓词形态自证最优，见各自注释）；
     // 两边每道菜的数字不一致就是事故。
     // ------------------------------------------------------------------
 
@@ -315,7 +323,7 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
      */
     @Select("SELECT oi.dish_id AS dishId, oi.dish_name AS dishName, "
             + "SUM(oi.quantity) AS quantity "
-            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "FROM orders o JOIN order_item oi ON oi.order_id = o.id "
             + "WHERE o.pickup_date = #{date} "
             + "AND o.store_id = #{storeId} "
             + "AND o.status <> 'cancelled' "
@@ -331,7 +339,7 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
      * （空集回 0，不会回空列表；COUNT 回 BIGINT，方法签名用 long，对齐 countOrderItemsByDate 的写法）。
      */
     @Select("SELECT COUNT(DISTINCT o.id) "
-            + "FROM order_item oi STRAIGHT_JOIN orders o ON oi.order_id = o.id "
+            + "FROM orders o JOIN order_item oi ON oi.order_id = o.id "
             + "WHERE o.pickup_date = #{date} "
             + "AND o.store_id = #{storeId} "
             + "AND o.status <> 'cancelled'")

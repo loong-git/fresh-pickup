@@ -56,6 +56,14 @@ public class ReviewServiceImpl implements ReviewService {
     /** 每评价图数上限（P10-6b D1：≤3 张，服务端计数拒绝） */
     private static final int MAX_IMAGES_PER_REVIEW = 3;
 
+    /**
+     * P11-3 R6 单 dish 评价列表硬上限 200：此前某 dish 全量一次出，爆款积几万条评价时
+     * 单响应全量回传（传输/建对象随评价数线性膨胀）。C 端 detail 评价区展示口径 200 条足够
+     * （排序仍 createTime desc，截掉的是最旧尾部）；这是防全量硬闸而非分页——「按 dish 分页」
+     * 会改接口形状（涉前端契约），另行立项，本期只封顶。
+     */
+    private static final int REVIEW_LIST_HARD_LIMIT = 200;
+
     /** 落盘子目录：{fresh.upload-dir}/reviews/{yyyyMM}/{uuid}.{ext}（契约 D1 存储） */
     private static final String IMAGE_SUB_DIR = "reviews";
 
@@ -94,6 +102,8 @@ public class ReviewServiceImpl implements ReviewService {
         wrapper.and(w -> w.isNull(Review::getAuditStatus)
                 .or().ne(Review::getAuditStatus, Review.AUDIT_PENDING));
         wrapper.orderByDesc(Review::getCreateTime);
+        // P11-3 R6：硬上限 200（见 REVIEW_LIST_HARD_LIMIT 注释；last 后缀拼接，项目无 MP 分页拦截器的既有惯例）
+        wrapper.last("LIMIT " + REVIEW_LIST_HARD_LIMIT);
         List<Review> reviews = reviewMapper.selectList(wrapper);
         // P10-6b D3：列表出参每行带 images（纯加键，既有键与过滤语义零改动）
         fillImages(reviews);

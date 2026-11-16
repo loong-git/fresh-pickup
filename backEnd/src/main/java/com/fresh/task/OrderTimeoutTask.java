@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
  * - fixedDelay：上轮跑完再计时，轮次不重叠；initialDelay 等一个间隔再首扫，避开启动期竞争；
  * - 扫描/关单/回补口径全部在 OrderServiceImpl#closeTimeoutOrders（状态机条件更新保证
  *   与手动取消/支付并发下只关一次，已支付订单绝不触碰），本类只负责调度与结果日志；
+ * - P11-3 R5：closeTimeoutOrders 单轮带 LIMIT 200 分批、每单独立事务，本调度不再做轮内
+ *   循环清空——积压超过一批时，未扫完的剩余单由下一轮（60 秒后）自然续扫，批间让出连接与行锁；
  * - 异常不打断调度：Spring 默认 ErrorHandler 会记录 ERROR 日志，下一轮照常执行。
  */
 @Slf4j
