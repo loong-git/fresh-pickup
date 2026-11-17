@@ -39,7 +39,7 @@
           <!-- M3-T-07：超长内容默认折叠 2 行，可展开/收起 -->
           <text class="review-content" :class="{ expanded: expandedReviews[r.id || idx] }">{{ r.content }}</text>
           <text v-if="(r.content || '').length > 60" class="review-expand" @click="toggleExpand(r.id || idx)">{{ expandedReviews[r.id || idx] ? '收起' : '展开全部' }}</text>
-          <!-- P10-6b（D5）评价图三列网格缩略（补渲染，结构照 detail.vue:180-184 评价行同款范式）：
+          <!-- P10-6b（D5）评价图三列网格缩略（补渲染，结构照 detail.vue 评价行同款范式）：
                后端列表行 images:[相对路径,...]（getReviews 已带，fillImages 防 N+1），无图不渲染区块；
                单张 404 @error 兜底隐藏该格（imgFail 记录表姿势，不渲染占位），点击大图预览 -->
           <view class="preview-imgs" v-if="reviewImages(r).length">
