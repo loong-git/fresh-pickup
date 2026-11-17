@@ -47,6 +47,14 @@
       <view class="empty-row">
         <text class="empty-text">该日无待备货</text>
       </view>
+      <!-- P11-4 片②（D7/D8/D9）空态顺延探测：
+           probe 到后两天有单 → 出入口行「{date} 波次有 N 单 › 点击查看」（点击才切，绝不自动跳日期）；
+           probe 探明两日全空 → 补一句诚实文案（区分「顺延单在后天以外」与「真无单」）；
+           probe 在途或失败 → 两行都不渲染，空态维持原样 -->
+      <view v-if="probeResult" class="empty-probe-row" hover-class="pill-hover" @click="goProbeWaves">
+        <text class="empty-probe-entry">{{ probeResult.date }} 波次有 {{ probeResult.orderCount }} 单 › 点击查看</text>
+      </view>
+      <text v-else-if="probeNoWaves" class="empty-probe-none">近两日波次暂无待备货订单</text>
       <!-- 两个方向的出口都给：只留「看后一天」等于假定商家想往后翻，
            而周末/节假日前一天恰恰要往前找备货量 -->
       <view class="empty-actions">
@@ -145,7 +153,13 @@ export default {
       retryLock: 0,
       retryLockTimer: null,
       // 429 冷却的墙上时钟锚点（ms）：本页这把闸门的真值出处（FE-5）
-      retryLockUntil: 0
+      retryLockUntil: 0,
+      // P11-4 片②（D7-D9）空态顺延探测展示态（计数锚 _probeSeq 不进 data，与 _loadingPlan 同为非响应式实例属性）：
+      // probeResult 非 null → 空态卡出「{date} 波次有 N 单 › 点击查看」入口行（点击才切日期，D8 不自动跳）；
+      // probeNoWaves 仅当 probe 探明近两日全空才 true → 空态补「近两日波次暂无待备货订单」（D9 诚实口径）；
+      // probe 在途或失败时两者保持空 → 空态维持原样（probe 是增益不是必须，失败静默不追加错误态）
+      probeResult: null,
+      probeNoWaves: false
     }
   },
   computed: {
@@ -254,6 +268,11 @@ export default {
         this.copyOk = false
         // 空态判定：一条组都没有（有组但组内空条目仍算 ready，卡片自会显示「暂无条目」）
         this.viewState = groups.length ? 'ready' : 'empty'
+        // P11-4 片②（D7）：probe 展示态每轮成功回包作废重建（残留值绝不跨轮复用），_probeSeq 同步自增 ——
+        // 在途 probe 回包靠它识别「自己已过期」（见 probeNextWaves）；真空态再自动顺延探测后两天
+        this._probeSeq = (this._probeSeq || 0) + 1
+        this.clearProbeState()
+        if (!groups.length) this.probeNextWaves(this._probeSeq, reqDate)
       } catch (e) {
         if (e && e.code === 401) {
           // 跳转与清态都由请求层做完（含「请先登录」toast），这里只停在加载态，不闪现错误卡
@@ -279,6 +298,60 @@ export default {
         }
       }
     },
+    // ==================== 空态顺延探测（P11-4 片②，契约 D7-D10：docs/十一期规划/P11-4-三新方向契约.md） ====================
+    // 触发链：loadPlan 成功且 groups=[]（真空态）→ probeNextWaves → 空态卡入口行 → 点击 goProbeWaves 切日期重拉。
+    // probe 是 loadPlan 的后续增益动作，刻意不走 loadPlan：不重入 _loadingPlan/_reloadQueued 守卫
+    // （probe 在途时步进/onShow 重拉照常并发互不影响），也不切 loading —— 探测期间页面维持既有空态原样。
+    // D8 红线：绝不自动跳日期 —— probe 只探不切，入口点击才动 queryDate（用户选的日期主权不动）。
+    async probeNextWaves(seq, reqDate) {
+      // 基准与 stepDay 同构（本次请求值 → 回显 → 本地今天）：reqDate 是本轮请求值快照；
+      // 首屏 date 不传（后端按「明天」兜底）时取刚回显的生效日期。基准只用来算两个探测日，屏上日期仍只认回显
+      const base = reqDate || this.effectiveDate || this.todayStr()
+      const d = this.parseDate(base) || this.newToday()
+      const day1 = new Date(d); day1.setDate(day1.getDate() + 1)
+      const day2 = new Date(d); day2.setDate(day2.getDate() + 2)
+      const date1 = this.fmtDate(day1)
+      const date2 = this.fmtDate(day2)
+      try {
+        // D7：最多探 2 天、每天一发单请求，Promise.all 并发；任一失败整体进 catch → 静默（不追加错误态）
+        const results = await Promise.all([
+          getMerchantPickupPlan({ date: date1 }),
+          getMerchantPickupPlan({ date: date2 })
+        ])
+        // 慢回包竞态闸：落值前必须仍命中发起时的那一轮空态（seq 相同且未离开 empty）——
+        // 中途任何一次成功回包（步进/重试/onShow 重拉）都 ++ 过 _probeSeq，旧 probe 整批丢弃，
+        // 绝不用旧日期的探测结果渲染新一轮空态
+        if (seq !== this._probeSeq || this.viewState !== 'empty') return
+        // 单数与 ready 态卡片同源：组出参 orderCount（api 层 JSDoc 确认必有），countOf 兜非数值
+        const wavesOf = (res) => {
+          const groups = (res && res.data && Array.isArray(res.data.groups)) ? res.data.groups : []
+          return groups.reduce((sum, g) => sum + this.countOf(g && g.orderCount), 0)
+        }
+        const n1 = wavesOf(results[0])
+        const n2 = wavesOf(results[1])
+        // D7 最小实现：只出第一个有单的日期入口（两天都有时也只给最近那天，商家顺延翻看自然覆盖另一天）
+        if (n1 > 0) this.probeResult = { date: date1, orderCount: n1 }
+        else if (n2 > 0) this.probeResult = { date: date2, orderCount: n2 }
+        else this.probeNoWaves = true   // D9：近两日探明全空 → 空态补一句诚实文案（真无单，不是顺延在更远）
+      } catch (e) {
+        // 静默：probe 是增益不是必须，失败时空态文案维持原样
+      }
+    },
+    // 入口点击（D8）：唯一由 probe 引导的动日期处 —— 照 goToday 同形，先过 429 步进闸门（X-4：闸门覆盖全部出口）再切重拉
+    goProbeWaves() {
+      if (this.retryCoolingBlocked()) return
+      const target = this.probeResult && this.probeResult.date
+      if (!target) return
+      this.queryDate = target
+      this.clearProbeState()
+      this.loadPlan(true)
+    },
+    // 清空 probe 展示态：日期被改（stepDay/goToday/goProbeWaves）与每轮成功回包重建前都调；
+    // probeResult/probeNoWaves 成对清（空态两行互斥渲染靠它们），残留值绝不跨轮复用
+    clearProbeState() {
+      this.probeResult = null
+      this.probeNoWaves = false
+    },
     // ==================== 日期步进 ====================
     // X-4：闸门要覆盖全部出口（改前只拦住错误卡的「点击重试」，日期步进与 onShow 全旁路）。
     // 纪律三条：①不新增第二个闸门状态，读的就是既有 retryLock（数值只来自后端 data.retryAfterSeconds，
@@ -300,11 +373,14 @@ export default {
       const d = this.parseDate(base) || this.newToday()
       d.setDate(d.getDate() + delta)
       this.queryDate = this.fmtDate(d)
+      // P11-4 片②：日期主权在用户，一改就作废旧探测入口/文案（在途 probe 回包由 seq 锚整批丢弃）
+      this.clearProbeState()
       this.loadPlan(true)
     },
     goToday() {
       if (this.retryCoolingBlocked()) return
       this.queryDate = this.todayStr()
+      this.clearProbeState()
       this.loadPlan(true)
     },
     todayStr() {
@@ -500,6 +576,13 @@ export default {
 /* ==================== 4. 空态 ==================== */
 .empty-card { display: flex; flex-direction: column; align-items: center; }
 .empty-actions { display: flex; justify-content: center; gap: 16rpx; }
+/* P11-4 片②（D7）顺延探测入口行：链接语义照公共 .guide-link（26rpx/600/主色），整行扩命中区，
+   并挂 pill-hover 给按下反馈（同日期条胶囊的 hover 态）；「›」箭头与 .plan-entry 的「看明细 ›」同形 */
+.empty-probe-row { margin-top: 4rpx; padding: 8rpx 24rpx; border-radius: 12rpx; }
+.empty-probe-entry { font-size: 26rpx; font-weight: 600; color: var(--c-primary); line-height: 1.5; }
+/* （D9）probe 探明近两日全空的诚实补文案：muted 灰小字（同 .plan-empty-line / .date-default-hint 档），
+   只陈述不承接交互 */
+.empty-probe-none { margin-top: 4rpx; padding: 4rpx 24rpx; font-size: 24rpx; color: var(--c-text-4); line-height: 1.5; }
 
 /* ==================== 5. 组卡片 ==================== */
 .group-card { padding: 20rpx 24rpx; }
