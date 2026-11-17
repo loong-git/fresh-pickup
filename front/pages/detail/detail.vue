@@ -47,7 +47,11 @@
       </view>
 
       <!-- ============ 2. 秒杀红色价格条（仅秒杀商品显示） ============ -->
-      <view class="seckill-wrap" v-if="dish.seckill">
+      <!-- P11-4 片① D1：窗口内（seckillActive===true）现状逐字不变；窗口外（===false）整条不渲染，
+           原价走下方普通价格区 + muted 预告行「每日 {seckillStartAt} 开抢」。
+           D5 实时性口径：窗口态出参一次采样，页面停留跨窗口不实时翻转，刷新/onShow 重取生效；
+           seckillActive 缺键（旧版后端/回退态）!== false 恒真 → 现状不变（安全降级）。 -->
+      <view class="seckill-wrap" v-if="dish.seckill && dish.seckillActive !== false">
         <view class="seckill-bar">
           <view class="seckill-main">
             <!-- 左：秒杀价大字 + 限购标签 -->
@@ -74,7 +78,9 @@
       <!-- ============ 3. 标题信息区 ============ -->
       <view class="info-section">
         <!-- 非秒杀：普通价格区（现价 + 划线价 + 截单倒计时） -->
-        <block v-if="!dish.seckill">
+        <!-- P11-4 片① D1：秒杀件窗口外（seckillActive===false）同进本分支切原价展示；
+             非秒杀件 seckillActive 缺键恒 undefined → 条件退化 !dish.seckill，现状逐字不变 -->
+        <block v-if="!dish.seckill || dish.seckillActive === false">
           <view class="detail-price-row">
             <text class="detail-price-symbol">¥</text>
             <text class="detail-price">{{ fmtPrice(dish.price) }}</text>
@@ -87,6 +93,9 @@
             <text class="countdown-label">{{ countdownZero ? '已切明日场次' : (isAfterCutoff ? '下一场开始' : '距截单还剩') }}</text>
             <text class="countdown-value" v-if="!countdownZero">{{ countdownText }}</text>
           </view>
+          <!-- P11-4 片① D1：秒杀件窗口外预告行（契约文案「每日 {start} 开抢」，样式复用既有
+               muted 文案类 stock-text；非秒杀件 seckillStartAt 后端不出键、v-if 不渲染） -->
+          <text v-if="dish.seckill && dish.seckillStartAt" class="stock-text">每日 {{ dish.seckillStartAt }} 开抢</text>
         </block>
 
         <!-- 标题行：[秒]红标 + 商品名 -->
@@ -120,7 +129,9 @@
       </view>
 
       <!-- ============ 5. 秒杀播报条（仅秒杀商品显示） ============ -->
-      <view class="notice-bar" v-if="dish.seckill">
+      <!-- P11-4 片① D1：窗口外秒杀件不渲染——「直降x元」（cutText）是活动语境文案，窗口外
+           展示即虚假暗示；窗口内现状逐字不变，非秒杀件不受影响 -->
+      <view class="notice-bar" v-if="dish.seckill && dish.seckillActive !== false">
         <view class="notice-head">
           <text class="notice-title">超级秒杀</text>
           <text class="notice-divider">|</text>
@@ -435,9 +446,12 @@ export default {
       return num ? `${num}人买过` : '很多人买过'
     },
     // 划线价：只认秒杀件的挂牌价（真实原价），非秒杀件无依据返回空串（模板 v-if 随之整条不渲染）
+    // P11-4 片① D1：秒杀件窗口外（seckillActive===false）切原价展示——原价已是主价格行本体，
+    // 划线价不再显示（否则原价自划自身）；非秒杀件缺键/窗口内秒杀件不走本分支，行为不变
     originalPriceText() {
       const d = this.dish || {}
       if (d.seckillPrice == null) return ''
+      if (d.seckillActive === false) return ''
       if (!this.$store.getters.hasRealOriginalPrice(d.price, d.seckillPrice)) return ''
       return this.fmtPrice(d.price)
     },

@@ -23,6 +23,7 @@ import com.fresh.service.AdminService;
 import com.fresh.service.AdminV2Service;
 import com.fresh.service.MerchantDishService;
 import com.fresh.service.RecommendService;
+import com.fresh.service.SeckillSessionResolver;
 import com.fresh.dto.MerchantDishUpdateDTO;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -77,6 +78,18 @@ class DishAuditFlowTest {
 
     private final DishMapper dishMapper = mock(DishMapper.class);
     private final AdminAuditLogMapper auditMapper = mock(AdminAuditLogMapper.class);
+
+    /**
+     * P11-4 片①：DishServiceImpl 出参新增秒杀窗口态装饰，依赖 SeckillSessionResolver——
+     * 统一 mock 注入（resolver 判定逻辑由 SeckillSessionResolverTest 直测、装饰接线由
+     * DishSeckillWindowTest 直测；本类测的是审核语义，窗口态不参与任何断言）。
+     */
+    private DishServiceImpl auditDishService() {
+        DishServiceImpl dishService = new DishServiceImpl();
+        ReflectionTestUtils.setField(dishService, "dishMapper", dishMapper);
+        ReflectionTestUtils.setField(dishService, "seckillSessionResolver", mock(SeckillSessionResolver.class));
+        return dishService;
+    }
 
     /**
      * LambdaQueryWrapper 的列名解析依赖实体 TableInfo（生产由 MP 启动扫 mapper 时装配），
@@ -157,8 +170,7 @@ class DishAuditFlowTest {
     void C端列表不含驳回件_渲染SQL含audit_ok条件() {
         // 列表走 likeSearch（空白 keyword）；mapper 是 mock，过滤语义在 Service 组装的 wrapper 里，
         // 断言真渲染段而不是重抄条件——重抄会让「代码改了、测试没跟着改」双双失真
-        DishServiceImpl dishService = new DishServiceImpl();
-        ReflectionTestUtils.setField(dishService, "dishMapper", dishMapper);
+        DishServiceImpl dishService = auditDishService();
         when(dishMapper.selectList(any())).thenReturn(List.of(dish(1L, "正常件", 1, Dish.AUDIT_OK)));
 
         dishService.getDishes(null, null);
@@ -168,8 +180,7 @@ class DishAuditFlowTest {
 
     @Test
     void C端搜索FULLTEXT路径同样只收audit_ok() {
-        DishServiceImpl dishService = new DishServiceImpl();
-        ReflectionTestUtils.setField(dishService, "dishMapper", dishMapper);
+        DishServiceImpl dishService = auditDishService();
         when(dishMapper.selectIdsByFulltext(any())).thenReturn(List.of(Map.of("id", 1L, "score", 1.0)));
         when(dishMapper.selectDishIdsByAlias(any())).thenReturn(List.of());
         // 返回非空可变集（getDishes 会原地 sort），同时避免 0 命中回退 likeSearch 造成第二次 selectList 干扰捕获
@@ -184,8 +195,7 @@ class DishAuditFlowTest {
 
     @Test
     void 秒杀集渲染SQL含audit_ok且三条件不被挤掉() {
-        DishServiceImpl dishService = new DishServiceImpl();
-        ReflectionTestUtils.setField(dishService, "dishMapper", dishMapper);
+        DishServiceImpl dishService = auditDishService();
 
         dishService.listSeckill();
 
@@ -245,8 +255,7 @@ class DishAuditFlowTest {
         // F-116a（契约复核算子1/3）：getDishDetail 直出实体是 C 端唯一能带回 rejected 行的出参路径，
         // Controller 收口 setAuditReason(null)——理由只给商家端链路；auditStatus 保留供前端渲染下架态
         com.fresh.controller.DishController controller = new com.fresh.controller.DishController();
-        DishServiceImpl dishService = new DishServiceImpl();
-        ReflectionTestUtils.setField(dishService, "dishMapper", dishMapper);
+        DishServiceImpl dishService = auditDishService();
         ReflectionTestUtils.setField(controller, "dishService", dishService);
         Dish rejected = dish(9L, "驳回品", 1, Dish.AUDIT_REJECTED);
         rejected.setAuditReason("图片涉违规");

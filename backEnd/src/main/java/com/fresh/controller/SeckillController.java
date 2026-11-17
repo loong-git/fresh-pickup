@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,14 @@ public class SeckillController {
     @GetMapping("/current")
     public R<Map<String, Object>> current() {
         List<Dish> dishes = dishService.listSeckill();
+        // P11-4 片① D1/D2：dishes 每项加窗口态 active（resolver 单一真源，本次请求服务端时钟
+        // 采样一次后循环赋值）；窗口外秒杀卡切原价+预告「每日 {start} 开抢」（预告用顶层 start，
+        // D3）。顶层既有四键（serverTime/start/end/dishes）形状零改动——active 只在 dishes 项内新增。
+        // D5 实时性口径：采样于本方法执行时刻，页面停留跨窗口不实时翻转，重拉接口后生效。
+        boolean seckillInWindow = seckillSessionResolver.inWindow(LocalTime.now());
+        for (Dish d : dishes) {
+            d.setActive(seckillInWindow);
+        }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("serverTime", LocalDateTime.now()); // Jackson 序列化为 ISO-8601 本地时间
         data.put("start", seckillSessionResolver.sessionTime("start", SeckillSessionResolver.DEFAULT_START));

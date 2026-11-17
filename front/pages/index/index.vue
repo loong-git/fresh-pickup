@@ -83,11 +83,16 @@
         </view>
 
         <!-- ==================== 7. 超级秒杀区块（始终渲染，无搜索态开关） ==================== -->
+        <!-- P11-4 片① D1/D2：窗口态单一真源=场次接口项级 active（服务端时钟判定，前端不自判窗口）。
+             窗口外（active 全 false）：头部倒计时隐藏、卡片切原价+预告「每日 {start} 开抢」；
+             窗口内/回退态/旧版出参缺 active 键：现状逐字不变（安全降级）。
+             D5 实时性口径：页面停留跨窗口不实时翻转，刷新/onShow 重拉场次后生效。 -->
         <view class="seckill-card">
           <view class="seckill-header">
             <text class="seckill-title">⚡ 超级秒杀</text>
             <!-- T-M3-04：归零宽限窗内直接切"已切明日场次"置灰态，避免 00:00:00 → 23:59:59 闪跳 -->
-            <view class="seckill-countdown">
+            <!-- P11-4 片① D1：窗口外整块隐藏（倒计时是"窗口内才有"的场次氛围件，预告见卡片） -->
+            <view class="seckill-countdown" v-if="seckillInWindow">
               <text class="cd-label" v-if="!countdownZero">仅剩</text>
               <text class="cd-value" :class="{ 'cd-zero': countdownZero }">{{ countdownZero ? '已切明日场次' : countdownText + '.' + countdownTenth }}</text>
             </view>
@@ -100,11 +105,22 @@
                 <image v-if="d.image && !imgFail[d.id]" class="seckill-photo" :src="d.image" mode="aspectFill" @error="onImgFail(d.id)" />
                 <text v-else class="seckill-emoji">{{ d.emoji }}</text>
               </view>
-              <text class="seckill-cut">{{ d.cutText }}</text>
-              <view class="seckill-price-row">
-                <text class="sp-symbol">¥</text>
-                <text class="sp-num">{{ d.seckillPrice }}</text>
-              </view>
+              <!-- P11-4 片① D1：项级窗口外（active===false）显预告+原价，直降文案与秒价不显；
+                   active true（窗口内）现状逐字不变；回退本地过滤项无 active 键走现状分支 -->
+              <block v-if="d.active === false">
+                <text class="seckill-forecast">每日 {{ seckillSessionStart }} 开抢</text>
+                <view class="seckill-price-row">
+                  <text class="sp-symbol">¥</text>
+                  <text class="sp-num">{{ d.price }}</text>
+                </view>
+              </block>
+              <block v-else>
+                <text class="seckill-cut">{{ d.cutText }}</text>
+                <view class="seckill-price-row">
+                  <text class="sp-symbol">¥</text>
+                  <text class="sp-num">{{ d.seckillPrice }}</text>
+                </view>
+              </block>
             </view>
             <view v-if="seckillLoaded && seckillDishes.length === 0" class="seckill-empty"><text>本场已抢空，下一场即将开始</text></view>
           </scroll-view>
@@ -604,6 +620,9 @@ export default {
       seckillServerMode: false,
       // 当前场次商品（接口 dishes 优先；空时回退本地列表过滤）
       seckillSessionDishes: [],
+      // P11-4 片① D3：场次开始时刻「HH:mm」（/api/seckill/current 顶层 start），窗口外卡片
+      // 预告文案「每日 {start} 开抢」用；场次接口未返回/失败时为空串（窗口内不渲染该文案）
+      seckillSessionStart: '',
       // 场次请求返回过没有（复核 #3）：秒杀条的「本场已抢空」是断言不是占位，
       // 在飞/未发起时不得出口——这是 P4-3 六处之外同页的第七处同族病
       seckillLoaded: false,
@@ -649,6 +668,14 @@ export default {
     seckillDishes() {
       if (this.seckillSessionDishes.length > 0) return this.seckillSessionDishes
       return this.dishes.filter(d => d.seckill)
+    },
+    // P11-4 片① D2：秒杀窗口态（前端不自判窗口，单一真源=场次接口项级 active 服务端时钟判定）——
+    // 任一项 active===false 即窗口外；回退本地过滤项/旧版出参缺 active 键（undefined !== false）
+    // 恒判窗口内 → 现状逐字不变（安全降级）；场次商品为空也判窗口内（倒计时照旧，无价差展示面）
+    seckillInWindow() {
+      const list = this.seckillDishes
+      if (!list.length) return true
+      return list.every(d => d.active !== false)
     },
     // 购物车 id -> 项 的映射，用于列表判断"已加购"与数量
     cartMap() {
@@ -861,6 +888,8 @@ export default {
         this.seckillServerMode = true
         // 场次商品（服务端真实秒杀集，decorate 后与列表卡片同构；空数组保持回退本地过滤）
         this.seckillSessionDishes = (Array.isArray(data.dishes) ? data.dishes : []).map(decorateDish)
+        // P11-4 片① D3：场次 start 存 vm，窗口外卡片预告文案「每日 {start} 开抢」用（D1）
+        this.seckillSessionStart = typeof data.start === 'string' ? data.start : ''
         return true
       } catch (e) {
         // 接口未上线(404)/网络异常：回退本地口径
@@ -1795,6 +1824,11 @@ export default {
   display: inline-block; margin: 8rpx 0 0 12rpx;
   font-size: 18rpx; font-weight: 700; color: #FFFFFF;
   background-color: var(--c-warn); border-radius: 6rpx; padding: 2rpx 10rpx;
+}
+/* P11-4 片① D1：窗口外预告文案（muted 口径，替代同位置的直降标签位；灰字无底不抢眼） */
+.seckill-forecast {
+  display: inline-block; margin: 8rpx 0 0 12rpx;
+  font-size: 18rpx; font-weight: 600; color: var(--c-text-3);
 }
 .seckill-price-row { display: flex; align-items: baseline; padding: 6rpx 12rpx 14rpx; gap: 2rpx; }
 .sp-symbol { font-size: 20rpx; font-weight: 700; color: var(--c-warn); }

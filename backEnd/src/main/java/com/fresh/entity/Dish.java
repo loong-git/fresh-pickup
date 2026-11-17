@@ -3,6 +3,7 @@ package com.fresh.entity;
 import com.baomidou.mybatisplus.annotation.*;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -65,4 +66,32 @@ public class Dish {
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    // ==================== P11-4 片① 秒杀窗口态展示键（纯出参瞬态，不映射任何列） ====================
+    // 三键均 @TableField(exist = false)：MP 查询/写入不触碰；@JsonInclude(NON_NULL)：未填充即不出键
+    // ——非秒杀件/未经装饰路径（商家端、运营端、推荐）出参与本片改动前逐字相同（对照 @JsonIgnore
+    // 封 merchantId/supplyPrice 先例：那两键是封 C 端，这三键是 C 端展示新增，方向相反互不影响）。
+
+    /** P11-4 片① D2：秒杀窗口态（服务端时钟判定，判定源 SeckillSessionResolver#inWindow 单一真源）。
+     *  仅秒杀件由 DishServiceImpl 列表/详情出参装饰时下发（窗口内 true / 窗口外 false），
+     *  前端不自判窗口（避免两端时钟/字典不同步）。D5 实时性口径：出参组装时刻一次采样，
+     *  页面停留跨窗口不实时翻转，刷新/onShow 重取生效。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @TableField(exist = false)
+    private Boolean seckillActive;
+
+    /** P11-4 片① D3：秒杀场次开始时刻「HH:mm」（resolver.sessionTime("start", 默认)），
+     *  仅秒杀件随 seckillActive 同点下发，详情页窗口外预告文案「每日 {seckillStartAt} 开抢」用；
+     *  首页秒杀区窗口外预告走 /api/seckill/current 顶层 start（D3），不出本键。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @TableField(exist = false)
+    private String seckillStartAt;
+
+    /** P11-4 片① D1：秒杀窗口态项级键——/api/seckill/current 的 dishes 每项由 SeckillController 填充
+     *  （窗口内 true / 窗口外 false），C 端首页秒杀卡按项切原价/预告态；顶层四键形状零改动。
+     *  与 {@link #seckillActive} 语义同源（同一 resolver 同一采样点）但出口不同：本键服务于
+     *  秒杀卡列表（listSeckill 不做 DishServiceImpl 侧装饰，收录口径照 F-112 契约 §1.3 零改动）。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @TableField(exist = false)
+    private Boolean active;
 }

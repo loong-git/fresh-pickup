@@ -4,6 +4,7 @@ import com.fresh.common.BizException;
 import com.fresh.common.R;
 import com.fresh.dto.AdminDictItemCreateDTO;
 import com.fresh.dto.AdminDictItemUpdateDTO;
+import com.fresh.entity.Dish;
 import com.fresh.entity.DictGroup;
 import com.fresh.entity.DictItem;
 import com.fresh.mapper.AdminAuditLogMapper;
@@ -59,6 +60,9 @@ class SeckillSessionConfigTest {
     void setUp() {
         controller = new SeckillController();
         ReflectionTestUtils.setField(controller, "dishService", dishService);
+        // P11-4 片①：current() 现消费 listSeckill() 结果逐项填 active——mock 未显式 stub 时
+        // 默认回 null 会打断回退系列用例，统一默认空列表、各用例内按需覆盖
+        when(dishService.listSeckill()).thenReturn(List.of());
         // P11-2 P2-D：场次取值自 Controller 私有 sessionTime 迁入公共判定源 SeckillSessionResolver
         // （与下单计价窗口共用同一判定源）；出参行为逐字不变，测试仍以同一 dictService mock 驱动
         com.fresh.service.SeckillSessionResolver resolver = new com.fresh.service.SeckillSessionResolver();
@@ -147,6 +151,57 @@ class SeckillSessionConfigTest {
                 "出参四键与常量时代逐字同形（契约 §2.1 形状零改动）");
         assertNotNull(data.get("serverTime"), "serverTime 照旧取服务端时钟");
         assertNotNull(data.get("dishes"), "dishes 照旧出自 listSeckill");
+    }
+
+    // ---------------------------------------------------------------- ①b P11-4 片① 项级 active
+
+    /**
+     * P11-4 片① D1/D2：dishes 每项加窗口态 active。resolver 用 Mockito mock 而非真实
+     * resolver + 字典桩——判定点采样 LocalTime.now()，真实桩须靠词条围住「当前时刻」，
+     * 窗口内侧有 23:59 边界分钟的翻车面（flaky）；mock 注入使两侧均确定性成立
+     * （resolver 判定逻辑本身由 SeckillSessionResolverTest 直测锁死，本类只锁接线与形状）。
+     */
+    @Test
+    void 项级active_窗口内每项true_顶层四键形状零改动() {
+        com.fresh.service.SeckillSessionResolver mockResolver = mock(com.fresh.service.SeckillSessionResolver.class);
+        when(mockResolver.inWindow(any())).thenReturn(true);
+        ReflectionTestUtils.setField(controller, "seckillSessionResolver", mockResolver);
+        Dish sec1 = new Dish();
+        sec1.setId(1L);
+        sec1.setSeckill(1);
+        Dish sec2 = new Dish();
+        sec2.setId(2L);
+        sec2.setSeckill(1);
+        when(dishService.listSeckill()).thenReturn(new ArrayList<>(List.of(sec1, sec2)));
+
+        R<Map<String, Object>> out = controller.current();
+
+        assertEquals(R.CODE_OK, out.getCode());
+        @SuppressWarnings("unchecked")
+        List<Dish> dishes = (List<Dish>) out.getData().get("dishes");
+        assertEquals(Boolean.TRUE, dishes.get(0).getActive(), "窗口内项级 active=true——秒杀卡走秒价现状");
+        assertEquals(Boolean.TRUE, dishes.get(1).getActive(), "每一项都填充（非只首件）");
+        assertEquals(List.of("serverTime", "start", "end", "dishes"), new ArrayList<>(out.getData().keySet()),
+                "顶层既有四键形状零改动——active 只在 dishes 项内新增（红线）");
+    }
+
+    @Test
+    void 项级active_窗口外每项false_预告数据仍走顶层start() {
+        com.fresh.service.SeckillSessionResolver mockResolver = mock(com.fresh.service.SeckillSessionResolver.class);
+        when(mockResolver.inWindow(any())).thenReturn(false);
+        when(mockResolver.sessionTime("start", com.fresh.service.SeckillSessionResolver.DEFAULT_START)).thenReturn("06:00");
+        ReflectionTestUtils.setField(controller, "seckillSessionResolver", mockResolver);
+        Dish sec = new Dish();
+        sec.setId(1L);
+        sec.setSeckill(1);
+        when(dishService.listSeckill()).thenReturn(new ArrayList<>(List.of(sec)));
+
+        R<Map<String, Object>> out = controller.current();
+
+        @SuppressWarnings("unchecked")
+        List<Dish> dishes = (List<Dish>) out.getData().get("dishes");
+        assertEquals(Boolean.FALSE, dishes.get(0).getActive(), "窗口外项级 active=false——秒杀卡切原价+预告");
+        assertEquals("06:00", out.getData().get("start"), "顶层 start 照旧透出——预告文案「每日 06:00 开抢」数据源（D3）");
     }
 
     // ---------------------------------------------------------------- ② 读侧回退三分支

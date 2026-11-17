@@ -6,9 +6,11 @@ import com.fresh.entity.Dish;
 import com.fresh.mapper.DishMapper;
 import com.fresh.service.DishService;
 import com.fresh.service.RecommendService;
+import com.fresh.service.SeckillSessionResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalTime;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -25,18 +27,24 @@ public class DishServiceImpl implements DishService {
     @Autowired
     private RecommendService recommendService;
 
+    /** P11-4 片① D2 秒杀窗口判定源（@Autowired 照 OrderServiceImpl 先例）：与下单计价
+     *  （OrderServiceImpl#createOrder）/ 秒杀卡出参（SeckillController#current）共用同一判定，
+     *  杜绝三处口径漂移——展示态与计价态永远一致，深夜不出现「页面显秒价、下单按原价」价差感 */
+    @Autowired
+    private SeckillSessionResolver seckillSessionResolver;
+
     @Override
     public List<Dish> getDishes(String category, String keyword) {
         boolean hasCategory = category != null && !category.isEmpty();
         String kw = keyword == null ? "" : keyword.trim();
         // F-03.2⑤：空白 keyword 行为完全不变——不加 keyword 条件，仅 category 等值过滤全量（T-M3-12）
         if (kw.isEmpty()) {
-            return likeSearch(hasCategory, category, kw);
+            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
         }
         // F-03.2①：单字保持原 LIKE(name) 路径——ngram_token_size 默认 2，单字切不出 token，
         // MATCH 对单字必然 0 命中，FULLTEXT 路径不可用，必须 LIKE 兜底
         if (kw.length() == 1) {
-            return likeSearch(hasCategory, category, kw);
+            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
         }
         // F-03.2②：≥2 字 → FULLTEXT 三列 MATCH（m10 索引 ft_dish_search）∪ 别名精确命中
         // BOOLEAN MODE 中 + - > < ( ) ~ * " 是检索运算符，用户输入携带会改变匹配语义（如「-土豆」变成排除式检索），
@@ -53,7 +61,7 @@ public class DishServiceImpl implements DishService {
         List<Long> aliasIds = dishMapper.selectDishIdsByAlias(kw);
         if (scoreById.isEmpty() && aliasIds.isEmpty()) {
             // F-03.2③：MATCH+别名均 0 命中 → 回退原 LIKE(name)，召回不得低于现状（向后兼容铁律）
-            return likeSearch(hasCategory, category, kw);
+            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
         }
         Set<Long> aliasSet = new HashSet<>(aliasIds);
         Set<Long> mergedIds = new LinkedHashSet<>(scoreById.keySet());
@@ -66,7 +74,7 @@ public class DishServiceImpl implements DishService {
                 .eq(Dish::getAuditStatus, Dish.AUDIT_OK));
         if (dishes.isEmpty()) {
             // 命中集合被 category 过滤后为空（该类目下无 FULLTEXT/别名命中）→ 同样回退 LIKE，维持现状召回
-            return likeSearch(hasCategory, category, kw);
+            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
         }
         // F-03.2④ 排序：别名命中无相关性分——它是人工维护的强意图映射（alias 等值指向唯一商品），
         // 并入方式=整体视作最高优先级组排最前、组内 id desc；其余 MATCH 命中按相关性分 desc、同分 id desc
@@ -85,7 +93,7 @@ public class DishServiceImpl implements DishService {
             }
             return Long.compare(b.getId(), a.getId());
         });
-        return dishes;
+        return decorateSeckillWindow(dishes);
     }
 
     /**
@@ -101,12 +109,17 @@ public class DishServiceImpl implements DishService {
         // F-116 §2.1：全量不含审核驳回品——C 端可见性恒 audit_status='ok'（下架品照旧出现，现状不变）
         wrapper.eq(Dish::getAuditStatus, Dish.AUDIT_OK);
         wrapper.orderByDesc(Dish::getId);
-        return dishMapper.selectList(wrapper);
+        return decorateSeckillWindow(dishMapper.selectList(wrapper));
     }
 
     @Override
     public Dish getDishById(Long id) {
-        return dishMapper.selectById(id);
+        Dish dish = dishMapper.selectById(id);
+        if (dish != null) {
+            // P11-4 片① D2：详情出参同点装饰（与列表同一采样口径）；非秒杀件装饰器内跳过、两键不出键
+            decorateSeckillWindow(List.of(dish));
+        }
+        return dish;
     }
 
     @Override
@@ -131,5 +144,33 @@ public class DishServiceImpl implements DishService {
                 // 计价判据是 seckill==1 且 seckillPrice 非空（OrderServiceImpl#createOrder）：只打标不写价的行会在秒杀卡里打秒杀标却按原价收款
                 .isNotNull(Dish::getSeckillPrice)
                 .orderByAsc(Dish::getId));
+    }
+
+    /**
+     * P11-4 片① D2/D3：C 端列表/详情出参窗口态装饰——秒杀件（dish.seckill==1）下发
+     * seckillActive（{@link SeckillSessionResolver#inWindow} 服务端时钟判定，单一真源）与
+     * seckillStartAt（resolver.sessionTime("start", 默认)，「HH:mm」）；非秒杀件两键保持 null，
+     * 经字段级 {@code @JsonInclude(NON_NULL)} 不出键（出参与本片改动前逐字相同）。
+     * 两键在窗口采样点一次算出后循环赋值（同一请求同一时刻口径），字典读走 resolver 内
+     * 本地优先 + Caffeine 缓存，批量装饰无额外字典压力。
+     *
+     * <p>D5 实时性口径（契约登记）：窗口态在本装饰执行时刻（出参组装时）一次采样，页面停留
+     * 跨窗口切换不实时翻转——刷新/onShow 重取出参后生效。前端不自判窗口，避免两端时钟/
+     * 字典不同步。</p>
+     *
+     * <p>F-112 契约 §1.3 红线关系：{@link #listSeckill} 三条件收录口径与本装饰无关、零改动
+     * （秒杀卡项级窗口态由 SeckillController#current 直接填 active 键，不走本装饰）；
+     * 商家端/运营端/推荐出参不经本装饰，无新键。</p>
+     */
+    private List<Dish> decorateSeckillWindow(List<Dish> dishes) {
+        boolean inWindow = seckillSessionResolver.inWindow(LocalTime.now());
+        String startAt = seckillSessionResolver.sessionTime("start", SeckillSessionResolver.DEFAULT_START);
+        for (Dish d : dishes) {
+            if (d != null && Integer.valueOf(1).equals(d.getSeckill())) {
+                d.setSeckillActive(inWindow);
+                d.setSeckillStartAt(startAt);
+            }
+        }
+        return dishes;
     }
 }
