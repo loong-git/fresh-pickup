@@ -142,10 +142,11 @@ async function onSubmit() {
 </script>
 
 <style scoped>
-/* 「暗色控制台」登录页（八期 P8-1，docs/八期规划/00-总纲.md §0 tokens）：近黑蓝渐变整幅 + 暗卡浮起 + 蓝色记忆点。
+/* 登录页（八期 P8-1「暗色控制台」，docs/八期规划/00-总纲.md §0 tokens）：深蓝渐变整幅 + 卡片浮起（浅档白卡/深档暗卡）+ 蓝色记忆点。
    .console-content 固定 20px 内边距，负外边距把渐变拉成满幅；多背景一层蓝光晕、一层金色微光点题。
    P9-fix scoped var 化：卡/文字/品牌色已换 var 引用；整幅渐变三色标换 --admin-login-grad-0/1/2
-   （P9-fix 复核增补族，深值=原三色标逐字保留、浅值=亮色 SaaS 控制台浅蓝灰渐变，登记契约 §2.2.1）。 */
+   （P9-fix 复核增补族，深值=原三色标逐字保留、浅值初版=亮色 SaaS 控制台浅蓝灰渐变登记契约 §2.2.1；
+    2026-11-18 目视反馈批浅值改深蓝 navy 渐变——两档登录页均为深色门厅，契约 P11-5 §1 D1）。 */
 .login-wrap {
   margin: -20px;
   min-height: 100vh;
@@ -153,8 +154,8 @@ async function onSubmit() {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(880px 460px at 78% 16%, rgba(59, 130, 246, 0.16), transparent 62%),
-    radial-gradient(640px 380px at 12% 88%, rgba(231, 200, 104, 0.08), transparent 58%),
+    radial-gradient(880px 460px at 78% 16%, rgba(59, 130, 246, 0.32), transparent 62%),
+    radial-gradient(640px 380px at 12% 88%, rgba(231, 200, 104, 0.14), transparent 58%),
     linear-gradient(150deg, var(--admin-login-grad-0) 0%, var(--admin-login-grad-1) 42%, var(--admin-login-grad-2) 100%);
 }
 .login-card {

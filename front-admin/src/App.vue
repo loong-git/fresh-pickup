@@ -254,9 +254,10 @@ setForbiddenHandler((payload) => {
   --admin-danger-border: #F47C7C;
   --admin-active-bg: #E7EEFF;
   --admin-border-hover: #C0C4CC;
-  --admin-login-grad-0: #F3F6FB;
-  --admin-login-grad-1: #E7EEFF;
-  --admin-login-grad-2: #DAE5FF;
+  /* —— 登录页渐变浅值（2026-11-18 目视反馈批改深蓝 navy：两档登录页均为深色门厅，契约 P11-5 §1 D1；深值在下方 html.dark 组同名定义）—— */
+  --admin-login-grad-0: #0E1B33;
+  --admin-login-grad-1: #152A52;
+  --admin-login-grad-2: #1E3A8A;
   /* —— P9-fix2 滚动条族浅值（契约 docs/九期规划/P9-fix2-滚动条与太阳月亮切换钮契约.md §1.1）：
      浅色档取中性灰 #CDD0D6（亮色边框 hover 系邻近值，白底上可见不抢眼），hover 提亮至 #A8ABB2；
      深色档同族深值在下方 html.dark 组同名定义 —— */
