@@ -73,7 +73,7 @@ function normalizeCartItem(item) {
 	const stockNum = Number(item.stock)
 	// 秒杀标记：旧数据无此字段时按节省额是否大于 1 元推断（须在清理节省额之前算，判据逐字不变）
 	const seckill = item.seckill === true || (item.seckill === undefined && item.unitSave > 1)
-	return {
+	const normalized = {
 		id: item.id,
 		name: item.name,
 		price,
@@ -91,6 +91,12 @@ function normalizeCartItem(item) {
 			: 0,
 		seckill
 	}
+	// P11-7 双价快照：秒杀件透传 seckillPrice（与 price 原价并存），刷新/跨标签页 normalize 后
+	// 展示层实时判窗仍可取秒价；旧数据无该键不补（登记边界：旧秒价快照无从修正，展示层回落 item.price）
+	if (seckill && item.seckillPrice != null && Number.isFinite(Number(item.seckillPrice))) {
+		normalized.seckillPrice = Number(item.seckillPrice)
+	}
+	return normalized
 }
 
 // 登录态默认信息（M2-T-04：token 为空即游客，浏览/加购/切换自提点均免登录）
@@ -169,23 +175,30 @@ const store = createStore({
 				// 已有同 id 商品只加数量
 				existItem.quantity++
 			} else {
-				// 按契约 normalize：秒杀件以秒杀价入库、原价记挂牌价（差额真实）；非秒杀件无真实原价，划线价与节省额一律不编造
-				const hasSeckill = dish.seckillPrice != null
-				state.cart.push({
+				// P11-7 快照双价：price 恒存挂牌原价，秒杀件另存 seckillPrice 秒价（只看商品属性、与加购时刻
+				// 窗口无关——快照落库后跨窗口翻转时，展示层实时判窗才有秒价可取）；非秒杀件不写 seckillPrice 键。
+				// originalPrice/unitSave 按加购时刻窗口态取值（seckillActive !== false，缺键安全降级，
+				// 与 P11-6 列表卡同族判据）：窗口内记真实划线与差额，窗口外一律 null/0 不预支营销语言；
+				// 快照价仅购物车展示、结账服务端按 dish 表实时重算（M9 既有口径）
+				const isSeckillDish = dish.seckill && dish.seckillPrice != null
+				const inSeckillWindow = isSeckillDish && dish.seckillActive !== false
+				const snapItem = {
 					id: dish.id,
 					name: dish.name,
-					price: hasSeckill ? dish.seckillPrice : dish.price,
+					price: dish.price,
 					unit: dish.unit,
 					emoji: dish.emoji,
 					stock: dish.stock,
 					quantity: 1,
 					// 默认勾选
 					checked: true,
-					originalPrice: hasSeckill ? dish.price : null,
-					unitSave: hasSeckill ? +(dish.price - dish.seckillPrice).toFixed(2) : 0,
+					originalPrice: inSeckillWindow ? dish.price : null,
+					unitSave: inSeckillWindow ? +(dish.price - dish.seckillPrice).toFixed(2) : 0,
 					// 秒杀标记：购物车折扣标签等 UI 依赖它区分秒杀件
-					seckill: hasSeckill
-				})
+					seckill: isSeckillDish
+				}
+				if (isSeckillDish) snapItem.seckillPrice = dish.seckillPrice
+				state.cart.push(snapItem)
 			}
 			// 同步到本地存储，刷新后购物车不丢失
 			safeSetStorage('cart', state.cart)
@@ -216,6 +229,31 @@ const store = createStore({
 			})
 			// 同步到本地存储，刷新后购物车不丢失（整批只写一次）
 			safeSetStorage('cart', state.cart)
+		},
+		// 按订单明细扣减购物车（P11-7 订单页快捷支付成功后调用，与 reorder 的 P6-1 合并语义互为逆操作）：
+		// 入参为订单 items（dishId/quantity），逐明细按 dishId 找购物车行 quantity 减去订单数量，
+		// 减至 ≤0 移除整行（行数量少于订单数量时按 0 计，只减不增不产生负数行）；
+		// 明细非购物车商品（已删/历史单）找不到行跳过，id 缺失/数量非正的脏明细跳过不编造。
+		// 禁一刀 clearCart——购物车可能含用户新挑的其他商品；整批只落盘一次 safeSetStorage，
+		// 全部明细都未命中购物车行（无实际变更）时不写存储
+		deductByOrderItems(state, items) {
+			const list = Array.isArray(items) ? items : []
+			let changed = false
+			list.forEach((it) => {
+				const dishId = it && it.dishId
+				const qty = Math.floor(Number(it && it.quantity))
+				if (dishId == null || !(qty > 0)) return
+				const row = state.cart.find(i => i.id === dishId)
+				if (!row) return
+				changed = true
+				if (row.quantity > qty) {
+					row.quantity -= qty
+				} else {
+					// 减至 ≤0 移除整行（同 dishId 多明细时后一条 find 不到行即视为已扣完，天然跳过）
+					state.cart = state.cart.filter(i => i.id !== dishId)
+				}
+			})
+			if (changed) safeSetStorage('cart', state.cart)
 		},
 		// 从购物车移除
 		removeFromCart(state, dishId) {

@@ -397,6 +397,10 @@ export default {
         } else {
           uni.showToast({ title: '支付成功', icon: 'success' })
         }
+        // P11-7：快捷支付成功后按订单明细（dishId/quantity，列表出参 OrderItem 字段）扣减购物车
+        // 同商品数量——与 P6-1 reorder 合并语义互为逆操作，禁一刀 clearCart（购物车可能含用户新挑
+        // 的其他商品）；扣减/移除与落盘语义收口在 store 的 deductByOrderItems mutation，页面不做算术
+        this.$store.commit('deductByOrderItems', (order && order.items) || [])
         this.loadOrders(true)
       } catch (e) {
         // 401（登录态失效）：request 层已清登录态，页面响应式切换登录引导态；其余失败 toast 保留现场
