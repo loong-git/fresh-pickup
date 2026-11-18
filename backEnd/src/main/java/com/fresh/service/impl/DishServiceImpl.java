@@ -39,12 +39,12 @@ public class DishServiceImpl implements DishService {
         String kw = keyword == null ? "" : keyword.trim();
         // F-03.2⑤：空白 keyword 行为完全不变——不加 keyword 条件，仅 category 等值过滤全量（T-M3-12）
         if (kw.isEmpty()) {
-            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
+            return likeSearch(hasCategory, category, kw);
         }
         // F-03.2①：单字保持原 LIKE(name) 路径——ngram_token_size 默认 2，单字切不出 token，
         // MATCH 对单字必然 0 命中，FULLTEXT 路径不可用，必须 LIKE 兜底
         if (kw.length() == 1) {
-            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
+            return likeSearch(hasCategory, category, kw);
         }
         // F-03.2②：≥2 字 → FULLTEXT 三列 MATCH（m10 索引 ft_dish_search）∪ 别名精确命中
         // BOOLEAN MODE 中 + - > < ( ) ~ * " 是检索运算符，用户输入携带会改变匹配语义（如「-土豆」变成排除式检索），
@@ -61,7 +61,7 @@ public class DishServiceImpl implements DishService {
         List<Long> aliasIds = dishMapper.selectDishIdsByAlias(kw);
         if (scoreById.isEmpty() && aliasIds.isEmpty()) {
             // F-03.2③：MATCH+别名均 0 命中 → 回退原 LIKE(name)，召回不得低于现状（向后兼容铁律）
-            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
+            return likeSearch(hasCategory, category, kw);
         }
         Set<Long> aliasSet = new HashSet<>(aliasIds);
         Set<Long> mergedIds = new LinkedHashSet<>(scoreById.keySet());
@@ -74,7 +74,7 @@ public class DishServiceImpl implements DishService {
                 .eq(Dish::getAuditStatus, Dish.AUDIT_OK));
         if (dishes.isEmpty()) {
             // 命中集合被 category 过滤后为空（该类目下无 FULLTEXT/别名命中）→ 同样回退 LIKE，维持现状召回
-            return decorateSeckillWindow(likeSearch(hasCategory, category, kw));
+            return likeSearch(hasCategory, category, kw);
         }
         // F-03.2④ 排序：别名命中无相关性分——它是人工维护的强意图映射（alias 等值指向唯一商品），
         // 并入方式=整体视作最高优先级组排最前、组内 id desc；其余 MATCH 命中按相关性分 desc、同分 id desc
@@ -93,7 +93,7 @@ public class DishServiceImpl implements DishService {
             }
             return Long.compare(b.getId(), a.getId());
         });
-        return decorateSeckillWindow(dishes);
+        return decorateSeckillWindow(dishes, seckillSessionResolver);
     }
 
     /**
@@ -109,7 +109,7 @@ public class DishServiceImpl implements DishService {
         // F-116 §2.1：全量不含审核驳回品——C 端可见性恒 audit_status='ok'（下架品照旧出现，现状不变）
         wrapper.eq(Dish::getAuditStatus, Dish.AUDIT_OK);
         wrapper.orderByDesc(Dish::getId);
-        return decorateSeckillWindow(dishMapper.selectList(wrapper));
+        return decorateSeckillWindow(dishMapper.selectList(wrapper), seckillSessionResolver);
     }
 
     @Override
@@ -117,7 +117,7 @@ public class DishServiceImpl implements DishService {
         Dish dish = dishMapper.selectById(id);
         if (dish != null) {
             // P11-4 片① D2：详情出参同点装饰（与列表同一采样口径）；非秒杀件装饰器内跳过、两键不出键
-            decorateSeckillWindow(List.of(dish));
+            decorateSeckillWindow(List.of(dish), seckillSessionResolver);
         }
         return dish;
     }
@@ -160,11 +160,18 @@ public class DishServiceImpl implements DishService {
      *
      * <p>F-112 契约 §1.3 红线关系：{@link #listSeckill} 三条件收录口径与本装饰无关、零改动
      * （秒杀卡项级窗口态由 SeckillController#current 直接填 active 键，不走本装饰）；
-     * 商家端/运营端/推荐出参不经本装饰，无新键。</p>
+     * 商家端/运营端出参不经本装饰，无新键。推荐出参自 P11-6 I2 起在候选集首算阶段经本装饰
+     * （RecommendServiceImpl 注入 resolver 调本静态实现，键值随首算采样写入其 60s 结果缓存，
+     * 缓存命中回包不二次装饰——D5 一次采样口径的自然延长）。</p>
+     *
+     * <p>P11-6 I5：likeSearch 是 LIKE 回退路径的<b>唯一</b>装饰层（外层四条路径的同名包裹
+     * 已删除，避免同请求两次 LocalTime 采样违反「一次采样」口径）；调用方传 resolver 而非读
+     * 实例字段，使 RecommendServiceImpl 无需注入 DishService 即可复用同一实现——
+     * 否则 DishService↔RecommendService 构成循环依赖（Boot 3.2 默认禁循环引用，启动即挂）。</p>
      */
-    private List<Dish> decorateSeckillWindow(List<Dish> dishes) {
-        boolean inWindow = seckillSessionResolver.inWindow(LocalTime.now());
-        String startAt = seckillSessionResolver.sessionTime("start", SeckillSessionResolver.DEFAULT_START);
+    static List<Dish> decorateSeckillWindow(List<Dish> dishes, SeckillSessionResolver resolver) {
+        boolean inWindow = resolver.inWindow(LocalTime.now());
+        String startAt = resolver.sessionTime("start", SeckillSessionResolver.DEFAULT_START);
         for (Dish d : dishes) {
             if (d != null && Integer.valueOf(1).equals(d.getSeckill())) {
                 d.setSeckillActive(inWindow);

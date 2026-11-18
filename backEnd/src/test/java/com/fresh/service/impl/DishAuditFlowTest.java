@@ -211,7 +211,8 @@ class DishAuditFlowTest {
     void 推荐候选集_SQL加条件_内存兜底剔除mock返回的rejected件() {
         ReviewMapper reviewMapper = mock(ReviewMapper.class);
         RecommendService recommendService = new RecommendServiceImpl(
-                dishMapper, mock(OrderMapper.class), mock(OrderItemMapper.class), reviewMapper);
+                dishMapper, mock(OrderMapper.class), mock(OrderItemMapper.class), reviewMapper,
+                mock(SeckillSessionResolver.class));
         Dish ok = dish(1L, "正常件", 1, Dish.AUDIT_OK);
         Dish rejected = dish(2L, "驳回件", 1, Dish.AUDIT_REJECTED);
         Dish offSale = dish(3L, "下架件", 0, Dish.AUDIT_OK);

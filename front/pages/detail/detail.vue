@@ -49,9 +49,9 @@
       <!-- ============ 2. 秒杀红色价格条（仅秒杀商品显示） ============ -->
       <!-- P11-4 片① D1：窗口内（seckillActive===true）现状逐字不变；窗口外（===false）整条不渲染，
            原价走下方普通价格区 + muted 预告行「每日 {seckillStartAt} 开抢」。
-           D5 实时性口径：窗口态出参一次采样，页面停留跨窗口不实时翻转，刷新/onShow 重取生效；
+           D5 实时性口径：窗口态出参一次采样，页面停留跨窗口不实时翻转，刷新/重进页生效；
            seckillActive 缺键（旧版后端/回退态）!== false 恒真 → 现状不变（安全降级）。 -->
-      <view class="seckill-wrap" v-if="dish.seckill && dish.seckillActive !== false">
+      <view class="seckill-wrap" v-if="dish.seckill && dish.seckillActive !== false && dish.seckillPrice != null">
         <view class="seckill-bar">
           <view class="seckill-main">
             <!-- 左：秒杀价大字 + 限购标签 -->
@@ -79,8 +79,10 @@
       <view class="info-section">
         <!-- 非秒杀：普通价格区（现价 + 划线价 + 截单倒计时） -->
         <!-- P11-4 片① D1：秒杀件窗口外（seckillActive===false）同进本分支切原价展示；
-             非秒杀件 seckillActive 缺键恒 undefined → 条件退化 !dish.seckill，现状逐字不变 -->
-        <block v-if="!dish.seckill || dish.seckillActive === false">
+             非秒杀件 seckillActive 缺键恒 undefined → 条件退化 !dish.seckill，现状逐字不变；
+             P11-6 I4：价 NULL 脏数据件（F-112 三条件口径视同非秒杀）也进本分支显原价，
+             与红条补 seckillPrice != null 配对，防窗口内价 NULL 件红条/价格区双不渲染 -->
+        <block v-if="!dish.seckill || dish.seckillActive === false || dish.seckillPrice == null">
           <view class="detail-price-row">
             <text class="detail-price-symbol">¥</text>
             <text class="detail-price">{{ fmtPrice(dish.price) }}</text>
@@ -131,7 +133,8 @@
       <!-- ============ 5. 秒杀播报条（仅秒杀商品显示） ============ -->
       <!-- P11-4 片① D1：窗口外秒杀件不渲染——「直降x元」（cutText）是活动语境文案，窗口外
            展示即虚假暗示；窗口内现状逐字不变，非秒杀件不受影响 -->
-      <view class="notice-bar" v-if="dish.seckill && dish.seckillActive !== false">
+      <!-- P11-6 I4 同族漏点补齐：价 NULL 守卫与红条 seckill-wrap 同口径，价 NULL 脏数据件不渲染播报条（cutText 合成自 seckillPrice，为空即悬空逗号假文案） -->
+      <view class="notice-bar" v-if="dish.seckill && dish.seckillActive !== false && dish.seckillPrice != null">
         <view class="notice-head">
           <text class="notice-title">超级秒杀</text>
           <text class="notice-divider">|</text>
@@ -265,7 +268,9 @@
           <!-- 右侧信息 -->
           <view class="rec-body">
             <view class="rec-title-row">
-              <text v-if="dish.seckill" class="rec-sec-tag">秒</text>
+              <!-- P11-6 I1：本卡秒标/直降/秒价/CTA/秒杀条判据统一 dish.seckill && seckillActive !== false
+                   ——窗口外秒杀件走非秒杀同款渲染；推荐出参后端补装饰键前缺键恒真，现状不劣化（安全降级） -->
+              <text v-if="dish.seckill && dish.seckillActive !== false" class="rec-sec-tag">秒</text>
               <text class="rec-name">{{ dish.name }}</text>
             </view>
             <text class="rec-tags">{{ (dish.tags || []).join(' | ') }}</text>
@@ -274,7 +279,7 @@
               <text class="rec-sold">{{ dish.soldText }}</text>
             </view>
             <view class="rec-promo-row">
-              <block v-if="dish.seckill">
+              <block v-if="dish.seckill && dish.seckillActive !== false">
                 <text class="rec-tag-cut">{{ dish.cutText }}</text>
                 <text class="rec-tag-limit">限购{{ dish.limitBuy }}件</text>
               </block>
@@ -283,7 +288,7 @@
             <!-- 价格行 + 右侧按钮/步进器（与首页同构：加购/加减联动全局购物车；金额统一两位小数） -->
             <view class="rec-price-row">
               <view class="rec-price-left">
-                <block v-if="dish.seckill">
+                <block v-if="dish.seckill && dish.seckillActive !== false">
                   <text class="rec-price-label">秒杀</text>
                   <text class="rec-price-symbol">¥</text>
                   <text class="rec-price-big">{{ fmtPrice(dish.seckillPrice) }}</text>
@@ -300,12 +305,12 @@
                   <view class="rec-step-btn rec-step-plus" @click="plusRec(dish)"><text>+</text></view>
                 </view>
                 <view v-else class="rec-add-btn" @click="addRec(dish)">
-                  <text>立即抢购</text>
+                  <text>{{ dish.seckill && dish.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text>
                 </view>
               </view>
             </view>
             <!-- 秒杀卡内超级秒杀条：倒计时全场共用（复用 data.countdownText/countdownTenth，不新建定时器） -->
-            <view class="rec-seckill-bar" v-if="dish.seckill">
+            <view class="rec-seckill-bar" v-if="dish.seckill && dish.seckillActive !== false">
               <text class="rec-seckill-label">超级秒杀</text>
               <text class="rec-seckill-countdown" :class="{ 'rec-countdown-zero': countdownZero }">{{ countdownZero ? '已切明日场次' : countdownText + '.' + countdownTenth }}</text>
             </view>

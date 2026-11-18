@@ -11,6 +11,7 @@ import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.ReviewMapper;
 import com.fresh.service.RecommendService;
+import com.fresh.service.SeckillSessionResolver;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -101,13 +102,18 @@ public class RecommendServiceImpl implements RecommendService {
     private final OrderItemMapper orderItemMapper;
     private final ReviewMapper reviewMapper;
 
-    /** 构造器注入：四个 mapper 全部 mock 友好（RecommendServiceTest 直接 new） */
+    /** P11-6 I2：秒杀窗口判定单源（与列表/详情装饰、下单计价共用同一 resolver），构造器注入保持 mock 友好 */
+    private final SeckillSessionResolver seckillSessionResolver;
+
+    /** 构造器注入：mapper 与 resolver 全部 mock 友好（RecommendServiceTest 直接 new） */
     public RecommendServiceImpl(DishMapper dishMapper, OrderMapper orderMapper,
-                                OrderItemMapper orderItemMapper, ReviewMapper reviewMapper) {
+                                OrderItemMapper orderItemMapper, ReviewMapper reviewMapper,
+                                SeckillSessionResolver seckillSessionResolver) {
         this.dishMapper = dishMapper;
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.reviewMapper = reviewMapper;
+        this.seckillSessionResolver = seckillSessionResolver;
     }
 
     /** 打分中间载体：score 仅供排序，不外泄（F-02.2 响应只含 strategy + items） */
@@ -140,6 +146,14 @@ public class RecommendServiceImpl implements RecommendService {
         if (candidates.isEmpty()) {
             return RecommendVO.of(RecommendVO.STRATEGY_BEST_SELLER, new ArrayList<>());
         }
+
+        // P11-6 I2：候选集首算阶段过秒杀窗口态装饰（复用 DishServiceImpl#decorateSeckillWindow 唯一
+        // 实现 + resolver 单源判据，不另写时间比较）——seckill 件下发 seckillActive/seckillStartAt 两键，
+        // 非秒杀件两键 null 不出键（Dish 字段级 NON_NULL）。装饰只作用于本请求新建的 candidates 列表
+        // （mapper 每请求返回新实体，无跨请求共享），键值在本采样点定形后随首算结果写入 60s 推荐缓存：
+        // 缓存命中回包直接复用首算采样值、不二次装饰——R1「不可变副本防污染」承诺不变，
+        // 亦是 D5「一次采样」口径在推荐路径的自然延长（推荐缓存使窗口态快照最长存活 60s，刷新生效）。
+        DishServiceImpl.decorateSeckillWindow(candidates, seckillSessionResolver);
 
         // —— 用户历史信号加载（游客不查订单表，F-02.2：个性化一律按 token 身份，匿名=游客）——
         List<OrderItem> userItems = List.of();

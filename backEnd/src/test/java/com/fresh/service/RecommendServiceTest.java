@@ -41,12 +41,15 @@ class RecommendServiceTest {
     private final OrderMapper orderMapper = mock(OrderMapper.class);
     private final OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
     private final ReviewMapper reviewMapper = mock(ReviewMapper.class);
+    /** P11-6 I2 起候选集首算经秒杀窗口装饰：mock resolver（判定逻辑由 SeckillSessionResolverTest 直测） */
+    private final SeckillSessionResolver seckillSessionResolver = mock(SeckillSessionResolver.class);
 
     private RecommendServiceImpl recommendService;
 
     @BeforeEach
     void setUp() {
-        recommendService = new RecommendServiceImpl(dishMapper, orderMapper, orderItemMapper, reviewMapper);
+        recommendService = new RecommendServiceImpl(dishMapper, orderMapper, orderItemMapper, reviewMapper,
+                seckillSessionResolver);
     }
 
     // —— fixture 工具 ——

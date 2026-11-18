@@ -96,7 +96,8 @@
               <text class="cd-label" v-if="!countdownZero">仅剩</text>
               <text class="cd-value" :class="{ 'cd-zero': countdownZero }">{{ countdownZero ? '已切明日场次' : countdownText + '.' + countdownTenth }}</text>
             </view>
-            <view class="seckill-go" @click="onSeckillGo"><text>去抢购 &gt;</text></view>
+            <!-- P11-6 I2：CTA 是行动态断言（「去抢购」），窗口外秒杀卡=预告态非行动态，整条隐藏收口 onSeckillGo toast -->
+            <view class="seckill-go" v-if="seckillInWindow" @click="onSeckillGo"><text>去抢购 &gt;</text></view>
           </view>
           <scroll-view class="seckill-scroll" scroll-x>
             <view class="seckill-item" v-for="d in seckillDishes" :key="d.id" @click="goToDetail(d)">
@@ -106,9 +107,10 @@
                 <text v-else class="seckill-emoji">{{ d.emoji }}</text>
               </view>
               <!-- P11-4 片① D1：项级窗口外（active===false）显预告+原价，直降文案与秒价不显；
-                   active true（窗口内）现状逐字不变；回退本地过滤项无 active 键走现状分支 -->
-              <block v-if="d.active === false">
-                <text class="seckill-forecast">每日 {{ seckillSessionStart }} 开抢</text>
+                   active true（窗口内）现状逐字不变；P11-6 I1：回退本地过滤项自带 seckillActive，
+                   窗口外（===false）并入同一分支切预告态，缺键 undefined !== false 恒真 → 现状不变（安全降级） -->
+              <block v-if="d.active === false || d.seckillActive === false">
+                <text v-if="seckillSessionStart" class="seckill-forecast">每日 {{ seckillSessionStart }} 开抢</text>
                 <view class="seckill-price-row">
                   <text class="sp-symbol">¥</text>
                   <text class="sp-num">{{ d.price }}</text>
@@ -143,7 +145,9 @@
               <!-- 右侧信息 -->
               <view class="dish-body">
                 <view class="dish-title-row">
-                  <text v-if="dish.seckill" class="dish-seckill-tag">秒</text>
+                  <!-- P11-6 I1：本卡秒标/直降/秒价/CTA 判据统一 dish.seckill && seckillActive !== false
+                       ——窗口外秒杀件走非秒杀同款渲染（原价/好评率/加入购物车）；缺键恒真现状不变 -->
+                  <text v-if="dish.seckill && dish.seckillActive !== false" class="dish-seckill-tag">秒</text>
                   <text class="dish-name">{{ dish.name }}</text>
                 </view>
                 <text class="dish-tags">{{ (dish.tags || []).join(' | ') }}</text>
@@ -152,7 +156,7 @@
                   <text class="dish-sold">{{ dish.soldText }}</text>
                 </view>
                 <view class="dish-promo-row">
-                  <block v-if="dish.seckill">
+                  <block v-if="dish.seckill && dish.seckillActive !== false">
                     <text class="tag-cut">{{ dish.cutText }}</text>
                     <text class="tag-limit">限购{{ dish.limitBuy }}件</text>
                   </block>
@@ -161,7 +165,7 @@
                 <!-- 价格行 + 右侧按钮/步进器 -->
                 <view class="dish-price-row">
                   <view class="price-left">
-                    <block v-if="dish.seckill">
+                    <block v-if="dish.seckill && dish.seckillActive !== false">
                       <text class="price-seckill-label">秒杀</text>
                       <text class="price-symbol">¥</text>
                       <text class="price-big">{{ fmtPrice(dish.seckillPrice) }}</text>
@@ -180,7 +184,7 @@
                     </view>
                     <!-- 未加购：红底白字按钮 -->
                     <view v-else class="add-btn" @click="addDish(dish)">
-                      <text>{{ dish.seckill ? '立即抢购' : '加入购物车' }}</text>
+                      <text>{{ dish.seckill && dish.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text>
                     </view>
                   </view>
                 </view>

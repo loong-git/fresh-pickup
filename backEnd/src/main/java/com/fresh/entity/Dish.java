@@ -69,8 +69,8 @@ public class Dish {
 
     // ==================== P11-4 片① 秒杀窗口态展示键（纯出参瞬态，不映射任何列） ====================
     // 三键均 @TableField(exist = false)：MP 查询/写入不触碰；@JsonInclude(NON_NULL)：未填充即不出键
-    // ——非秒杀件/未经装饰路径（商家端、运营端、推荐）出参与本片改动前逐字相同（对照 @JsonIgnore
-    // 封 merchantId/supplyPrice 先例：那两键是封 C 端，这三键是 C 端展示新增，方向相反互不影响）。
+    // ——非秒杀件/未经装饰路径（商家端、运营端）出参与本片改动前逐字相同（对照 @JsonIgnore
+    // 封 merchantId/supplyPrice 先例：那两键是封 C 端，这三键是 C 端展示新增，方向相反互不影响）。（P11-6 起推荐出参亦经 decorateSeckillWindow 装饰，契约 P11-6-新功能审计issue清单.md I2）
 
     /** P11-4 片① D2：秒杀窗口态（服务端时钟判定，判定源 SeckillSessionResolver#inWindow 单一真源）。
      *  仅秒杀件由 DishServiceImpl 列表/详情出参装饰时下发（窗口内 true / 窗口外 false），

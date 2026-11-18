@@ -18,7 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -146,5 +149,62 @@ class DishSeckillWindowTest {
                 "秒杀收录口径（F-112 §1.3）零改动——项级窗口态由 SeckillController#current 填 active");
         assertNull(out.get(0).getSeckillStartAt(),
                 "预告数据走 /api/seckill/current 顶层 start（D3），listSeckill 不重复下发");
+    }
+
+    // ---------------------------------------------------------------- P11-6 I5 双重装饰移除回归
+
+    /**
+     * P11-6 I5：getDishes 四条 LIKE 路径的外层 {@code decorateSeckillWindow(likeSearch(...))} 包裹
+     * 已删除，likeSearch 内部装饰是列表路径唯一装饰层。本组三例锁「外层删除后内层仍在」
+     * （防删错层导致列表裸奔）+ 每请求恰一次采样（防双重装饰回潮——双重装饰会触发
+     * inWindow 两次，与「一次采样」口径相悖）。
+     */
+
+    @Test
+    void 空白keyword全量路径_装饰仍生效且仅一次采样() {
+        when(resolver.inWindow(any())).thenReturn(true);
+        when(resolver.sessionTime("start", SeckillSessionResolver.DEFAULT_START)).thenReturn("06:00");
+        when(dishMapper.selectList(any()))
+                .thenReturn(new ArrayList<>(List.of(dish(1L, 1))));
+
+        List<Dish> out = dishService.getDishes(null, null);
+
+        assertEquals(Boolean.TRUE, out.get(0).getSeckillActive(),
+                "全量路径装饰生效（内层 likeSearch 装饰在，外层包裹删除后不得裸奔）");
+        verify(resolver, times(1)).inWindow(any());
+        verify(resolver, times(1)).sessionTime(anyString(), anyString());
+    }
+
+    @Test
+    void 单字keywordLIKE路径_装饰仍生效且仅一次采样() {
+        when(resolver.inWindow(any())).thenReturn(true);
+        when(resolver.sessionTime("start", SeckillSessionResolver.DEFAULT_START)).thenReturn("06:00");
+        when(dishMapper.selectList(any()))
+                .thenReturn(new ArrayList<>(List.of(dish(1L, 1), dish(2L, 0))));
+
+        List<Dish> out = dishService.getDishes(null, "土");
+
+        assertEquals(Boolean.TRUE, out.get(0).getSeckillActive(),
+                "单字 LIKE 兜底路径装饰生效（内层装饰在）");
+        verify(resolver, times(1)).inWindow(any());
+        verify(resolver, times(1)).sessionTime(anyString(), anyString());
+    }
+
+    @Test
+    void 多字keyword零命中回退路径_装饰仍生效且仅一次采样() {
+        when(resolver.inWindow(any())).thenReturn(true);
+        when(resolver.sessionTime("start", SeckillSessionResolver.DEFAULT_START)).thenReturn("06:00");
+        // MATCH+别名均 0 命中 → 回退 likeSearch（F-03.2③ 路径）
+        when(dishMapper.selectIdsByFulltext(any())).thenReturn(List.of());
+        when(dishMapper.selectDishIdsByAlias(any())).thenReturn(List.of());
+        when(dishMapper.selectList(any()))
+                .thenReturn(new ArrayList<>(List.of(dish(1L, 1), dish(2L, 0))));
+
+        List<Dish> out = dishService.getDishes(null, "土豆");
+
+        assertEquals(Boolean.TRUE, out.get(0).getSeckillActive(),
+                "0 命中回退 LIKE 路径装饰生效（内层装饰在）");
+        verify(resolver, times(1)).inWindow(any());
+        verify(resolver, times(1)).sessionTime(anyString(), anyString());
     }
 }

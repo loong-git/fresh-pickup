@@ -156,7 +156,9 @@
             </view>
             <view class="dish-body">
               <view class="dish-title-row">
-                <text v-if="dish.seckill" class="dish-seckill-tag">秒</text>
+                <!-- P11-6 I1：本卡秒标/直降/秒价/CTA 判据同首页主列表（dish.seckill && seckillActive !== false），
+                     窗口外秒杀件走非秒杀同款渲染；缺键恒真现状不变 -->
+                <text v-if="dish.seckill && dish.seckillActive !== false" class="dish-seckill-tag">秒</text>
                 <text class="dish-name">{{ dish.name }}</text>
               </view>
               <text class="dish-tags">{{ (dish.tags || []).join(' | ') }}</text>
@@ -165,7 +167,7 @@
                 <text class="dish-sold">{{ dish.soldText }}</text>
               </view>
               <view class="dish-promo-row">
-                <block v-if="dish.seckill">
+                <block v-if="dish.seckill && dish.seckillActive !== false">
                   <text class="tag-cut">{{ dish.cutText }}</text>
                   <text class="tag-limit">限购{{ dish.limitBuy }}件</text>
                 </block>
@@ -173,7 +175,7 @@
               </view>
               <view class="dish-price-row">
                 <view class="price-left">
-                  <block v-if="dish.seckill">
+                  <block v-if="dish.seckill && dish.seckillActive !== false">
                     <text class="price-seckill-label">秒杀</text>
                     <text class="price-symbol">¥</text>
                     <text class="price-big">{{ fmtPrice(dish.seckillPrice) }}</text>
@@ -190,7 +192,7 @@
                     <view class="step-btn step-plus" @click="plusDish(dish)"><text>+</text></view>
                   </view>
                   <view v-else class="add-btn" @click="addDish(dish)">
-                    <text>{{ dish.seckill ? '立即抢购' : '加入购物车' }}</text>
+                    <text>{{ dish.seckill && dish.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text>
                   </view>
                 </view>
               </view>
@@ -472,9 +474,9 @@ export default {
     onImgFail(id) {
       this.imgFail = { ...this.imgFail, [id]: true }
     },
-    // 榜单价格：秒杀件取秒杀价，其余取现价（价格红色展示）
+    // 榜单价格：秒杀件取秒杀价，窗口外秒杀件（seckillActive===false）与其余取现价（价格红色展示）
     rankPrice(d) {
-      return d && d.seckill && d.seckillPrice != null ? d.seckillPrice : (d && d.price)
+      return d && d.seckill && d.seckillPrice != null && d.seckillActive !== false ? d.seckillPrice : (d && d.price)
     },
     // ==================== 数据加载 ====================
     // 页面局部请求：与首页 dishRequest 同款（GET /api/dishes 支持 category/keyword 独立或组合，
