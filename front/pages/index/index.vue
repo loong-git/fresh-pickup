@@ -1733,8 +1733,8 @@ export default {
 
 /* ==================== 2+3. 红色横幅区 ==================== */
 .red-zone {
-  /* 首子元素（.cutoff-bar 的 margin-top:12rpx）margin 塌陷会穿透红区形成白缝，flow-root 建立 BFC 使 12rpx 间距留在红区内呈红底 */
-  display: flow-root;
+  /* 首子元素（.cutoff-bar 的 margin-top:12rpx）margin 塌陷会穿透红区露出 scroll-inner 白缝，用 overflow:hidden 建立 BFC（flow-root 在 uni-app H5 view 编译后可能不生效）使 12rpx 间距留在红区内呈红底 */
+  overflow: hidden;
   background: var(--c-primary);
   padding-bottom: 28rpx;
 }
