@@ -191,7 +191,7 @@
                     <text class="step-num">{{ cartMap[dish.id].quantity }}</text>
                     <view class="step-btn step-plus" @click="plusDish(dish)"><text>+</text></view>
                   </view>
-                  <view v-else class="add-btn" @click="addDish(dish)">
+                  <view v-else class="add-btn" :class="dish.seckill && dish.seckillActive !== false ? 'add-btn-grab' : ''" @click="addDish(dish)">
                     <text>{{ dish.seckill && dish.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text>
                   </view>
                 </view>
@@ -1183,6 +1183,7 @@ export default {
   background: linear-gradient(135deg, var(--c-primary), var(--c-primary));
   border-radius: 28rpx;
 }
+.add-btn-grab { background: var(--c-danger); }
 .add-btn text { font-size: 22rpx; font-weight: 700; color: #FFFFFF; }
 .empty-state { display: flex; align-items: center; justify-content: center; padding: 120rpx 0; }
 .empty-state text { font-size: 26rpx; color: var(--c-disabled); }

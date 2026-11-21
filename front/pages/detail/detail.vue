@@ -304,7 +304,7 @@
                   <text class="rec-step-num">{{ cartMap[dish.id].quantity }}</text>
                   <view class="rec-step-btn rec-step-plus" @click="plusRec(dish)"><text>+</text></view>
                 </view>
-                <view v-else class="rec-add-btn" @click="addRec(dish)">
+                <view v-else class="rec-add-btn" :class="dish.seckill && dish.seckillActive !== false ? 'rec-add-btn-grab' : ''" @click="addRec(dish)">
                   <text>{{ dish.seckill && dish.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text>
                 </view>
               </view>
@@ -1128,7 +1128,7 @@ export default {
 /* ---------- 9. 底部操作栏 ---------- */
 .bottom-bar { background-color: #FFFFFF; box-shadow: 0 -2rpx 20rpx rgba(0,0,0,.06); flex-shrink: 0; }
 /* uni-button 显式覆盖：直角大红块、无默认边框圆角与 line-height:2.55 */
-.btn-grab { width: 100%; background-color: var(--c-primary); color: #FFFFFF; border: none; border-radius: 0; padding: 14rpx 0 22rpx; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8rpx; line-height: 1.3; font-size: 26rpx; }
+.btn-grab { width: 100%; background-color: var(--c-danger); color: #FFFFFF; border: none; border-radius: 0; padding: 14rpx 0 22rpx; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8rpx; line-height: 1.3; font-size: 26rpx; }
 .btn-grab::after { border: none; }
 .grab-main { font-size: 26rpx; font-weight: 700; line-height: 1.3; }
 .grab-sub { font-size: 24rpx; opacity: .9; letter-spacing: 1rpx; font-variant-numeric: tabular-nums; line-height: 1.3; }
@@ -1205,6 +1205,7 @@ export default {
 .rec-price-big { font-size: 38rpx; font-weight: 700; color: var(--c-warn); line-height: 1; }
 .rec-action { flex-shrink: 0; margin-left: 16rpx; }
 .rec-add-btn { min-width: 160rpx; height: 56rpx; padding: 0 22rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--c-primary), var(--c-primary)); border-radius: 28rpx; }
+.rec-add-btn-grab { background: var(--c-danger); }
 .rec-add-btn text { font-size: 22rpx; font-weight: 700; color: #FFFFFF; }
 .rec-stepper { display: flex; align-items: center; }
 .rec-step-btn { width: 46rpx; height: 46rpx; border-radius: 50%; display: flex; align-items: center; justify-content: center; }

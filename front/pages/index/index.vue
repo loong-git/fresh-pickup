@@ -183,7 +183,7 @@
                       <view class="step-btn step-plus" @click="plusDish(dish)"><text>+</text></view>
                     </view>
                     <!-- 未加购：红底白字按钮 -->
-                    <view v-else class="add-btn" @click="addDish(dish)">
+                    <view v-else class="add-btn" :class="dish.seckill && dish.seckillActive !== false ? 'add-btn-grab' : ''" @click="addDish(dish)">
                       <text>{{ dish.seckill && dish.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text>
                     </view>
                   </view>
@@ -1980,6 +1980,7 @@ export default {
   background: linear-gradient(135deg, var(--c-primary), var(--c-primary));
   border-radius: 28rpx;
 }
+.add-btn-grab { background: var(--c-danger); }
 .add-btn text { font-size: 22rpx; font-weight: 700; color: #FFFFFF; }
 /* 步进器（列表/购物车弹层共用） */
 .stepper { display: flex; align-items: center; }
