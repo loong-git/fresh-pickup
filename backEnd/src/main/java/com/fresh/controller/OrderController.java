@@ -53,7 +53,9 @@ public class OrderController {
         return R.ok(orderService.getOrders(userId, pageNum, pageSize, status));
     }
 
-    /** 取消订单（T-M1-07 + T-M2-03）：仅本人 pending_pickup 订单可取消，取消回补库存；其他状态 400 */
+    /** 取消订单（T-M1-07 + T-M2-03）：仅本人 pending_pickup 订单可取消，取消回补库存；其他状态 400。
+     *  限流 P11-11（R6+B-2）：USER 写档 10/60s（照商家写端点家族档位，同文件 createOrder 3/60s 注解形状同构） */
+    @RateLimit(limit = 10, windowSeconds = 60)
     @PostMapping("/{id}/cancel")
     public R<Void> cancelOrder(@PathVariable("id") String id,
                                @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {

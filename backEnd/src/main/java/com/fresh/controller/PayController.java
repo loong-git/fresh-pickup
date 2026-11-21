@@ -1,5 +1,6 @@
 package com.fresh.controller;
 
+import com.fresh.annotation.RateLimit;
 import com.fresh.common.R;
 import com.fresh.entity.Order;
 import com.fresh.interceptor.AuthInterceptor;
@@ -97,7 +98,9 @@ public class PayController {
     @Value("${wxpay.api-v3-key:}")
     private String wxpayApiV3Key;
 
-    /** 模拟收银台（契约 M2-5）：登录 + 本人订单 → pay_status=1 + pay_time；幂等，重复调用返回成功 */
+    /** 模拟收银台（契约 M2-5）：登录 + 本人订单 → pay_status=1 + pay_time；幂等，重复调用返回成功。
+     *  限流 P11-11（R6+B-2）：USER 写档 10/60s（方法签名有 ATTR_USER_ID，照商家写端点家族档位） */
+    @RateLimit(limit = 10, windowSeconds = 60)
     @PostMapping("/{orderId}/mock-pay")
     public R<Order> mockPay(@PathVariable("orderId") String orderId,
                             @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
@@ -113,8 +116,11 @@ public class PayController {
      * 校验（本人/pay_status=0/未取消）在 {@code SimWxPayService#simCreate} 里；成功返回模拟 jsapi
      * 五参数（timeStamp/nonceStr/package/signType/paySign）+ amountFen 金额分。
      * 闸门照 mock-enabled 模式：sim-enabled=false（prod 缺省）→ 404 信封，不暴露端点能力。
-     * 限流说明：本端点与 wx-notify 同样未标 {@code @RateLimit}，RateLimitInterceptor 对无注解方法直通。
+     * 限流说明（P11-11 R6 更新）：本端点已挂 USER 写档 10/60s（方法签名有 ATTR_USER_ID）；
+     * wx-notify 是服务器回调直通 + 验签门槛（无登录态、无 ATTR_USER_ID），不挂用户档——
+     * {@code RateLimitInterceptor} 对无注解方法直通正是它依赖的形态。
      */
+    @RateLimit(limit = 10, windowSeconds = 60)
     @PostMapping("/{orderId}/sim-create")
     public R<Map<String, Object>> simCreate(@PathVariable("orderId") String orderId,
                                             @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
@@ -130,7 +136,9 @@ public class PayController {
      * POST 本机 wx-notify（验签/新鲜度/解密/三比对/事务结算全走 {@link WxPayNotifyService} 真实链路），
      * 2xx 回读订单返回（含 pickupCode，信封 message 沿用 mock-pay 的「支付成功」），4xx/5xx 透传判定
      * 人话（脱敏，code=真实 HTTP 码）。幂等：pay_status≠0 直接返回当前态。闸门同 sim-create。
+     * 限流（P11-11 R6）：USER 写档 10/60s（方法签名有 ATTR_USER_ID，同 sim-create/mock-pay 档位）。
      */
+    @RateLimit(limit = 10, windowSeconds = 60)
     @PostMapping("/{orderId}/sim-pay")
     public R<Order> simPay(@PathVariable("orderId") String orderId,
                            @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {

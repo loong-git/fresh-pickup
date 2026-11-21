@@ -24,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  *   <li>写 10/60s USER —— 商家写端点家族 MerchantDishController:66/75/86/96、
  *       MerchantApplyController:104/191（P3-G claim 照此挂档）。</li>
  * </ul>
+ * P11-11（R6+B-2 同族）追加：交易写端点 OrderController#cancelOrder 与 pay 面
+ * mock-pay/sim-create/sim-pay 挂 USER 10/60s（方法签名均有 ATTR_USER_ID）；
+ * wx-notify 是服务器回调直通 + 验签门槛、无用户态，不挂档不进本表（少挂是对的，别当漏挂修）。
  * USER 档对匿名请求的行为已实读 RateLimitInterceptor#bucketKey 确认：userId 为 null 时兜底
  * {@code user:ip:<ip>:<api>}，不报错且生效；但挂档语义仍按端点登录语义分档——
  * 本测试同时钉住「匿名端点挂 IP 档、登录端点挂 USER 档」的口径，防后续漂移。
@@ -36,6 +39,11 @@ class P3GJRateLimitTierTest {
     static {
         // P3-G：claim 写档 10/60s USER（商家写端点家族）
         EXPECTED.put("CouponController#claim", new Object[]{10, 60, RateLimit.KeyType.USER});
+        // P11-11（R6+B-2 同族）：交易写端点 USER 10/60s（OrderController cancel + pay 面三端点，均有 ATTR_USER_ID）
+        EXPECTED.put("OrderController#cancelOrder", new Object[]{10, 60, RateLimit.KeyType.USER});
+        EXPECTED.put("PayController#mockPay", new Object[]{10, 60, RateLimit.KeyType.USER});
+        EXPECTED.put("PayController#simCreate", new Object[]{10, 60, RateLimit.KeyType.USER});
+        EXPECTED.put("PayController#simPay", new Object[]{10, 60, RateLimit.KeyType.USER});
         // P3-J 登录读：USER 30/60s
         EXPECTED.put("CouponController#center", new Object[]{30, 60, RateLimit.KeyType.USER});
         EXPECTED.put("CouponController#myCoupons", new Object[]{30, 60, RateLimit.KeyType.USER});

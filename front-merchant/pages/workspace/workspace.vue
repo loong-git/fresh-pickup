@@ -171,6 +171,9 @@ const ENTRY_ROUTES = {
   reviews: '/pages/reviews/reviews'
 }
 
+// 本页路由名（P11-11 R2）：onPageWheel 栈顶守卫的比对值（照 pickup-plan.vue/commission.vue 的同名常量）
+const PAGE_ROUTE = 'pages/workspace/workspace'
+
 export default {
   data() {
     return {
@@ -293,7 +296,7 @@ export default {
   // #ifdef H5
   onReady() {
     // 页面级滚轮兜底：index.html 锁 html,body overflow:hidden 后 PC 滚轮默认滚动失效，手动接管页面滚动
-    // （照用户端 my-coupons.vue 简版；弹层只有换账号确认的 showModal，瞬态小卡，故不带我的页那套弹层放行守卫）
+    // （P11-11 R2：照 pickup-plan.vue 补齐双守卫后与我的页那套同构——弹层放行 + 栈顶比对，见 onPageWheel 注释）
     this._pageWheelHandler = (e) => this.onPageWheel(e)
     document.addEventListener('wheel', this._pageWheelHandler, { passive: false })
   },
@@ -374,6 +377,10 @@ export default {
     // onShow 与 loadMe 并行不互相等待：成功收服务端 count 真值（>0 才落值，0 清零隐藏）；
     // 失败静默清零——徽标绝不悬挂上一轮的旧数（那可能是已经回复完的单），也不弹错误不打扰工作台
     async loadPendingReplyCount() {
+      // 单飞守卫（P11-11 R3，照本页 loadMe 的 _loading 同款）：onShow 连续触发时不让慢回包旧盖新——
+      // 同一时刻只放行一个 count 请求，后触发的重拉直接早退（回包落值顺序天然=发起顺序）
+      if (this._loadingBadge) return
+      this._loadingBadge = true
       try {
         const res = await getPendingReplyCount()
         const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
@@ -382,6 +389,8 @@ export default {
       } catch (e) {
         // 401 时请求层已收敛回登录页，这里照常清零即可
         this.pendingReplyCount = 0
+      } finally {
+        this._loadingBadge = false
       }
     },
     // ==================== 主题切换（P9-1/P9-2 契约 §0，纯 UI 显式披露） ====================
@@ -470,7 +479,26 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
+    // 两道守卫（P11-11 R2，照 pickup-plan.vue 同款逐字）：
+    // ① 栈顶守卫：监听挂在 document 上，而 navigateTo 不触发上一页 onUnload —— 进入口子页后本页 handler
+    //    仍挂着，两份 handler 同时驱动 body.scrollTop 会让滚轮一次滚两倍。
+    // ② 弹层放行：弹层（含本页的换账号确认 uni-modal，及 toast/picker）打开时滚轮该归弹层，
+    //    不能 preventDefault 去滚背景；textarea/input 同列表内一并放行（范式页的兜底通道判据，照抄不裁剪）。
     onPageWheel(e) {
+      // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
+      let pages = []
+      try {
+        pages = getCurrentPages() || []
+      } catch (err) {
+        return
+      }
+      if (!pages.length || (pages[pages.length - 1] && pages[pages.length - 1].route) !== PAGE_ROUTE) return
+      const t = e.target
+      const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
+      if (el && typeof el.closest === 'function'
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input, uni-textarea, uni-input')) {
+        return
+      }
       e.preventDefault()
       document.body.scrollTop += e.deltaY
     }
