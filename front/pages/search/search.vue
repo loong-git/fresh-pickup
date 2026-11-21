@@ -221,9 +221,9 @@
         <view class="cart-info">
           <view class="cart-price-line">
             <text class="cart-total-symbol">¥</text>
-            <text class="cart-total-price">{{ fmtPrice(cartTotalPrice) }}</text>
+            <text class="cart-total-price">{{ fmtPrice(liveCartTotalPrice) }}</text>
           </view>
-          <text class="cart-reduced" v-if="showCartSaving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
+          <text class="cart-reduced" v-if="liveShowCartSaving">已减 ¥{{ fmtPrice(liveCartSaving) }}</text>
         </view>
       </view>
       <button class="btn-pay" @click="goPayFromSearch">
@@ -261,7 +261,7 @@
         <view class="helper-bar">
           <text class="hb-title">凑单助手</text>
           <text class="hb-divider">|</text>
-          <text class="hb-text" v-if="showCartSaving">已减 {{ fmtPrice(cartSaving) }} 元，下单立享</text>
+          <text class="hb-text" v-if="liveShowCartSaving">已减 {{ fmtPrice(liveCartSaving) }} 元，下单立享</text>
         </view>
         <!-- 商品行（有商品时滚动；空车时显示居中占位） -->
         <scroll-view v-if="cart.length > 0" class="cart-items" scroll-y>
@@ -320,9 +320,9 @@
           <view class="ctb-price">
             <view class="ctb-price-line">
               <text class="ci-symbol">¥</text>
-              <text class="ctb-price-num">{{ fmtPrice(checkedTotalPrice) }}</text>
+              <text class="ctb-price-num">{{ fmtPrice(liveCheckedTotalPrice) }}</text>
             </view>
-            <text class="ctb-saving" v-if="showCartSaving">已减 ¥{{ fmtPrice(cartSaving) }}</text>
+            <text class="ctb-saving" v-if="liveShowCartSaving">已减 ¥{{ fmtPrice(liveCartSaving) }}</text>
           </view>
           <button class="btn-pay-popup" :class="{ 'btn-pay-disabled': cart.length === 0 }" @click="payFromCart"><text>立即支付</text></button>
         </view>
@@ -404,7 +404,25 @@ export default {
   },
   computed: {
     ...mapState(['cart', 'pickupPerson', 'user']),
-    ...mapGetters(['cartCount', 'cartTotalPrice', 'isCartEmpty', 'cartSaving', 'showCartSaving', 'checkedCount', 'checkedTotalPrice']),
+    // P11-8 D8 起购物车栏合计/已减改用下方 live* 本地计算（实时窗口判价），
+    // 不再用 store 快照口径 getter（cartTotalPrice/checkedTotalPrice/cartSaving/showCartSaving 已从本页摘除）
+    ...mapGetters(['cartCount', 'isCartEmpty', 'checkedCount']),
+    // ==================== P11-8 D8 购物车栏实时窗口口径（照 index.vue P11-7 形状） ====================
+    // 合计与「已减」不再依赖快照 unitSave 恒判（跨窗口翻转会说谎），逐行经 rowUnitPrice/rowUnitSave
+    // 实时判窗取值：窗口内秒杀件取快照秒价，其余取快照原价；本页 dishes 回查不到的行回落快照
+    // 原字段（安全降级，数字与旧 getter 口径一致，回落面不劣化）——搜索命中集上下文不全时回落面照旧渲染
+    liveCartTotalPrice() {
+      return this.cart.reduce((total, item) => total + this.rowUnitPrice(item) * item.quantity, 0)
+    },
+    liveCheckedTotalPrice() {
+      return +(this.cart.filter(item => item.checked).reduce((total, item) => total + this.rowUnitPrice(item) * item.quantity, 0)).toFixed(2)
+    },
+    liveCartSaving() {
+      return +(this.cart.reduce((total, item) => total + this.rowUnitSave(item) * item.quantity, 0)).toFixed(2)
+    },
+    liveShowCartSaving() {
+      return Number(this.liveCartSaving) > 0
+    },
     // 购物车 id -> 项 的映射，用于榜单/结果列表判断"已加购"与数量
     cartMap() {
       const map = {}
@@ -744,6 +762,32 @@ export default {
     },
     // 购物车行回查原始商品（seckill/limitBuy/soldText/bgColor 在契约购物车项上没有，需回查）
     dishOf(item) { return this.dishById[item.id] || {} },
+    // ==================== P11-8 D8 合计实时判窗方法组（照 index.vue P11-7 的 live 方法组形状） ====================
+    // 行级合计取值不再恒读快照——秒杀窗口跨 00:00 翻转后快照会说谎；判据统一为本页 dishes 回查判窗
+    //（dish.seckill && dish.seckillActive !== false，缺键安全降级，与 P11-6/P11-7 同族形状）：
+    // 窗口内秒杀件取快照秒价 item.seckillPrice，其余取快照原价 item.price；回查不到 dish
+    //（列表未加载/商品不在本页命中集）的行回落旧快照字段渲染，语义与旧 getter 一致。
+    // 弹层商品行不在本次收口面（购物车栏合计才收口），零触碰
+    // 实时列表是否回查到带秒杀标记字段的 dish（{} 空 object 与缺键都视为未命中 → 走回落）
+    hasLiveDish(item) {
+      const d = this.dishOf(item)
+      return !!(d && typeof d.seckill === 'boolean')
+    },
+    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 回落现状渲染）
+    isLiveSeckill(item) {
+      const d = this.dishOf(item)
+      return !!(d && d.seckill && d.seckillActive !== false && item.seckillPrice != null)
+    },
+    // 行现价（合计 computed 逐行取值）：窗口内秒杀件取快照秒价，其余取快照现价
+    rowUnitPrice(item) {
+      return this.isLiveSeckill(item) ? Number(item.seckillPrice) || 0 : item.price
+    },
+    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；回查不到 dish 回落现状快照 unitSave；其余 0
+    rowUnitSave(item) {
+      if (this.isLiveSeckill(item)) return +(Number(item.price) - Number(item.seckillPrice)).toFixed(2)
+      if (!this.hasLiveDish(item)) return Number(item.unitSave) > 0 ? item.unitSave : 0
+      return 0
+    },
     // 购物车行 [秒] 标判定：优先回查商品，回查不到按 unitSave>1 兜底
     isSeckillItem(item) {
       const d = this.dishOf(item)

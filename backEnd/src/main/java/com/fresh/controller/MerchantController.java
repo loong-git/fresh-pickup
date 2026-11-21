@@ -223,6 +223,22 @@ public class MerchantController {
     }
 
     /**
+     * 待回复评价计数（P11-8 片③ D6，GET /api/merchant/reviews/pending-reply-count）：出参
+     * {@code {count}}，口径=展示中（audit_status IS NULL）且未回复（reply_content IS NULL）——
+     * 与上方评价管理列表同一归属谓词（JOIN dish + ReviewMapper#MERCHANT_REVIEW_WHERE 同一常量）、
+     * 同一待回复判据（ReviewMapper#countMerchantPendingReplyReviews 单源），商家端工作台
+     * 「评价管理」入口徽标数据源。pending 待审不可回、驳回已物理删（P11-1a 登记口径），均不进计数。
+     * 归属恒 {@code ATTR_MERCHANT_ID} 注入（照上方 reviews 列表家族口径，不收归属入参）；
+     * 纯只读零写路径，限流照商家端 GET 读档（30 次/分 USER 维度）。
+     */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/reviews/pending-reply-count")
+    public R<Map<String, Object>> pendingReplyCount(
+            @RequestAttribute(AuthInterceptor.ATTR_MERCHANT_ID) Long merchantId) {
+        return R.ok(Map.<String, Object>of("count", reviewService.pendingReplyCount(merchantId)));
+    }
+
+    /**
      * 文件头魔数比对（§2.8 口径）：JPEG FF D8 FF；PNG 89 50 4E 47 0D 0A 1A 0A；
      * WEBP 前 4 字节 52 49 46 46（RIFF）且第 9-12 字节 57 45 42 50（WEBP）。
      * 头长不足（read < 所需偏移）一律判不合法，不做越界读取。

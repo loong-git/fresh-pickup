@@ -614,3 +614,17 @@ export function withdrawPartnerWallet(amount) {
     data: { amount }
   })
 }
+
+/**
+ * 待结算佣金预估（只读聚合，P11-8 片① D1/D2）：GET /api/partner/wallet/pending-estimate。
+ * 口径=复刻跑批候选的订单级佣金：归属由服务端从 token 解析（名下 store 集合内已支付订单，
+ * 候选明细条件与跑批逐字同族），再排除已记 grant 的订单（跑批入账后预估即归零）；
+ * 佣金=逐单实付 × 3%（HALF_UP 两位）后合计，count 与 sum 双出参。
+ * 出参 data: {pendingCount:number, pendingCommission:number, rate:string}——
+ * 无 owner 店/无候选订单恒 200 空态（{0, 0.00}），纯只读无任何写路径；
+ * 本层零业务分支，页面自判三态（失败≠没有：拉取失败不得渲染成 0 单）。
+ * @returns {Promise<{code,data:{pendingCount:number,pendingCommission:number,rate:string},message:string}>}
+ */
+export function getWalletPendingEstimate() {
+  return request({ url: '/api/partner/wallet/pending-estimate', method: 'GET' })
+}

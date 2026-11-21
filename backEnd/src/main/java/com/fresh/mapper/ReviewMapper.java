@@ -126,4 +126,24 @@ public interface ReviewMapper extends BaseMapper<Review> {
      */
     @Select("SELECT COUNT(*) FROM review r JOIN dish d ON r.dish_id = d.id " + MERCHANT_REVIEW_WHERE)
     long countMerchantReviews(@Param("merchantId") Long merchantId);
+
+    // ------------------------------------------------------------------
+    // P11-8 片③ F5 商家端待回复评价徽标（GET /api/merchant/reviews/pending-reply-count，只读 COUNT）：
+    // 归属 JOIN 与 WHERE 逐字照上方商家列表组（同一 MERCHANT_REVIEW_WHERE 常量拼接——归属判据单源
+    // 不漂移，D-16 纪律同款）；「待回复」判据 = 展示中 AND 未回复——展示中取
+    // {@code r.audit_status IS NULL}（与上方 REVIEW_FILTER_WHERE 的 'visible' 伪值翻译分支同判，
+    // 库里不存在 'visible' 字面值），未回复取 {@code r.reply_content IS NULL}（Review#replyContent
+    // 的 NULL 语义）。pending 待审不可回（P11-1a 登记口径）、驳回已物理删行，两者天然不进本计数。
+    // ------------------------------------------------------------------
+
+    /**
+     * 商家待回复评价计数（P11-8 片③ D6）：JOIN 与 WHERE 同 {@link #selectMerchantReviewsPage}
+     * 逐字同源（同 {@link #MERCHANT_REVIEW_WHERE}），仅追加待回复两谓词，仅去掉 SELECT 列表/
+     * ORDER BY/LIMIT——徽标计数与列表「待回复」永远是同一判据，禁第二套字面量。
+     */
+    @Select("SELECT COUNT(*) FROM review r JOIN dish d ON r.dish_id = d.id "
+            + MERCHANT_REVIEW_WHERE + " "
+            + "AND r.audit_status IS NULL "
+            + "AND r.reply_content IS NULL")
+    long countMerchantPendingReplyReviews(@Param("merchantId") Long merchantId);
 }

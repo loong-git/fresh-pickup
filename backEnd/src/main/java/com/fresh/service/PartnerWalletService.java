@@ -70,6 +70,21 @@ public interface PartnerWalletService {
     List<Map<String, Object>> listWallets();
 
     /**
+     * 待结算佣金预估（P11-8 片① D1/D2，{@code GET /api/partner/wallet/pending-estimate}，纯只读零写路径）：
+     * 复刻跑批候选的订单级佣金预估——归属 {@code store.owner_user_id = userId} 的店集
+     * （空集直接回 0，不进订单 SQL）；候选订单 = 名下店集内 {@code pay_status=1}、含至少一条候选明细
+     * （明细四条件与 {@code OrderItemMapper#selectSettleCandidates} 逐字同族）且未记 grant 流水
+     * （uk_order_biz 先到先得语义，与 recordForSettlement 的 flowExists 同判据——跑批入账后预估即归零）。
+     * 佣金 = 逐单 {@code total_price × COMMISSION_RATE} 两位 HALF_UP 后 Σ（费率常量与舍入口径
+     * 与 recordForSettlement 同源，预估与实记永不漂移）。
+     *
+     * @param userId 主理人 user.id（token 解析，店集按 owner 归属）
+     * @return {@code {pendingCount=候选订单数（无候选 0）, pendingCommission=预估佣金合计
+     *         （两位小数，无候选 0.00）}}——200 空态而非错误
+     */
+    Map<String, Object> estimatePending(Long userId);
+
+    /**
      * 主理人提现（P10-5 轨道 B D6/m32，{@code POST /api/partner/wallet/withdraw}）：
      * <ol>
      *   <li><b>金额形状</b>：null/≤0 → 400「提现金额须大于 0」；&gt;2 位小数 → 400「提现金额最多两位小数」

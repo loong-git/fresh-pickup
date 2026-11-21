@@ -2,6 +2,7 @@ package com.fresh.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.fresh.entity.OrderItem;
+import com.fresh.entity.PartnerWalletFlow;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -463,4 +464,42 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
             + "ORDER BY oi.order_id ASC")
     List<String> selectRefundedAnchoredOrderIds(@Param("merchantId") Long merchantId,
                                                 @Param("anchorAfter") LocalDate anchorAfter);
+
+    // ------------------------------------------------------------------
+    // P11-8 片① F2 待结算佣金预估（一条只读 @Select，主理人佣金页预估卡数据源；追加式纪律同上方
+    // F-118/F-119 组）。归属面与 F-118 组不同：本条按**主理人店集**取候选订单——storeIds 来自
+    // Service 层按登录 userId 查出的 owner 店集（store.owner_user_id，与 AuthInterceptor 的
+    // /api/partner/ 分支同一谓词同一真源），店集即归属边界；oi 子查询里因此无 merchant_id 谓词，
+    // 上方 F-63 组「平台视角无归属谓词」的注记同理适用于本条的子查询。
+    // ------------------------------------------------------------------
+
+    /**
+     * 待结算预估的候选订单集（P11-8 片① D1，只读）：候选口径与 {@link #selectSettleCandidates}
+     * **逐字同族**——{@code oi.settle_id IS NULL AND oi.supply_price IS NOT NULL AND
+     * oi.fulfill_status != 'shortage'} + {@code o.pay_status = 1} 四条件逐字（跑批是明细级聚合、
+     * 预估是订单级聚合，同一候选判据的两种聚合面，此处以 EXISTS 表达「订单含至少一条候选明细」）；
+     * 再排除已记 grant 的订单——NOT EXISTS 与 {@code PartnerWalletServiceImpl#recordForSettlement}
+     * 的 flowExists 预查<b>同判据</b>（uk_order_biz 一单至多一条 grant 的先到先得语义：跑批入账后
+     * 预估即归零）。biz_type 不写字面量，经 {@code PartnerWalletFlow.BIZ_GRANT} 编译期常量拼进
+     * SQL 文本，判据单源（该 biz_type 字面量全仓只存在于 PartnerWalletFlow 实体一处）。
+     * 不排 cancelled：与 selectSettleCandidates 同口径（先取消则 pay_status 不再是 1 不进候选；
+     * 先跑批后取消则已挂锚/已记 grant，由明细条件与 grant 排除各自兜住，不加契约没有的第五条谓词）。
+     * DISTINCT 去重订单（一单多候选明细只计一单）；ORDER BY o.id 给逐单累加序一个稳定真源
+     * （同组 selectSettleCandidates 的挂锚序惯例）。出参 {id, totalPrice}——total_price 是佣金基数
+     * （recordForSettlement 同源）。storeIds 空集由 Service 层短路，绝不下发
+     * （空 IN 列表纪律同 selectAnchoredAggregates）。
+     */
+    @Select("<script>SELECT DISTINCT o.id AS id, o.total_price AS totalPrice "
+            + "FROM orders o "
+            + "WHERE o.store_id IN "
+            + "<foreach collection='storeIds' item='sid' open='(' separator=',' close=')'>#{sid}</foreach> "
+            + "AND o.pay_status = 1 "
+            + "AND EXISTS (SELECT 1 FROM order_item oi WHERE oi.order_id = o.id "
+            + "AND oi.settle_id IS NULL "
+            + "AND oi.supply_price IS NOT NULL "
+            + "AND oi.fulfill_status != 'shortage') "
+            + "AND NOT EXISTS (SELECT 1 FROM partner_wallet_flow f WHERE f.order_id = o.id "
+            + "AND f.biz_type = '" + PartnerWalletFlow.BIZ_GRANT + "') "
+            + "ORDER BY o.id ASC</script>")
+    List<Map<String, Object>> selectPendingCommissionOrders(@Param("storeIds") List<Long> storeIds);
 }

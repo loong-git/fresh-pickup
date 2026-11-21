@@ -316,6 +316,40 @@ public class PartnerWalletServiceImpl implements PartnerWalletService {
     }
 
     // ---------------------------------------------------------------
+    // P11-8 片① F2 待结算佣金预估（只读聚合：复刻跑批候选的订单级佣金，零写路径。
+    // 口径契约 P11-8 D1/D2——预估归零与跑批入账共用同一套候选判据与费率，两处永不漂移）
+    // ---------------------------------------------------------------
+
+    @Override
+    public Map<String, Object> estimatePending(Long userId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("pendingCount", 0L);
+        out.put("pendingCommission", BigDecimal.ZERO.setScale(2));
+        // ① 归属店集：owner_user_id=userId（与拦截器 /api/partner/ 分支同一谓词同一真源）；
+        //    空集短路：无店即无候选，不进订单 SQL（契约 D2 空态 200）
+        List<Long> storeIds = storeMapper.selectList(new LambdaQueryWrapper<Store>()
+                        .select(Store::getId)
+                        .eq(Store::getOwnerUserId, userId))
+                .stream().map(Store::getId).toList();
+        if (storeIds.isEmpty()) {
+            return out;
+        }
+        // ② 候选订单：四候选条件与 grant 排除全在 SQL（OrderItemMapper#selectPendingCommissionOrders，
+        //    与 selectSettleCandidates 逐字同族、与 flowExists 同判据），本层只做逐单佣金累加
+        long pendingCount = 0;
+        BigDecimal commissionSum = BigDecimal.ZERO.setScale(2);
+        for (Map<String, Object> row : orderItemMapper.selectPendingCommissionOrders(storeIds)) {
+            Object raw = row.get("totalPrice");
+            BigDecimal total = raw == null ? BigDecimal.ZERO : new BigDecimal(raw.toString());
+            commissionSum = commissionSum.add(total.multiply(COMMISSION_RATE).setScale(2, RoundingMode.HALF_UP));
+            pendingCount++;
+        }
+        out.put("pendingCount", pendingCount);
+        out.put("pendingCommission", commissionSum);
+        return out;
+    }
+
+    // ---------------------------------------------------------------
     // P10-5 轨道 B D6 主理人提现（m32：本类第二条写路径，唯一人工写入口；
     // 运营侧仍无任何钱包写端点，人工调额=资损面不设入口的红线不变）
     // ---------------------------------------------------------------

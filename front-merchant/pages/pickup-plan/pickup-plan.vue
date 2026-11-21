@@ -21,6 +21,14 @@
         <!-- 「看明细」是两页唯一贯通入口：裸 text 的命中区只有字形那一小块（约 60×25px）且无按下态，
              点在字外就没反应，相邻的「前一天/后一天」反倒更像按钮；这里统一收成胶囊 + hover-class -->
         <view class="date-quick" hover-class="pill-hover" @click="goToday">今天</view>
+        <!-- P11-8 片②（D4）波次直选：uni-app 内建 date picker 包住文字链（plan-orders 的 date-picker
+             同款组件用法），选定后与 stepDay/goToday 同款清态路径（冷却闸 → 清 probe 态 → 整页重拉）；
+             步进/今天/空态顺延入口零触碰，仍只由用户点击触发 -->
+        <picker class="date-pick-picker" mode="date" :value="queryDate" @change="onPickDate">
+          <view class="plan-entry" hover-class="pill-hover">
+            <text>选日期 ›</text>
+          </view>
+        </picker>
         <view class="plan-entry" hover-class="pill-hover" @click="goOrders">看明细 ›</view>
       </view>
     </view>
@@ -383,6 +391,21 @@ export default {
       this.clearProbeState()
       this.loadPlan(true)
     },
+    // ==================== 直选日期（P11-8 片② D4） ====================
+    // uni-app 内建 date picker（plan-orders 同款组件用法）的 @change 落点：与 stepDay/goToday 同款
+    // 清态路径——先过 429 冷却闸（X-4：闸门覆盖全部动日期出口，拦截时屏上那枚日期不动），
+    // 再 queryDate=选定值 + 清 probe 展示态（在途 probe 回包由 seq 锚整批丢弃）+ 整页重拉（loading 接管）。
+    // 选定值按本页 parseDate 的同一把尺子验形状（picker 恒回 YYYY-MM-DD，空值/畸值直接不动）；
+    // 取消选择不触发 change，页内日期自然不动——后一天/前一天/今天/顺延入口零触碰
+    onPickDate(e) {
+      if (this.retryCoolingBlocked()) return
+      const v = String((e && e.detail && e.detail.value) || '')
+      if (!this.parseDate(v)) return
+      this.queryDate = v
+      // 日期主权在用户，一改就作废旧探测入口/文案（stepDay 同款）
+      this.clearProbeState()
+      this.loadPlan(true)
+    },
     todayStr() {
       return this.fmtDate(this.newToday())
     },
@@ -549,6 +572,8 @@ export default {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .date-sub-row { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-top: 16rpx; }
+/* 直选日期 picker 壳（P11-8 片②）：只负责不参与挤压，胶囊形状由内层 .plan-entry 承担（零新形状） */
+.date-pick-picker { flex-shrink: 0; }
 /* 「今天」「看明细」与上一排步进钮同形：同一文件里已有一套胶囊设计语言，不另起炉灶 */
 .date-quick {
   flex-shrink: 0; text-align: center;

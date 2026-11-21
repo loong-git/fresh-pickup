@@ -460,16 +460,27 @@ export default {
       if (!this.$store.getters.hasRealOriginalPrice(d.price, d.seckillPrice)) return ''
       return this.fmtPrice(d.price)
     },
-    // 勾选商品应付金额（getter 缺失/为 0 时兜底 0.00，保证两位小数展示）
+    // ==================== P11-8 D8 购物车栏实时窗口口径（照 index.vue P11-7 形状） ====================
+    // 购物车栏合计/已减不再恒读快照 getter（跨窗口翻转会说谎），逐行经 rowUnitPrice/rowUnitSave
+    // 实时判窗取值；本页 dishes 只有当前 dish（回查命中率低）——照形状落地，回查不到的行回落旧
+    // 快照字段（安全降级，数字与旧 getter 口径一致，回落面不劣化）
+    cart() { return this.$store.state.cart || [] },
+    liveCheckedTotalPrice() {
+      return +(this.cart.filter(item => item.checked).reduce((total, item) => total + this.rowUnitPrice(item) * item.quantity, 0)).toFixed(2)
+    },
+    liveCartSaving() {
+      return +(this.cart.reduce((total, item) => total + this.rowUnitSave(item) * item.quantity, 0)).toFixed(2)
+    },
+    // 勾选商品应付金额（P11-8 D8 切实时窗口口径；窗口内秒杀件取快照秒价，其余取快照原价，两位小数展示）
     payText() {
-      return Number(this.$store.getters.checkedTotalPrice || 0).toFixed(2)
+      return this.liveCheckedTotalPrice.toFixed(2)
     },
-    // 勾选商品已省金额（同上兜底）
+    // 勾选商品已省金额（同上 live 口径；回查不到的行回落快照 unitSave）
     savingText() {
-      return Number(this.$store.getters.cartSaving || 0).toFixed(2)
+      return this.liveCartSaving.toFixed(2)
     },
-    // 「已减」是否展示：判据只在 store 的 showCartSaving getter 里，本页只引用（避免"已减 ¥0.00"）
-    showCartSaving() { return this.$store.getters.showCartSaving },
+    // 「已减」是否展示：判据=liveCartSaving > 0（照 index.vue liveShowCartSaving 形状，避免"已减 ¥0.00"）
+    showCartSaving() { return Number(this.liveCartSaving) > 0 },
     // 商品参数数据源（固定常量 + 按 unit 合成规格）：页内参数表与"查看全部"弹层共用，保证两处一致
     paramList() {
       const unit = this.dish.unit || '件'
@@ -534,6 +545,33 @@ export default {
     if (this._zeroTimer) { clearTimeout(this._zeroTimer); this._zeroTimer = null }
   },
   methods: {
+    // ==================== P11-8 D8 合计实时判窗方法组（照 index.vue P11-7 的 live 方法组形状） ====================
+    // 本页无全量商品列表，回查面只有当前 dish 一件（命中率低）：dishOf 命中当前 dish 才算实时命中，
+    // 其余购物车行一律回落旧快照字段——安全降级与 index.vue 同构，回落面不劣化
+    // 购物车行回查原始商品：仅当前 dish 的 id 命中时返回它（字符串化比较防 number/string 类型差）
+    dishOf(item) {
+      return (this.dish && this.dish.id != null && item && String(item.id) === String(this.dish.id)) ? this.dish : {}
+    },
+    // 实时列表是否回查到带秒杀标记字段的 dish（{} 空 object 与缺键都视为未命中 → 走回落）
+    hasLiveDish(item) {
+      const d = this.dishOf(item)
+      return !!(d && typeof d.seckill === 'boolean')
+    },
+    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 回落现状渲染）
+    isLiveSeckill(item) {
+      const d = this.dishOf(item)
+      return !!(d && d.seckill && d.seckillActive !== false && item.seckillPrice != null)
+    },
+    // 行现价（合计 computed 逐行取值）：窗口内秒杀件取快照秒价，其余取快照现价
+    rowUnitPrice(item) {
+      return this.isLiveSeckill(item) ? Number(item.seckillPrice) || 0 : item.price
+    },
+    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；回查不到 dish 回落现状快照 unitSave；其余 0
+    rowUnitSave(item) {
+      if (this.isLiveSeckill(item)) return +(Number(item.price) - Number(item.seckillPrice)).toFixed(2)
+      if (!this.hasLiveDish(item)) return Number(item.unitSave) > 0 ? item.unitSave : 0
+      return 0
+    },
     // ==================== 数据加载（T-M3-05：失败错误态） ====================
     // 主详情加载：getDishDetail 404/网络失败 → 空态页；成功后拉评价/推荐/字典并启动倒计时
     async loadDetail(dishId) {

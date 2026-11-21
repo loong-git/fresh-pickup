@@ -63,4 +63,18 @@ public interface ReviewService {
      * 注：契约 D2 只定义了回复端点、漏定义商家列表端点，本方法端点与形状由工作流裁决补齐（openIssues 已登记）。
      */
     Map<String, Object> listByMerchant(Long merchantId, Integer page, Integer size);
+
+    /**
+     * 商家待回复评价计数（P11-8 片③ D6，{@code GET /api/merchant/reviews/pending-reply-count}，
+     * 纯只读）：「展示中且未回复」的评价数——归属谓词与 {@link #listByMerchant} 同源
+     * （JOIN dish + {@code ReviewMapper#MERCHANT_REVIEW_WHERE} 同一常量）；判据
+     * {@code audit_status IS NULL}（展示态真值，与 {@code ReviewMapper#REVIEW_FILTER_WHERE}
+     * 的 'visible' 伪值翻译分支同判——库里不存在 'visible' 字面值）AND
+     * {@code reply_content IS NULL}（未回复，Review#replyContent 的 NULL 语义）。
+     * pending 待审不可回、驳回已物理删（P11-1a 登记口径），两者天然不进本计数。
+     *
+     * @param merchantId 商家 id（AuthInterceptor /api/merchant/** 分支注入）
+     * @return 待回复评价数（无则 0）——商家端工作台「评价管理」入口徽标数据源
+     */
+    long pendingReplyCount(Long merchantId);
 }

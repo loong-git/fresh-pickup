@@ -116,6 +116,12 @@
           <text class="cell-icon">{{ entry.icon }}</text>
           <text class="cell-title">{{ entry.title }}</text>
           <text class="cell-sub">{{ entry.hint }}</text>
+          <!-- P11-8 片③（D7）评价管理入口的待回复数字徽标：右上角小圆点+数字（形状照 C 端购物车
+               cart-badge 的角标几何，配色取本端既有 var 族，零新增字面值）；0 或拉取失败不显
+               （pendingReplyCount 判据），>99 折叠成 99+；只挂在 reviews 这一行，其余 cell 零改动 -->
+          <view v-if="entry.key === 'reviews' && pendingReplyCount > 0" class="cell-badge">
+            <text class="cell-badge-num">{{ pendingReplyCount > 99 ? '99+' : pendingReplyCount }}</text>
+          </view>
           <text v-if="entryRoute(entry)" class="cell-arrow">›</text>
           <text v-else class="tag-building">建设中</text>
         </view>
@@ -138,7 +144,7 @@
 // 商家工作台页（G-01 §3.3 建页）：五入口已全部交付在册（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态 / F-120 结算账单）；可点与否仍只由 ENTRY_ROUTES 裁决。
 // 数据加载纪律照用户端 front/pages/mine/mine.vue：onShow 每次重拉 me，回页即反映服务端最新状态。
 // 页面不预判角色：role 判定与 401/403 分流全在 api 层（handleEnvelope），本页只按 code 渲染三态。
-import { getMerchantMe, merchantStatusText, retrySecondsOf, coolingFullText } from '@/api/index.js'
+import { getMerchantMe, getPendingReplyCount, merchantStatusText, retrySecondsOf, coolingFullText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 429 冷却秒数的回落档：GET /api/merchant/me 的限流窗口是 60 秒（后端不给 data.retryAfterSeconds 时，
@@ -209,7 +215,10 @@ export default {
         { key: 'marketing', icon: '📈', title: '营销参与态', hint: '秒杀/免费领' },
         { key: 'settlements', icon: '🧾', title: '结算账单', hint: '账期/对账' },
         { key: 'reviews', icon: '📝', title: '评价管理', hint: '查看/回复评价' }
-      ]
+      ],
+      // P11-8 片③（D7）评价管理入口的待回复数字徽标：0 或拉取失败都不显（v-if 判据在模板）。
+      // 计数真源=服务端「展示中且未回复」谓词，本页只转述不推算；>99 折叠成 99+ 防撑破小圆点
+      pendingReplyCount: 0
     }
   },
   computed: {
@@ -277,6 +286,9 @@ export default {
     // #endif
     // 每次进入重拉（对齐用户端 mine.vue onShow 刷新惯例）：审核状态与联系人改了都能第一时间反映
     this.loadMe()
+    // P11-8 片③（D7）：待回复评价计数与 me 并行拉（徽标是增益不是必须，失败静默不显不挡工作台；
+    // 从评价管理回复完返回本页时 onShow 重拉，数字即回落）
+    this.loadPendingReplyCount()
   },
   // #ifdef H5
   onReady() {
@@ -358,6 +370,20 @@ export default {
       }
     },
     // ==================== 交互 ====================
+    // ==================== 待回复评价徽标（P11-8 片③ D7，独立只读请求） ====================
+    // onShow 与 loadMe 并行不互相等待：成功收服务端 count 真值（>0 才落值，0 清零隐藏）；
+    // 失败静默清零——徽标绝不悬挂上一轮的旧数（那可能是已经回复完的单），也不弹错误不打扰工作台
+    async loadPendingReplyCount() {
+      try {
+        const res = await getPendingReplyCount()
+        const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
+        const n = Number(data.count)
+        this.pendingReplyCount = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+      } catch (e) {
+        // 401 时请求层已收敛回登录页，这里照常清零即可
+        this.pendingReplyCount = 0
+      }
+    },
     // ==================== 主题切换（P9-1/P9-2 契约 §0，纯 UI 显式披露） ====================
     // 实现：写 uni.setStorageSync('app_theme', 新值) + document.documentElement.classList.toggle('dark')
     // 两步都收在 main.js 的 window.__setAppTheme（唯一出口，读档缺省口径与它一致）；本页只算目标值并同步屏上读数。
@@ -515,4 +541,16 @@ export default {
 
 /* ==================== 5. 入口列表（.cell/.cell-disabled/.tag-building 均取自 common.css） ==================== */
 .cell-card { margin-top: 24rpx; }
+/* 徽标锚点：仅本页给 .cell 补 relative（common.css 不动），小圆点以入口行为定位父级 */
+.cell { position: relative; }
+/* 待回复数字徽标（P11-8 片③ D7）：右上角小圆点+数字，几何照 C 端购物车 cart-badge 的角标形状；
+   配色取本端 audit-rejected 的警示族（danger 文字 + danger-soft 底 + danger-hair 描边，全 var），
+   0/失败不渲染由模板判据承担 */
+.cell-badge {
+  position: absolute; top: 10rpx; right: 28rpx;
+  min-width: 30rpx; height: 30rpx; padding: 0 8rpx; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background-color: var(--c-danger-soft); border: 1rpx solid var(--c-danger-hair); border-radius: 15rpx;
+}
+.cell-badge-num { font-size: 20rpx; font-weight: 600; color: var(--c-danger); line-height: 1; }
 </style>

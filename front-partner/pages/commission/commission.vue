@@ -43,6 +43,20 @@
         <text class="balance-note">佣金由平台结算跑批按订单实付 3% 自动记账（已支付订单入账、退款订单冲回），无需申请</text>
       </view>
 
+      <!-- P11-8 片①（D3）待结算预估卡：只读聚合（getWalletPendingEstimate），照余额卡下方排布。
+           三态纪律（失败≠没有）：有单显「N 单待结算 · 预估佣金 ¥x」，0 单显「暂无待结算订单」，
+           拉取失败显「预估暂不可用」——绝不把失败伪装成 0 单（那是谎话，不是空态）；
+           加载中不渲染本卡（主卡区 loading 态本就在加载，预估随后就位） -->
+      <view v-if="estimateState !== 'loading'" class="card estimate-card">
+        <text class="block-title">待结算预估</text>
+        <template v-if="estimateState === 'ready'">
+          <text v-if="estimateCount > 0" class="estimate-main">{{ estimateCount }} 单待结算 · 预估佣金 ¥{{ estimateAmountText }}</text>
+          <text v-else class="estimate-empty">暂无待结算订单</text>
+          <text class="estimate-note">预估=未挂锚已支付订单按实付 3% 合计，跑批冲回与保证金代扣后以结算单为准</text>
+        </template>
+        <text v-else class="estimate-empty">预估暂不可用</text>
+      </view>
+
       <!-- 流水列表：类型/单号/金额±/余额快照/费率/时间（F-119 §3 逐字六项）。
            空列表不是错误态：从无佣金记录时后端就回空集 + 余额 0（200），如实提示 -->
       <view class="card flow-card">
@@ -97,7 +111,7 @@
 // ⑤ 只渲染后端白名单键，缺键就如实不渲染，绝不为了好看前端编数据。
 // 分页：追加式加载（loadMore 拼在 flows 尾部），hasMore/total 都取后端回显值；
 // 重进页面（onShow）整体重拉，回到第一页——余额是活跃数值，回到本页就该看最新值。
-import { getPartnerWallet, withdrawPartnerWallet, retrySecondsOf, coolingText } from '@/api/index.js'
+import { getPartnerWallet, withdrawPartnerWallet, getWalletPendingEstimate, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -143,13 +157,22 @@ export default {
       retryLockUntil: 0,
       // 提现（P10-5 D6）：输入金额（字符串原文，提交前本地形状校验）与写侧单飞锁
       withdrawAmount: '',
-      withdrawing: false
+      withdrawing: false,
+      // P11-8 片①（D3）待结算预估展示态：三态单值互斥 loading | ready | error（与 viewState 同纪律）。
+      // count/amount 只收后端聚合真值，缺键兜 0 但「失败」单独成态绝不与 0 混同
+      estimateState: 'loading',
+      estimateCount: 0,
+      estimateAmount: 0
     }
   },
   computed: {
     // 余额两位小数（后端 DECIMAL(10,2)，负值如实显示——冲回余额不足时后端照实记账）
     balanceText() {
       return this.moneyText(this.balance)
+    },
+    // 待结算预估金额两位小数（后端聚合 sum，照余额的 moneyText 口径）
+    estimateAmountText() {
+      return this.moneyText(this.estimateAmount)
     },
     // 提现按钮可用性：金额>0、两位小数内、≤余额、非在飞、非冷却（形状终判在后端，这里只挡明显误触）
     canWithdraw() {
@@ -206,6 +229,9 @@ export default {
         const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
         this.applyData(data)
         this.viewState = 'ready'
+        // P11-8 片①：钱包刷新成功即并行刷新预估卡（onShow/错误卡重试/提现成功重拉都会走到这里，
+        // 预估只读不参与本页四态，失败只降级预估卡自身，不牵连余额与流水）
+        this.loadEstimate()
       } catch (e) {
         const code = Number((e && e.code) || 0)
         if (code === 401) {
@@ -263,6 +289,23 @@ export default {
       this.hasMore = data.hasMore === true
       this.flows = Array.isArray(data.flows) ? data.flows : []
       this.loadMoreFailed = false
+    },
+    // ==================== 待结算预估（P11-8 片① D3，独立只读请求） ====================
+    // 与主 load 并行不互相等待：成功整体覆盖 count/amount 转 ready；失败转 error（卡片如实显
+    // 「预估暂不可用」，绝不落成 0 单伪装空态）；401 时请求层已收敛回登录页，停在原态不闪卡。
+    // 0 单与失败是两种事：后端空态（200 且 {0, 0.00}）才许说「暂无待结算订单」
+    async loadEstimate() {
+      this.estimateState = 'loading'
+      try {
+        const res = await getWalletPendingEstimate()
+        const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
+        this.estimateCount = this.numOr(data.pendingCount, 0)
+        this.estimateAmount = this.numOr(data.pendingCommission, 0)
+        this.estimateState = 'ready'
+      } catch (e) {
+        if (e && e.code === 401) return
+        this.estimateState = 'error'
+      }
     },
     // ==================== 展示映射（未知值原样透出，不替后端猜中文） ====================
     typeText(f) {
@@ -439,6 +482,14 @@ export default {
 .withdraw-btn-disabled { opacity: .5; }
 .withdraw-note { font-size: 22rpx; color: var(--c-warn); line-height: 1.5; text-align: center; }
 .balance-note { font-size: 22rpx; color: var(--c-text-4); line-height: 1.5; text-align: center; }
+
+/* ==================== 3.5 待结算预估卡（P11-8 片① D3） ==================== */
+.estimate-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 12rpx; }
+/* 预估主读数照余额的金额蓝口径（正向收益强调），字号降一档——它是「即将发生的入账」不是现存余额 */
+.estimate-main { font-size: 30rpx; font-weight: 600; color: var(--c-primary); line-height: 1.5; }
+/* 0 单空态与失败态同一行位同一档灰（中性陈述，失败不穿危险红——它只是暂时拿不到，不是事故） */
+.estimate-empty { font-size: 26rpx; color: var(--c-text-3); line-height: 1.5; }
+.estimate-note { font-size: 22rpx; color: var(--c-text-4); line-height: 1.5; }
 
 /* ==================== 4. 流水卡 ==================== */
 .flow-card { margin-top: 24rpx; display: flex; flex-direction: column; gap: 16rpx; }

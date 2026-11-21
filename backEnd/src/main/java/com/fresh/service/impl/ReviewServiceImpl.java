@@ -511,6 +511,16 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     /**
+     * 商家待回复评价计数（P11-8 片③ D6）：判据全在 SQL（ReviewMapper#countMerchantPendingReplyReviews
+     * ——归属 JOIN/WHERE 与 listByMerchant 同源同常量，「展示中且未回复」与列表口径同一判据单源），
+     * 本层只做归属 id 透传与计数回传，零内存过滤。
+     */
+    @Override
+    public long pendingReplyCount(Long merchantId) {
+        return reviewMapper.countMerchantPendingReplyReviews(merchantId);
+    }
+
+    /**
      * 文件头魔数比对（照 MerchantController#magicMatched 同款）：JPEG FF D8 FF；PNG 89 50 4E 47 0D 0A 1A 0A；
      * WEBP 前 4 字节 52 49 46 46（RIFF）且第 9-12 字节 57 45 42 50（WEBP）。
      * 头长不足（read < 所需偏移）一律判不合法，不做越界读取。

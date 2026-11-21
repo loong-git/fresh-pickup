@@ -165,6 +165,25 @@ public class PartnerController {
     }
 
     /**
+     * 待结算佣金预估（P11-8 片① D1/D2，GET /api/partner/wallet/pending-estimate）：复刻跑批候选的
+     * 订单级佣金预估——owner 店集内已支付、含未挂锚候选明细、未记 grant 流水的候选订单数与
+     * Σ(total_price×费率)（逐单两位 HALF_UP，费率与舍入取 {@code PartnerWalletServiceImpl}
+     * 的 COMMISSION_RATE 单源，预估与实记永不漂移）。出参 {@code {pendingCount, pendingCommission,
+     * rate:"0.0300"}}；无 owner 店/无候选订单 → {0, 0.00}（200 空态，不是错误）。归属=token userId
+     * （{@code ATTR_USER_ID}，同上方 wallet 端点；店集由 Service 按 store.owner_user_id 查出，
+     * 空集短路不进订单 SQL）。纯只读零写路径。rate 是展示位字面量，与流水 rate_snapshot 的
+     * 展示形态一致（数值口径的费率真源仍是 COMMISSION_RATE）。
+     */
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @GetMapping("/wallet/pending-estimate")
+    public R<Map<String, Object>> walletPendingEstimate(
+            @RequestAttribute(AuthInterceptor.ATTR_USER_ID) Long userId) {
+        Map<String, Object> data = partnerWalletService.estimatePending(userId);
+        data.put("rate", "0.0300");
+        return R.ok(data);
+    }
+
+    /**
      * 提现（P10-5 轨道 B D6/m32，POST /api/partner/wallet/withdraw），body {@code {amount}}：
      * 佣金余额负向即时入账——余额条件扣减（充足才减，绝不透支）+ WITHDRAW 负向流水
      * （余额快照范式），通道字段显式标 MOCK_SIM（模拟通道，无真实资金流）。

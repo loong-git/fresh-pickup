@@ -904,3 +904,15 @@ export function replyMerchantReview(id, content) {
     data: { content }
   })
 }
+
+/**
+ * 待回复评价计数（只读，P11-8 片③ D6/D7）：GET /api/merchant/reviews/pending-reply-count。
+ * 口径=「展示中且未回复」（status='visible' AND reply IS NULL；pending/驳回不可回语义照 P11-1——
+ * 驳回已物理删、待审不可回）；归属恒取 token merchant_id（@RequestAttribute 解析，本层不拼归属入参）。
+ * 出参 data: {count:number}；纯只读无写路径。工作台徽标消费：0 或拉取失败都不显徽标（失败静默，
+ * 不弹错误不挡工作台），计数与评价管理列表口径以服务端同一条谓词为准。
+ * @returns {Promise<{code,data:{count:number},message:string}>}
+ */
+export function getPendingReplyCount() {
+  return request({ url: '/api/merchant/reviews/pending-reply-count', method: 'GET' })
+}
