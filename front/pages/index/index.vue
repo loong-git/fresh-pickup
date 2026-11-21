@@ -1742,7 +1742,7 @@ export default {
 .cutoff-bar {
   margin: 12rpx 24rpx 0;
   display: flex; align-items: center; justify-content: center;
-  background-color: rgba(255, 216, 77, .95);
+  background-color: rgba(255, 216, 77, 1);
   border-radius: 10rpx;
   padding: 10rpx 20rpx;
 }
@@ -1767,7 +1767,6 @@ export default {
 .store-order {
   flex-shrink: 0; margin-left: 8rpx;
   font-size: 24rpx; font-weight: 600; color: #FFFFFF;
-  background-color: rgba(255,255,255,.16);
   border-radius: 24rpx; padding: 6rpx 22rpx;
 }
 /* 优惠券三卡 */
@@ -1777,8 +1776,6 @@ export default {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12rpx;
   height: 128rpx;
-  background-color: rgba(255,255,255,.14);
-  border: 1rpx solid rgba(255,255,255,.35);
   border-radius: 12rpx;
 }
 .coupon-main { font-size: 26rpx; font-weight: 700; color: #FFFFFF; }
