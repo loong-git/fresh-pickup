@@ -93,7 +93,7 @@
                         <text class="step-num">{{ cartMap[d.id].quantity }}</text>
                         <view class="step-btn step-plus" @click="plusDish(d)"><text>+</text></view>
                       </view>
-                      <view v-else class="rank-add" @click="addDish(d)"><text>加入购物车</text></view>
+                      <view v-else class="rank-add" :class="d.seckill && d.seckillActive !== false ? 'rank-add-grab' : ''" @click="addDish(d)"><text>{{ d.seckill && d.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text></view>
                     </view>
                   </view>
                 </view>
@@ -125,7 +125,7 @@
                         <text class="step-num">{{ cartMap[d.id].quantity }}</text>
                         <view class="step-btn step-plus" @click="plusDish(d)"><text>+</text></view>
                       </view>
-                      <view v-else class="rank-add" @click="addDish(d)"><text>加入购物车</text></view>
+                      <view v-else class="rank-add" :class="d.seckill && d.seckillActive !== false ? 'rank-add-grab' : ''" @click="addDish(d)"><text>{{ d.seckill && d.seckillActive !== false ? '立即抢购' : '加入购物车' }}</text></view>
                     </view>
                   </view>
                 </view>
@@ -1097,6 +1097,7 @@ export default {
   background: linear-gradient(135deg, var(--c-primary), var(--c-primary));
   border-radius: 26rpx;
 }
+.rank-add-grab { background: var(--c-danger); }
 .rank-add text { font-size: 20rpx; font-weight: 700; color: #FFFFFF; }
 .rank-empty { padding: 40rpx 0; text-align: center; }
 .rank-empty text { font-size: 24rpx; color: var(--c-disabled); }
