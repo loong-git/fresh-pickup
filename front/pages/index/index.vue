@@ -1735,7 +1735,7 @@ export default {
 .red-zone {
   /* 首子元素（.cutoff-bar 的 margin-top:12rpx）margin 塌陷会穿透红区形成白缝，flow-root 建立 BFC 使 12rpx 间距留在红区内呈红底 */
   display: flow-root;
-  background: linear-gradient(180deg, var(--c-primary) 0%, var(--c-topbar) 100%);
+  background: var(--c-primary);
   padding-bottom: 28rpx;
 }
 /* 截单前 1 小时红条（T-M3-04）：黄底深字在红区中醒目，由倒计时 tick 维护显隐 */
