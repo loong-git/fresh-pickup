@@ -95,10 +95,11 @@ export default {
 	--c-text: #1C1917;
 	--c-text-2: #57534E;
 	--c-text-3: #746F69;
-	--c-primary: #0F7B4A;
-	--c-primary-soft: #E8F5EE;
-	--c-primary-hair: #C8E6D5;
-	--c-primary-disabled: #A7D3BC;
+	/* P11-13 主色红主题：主色族四枚绿→红翻转，出处 docs/十一期规划/P11-13-C端主色红色主题契约.md（同目录） */
+	--c-primary: #E1251B;
+	--c-primary-soft: #FDECEA;
+	--c-primary-hair: #F5C6C2;
+	--c-primary-disabled: #F2A9A4;
 	--c-ok: #0F7B4A;
 	--c-warn: #B45309;
 	--c-warn-soft: #FFF7E6;
