@@ -184,6 +184,8 @@ public class OrderServiceImpl implements OrderService {
 
         // F-122：商家状态请求内缓存（购物车多件同商家只查一次，绝不移入循环体）
         Map<Long, String> merchantStatusCache = new HashMap<>();
+        // P11-10 I2：秒杀窗口每请求单次采样，与展示侧 decorateSeckillWindow 同范式，跨窗口瞬间不产生单内混合价
+        boolean seckillInWindow = seckillSessionResolver.inWindow(LocalTime.now());
         for (OrderCreateDTO.OrderItemDTO itemDTO : dto.getItems()) {
             Dish dish = dishMapper.selectById(itemDTO.getDishId());
             if (dish == null) {
@@ -226,7 +228,7 @@ public class OrderServiceImpl implements OrderService {
             // 配置的窗口内（[start, end)，与 SeckillController 同一判定源 SeckillSessionResolver）才按
             // seckill_price，窗口外按 price；秒杀标识 dish.seckill 本身不动（展示/结算/销量口径不变），只影响计价
             BigDecimal unitPrice = (dish.getSeckill() != null && dish.getSeckill() == 1 && dish.getSeckillPrice() != null
-                    && seckillSessionResolver.inWindow(LocalTime.now()))
+                    && seckillInWindow)
                     ? dish.getSeckillPrice() : dish.getPrice();
             totalPrice = totalPrice.add(unitPrice.multiply(BigDecimal.valueOf(quantity)));
 

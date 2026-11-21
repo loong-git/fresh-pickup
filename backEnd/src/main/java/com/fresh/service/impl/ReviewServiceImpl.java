@@ -408,7 +408,7 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     // ------------------------------------------------------------------
-    // P11-1a 商家回复评价（D2 归属鉴权 / D3 软词 400 / D1 一评一回 UPSERT）
+    // P11-1a 商家回复评价（D2 归属鉴权 / P11-10 I3 待审不可回 / D3 软词 400 / D1 一评一回 UPSERT）
     // ------------------------------------------------------------------
 
     /** 回复内容长度上限（P11-1a D1：与 review.reply_content 列 VARCHAR(500) 及评价 content 1~500 字口径对齐） */
@@ -428,7 +428,13 @@ public class ReviewServiceImpl implements ReviewService {
         if (dish == null || !merchantId.equals(dish.getMerchantId())) {
             throw new BizException(R.CODE_NOT_FOUND, "评价不存在");
         }
-        // ③ 内容非空/长度（D1：与列 VARCHAR(500) 对齐，照评价 ReviewCreateDTO 1~500 字同款口径；
+        // ③ 审核态闸（P11-10 I3「待审不可回」）：pending 评价（T-M4-05 软词命中待人工复核、默认不展示）
+        //   暂不可回复——评价若被运营驳回物理删，已落的回复会随行蒸发；判据引用 Review.AUDIT_PENDING 与
+        //   列表可见性判据（audit_status IS NULL OR != pending）同源，pending 为唯一被拦态（NULL/已过审放行）
+        if (Review.AUDIT_PENDING.equals(review.getAuditStatus())) {
+            throw new BizException(R.CODE_BAD_REQUEST, "待审核评价暂不可回复");
+        }
+        // ④ 内容非空/长度（D1：与列 VARCHAR(500) 对齐，照评价 ReviewCreateDTO 1~500 字同款口径；
         //   Map 收参无 bean validation，闸门在 service 收口）；trim 后空串视为未填
         if (content == null || content.trim().isEmpty()) {
             throw new BizException(R.CODE_BAD_REQUEST, "回复内容不能为空");
@@ -436,20 +442,20 @@ public class ReviewServiceImpl implements ReviewService {
         if (content.trim().length() > MAX_REPLY_LENGTH) {
             throw new BizException(R.CODE_BAD_REQUEST, "回复内容需在 1~" + MAX_REPLY_LENGTH + " 字之间");
         }
-        // ④ 敏感词过滤（D3，对原文匹配、先于转义——照 addReview 的顺序先例）：
+        // ⑤ 敏感词过滤（D3，对原文匹配、先于转义——照 addReview 的顺序先例）：
         //   软词命中 → 400 拒绝提交【登记偏离评价 pending 管线：回复即时生效、无中间态展示需求，
         //   拒绝让商家改词重提是最短路径（契约 D3 理由）】；硬词比软词更重，同样 400（无 pending 可言）
         if (wordFilter.matchHard(content) != null || wordFilter.matchSoft(content) != null) {
             throw new BizException(R.CODE_BAD_REQUEST, "回复包含违规内容，请修改后重新提交");
         }
-        // ⑤ HTML 转义（照 addReview 先例，防存储型 XSS；对 trim 后原文转义）
+        // ⑥ HTML 转义（照 addReview 先例，防存储型 XSS；对 trim 后原文转义）
         String escaped = HtmlUtils.htmlEscape(content.trim());
-        // ⑥ 回复人=商家主体名（服务端按 merchant.name 落库，不收前端直传——照评价 reviewer 服务端生成口径；
+        // ⑦ 回复人=商家主体名（服务端按 merchant.name 落库，不收前端直传——照评价 reviewer 服务端生成口径；
         //   merchant 行缺失/无名兜底「商家」，绝不因展示名缺席阻断回复主链路）
         Merchant merchant = merchantMapper.selectById(merchantId);
         String replyer = (merchant == null || merchant.getName() == null
                 || merchant.getName().trim().isEmpty()) ? "商家" : merchant.getName().trim();
-        // ⑦ 一评一回（D1）：review 行已存在（①），覆盖更新三列=重复回复保留最新一条；
+        // ⑧ 一评一回（D1）：review 行已存在（①），覆盖更新三列=重复回复保留最新一条；
         //   实体只带 id+三列走 updateById——MP 默认 NOT_NULL 字段策略下等价精确 UPDATE 三列
         //   WHERE id=?，绝不把评价本体（content/rating/audit_status）拖进更新集
         Review upd = new Review();

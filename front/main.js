@@ -243,14 +243,15 @@ const store = createStore({
 				const dishId = it && it.dishId
 				const qty = Math.floor(Number(it && it.quantity))
 				if (dishId == null || !(qty > 0)) return
-				const row = state.cart.find(i => i.id === dishId)
+				const row = state.cart.find(i => String(i.id) === String(dishId))
 				if (!row) return
 				changed = true
 				if (row.quantity > qty) {
 					row.quantity -= qty
 				} else {
-					// 减至 ≤0 移除整行（同 dishId 多明细时后一条 find 不到行即视为已扣完，天然跳过）
-					state.cart = state.cart.filter(i => i.id !== dishId)
+					// 减至 ≤0 移除整行（同 dishId 多明细时后一条 find 不到行即视为已扣完，天然跳过）；
+					// 移除谓词与上方 find 同用 String 化比较（成对防御），类型差不至于命中行却删不掉
+					state.cart = state.cart.filter(i => String(i.id) !== String(dishId))
 				}
 			})
 			if (changed) safeSetStorage('cart', state.cart)

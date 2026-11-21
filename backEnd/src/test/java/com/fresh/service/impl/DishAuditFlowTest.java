@@ -284,6 +284,9 @@ class DishAuditFlowTest {
         ReflectionTestUtils.setField(orderService, "dishMapper", dishMapper);
         ReflectionTestUtils.setField(orderService, "merchantMapper", activeMerchantMapper());
         ReflectionTestUtils.setField(orderService, "storeMapper", mock(com.fresh.mapper.StoreMapper.class));
+        // P11-10 I2 起 createOrder 无条件单次采样秒杀窗口（与展示侧 decorateSeckillWindow 同范式）：
+        // 构造即需 resolver 桩；本用例驳回品在下架/审核校验即抛、未到计价，mock 默认窗口外不影响断言
+        ReflectionTestUtils.setField(orderService, "seckillSessionResolver", mock(SeckillSessionResolver.class));
         when(orderMapper.selectOne(any())).thenReturn(null); // 幂等快查未命中 → 进入校验段
         Dish rejected = dish(9L, "问题菜品", 1, Dish.AUDIT_REJECTED);
         when(dishMapper.selectById(9L)).thenReturn(rejected);

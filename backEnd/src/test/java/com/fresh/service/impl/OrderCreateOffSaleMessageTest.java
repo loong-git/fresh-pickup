@@ -12,6 +12,7 @@ import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
 import com.fresh.service.CouponService;
+import com.fresh.service.SeckillSessionResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -64,6 +65,9 @@ class OrderCreateOffSaleMessageTest {
         ReflectionTestUtils.setField(orderService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", arrivalBatchMapper);
         ReflectionTestUtils.setField(orderService, "couponService", couponService);
+        // P11-10 I2 起 createOrder 无条件单次采样秒杀窗口（与展示侧 decorateSeckillWindow 同范式）：
+        // 构造即需 resolver 桩；本类用例在下架校验即抛、未到计价，mock 默认窗口外不影响断言
+        ReflectionTestUtils.setField(orderService, "seckillSessionResolver", mock(SeckillSessionResolver.class));
         when(orderMapper.selectOne(any())).thenReturn(null); // 幂等快查未命中 → 进入校验段
         // F-122：默认商家 active；本类断言的「已下架」校验前置于商家状态判定，原语义不变
         Merchant activeMerchant = new Merchant();

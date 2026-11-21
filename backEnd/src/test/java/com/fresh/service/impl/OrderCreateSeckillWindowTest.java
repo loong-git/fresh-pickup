@@ -47,6 +47,8 @@ import static org.mockito.Mockito.when;
  *   <li>② 窗口外（inWindow=false）→ 同一件秒杀 dish 按 price 原价计价，明细成交单价快照同口径；</li>
  *   <li>③ 秒杀标识不动：dish.seckill 字段计价分支之外零改动（本类只锁计价金额，标识透传
  *       由 DishService 读路径负责，不在本类断言范围）。</li>
+ *   <li>④ 多明细单同样恰好采样一次（P11-10 I2：采样提到计价循环外，跨窗口瞬间一单不出
+ *       前件秒价/后件原价的混合价）。</li>
  * </ul>
  *
  * <p><b>本类测不成什么（免得留假收据）</b>：resolver 与字典组的真实读取（Caffeine 缓存、
@@ -165,6 +167,41 @@ class OrderCreateSeckillWindowTest {
 
         orderService.createOrder(cart("p2d-seam"), USER_ID);
 
+        verify(seckillSessionResolver, times(1)).inWindow(any());
+    }
+
+    /** 双件秒杀购物车（DISH_ID=5 与第二件 id=6，各 1 件；桩见用例内） */
+    private static OrderCreateDTO twoItemCart(String clientRequestId) {
+        OrderCreateDTO.OrderItemDTO first = new OrderCreateDTO.OrderItemDTO();
+        first.setDishId(DISH_ID);
+        first.setQuantity(1);
+        OrderCreateDTO.OrderItemDTO second = new OrderCreateDTO.OrderItemDTO();
+        second.setDishId(6L);
+        second.setQuantity(1);
+        OrderCreateDTO dto = new OrderCreateDTO();
+        dto.setClientRequestId(clientRequestId);
+        dto.setPhone("13800001234");
+        dto.setItems(List.of(first, second));
+        return dto;
+    }
+
+    /** ④ 多明细单同样恰好采样一次（P11-10 I2：采样在计价循环外单次进行，跨窗口瞬间不产生单内混合价） */
+    @Test
+    void 多明细单窗口判定仍恰好采样一次_两件同按采样结果计价() {
+        Dish second = seckillDish();
+        second.setId(6L);
+        second.setPrice(new BigDecimal("20.00"));
+        second.setSeckillPrice(new BigDecimal("12.00"));
+        when(dishMapper.selectById(6L)).thenReturn(second);
+        when(dishMapper.decreaseStock(6L, 1)).thenReturn(1);
+        when(seckillSessionResolver.inWindow(any())).thenReturn(true);
+
+        Order result = orderService.createOrder(twoItemCart("p2d-multi"), USER_ID);
+
+        assertNotNull(result);
+        // 单次采样=true 下两件秒杀明细同按秒杀价（6.00+12.00=18.00）；若逐件采样回归，边界瞬间可出混合价
+        assertTrue(new BigDecimal("18.00").compareTo(result.getTotalPrice()) == 0,
+                "两件秒杀明细同按采样结果计价：expected=18.00 but was=" + result.getTotalPrice().toPlainString());
         verify(seckillSessionResolver, times(1)).inWindow(any());
     }
 }

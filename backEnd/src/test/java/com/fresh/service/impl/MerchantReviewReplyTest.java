@@ -34,7 +34,8 @@ import static org.mockito.Mockito.when;
  *
  * <p>覆盖任务书点名的五判据：回复成功（三列落值 + 一评一回走 UPDATE 不插行）/
  * 覆盖更新（二连后仍一行且内容为第二版）/ 非自家评价 404 不泄露 / 软词命中 400 拒绝 /
- * review 不存在 404；另补 dish 缺失 404、空/超长内容 400、XSS 转义、controller 端点出参。
+ * review 不存在 404；另补 dish 缺失 404、空/超长内容 400、待审核评价回复 400（P11-10 I3
+ * 「待审不可回」服务端闸）、XSS 转义、controller 端点出参。
  * 不证明：真实 HTTP 链路与拦截器商家ID注入（AuthInterceptor 既有分支零改动，live 验收覆盖）。
  */
 class MerchantReviewReplyTest {
@@ -261,5 +262,31 @@ class MerchantReviewReplyTest {
         service().replyReview(MERCHANT_ID, REVIEW_ID, "评".repeat(500));
 
         verify(reviewMapper, times(1)).updateById(any(Review.class));
+    }
+
+    // ================================================================
+    // ⑦ 待审评价不可回（P11-10 I3 服务端闸）：pending 判 400 不落更新
+    // ================================================================
+
+    /** 归属自家菜品的待审桩：review.audit_status=pending（T-M4-05 软词命中待人工复核），其余同默认桩 */
+    private void stubOwnedPendingReview() {
+        stubOwnedReview();
+        Review pending = new Review();
+        pending.setId(REVIEW_ID);
+        pending.setDishId(DISH_ID);
+        pending.setAuditStatus(Review.AUDIT_PENDING);
+        when(reviewMapper.selectById(REVIEW_ID)).thenReturn(pending);
+    }
+
+    @Test
+    void 待审核评价_回复判400_不落更新() {
+        stubOwnedPendingReview();
+
+        BizException e = assertThrows(BizException.class,
+                () -> service().replyReview(MERCHANT_ID, REVIEW_ID, "回复"));
+
+        assertEquals(400, e.getCode());
+        assertEquals("待审核评价暂不可回复", e.getMessage());
+        verify(reviewMapper, never()).updateById(any(Review.class));
     }
 }

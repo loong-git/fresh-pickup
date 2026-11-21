@@ -209,9 +209,8 @@ class PartnerWalletPendingEstimateTest {
         assertEquals(200, body.getCode(), "HTTP 恒 200 业务码惯例");
         assertEquals(1L, ((Number) body.getData().get("pendingCount")).longValue());
         assertEquals(0, new BigDecimal("1.28").compareTo((BigDecimal) body.getData().get("pendingCommission")));
-        assertEquals("0.0300", body.getData().get("rate"), "rate 展示位字面量");
         assertEquals(PartnerWalletFlow.RATE_SNAPSHOT.toPlainString(), body.getData().get("rate"),
-                "rate 展示形态必须与流水 rate_snapshot 展示形态一致");
+                "rate 展示形态必须与流水 rate_snapshot 展示形态一致（P11-10 I6 起单源 RATE_SNAPSHOT）");
     }
 
     @Test
@@ -224,7 +223,8 @@ class PartnerWalletPendingEstimateTest {
         assertEquals(3, body.getData().size(), "恰三键：pendingCount/pendingCommission/rate");
         assertEquals(0L, ((Number) body.getData().get("pendingCount")).longValue());
         assertEquals(0, new BigDecimal("0.00").compareTo((BigDecimal) body.getData().get("pendingCommission")));
-        assertEquals("0.0300", body.getData().get("rate"));
+        assertEquals(PartnerWalletFlow.RATE_SNAPSHOT.toPlainString(), body.getData().get("rate"),
+                "空态同样出 rate，取值与 RATE_SNAPSHOT 相等");
     }
 
     // ================================================================

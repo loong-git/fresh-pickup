@@ -462,8 +462,8 @@ export default {
     },
     // ==================== P11-8 D8 购物车栏实时窗口口径（照 index.vue P11-7 形状） ====================
     // 购物车栏合计/已减不再恒读快照 getter（跨窗口翻转会说谎），逐行经 rowUnitPrice/rowUnitSave
-    // 实时判窗取值；本页 dishes 只有当前 dish（回查命中率低）——照形状落地，回查不到的行回落旧
-    // 快照字段（安全降级，数字与旧 getter 口径一致，回落面不劣化）
+    // 实时判窗取值；本页 dishes 只有当前 dish（回查命中率低）——照形状落地，回查不到的行按非
+    // 秒杀处理（原价、已减 0，不显任何快照营销语言）
     cart() { return this.$store.state.cart || [] },
     liveCheckedTotalPrice() {
       return +(this.cart.filter(item => item.checked).reduce((total, item) => total + this.rowUnitPrice(item) * item.quantity, 0)).toFixed(2)
@@ -475,7 +475,7 @@ export default {
     payText() {
       return this.liveCheckedTotalPrice.toFixed(2)
     },
-    // 勾选商品已省金额（同上 live 口径；回查不到的行回落快照 unitSave）
+    // 勾选商品已省金额（同上 live 口径；回查不到的行按 0 计，宁缺不误显）
     savingText() {
       return this.liveCartSaving.toFixed(2)
     },
@@ -547,17 +547,12 @@ export default {
   methods: {
     // ==================== P11-8 D8 合计实时判窗方法组（照 index.vue P11-7 的 live 方法组形状） ====================
     // 本页无全量商品列表，回查面只有当前 dish 一件（命中率低）：dishOf 命中当前 dish 才算实时命中，
-    // 其余购物车行一律回落旧快照字段——安全降级与 index.vue 同构，回落面不劣化
+    // 其余购物车行一律按非秒杀处理（原价、已减 0，不显任何快照营销语言）——与 index.vue 同构
     // 购物车行回查原始商品：仅当前 dish 的 id 命中时返回它（字符串化比较防 number/string 类型差）
     dishOf(item) {
       return (this.dish && this.dish.id != null && item && String(item.id) === String(this.dish.id)) ? this.dish : {}
     },
-    // 实时列表是否回查到带秒杀标记字段的 dish（{} 空 object 与缺键都视为未命中 → 走回落）
-    hasLiveDish(item) {
-      const d = this.dishOf(item)
-      return !!(d && typeof d.seckill === 'boolean')
-    },
-    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 回落现状渲染）
+    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 按非秒杀）
     isLiveSeckill(item) {
       const d = this.dishOf(item)
       return !!(d && d.seckill && d.seckillActive !== false && item.seckillPrice != null)
@@ -566,11 +561,9 @@ export default {
     rowUnitPrice(item) {
       return this.isLiveSeckill(item) ? Number(item.seckillPrice) || 0 : item.price
     },
-    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；回查不到 dish 回落现状快照 unitSave；其余 0
+    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；其余（含回查不到 dish）一律 0
     rowUnitSave(item) {
-      if (this.isLiveSeckill(item)) return +(Number(item.price) - Number(item.seckillPrice)).toFixed(2)
-      if (!this.hasLiveDish(item)) return Number(item.unitSave) > 0 ? item.unitSave : 0
-      return 0
+      return this.isLiveSeckill(item) ? +(Number(item.price) - Number(item.seckillPrice)).toFixed(2) : 0
     },
     // ==================== 数据加载（T-M3-05：失败错误态） ====================
     // 主详情加载：getDishDetail 404/网络失败 → 空态页；成功后拉评价/推荐/字典并启动倒计时

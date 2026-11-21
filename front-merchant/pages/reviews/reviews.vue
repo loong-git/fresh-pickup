@@ -79,8 +79,9 @@
             </view>
             <text class="reply-content">{{ r.replyContent }}</text>
           </view>
-          <!-- 行 6：回复操作（飞行中置灰禁点，防同条并发回复） -->
-          <view class="reply-actions">
+          <!-- 行 6：回复操作（飞行中置灰禁点，防同条并发回复）；「待审不可回」——命中软词待审
+               （出参 auditStatus='pending'，展示态为 null）的评价暂不开放回复入口，回复钮整块隐藏 -->
+          <view class="reply-actions" v-if="r.auditStatus == null">
             <text
               class="reply-btn"
               :class="{ 'reply-btn-busy': replyingId === r.id }"

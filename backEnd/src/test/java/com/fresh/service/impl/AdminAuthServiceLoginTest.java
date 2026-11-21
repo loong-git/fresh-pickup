@@ -188,9 +188,11 @@ class AdminAuthServiceLoginTest {
         assertNotNull(claims);
         assertEquals("admin", claims.get("typ", String.class), "回环读 typ=admin claim");
 
-        // 篡改：改一个字符（签名不匹配）→ 一律 null（由调用方统一 401，不区分原因）
-        String tampered = token.substring(0, token.length() - 1)
-                + (token.charAt(token.length() - 1) == 'A' ? "B" : "A");
+        // 篡改：翻转签名段第 3 个字符（末字符含 base64 解码丢弃的填充位，A→B 可能解码不变；段内第 3 字符 6 位全有效，翻转必变解码字节）→ 一律 null（由调用方统一 401，不区分原因）
+        int sigStart = token.lastIndexOf('.') + 1;
+        String tampered = token.substring(0, sigStart + 2)
+                + (token.charAt(sigStart + 2) == 'A' ? "B" : "A")
+                + token.substring(sigStart + 3);
         assertNull(jwtUtil.parseClaims(tampered), "篡改 token 必须判 null（HS256 签名闸门）");
         assertNull(jwtUtil.parseClaims(token.substring(0, token.length() - 4)), "截断 token 同样 null");
         assertNull(jwtUtil.parseUserId(tampered));

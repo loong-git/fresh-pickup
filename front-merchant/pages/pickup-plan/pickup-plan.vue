@@ -24,7 +24,7 @@
         <!-- P11-8 片②（D4）波次直选：uni-app 内建 date picker 包住文字链（plan-orders 的 date-picker
              同款组件用法），选定后与 stepDay/goToday 同款清态路径（冷却闸 → 清 probe 态 → 整页重拉）；
              步进/今天/空态顺延入口零触碰，仍只由用户点击触发 -->
-        <picker class="date-pick-picker" mode="date" :value="queryDate" @change="onPickDate">
+        <picker class="date-pick-picker" mode="date" :value="queryDate || effectiveDate" @change="onPickDate">
           <view class="plan-entry" hover-class="pill-hover">
             <text>选日期 ›</text>
           </view>

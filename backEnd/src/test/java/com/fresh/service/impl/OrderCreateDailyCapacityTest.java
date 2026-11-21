@@ -17,6 +17,7 @@ import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
 import com.fresh.service.CouponService;
+import com.fresh.service.SeckillSessionResolver;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -89,6 +90,9 @@ class OrderCreateDailyCapacityTest {
         ReflectionTestUtils.setField(orderService, "storeMapper", storeMapper);
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", arrivalBatchMapper);
         ReflectionTestUtils.setField(orderService, "couponService", couponService);
+        // P11-10 I2 起 createOrder 无条件单次采样秒杀窗口（与展示侧 decorateSeckillWindow 同范式）：
+        // 构造即需 resolver 桩；本类菜品非秒杀，mock 默认窗口外不影响原计价断言
+        ReflectionTestUtils.setField(orderService, "seckillSessionResolver", mock(SeckillSessionResolver.class));
         // P11-3 R5：closeTimeoutOrders 每单独立事务走 TransactionTemplate（mock 管理器直通执行 lambda）
         ReflectionTestUtils.setField(orderService, "transactionTemplate",
                 new TransactionTemplate(mock(PlatformTransactionManager.class)));

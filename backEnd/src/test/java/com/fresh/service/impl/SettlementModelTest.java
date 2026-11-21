@@ -20,6 +20,7 @@ import com.fresh.mapper.OrderItemMapper;
 import com.fresh.mapper.OrderMapper;
 import com.fresh.mapper.StoreMapper;
 import com.fresh.service.CouponService;
+import com.fresh.service.SeckillSessionResolver;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ConstraintViolation;
@@ -116,6 +117,9 @@ class SettlementModelTest {
         ReflectionTestUtils.setField(orderService, "storeMapper", mock(StoreMapper.class));
         ReflectionTestUtils.setField(orderService, "arrivalBatchMapper", mock(ArrivalBatchMapper.class));
         ReflectionTestUtils.setField(orderService, "couponService", mock(CouponService.class));
+        // P11-10 I2 起 createOrder 无条件单次采样秒杀窗口（与展示侧 decorateSeckillWindow 同范式）：
+        // 构造即需 resolver 桩；本类菜品 seckill=0，mock 默认窗口外不影响原计价断言
+        ReflectionTestUtils.setField(orderService, "seckillSessionResolver", mock(SeckillSessionResolver.class));
         when(orderMapper.selectOne(any())).thenReturn(null); // 幂等快查未命中 → 进入校验段
 
         adminService = new AdminServiceImpl();

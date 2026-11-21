@@ -318,17 +318,17 @@
               </view>
               <view class="fci-body">
                 <view class="fci-name-row">
-                  <text v-if="isSeckillItem(item)" class="fci-seckill-tag">秒</text>
+                  <text v-if="rowIsSeckill(item)" class="fci-seckill-tag">秒</text>
                   <text class="fci-name">{{ item.name }}</text>
                 </view>
                 <view class="fci-price-row">
-                  <text class="fci-original" v-if="canShowOriginal(item)">¥{{ fmtPrice(item.originalPrice) }}</text>
+                  <text class="fci-original" v-if="rowCanShowOriginal(item)">¥{{ fmtPrice(rowOriginalPrice(item)) }}</text>
                   <view class="fci-price-line">
                     <text class="fci-symbol">¥</text>
-                    <text class="fci-price">{{ fmtPrice(item.price) }}</text>
+                    <text class="fci-price">{{ fmtPrice(rowUnitPrice(item)) }}</text>
                   </view>
-                  <!-- 折扣标签：仅秒杀件显示，按 unitSave/originalPrice 换算，算不出省略（首页弹层同款） -->
-                  <text class="fci-discount" v-if="isSeckillItem(item) && discountRate(item)">{{ discountRate(item) }}</text>
+                  <!-- 折扣标签：仅窗口内秒杀件显示，按快照原价/秒价换算，算不出省略（首页弹层同款） -->
+                  <text class="fci-discount" v-if="rowDiscount(item)">{{ rowDiscount(item) }}</text>
                   <text class="fci-offsale-tag" v-if="dishOf(item).onSale === 0">已下架</text>
                 </view>
               </view>
@@ -510,8 +510,8 @@ export default {
     ...mapGetters(['cartCount', 'isCartEmpty', 'checkedCount']),
     // ==================== P11-8 D8 购物车栏实时窗口口径（照 index.vue P11-7 形状） ====================
     // 合计与「已减」不再依赖快照 unitSave 恒判（跨窗口翻转会说谎），逐行经 rowUnitPrice/rowUnitSave
-    // 实时判窗取值：窗口内秒杀件取快照秒价，其余取快照原价；本页 dishes 回查不到的行回落快照
-    // 原字段（安全降级，数字与旧 getter 口径一致，回落面不劣化）
+    // 实时判窗取值：窗口内秒杀件取快照秒价，其余取快照原价；本页 dishes 回查不到的行按非秒杀
+    // 处理（原价、已减 0，不显任何快照营销语言）
     liveCartTotalPrice() {
       return this.cart.reduce((total, item) => total + this.rowUnitPrice(item) * item.quantity, 0)
     },
@@ -1086,47 +1086,45 @@ export default {
     // 弹层商品行回查原始商品（image/bgColor/seckill 在购物车项上没有，需回查；首页 dishOf 同款）
     dishOf(item) { return this.dishById[item.id] || {} },
     // ==================== P11-8 D8 合计实时判窗方法组（照 index.vue P11-7 的 live 方法组形状） ====================
-    // 行级合计取值不再恒读快照——秒杀窗口跨 00:00 翻转后快照会说谎；判据统一为本页 dishes 回查判窗
+    // 行级取值不再恒读快照——秒杀窗口跨 00:00 翻转后快照会说谎；判据统一为本页 dishes 回查判窗
     //（dish.seckill && dish.seckillActive !== false，缺键安全降级，与 P11-6/P11-7 同族形状）：
-    // 窗口内秒杀件取快照秒价 item.seckillPrice，其余取快照原价 item.price；回查不到 dish
-    //（列表未加载/商品已删）的行回落旧快照字段渲染，语义与旧 getter 一致。
-    // 弹层商品行与免费领的凑单差值条（进度条/差额文案）不在本次收口面，零触碰
-    // 实时列表是否回查到带秒杀标记字段的 dish（{} 空 object 与缺键都视为未命中 → 走回落）
-    hasLiveDish(item) {
-      const d = this.dishOf(item)
-      return !!(d && typeof d.seckill === 'boolean')
-    },
-    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 回落现状渲染）
+    // 窗口内秒杀件显快照秒价 item.seckillPrice + 划线快照原价 item.price，其余行显快照原价
+    // item.price；回查不到 dish（列表未加载/商品已删）的行按非秒杀处理——显 item.price 原价，
+    // 无 [秒]标/划线/折扣/已减 任何营销语言（宁缺不误显）
+    // 免费领的凑单差值条（进度条/差额文案）不在本次收口面，零触碰
+    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 按非秒杀）
     isLiveSeckill(item) {
       const d = this.dishOf(item)
       return !!(d && d.seckill && d.seckillActive !== false && item.seckillPrice != null)
     },
-    // 行现价（合计 computed 逐行取值）：窗口内秒杀件取快照秒价，其余取快照现价
+    // 行 [秒] 标：窗口内秒杀件必显；回查不到 dish 与窗口外等其余态一律不显
+    rowIsSeckill(item) {
+      return this.isLiveSeckill(item)
+    },
+    // 行划线价/"即将恢复原价"展示判据：窗口内秒杀件划快照原价；其余（含回查不到 dish）不划
+    rowCanShowOriginal(item) {
+      return this.isLiveSeckill(item)
+    },
+    // 行划线价取值：窗口内秒杀件划 item.price（快照原价），其余返回空串（不渲染）
+    //（只在 rowCanShowOriginal 为真时被模板调用）
+    rowOriginalPrice(item) {
+      return this.isLiveSeckill(item) ? item.price : ''
+    },
+    // 行现价：窗口内秒杀件取快照秒价，其余取快照现价（合计 computed 与行渲染同源）
     rowUnitPrice(item) {
       return this.isLiveSeckill(item) ? Number(item.seckillPrice) || 0 : item.price
     },
-    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；回查不到 dish 回落现状快照 unitSave；其余 0
+    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；其余（含回查不到 dish）一律 0
     rowUnitSave(item) {
-      if (this.isLiveSeckill(item)) return +(Number(item.price) - Number(item.seckillPrice)).toFixed(2)
-      if (!this.hasLiveDish(item)) return Number(item.unitSave) > 0 ? item.unitSave : 0
-      return 0
+      return this.isLiveSeckill(item) ? +(Number(item.price) - Number(item.seckillPrice)).toFixed(2) : 0
     },
-    // 弹层商品行 [秒] 标判定：优先回查商品，回查不到按 unitSave>1 兜底（首页 isSeckillItem 同款）
-    isSeckillItem(item) {
-      const d = this.dishOf(item)
-      if (d && typeof d.seckill === 'boolean') return d.seckill
-      return item.unitSave > 1
+    // 行折扣文案：窗口内秒杀件按快照原价/秒价换算；其余（含回查不到 dish）无折扣
+    rowDiscount(item) {
+      return this.isLiveSeckill(item) ? this.zheText(Number(item.price), Number(item.seckillPrice)) : ''
     },
-    // 弹层商品行划线价展示判据：条件式只在 store 的 hasRealOriginalPrice getter 里，本页只引用
-    canShowOriginal(item) {
-      return this.$store.getters.hasRealOriginalPrice(item.originalPrice, item.price)
-    },
-    // 折扣标签：按 unitSave/originalPrice 换算（如 7.6折），算不出返回空串省略（首页 discountRate 同款）
-    discountRate(item) {
-      const orig = Number(item.originalPrice)
-      const save = Number(item.unitSave)
-      if (!orig || orig <= 0 || !isFinite(save) || save < 0) return ''
-      const paid = orig - save
+    // 折扣换算公共实现（如 7.6折）：原价/实付价→折扣文案，算不出返回空串省略
+    zheText(orig, paid) {
+      if (!orig || orig <= 0 || !Number.isFinite(paid) || paid < 0) return ''
       if (paid <= 0) return ''
       const zhe = (paid / orig) * 10
       if (zhe <= 0 || zhe >= 10) return ''

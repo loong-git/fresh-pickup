@@ -654,7 +654,7 @@ export default {
     // ==================== P11-7 购物车展示实时窗口口径（B-1） ====================
     // 合计与「已减」不再依赖快照 unitSave 恒判（跨窗口翻转会说谎），逐行经 rowUnitPrice/rowUnitSave
     // 实时判窗取价：窗口内秒杀件取快照秒价，其余取快照原价——与收银台服务端重算口径对齐；
-    // 回查不到实时 dish 的行回落快照原字段（安全降级，旧数据语义不变）
+    // 回查不到实时 dish 的行按非秒杀处理（原价、已减 0，不显任何快照营销语言）
     liveCartTotalPrice() {
       return this.cart.reduce((total, item) => total + this.rowUnitPrice(item) * item.quantity, 0)
     },
@@ -1409,67 +1409,36 @@ export default {
     //（dish.seckill && dish.seckillActive !== false，缺键安全降级，与 P11-6 列表卡同族形状）：
     // 窗口内秒杀件显快照秒价 item.seckillPrice + 划线快照原价 item.price；其余行显 item.price 原价
     //（无划线无折扣，与列表卡窗口外态一致）；实时列表回查不到 dish（列表未加载/商品已删）时
-    // 整体回落旧快照字段渲染（下方 isSeckillItem/canShowOriginal/discountRate 现状实现，语义不变）
-    // 实时列表是否回查到带秒杀标记字段的 dish（{} 空 object 与缺键都视为未命中 → 走回落）
-    hasLiveDish(item) {
-      const d = this.dishOf(item)
-      return !!(d && typeof d.seckill === 'boolean')
-    },
-    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 回落现状渲染）
+    // 整体按非秒杀处理——显 item.price 原价，无 [秒]标/划线/折扣/已减 任何营销语言（宁缺不误显）
+    // 实时窗口内秒杀件判定：dish 秒杀且窗口内且快照带秒价（旧快照无 seckillPrice 键 → 按非秒杀）
     isLiveSeckill(item) {
       const d = this.dishOf(item)
       return !!(d && d.seckill && d.seckillActive !== false && item.seckillPrice != null)
     },
-    // 行 [秒] 标：窗口内秒杀件必显；回查不到 dish 回落现状判据（unitSave>1 兜底）；其余（窗口外等）不显
+    // 行 [秒] 标：窗口内秒杀件必显；回查不到 dish 与窗口外等其余态一律不显
     rowIsSeckill(item) {
-      if (this.isLiveSeckill(item)) return true
-      if (!this.hasLiveDish(item)) return this.isSeckillItem(item)
-      return false
+      return this.isLiveSeckill(item)
     },
-    // 行划线价/"即将恢复原价"展示判据：窗口内秒杀件划快照原价；回查不到 dish 回落现状；其余不划
+    // 行划线价/"即将恢复原价"展示判据：窗口内秒杀件划快照原价；其余（含回查不到 dish）不划
     rowCanShowOriginal(item) {
-      if (this.isLiveSeckill(item)) return true
-      if (!this.hasLiveDish(item)) return this.canShowOriginal(item)
-      return false
+      return this.isLiveSeckill(item)
     },
-    // 行划线价取值：窗口内秒杀件划 item.price（快照原价）；回落现状划 item.originalPrice
+    // 行划线价取值：窗口内秒杀件划 item.price（快照原价），其余返回空串（不渲染）
     //（只在 rowCanShowOriginal 为真时被模板调用）
     rowOriginalPrice(item) {
-      return this.isLiveSeckill(item) ? item.price : item.originalPrice
+      return this.isLiveSeckill(item) ? item.price : ''
     },
-    // 行现价：窗口内秒杀件取快照秒价，其余取快照现价（合计 computed 与确认单清单行同源）
+    // 行现价：窗口内秒杀件取快照秒价，其余取快照现价（合计 computed 与行渲染同源）
     rowUnitPrice(item) {
       return this.isLiveSeckill(item) ? Number(item.seckillPrice) || 0 : item.price
     },
-    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；回查不到 dish 回落现状快照 unitSave；其余 0
+    // 行节省额（「已减」合计逐行取值）：窗口内秒杀件=原价-秒价；其余（含回查不到 dish）一律 0
     rowUnitSave(item) {
-      if (this.isLiveSeckill(item)) return +(Number(item.price) - Number(item.seckillPrice)).toFixed(2)
-      if (!this.hasLiveDish(item)) return Number(item.unitSave) > 0 ? item.unitSave : 0
-      return 0
+      return this.isLiveSeckill(item) ? +(Number(item.price) - Number(item.seckillPrice)).toFixed(2) : 0
     },
-    // 行折扣文案：窗口内秒杀件按快照原价/秒价换算；回查不到 dish 回落现状 discountRate；其余无折扣
+    // 行折扣文案：窗口内秒杀件按快照原价/秒价换算；其余（含回查不到 dish）无折扣
     rowDiscount(item) {
-      if (this.isLiveSeckill(item)) return this.zheText(Number(item.price), Number(item.seckillPrice))
-      if (!this.hasLiveDish(item)) return this.discountRate(item)
-      return ''
-    },
-    // ==================== 回落实现（实时列表回查不到 dish 时沿用，判据不改语义） ====================
-    // 购物车行 [秒] 标判定（旧口径）：优先回查商品，回查不到按 unitSave>1 兜底
-    isSeckillItem(item) {
-      const d = this.dishOf(item)
-      if (d && typeof d.seckill === 'boolean') return d.seckill
-      return item.unitSave > 1
-    },
-    // 购物车行划线价/"即将恢复原价"展示判据（旧口径）：条件式只在 store 的 hasRealOriginalPrice getter 里，本页只引用
-    canShowOriginal(item) {
-      return this.$store.getters.hasRealOriginalPrice(item.originalPrice, item.price)
-    },
-    // 折扣标签（旧口径）：按 unitSave/originalPrice 换算（如 7.6折），算不出返回空串省略
-    discountRate(item) {
-      const orig = Number(item.originalPrice)
-      const save = Number(item.unitSave)
-      if (!orig || orig <= 0 || !isFinite(save) || save < 0) return ''
-      return this.zheText(orig, orig - save)
+      return this.isLiveSeckill(item) ? this.zheText(Number(item.price), Number(item.seckillPrice)) : ''
     },
     // 折扣换算公共实现（如 7.6折）：原价/实付价→折扣文案，算不出返回空串省略
     zheText(orig, paid) {
@@ -1581,6 +1550,9 @@ export default {
       // M4-T-02：使用优惠券（服务端校验归属/status=available/满减门槛后抵扣重算；
       // 不满足门槛 400"未满足满减条件"由下方 catch toast 保留现场）
       if (this.selectedCoupon) orderData.couponId = this.selectedCoupon.id
+      // 本次进单商品快照：与发单 items 同源同构，收银台支付成功按此逐件扣减购物车
+      //（重拉竞态下勾选态可能已变，故在下单时点定格；未进单商品保留，禁一刀清空）
+      this._submittedItems = orderData.items
       this.submitting = true
       try {
         const res = await submitOrder(orderData)
@@ -1615,7 +1587,7 @@ export default {
     // 确认支付两步：POST /api/pay/{orderId}/sim-create（模拟 jsapi 下单，返回五参数+金额分）
     // → POST /api/pay/{orderId}/sim-pay（后端扮微信服务器构造真实签名回调打本机 wx-notify，
     //    走完整验签/解密/三比对/事务结算链路，2xx 同步回读订单返回含 pickupCode，无需前端轮询）
-    // → 成功 toast 支付成功 + 关弹窗 + 清购物车；失败 toast message 保留现场
+    // → 成功 toast 支付成功 + 关弹窗 + 按单扣减购物车（未进单商品保留）；失败 toast message 保留现场
     async confirmCashierPay() {
       if (this.paying || !this.cashierOrderId) return
       this.paying = true
@@ -1649,9 +1621,10 @@ export default {
         }
         this.closeCashier()
         this.showPayPopup = false
-        this.$store.commit('clearCart')
+        // 按本次进单商品逐件扣减购物车（下单时点快照）：未进单的商品保留，与订单页快捷支付同口径
+        this.$store.commit('deductByOrderItems', this._submittedItems || [])
         // 支付成功即下单闭环完成：重拉商品与秒杀场次，列表/秒杀区数据随服务端真实值同步
-        // （不 await，不阻塞弹窗关闭与购物车清空渲染；销量文案联动需后端下单同步自增 sold_count 后刷新才可见）
+        // （不 await，不阻塞弹窗关闭与购物车扣减渲染；销量文案联动需后端下单同步自增 sold_count 后刷新才可见）
         this.loadDishes()
         this.loadSeckillSession()
         // 支付会话结束，幂等键用毕重置（下次新开确认订单再生成新键）
