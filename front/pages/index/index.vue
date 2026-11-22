@@ -82,6 +82,21 @@
           </view>
         </view>
 
+        <!-- ==================== 6b. 最近看过（P11-14-3 浏览足迹：金刚区之后秒杀卡之前；storage 20 条滚动淘汰，
+             onShow 刷新——从详情返回即时可见；足迹卡纯导航不显价格不加购（快照价漂移，价格以详情页实时为准，契约 D3/D4） ==================== -->
+        <view v-if="browseHistory.length" class="history-strip">
+          <text class="history-title">最近看过</text>
+          <scroll-view class="history-scroll" scroll-x enable-flex>
+            <view class="history-card" v-for="h in browseHistory" :key="h.id" @click="goHistory(h)">
+              <view class="history-img" :style="{ backgroundColor: h.bgColor || '#F5F5F5' }">
+                <image v-if="h.image" class="history-photo" :src="h.image" mode="aspectFill" />
+                <text v-else class="history-emoji">{{ h.emoji }}</text>
+              </view>
+              <text class="history-name">{{ h.name }}</text>
+            </view>
+          </scroll-view>
+        </view>
+
         <!-- ==================== 7. 超级秒杀区块（始终渲染，无搜索态开关） ==================== -->
         <!-- P11-4 片① D1/D2：窗口态单一真源=场次接口项级 active（服务端时钟判定，前端不自判窗口）。
              窗口外（active 全 false）：头部倒计时隐藏、卡片切原价+预告「每日 {start} 开抢」；
@@ -644,7 +659,9 @@ export default {
       homeGuideDish: { name: '', image: '', emoji: '🎁', bgColor: '#FFF3E0' }, // 弹窗商品（pool[0]/dish 归一化）
       homeGuideThreshold: 0,       // 满额门槛（元）
       homeGuideRemaining: 0,       // 距门槛差额（元，后端 remainingToThreshold）
-      homeGuideReached: false      // 是否已达门槛（remaining<=0，切换副标题文案）
+      homeGuideReached: false,     // 是否已达门槛（remaining<=0，切换副标题文案）
+      // P11-14-3 浏览足迹，onShow 从 storage 刷新
+      browseHistory: []
     }
   },
   computed: {
@@ -763,6 +780,11 @@ export default {
     }
     // P4-8 C12：登录态券卡改源领券中心（前 3 张 + 更多入口）；游客不发请求，保留字典券展示
     if (this.user.token) this.loadCouponCards()
+    // P11-14-3（D5）：从详情返回（navigateBack）onShow 必触发——刷新浏览足迹（storage 失败回退空数组）
+    try {
+      const h = uni.getStorageSync('browse_history')
+      this.browseHistory = Array.isArray(h) ? h : []
+    } catch (e) { this.browseHistory = [] }
   },
   onReady() {
     // 内容首次渲染后测量"tab 吸顶位"阈值（驱动 catTabStuck 变色 + 弹层滚动目标；券区异步渲染后 loadDicts 内会重测校准）
@@ -1090,6 +1112,11 @@ export default {
     goToOrder() { uni.navigateTo({ url: '/pages/order/order' }) },
     // 「我的」入口：跳个人中心页（身份卡/优惠券/评价/账号安全/退出登录）
     goToMine() { uni.navigateTo({ url: '/pages/mine/mine' }) },
+    // P11-14-3（D4）足迹卡跳详情：与 goToDetail 同款 navigateTo
+    goHistory(item) {
+      if (!item || item.id == null) return
+      uni.navigateTo({ url: '/pages/detail/detail?id=' + item.id })
+    },
     // ==================== 1. 搜索（搜索页接管版） ====================
     // 唯一入口是整条白条的 @click（无独立搜索按钮、无回车监听）：跳转独立搜索页 pages/search/search
     onSearch() {
@@ -1831,6 +1858,16 @@ export default {
 }
 .kingkong-icon text { font-size: 44rpx; }
 .kingkong-label { font-size: 22rpx; color: var(--c-text); }
+
+/* P11-14-3 最近看过横滑条（契约 D3）：轻卡纯导航零价格零加购；色块 88rpx+名称单行省略；零 hex */
+.history-strip { margin-top: 16rpx; }
+.history-title { display: block; font-size: 28rpx; font-weight: 700; color: var(--c-text); padding: 0 24rpx 12rpx; }
+.history-scroll { white-space: nowrap; padding: 0 24rpx; }
+.history-card { display: inline-block; width: 160rpx; margin-right: 16rpx; }
+.history-img { width: 160rpx; height: 120rpx; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; }
+.history-photo { width: 100%; height: 100%; border-radius: 12rpx; }
+.history-emoji { font-size: 56rpx; }
+.history-name { display: block; width: 160rpx; font-size: 22rpx; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 8rpx; }
 
 /* ==================== 7. 超级秒杀区块 ==================== */
 .seckill-card {

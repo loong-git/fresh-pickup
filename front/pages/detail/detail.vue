@@ -588,6 +588,7 @@ export default {
           return
         }
         this.dish = dishData
+        this.recordBrowseHistory(dishData)
         // P4-2（D2）：主详情成功路径置位，onShow 重拉评价的门禁（防 onLoad+onShow 双请求）
         this._detailLoaded = true
         this.imgFail = false
@@ -617,6 +618,19 @@ export default {
         if (e && e.code === -1) this.showPageError('网络异常，商品加载失败', true)
         else this.showPageError('商品不存在或已下架', false)
       }
+    },
+    // P11-14-3（D1/D2）浏览足迹记录：loadDetail 成功路径调用；storage 键 browse_history，按 id 去重
+    // （旧条目移除、新条目 unshift 队首）、上限 20 条滚动淘汰；条目只存轻卡渲染最小字段集（纯导航，
+    // 不存价格——快照价随时间漂移，价格/加购一律以详情页实时为准，契约 D3）。读写全 try-catch，失败静默不伤详情主流程
+    recordBrowseHistory(dish) {
+      try {
+        if (!dish || dish.id == null) return
+        const list = uni.getStorageSync('browse_history')
+        const old = Array.isArray(list) ? list : []
+        const rest = old.filter(it => !it || String(it.id) !== String(dish.id))
+        const entry = { id: dish.id, name: dish.name, emoji: dish.emoji, image: dish.image, bgColor: dish.bgColor, ts: Date.now() }
+        uni.setStorageSync('browse_history', [entry].concat(rest).slice(0, 20))
+      } catch (e) { /* storage 不可用静默：足迹是增强功能，失败不伤主流程 */ }
     },
     // 空态页显隐与文案（T-M3-05）：retryable 为 true 时附"点击重试"
     showPageError(text, retryable) {
