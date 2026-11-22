@@ -45,6 +45,7 @@
               <view class="coupon-body">
                 <text class="coupon-main">{{ couponMainText(c) }}</text>
                 <text class="coupon-expire">{{ couponExpireText(c) }}</text>
+                <text v-if="couponTab === 'available' && isExpiringSoon(c)" class="coupon-soon">即将过期</text>
               </view>
               <text v-if="couponTab === 'used'" class="coupon-flag">已使用</text>
               <text v-else-if="couponTab === 'expired'" class="coupon-flag">已过期</text>
@@ -186,6 +187,14 @@ export default {
       const t = new Date(c.expireAt).getTime()
       return Number.isFinite(t) ? t : null
     },
+    // P11-14-2（D1/D4）临期判定：复用 couponExpireTs 单源解析（null=永不过期→false），剩余 ≤72h 且未过期才 true；
+    // 阈值常量一处定义（契约 D1 可调），判定只用于角标显示，不改 couponGroups 分组归属
+    isExpiringSoon(c) {
+      const ts = this.couponExpireTs(c)
+      if (ts == null) return false
+      const remain = ts - Date.now()
+      return remain > 0 && remain <= 3 * 86400 * 1000
+    },
     // 有效期文案：expireAt 缺失/解析失败显示「长期有效」，否则「有效期至 yyyy-MM-dd」
     couponExpireText(c) {
       const ts = this.couponExpireTs(c)
@@ -294,6 +303,15 @@ export default {
   font-size: 20rpx; font-weight: 700; color: var(--c-text-3);
   border: 1rpx solid var(--c-border); border-radius: 20rpx;
   padding: 4rpx 14rpx;
+}
+/* P11-14-2（D2/D3）可用券临期警示小标：--c-warn 橙轨（提醒语义，非 danger 错误轨），零 hex */
+.coupon-soon {
+  align-self: flex-start;
+  font-size: 20rpx;
+  color: var(--c-warn);
+  border: 1rpx solid currentColor;
+  border-radius: 12rpx;
+  padding: 2rpx 10rpx;
 }
 /* 已使用/已过期券整体置灰弱化（照我的页） */
 .coupon-disabled { opacity: .55; filter: grayscale(.6); }
