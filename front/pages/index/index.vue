@@ -1777,6 +1777,8 @@ export default {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12rpx;
   height: 128rpx;
   border-radius: 12rpx;
+  background-color: rgba(255,255,255,.16);
+  border: 1rpx solid rgba(255,255,255,.4);
 }
 .coupon-main { font-size: 26rpx; font-weight: 700; color: #FFFFFF; }
 .coupon-use-btn {
