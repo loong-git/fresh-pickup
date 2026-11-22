@@ -54,6 +54,7 @@
             <text class="oi-name">{{ item.dishName }}</text>
             <text class="oi-qty">x{{ item.quantity }}</text>
             <text class="oi-price">¥{{ $fmtMoney((Number(item.price) || 0) * (Number(item.quantity) || 0)) }}</text>
+            <text v-if="order.status === 'completed'" class="oi-review" @click="goReview(item.dishId)">评价</text>
           </view>
           <view v-if="!(order.items && order.items.length)" class="order-item-empty">
             <text>暂无明细</text>
@@ -464,6 +465,11 @@ export default {
       this.$store.commit('reorder', mapped)
       uni.showToast({ title: '已按原单加入购物车', icon: 'success', duration: 1500 })
     },
+    // P11-14-1（D2）行级评价直达：completed 单明细行跳商品详情评价区（reviewsOk 门禁兜底，已评/未评判据单源在 detail，此处不复制第二套）
+    goReview(dishId) {
+      if (dishId == null) return
+      uni.navigateTo({ url: '/pages/detail/detail?id=' + dishId })
+    },
     // 进展时间线节点（P6-1）：按 status 分支组装，无数据的节点不渲染（不造假时间戳）——
     // 每个时间戳节点（createTime/payTime/pickupDate）都先判字段真值；已完成/已取消无对应时间字段，
     // 仅显状态行（契约明定不编造）。cancelled 只显「已取消」行不显后续；
@@ -570,6 +576,14 @@ export default {
 .oi-name { flex: 1; min-width: 0; font-size: 26rpx; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oi-qty { font-size: 24rpx; color: var(--c-text-3); margin: 0 20rpx; }
 .oi-price { font-size: 26rpx; font-weight: 600; color: var(--c-warn); }
+/* P11-14-1（D4）行级评价直达小钮：completed 单明细行尾胶囊钮，主色描边（零 hex） */
+.oi-review {
+  font-size: 22rpx;
+  color: var(--c-primary);
+  border: 1rpx solid currentColor;
+  border-radius: 16rpx;
+  padding: 2rpx 12rpx;
+}
 .order-item-empty { padding: 12rpx 0; font-size: 22rpx; color: var(--c-disabled); }
 
 .order-info { padding: 0 24rpx; border-top: 1rpx solid var(--c-fill); }

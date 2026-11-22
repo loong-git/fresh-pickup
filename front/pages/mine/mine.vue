@@ -244,7 +244,7 @@ export default {
       return Number.isFinite(t) ? t : null
     },
     // ==================== 通用 ====================
-    // 手机号脱敏兜底展示（口径照订单页 order.vue 同款正则）：138****1234
+    // 手机号脱敏兜底展示（口径照订单页同款正则）：138****1234
     maskPhone(p) {
       const s = String(p || '')
       return /^1[3-9]\d{9}$/.test(s) ? s.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2') : s
