@@ -90,7 +90,7 @@ export default {
 :root {
 	--c-bg: #F7F6F3;
 	--c-card: #FFFFFF;
-	--c-topbar: #0B3D26;
+	--c-topbar: #E1251B; /* P11-13d 红主题收尾：页头 topbar 由绿翻红与主色一体，领券中心/免费领/邀请赚现金三页页头 var 引用自动生效 */
 	--c-border: #E7E5E0;
 	--c-text: #1C1917;
 	--c-text-2: #57534E;
