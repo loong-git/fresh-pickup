@@ -32,6 +32,14 @@
         <view class="withdraw-row">
           <input class="withdraw-input" type="digit" v-model="withdrawAmount"
                  placeholder="提现金额（元）" :disabled="withdrawing || retryLock > 0" />
+          <!-- P11-24（P-6/D3）「全部」快捷钮：一键把余额填进输入框（只填值不发请求，确认弹窗/
+               通道标注/提现请求零改动）。提交中/冷却中置灰早退，判据与输入框 :disabled 一字同源 -->
+          <view class="withdraw-all-btn"
+                :class="{ 'withdraw-all-btn-disabled': withdrawing || retryLock > 0 }"
+                :hover-class="(withdrawing || retryLock > 0) ? 'none' : 'pill-hover'"
+                @click="fillAllBalance">
+            <text class="withdraw-all-text">全部</text>
+          </view>
           <view class="withdraw-btn"
                 :class="{ 'withdraw-btn-disabled': !canWithdraw }"
                 :hover-class="canWithdraw ? 'pill-hover' : 'none'"
@@ -354,6 +362,15 @@ export default {
     // 文案必须显式「模拟通道·无真实资金流」（红线：资金文案不得无通道标注）。
     // 成功即重拉整页（余额与流水都是后端真值，回到第一页看最新）；失败 toast 后端 message 原文，
     // 写档 429 与读侧共用同一把 retryLock（口径同 loadMore：同锁同屏只带数一次）。
+    // P11-24（P-6/D3）「全部」快捷钮：实读 balance 是 number（data 初始 0、applyData/loadMore 经
+    // numOr 收数），String(balance) 直转会丢两位小数字面（61.6 ≠ "61.60"），故走余额显示同一实现
+    // moneyText（balanceText 同源、toFixed(2)）——与 D3「两位小数字面、与余额显示同源」口径一致；
+    // 填完天然通过 canWithdraw（两位小数形状 + ≤余额）。只填值不发请求，确认弹窗/通道标注/提现请求
+    // 零改动。提交中/冷却中早退：与输入框 :disabled 判据一字同源（在飞时填入会被成功支的清空覆盖）
+    fillAllBalance() {
+      if (this.withdrawing || this.retryLock > 0) return
+      this.withdrawAmount = this.moneyText(this.balance)
+    },
     onWithdrawTap() {
       if (!this.canWithdraw) return
       const amount = this.withdrawAmount
@@ -473,6 +490,15 @@ export default {
   font-size: 28rpx; color: var(--c-text);
   background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 12rpx;
 }
+/* P11-24（P-6/D3）「全部」快捷小钮：与输入框同高的小胶囊，色值全走 var(--c-*)；
+   禁用态照 .withdraw-btn-disabled 的透明度档（只管「看着按不动」，真闸在 fillAllBalance 首行早退） */
+.withdraw-all-btn {
+  flex-shrink: 0; height: 72rpx; padding: 0 24rpx;
+  display: flex; align-items: center; justify-content: center;
+  background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 12rpx;
+}
+.withdraw-all-text { font-size: 26rpx; font-weight: 600; color: var(--c-text-2); line-height: 1.4; }
+.withdraw-all-btn-disabled { opacity: .5; }
 .withdraw-btn {
   min-width: 160rpx; height: 72rpx; padding: 0 32rpx;
   display: flex; align-items: center; justify-content: center;

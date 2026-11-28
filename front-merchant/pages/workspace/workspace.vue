@@ -103,6 +103,38 @@
         >{{ refreshFailText }}</text>
       </view>
 
+      <!-- P11-24（M-2/D1）「今日经营一瞥」KPI 卡：照数据看板 dashboard.vue 的 statCards 消费姿势逐键取
+           getMerchantStat({ days: 1 }) 出参（days=1 即纯今日窗，D1 审计实证），口径照数据看板 D-4——
+           销售额=商品明细·券前（金额串后端 setScale(2) 已定形，页面不再 toFixed），取消单谓词只有
+           status='cancelled'（含未付款自动关单，与订单数不是同一分母），label 照 D-4 短语逐字。
+           api 返回 refundCount 故三格，缺键该格不显（textOf 兜 '--' 不编数）；失败/空整卡不显
+           （失败≠没有）；「拉取于」小字便于验收时辨认刷新确实发生（refresh-tip 同姿势） -->
+      <view v-if="todayStat" class="card kpi-card">
+        <view class="kpi-grid">
+          <view class="kpi-item">
+            <view class="kpi-box">
+              <text class="kpi-value">¥{{ textOf(todayStat.gmvBeforeCoupon) }}</text>
+              <text class="kpi-label">今日销售额（商品明细·券前）</text>
+            </view>
+          </view>
+          <view class="kpi-item">
+            <view class="kpi-box">
+              <text class="kpi-value">{{ textOf(todayStat.orderCount) }}</text>
+              <text class="kpi-unit">单</text>
+              <text class="kpi-label">今日订单数</text>
+            </view>
+          </view>
+          <view v-if="todayStat.refundCount !== undefined && todayStat.refundCount !== null" class="kpi-item">
+            <view class="kpi-box">
+              <text class="kpi-value">{{ textOf(todayStat.refundCount) }}</text>
+              <text class="kpi-unit">单</text>
+              <text class="kpi-label">取消单（含未付款）</text>
+            </view>
+          </view>
+        </view>
+        <text v-if="todayStatTimeText" class="kpi-time">拉取于 {{ todayStatTimeText }}</text>
+      </view>
+
       <!-- 入口逐个替换（§3.3）：已交付的挂路由并给 › 箭头；万一在册表漏一行，未在册的仍置灰 + 角标兜底（箭头与角标二选一，
            同时给会让用户以为角标那行也能点进去） -->
       <view class="card cell-card">
@@ -150,7 +182,7 @@
 // 商家工作台页（G-01 §3.3 建页）：五入口已全部交付在册（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态 / F-120 结算账单）；可点与否仍只由 ENTRY_ROUTES 裁决。
 // 数据加载纪律照用户端 front/pages/mine/mine.vue：onShow 每次重拉 me，回页即反映服务端最新状态。
 // 页面不预判角色：role 判定与 401/403 分流全在 api 层（handleEnvelope），本页只按 code 渲染三态。
-import { getMerchantMe, getPendingReplyCount, getMerchantPickupPlan, merchantStatusText, retrySecondsOf, coolingFullText } from '@/api/index.js'
+import { getMerchantMe, getPendingReplyCount, getMerchantPickupPlan, getMerchantStat, merchantStatusText, retrySecondsOf, coolingFullText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 429 冷却秒数的回落档：GET /api/merchant/me 的限流窗口是 60 秒（后端不给 data.retryAfterSeconds 时，
@@ -231,7 +263,14 @@ export default {
       // P11-21（M-1/D1-D3）备货单 cell 的「今日待备 N 单」徽标读数：null = 不显（0 或拉取失败都是 null，
       // 失败≠没有，绝不渲染成 0）；真源=GET /api/merchant/pickup-plan?date=今天 的 groups[].orderCount
       // 服务端聚合（多店 Σ，本页只转述不推算订单归属），判据与折叠在模板
-      todayStockBadge: null
+      todayStockBadge: null,
+      // P11-24（M-2/D1）「今日经营一瞥」KPI 卡读数快照：直接收 getMerchantStat({ days: 1 }) 的 data，
+      // 四键逐键原样（gmvBeforeCoupon 两位小数串 / orderCount / refundCount），页内零加减——口径照
+      // 数据看板 dashboard.vue D-4（label 用与看板卡片同一个短语：U-8「同一屏不许出现两个名字」）。
+      // null = 未拉到/失败/空回包（整卡不显，绝不显示成 0——失败≠没有），形状照上方 todayStockBadge 同族
+      todayStat: null,
+      // 本次 KPI 拉取成功时刻（ms），仅驱动「拉取于 HH:mm:ss」小字（refreshAt 同姿势）
+      todayStatTime: ''
     }
   },
   computed: {
@@ -285,6 +324,10 @@ export default {
     // 主题名（P9 主题 cell 的展示读数）：只从 this.theme 派生，不直接读 storage（屏上值与状态同源）
     themeName() {
       return this.theme === 'dark' ? '深色' : '浅色'
+    },
+    // P11-24（M-2/D1）：KPI 卡「拉取于」小字（refreshText 同族——formatClock 脏值回空串，空串整行隐藏）
+    todayStatTimeText() {
+      return this.todayStatTime ? this.formatClock(this.todayStatTime) : ''
     }
   },
   onShow() {
@@ -305,6 +348,9 @@ export default {
     // P11-21（D5）：今日待备徽标同样在 onShow 尾部并行一发（fire-and-forget，与上面两路互不等待；
     // 从备货单页返回时重拉，数字即回落；D3 失败/0 静默）
     this.loadTodayStockBadge()
+    // P11-24（M-2/D1）：今日经营 KPI 卡同样在 onShow 尾部并行一发（fire-and-forget，与上面三路互不
+    // 等待；从数据看板返回时重拉，读数即回落；失败/空整卡静默不显）
+    this.loadTodayStat()
   },
   // #ifdef H5
   onReady() {
@@ -432,6 +478,32 @@ export default {
         this._loadingStockBadge = false
       }
     },
+    // ==================== 今日经营一瞥 KPI 卡（P11-24 M-2/D1，独立只读请求） ====================
+    // 数据源：GET /api/merchant/stat?days=1（api 层 getMerchantStat；days=1 即纯今日窗——后端
+    // DATE_SUB(CURDATE(), INTERVAL (days-1) DAY)，契约 D1 审计实证）。消费姿势照 dashboard.vue 的
+    // 四卡逐键原样收下（金额串已由后端 setScale(2) 定形，页面不再 toFixed——那是把口径搬到展示层），
+    // 口径声明照数据看板 D-4：销售额=商品明细·券前，取消单谓词只有 status='cancelled'（含未付款
+    // 自动关单，与订单数不是同一分母，措辞「取消单（含未付款）」照 dashboard S-4 逐字）。
+    // onShow 与 loadMe/loadTodayStockBadge 并行不互相等待；单飞守卫照上方 loadTodayStockBadge 同款
+    // （慢回包旧盖新）；失败/空回包置 null 整卡不显（D1 失败≠没有），不弹错误不打扰工作台；
+    // 401 时请求层已收敛回登录页
+    async loadTodayStat() {
+      if (this._loadingTodayStat) return
+      this._loadingTodayStat = true
+      try {
+        const res = await getMerchantStat({ days: 1 })
+        const data = (res && res.data && typeof res.data === 'object') ? res.data : null
+        // 出参缺业务键（极端脏回包）按失败处理：宁可整卡不显也不渲染空格子
+        const hasBizKey = !!data && (data.gmvBeforeCoupon !== undefined || data.orderCount !== undefined)
+        this.todayStat = hasBizKey ? data : null
+        this.todayStatTime = hasBizKey ? Date.now() : ''
+      } catch (e) {
+        this.todayStat = null
+        this.todayStatTime = ''
+      } finally {
+        this._loadingTodayStat = false
+      }
+    },
     // 本地今日 YYYY-MM-DD（P11-21 D2 备货徽标的日期口径）：new Date() 取本地时区年月日拼 YYYY-MM-DD，
     // 形状照 C 端 free.vue 的 localToday（前一天/后一天族同源）。两端均无共享 utils/time.js
     // （front-merchant 无 utils 目录），故本地实现并在此声明：与服务端 CURDATE() 可能存在时区差异——
@@ -495,6 +567,12 @@ export default {
       if (!Number.isFinite(d.getTime())) return ''
       const p = (n) => String(n).padStart(2, '0')
       return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    },
+    // P11-24（M-2/D1）：KPI 卡缺键兜底（dashboard.vue 同名方法同款：null/undefined/'' 显示 '--'，
+    // 不编数也不显示成 0——「没返回」与「是 0」是两件事）
+    textOf(v) {
+      if (v === null || v === undefined || v === '') return '--'
+      return String(v)
     },
     // ==================== 429 冷却（D5/M12：照 settlements.vue 的最小同款，秒级禁用范式） ====================
     // 秒数只由 api 层 retrySecondsOf 转述后端 data.retryAfterSeconds，取不到才回落本页读档的窗口（RETRY_COOLING_SECONDS）；
@@ -611,6 +689,25 @@ export default {
 .refresh-fail { display: block; margin-top: 8rpx; font-size: 22rpx; color: var(--c-danger); line-height: 1.5; }
 /* 降级行的冷却态（429）：秒数就在这一行里，置灰表明此刻点它不会发请求 */
 .refresh-fail-cooling { color: var(--c-text-4); cursor: not-allowed; }
+
+/* ==================== 4.2 今日经营一瞥 KPI 卡（P11-24 M-2/D1） ====================
+   形状照数据看板 dashboard.vue 的 stat-card 同族（50% 格 + 填充底小盒，flex-wrap 而非 grid），
+   配色全走 var(--c-*)；「拉取于」小字照本页 .refresh-tip 档 */
+.kpi-card { margin-top: 24rpx; padding: 8rpx; }
+.kpi-grid { display: flex; flex-wrap: wrap; }
+.kpi-item { width: 50%; box-sizing: border-box; padding: 8rpx; }
+.kpi-box {
+  display: flex; flex-direction: column; align-items: center; gap: 4rpx;
+  background-color: var(--c-fill); border-radius: 12rpx; padding: 20rpx 12rpx;
+}
+.kpi-value {
+  font-size: 36rpx; font-weight: 700; color: var(--c-text); line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.kpi-unit { font-size: 20rpx; color: var(--c-text-3); line-height: 1.4; }
+.kpi-label { font-size: 22rpx; color: var(--c-text-2); line-height: 1.4; text-align: center; }
+.kpi-time { display: block; margin: 12rpx 8rpx 4rpx; font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; }
 
 /* ==================== 4.5 登出/换账号行（.cell 体系取自 common.css，仅本页补居中危险语义红字） ==================== */
 .cell-logout { flex: 1; text-align: center; font-size: 28rpx; font-weight: 600; color: var(--c-danger); }

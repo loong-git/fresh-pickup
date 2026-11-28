@@ -50,6 +50,10 @@
       <!-- 常驻反馈行：四支（成功/幂等/404/400/429）都落在这一行，不只 toast——
            核销现场主理人正低头翻货，toast 一闪而过就等于没反馈。toast 同批发出，文案同一处生成 -->
       <text v-if="feedback" class="verify-feedback" :class="'verify-feedback-' + feedback.tone">{{ feedbackText }}</text>
+      <!-- P11-24（P-1/D2）本机核销计数行：只是本机按日累计的增益信息，口径标注逐字保留——
+           多设备不合并、绝不冒充全店真值（以门店实际为准）。null=还没读到/读失败不显；
+           0=今天还没核过，如实显 0。幂等重核不计数（只在非幂等成功支自增，见 bumpTodayVerifyCount） -->
+      <text v-if="todayVerifyCount !== null" class="verify-count-note">今日本机已核 {{ todayVerifyCount }} 单（多设备不合并，以门店实际为准）</text>
     </view>
 
     <!-- ==================== 3. 待取清单的日期条 ====================
@@ -259,7 +263,11 @@ export default {
       // 今日整日无批次就用明日（批次页首屏也默认明日），避免跳进批次页的今日空态死胡同
       alertTargetDate: '',
       // 关闭只在本页实例内生效：每次回页都重弹同一条，等于逼主理人再关一次
-      alertDismissed: false
+      alertDismissed: false,
+      // P11-24（P-1/D2）本机核销计数：null = 还没读到/读失败（计数行不显）；0 = 今天还没核过（如实显 0）。
+      // 真源=本机 storage 按日键 partner_verify_count_<YYYY-MM-DD>，仅非幂等成功支自增（幂等支不调）；
+      // 多设备不合并、绝不冒充全店真值（口径标注在模板逐字保留）
+      todayVerifyCount: null
     }
   },
   computed: {
@@ -333,6 +341,10 @@ export default {
     // onShow 请求无谓地挡掉（总纲验收④「后台切回倒计时准确」要的就是这一行）
     this.retryLock = this.retryLockRemaining()
     this.writeRetryLock = this.writeRetryLockRemaining()
+    // P11-24（P-1/D2）：回页重读本机当日核销计数——纯本地 storage 读，不发请求、不撞读侧桶，
+    // 放在下方读侧闸门早退之前（闸门只拦请求，不拦本地读数）；跨日归零由键含日期天然实现：
+    // 昨天的键今天读不到，自然从 0 重新起算
+    this.refreshTodayVerifyCount()
     // 首屏默认今天（本页是「今天来提货的人」这一件事，不像备货单那样让后端缺省顶上来）
     if (!this.queryDate) this.queryDate = this.todayStr()
     // X-4b：回页重拉要过读侧闸门。裁定口径同商家端本轮定稿——onShow 是「页面重新显示时自己发的请求」，
@@ -425,6 +437,9 @@ export default {
         } else {
           this.setFeedback('ok', '核销成功：' + this.orderSummary(data))
           this.code = ''
+          // P11-24（P-1/D2）：非幂等成功支才自增本机当日核销计数（幂等支不调——该码此前已核销，
+          // 重复放行一次都不算，与后端 D-6 幂等口径同源）
+          this.bumpTodayVerifyCount()
           // P4-5 S4（D2）：这一支本来就清码，补的是聚焦（改后下一单的键盘已经就位）
           this.refocusCodeInput()
         }
@@ -512,6 +527,37 @@ export default {
     setFeedback(tone, text) {
       this.feedback = { tone, text }
       this.showToast(text)
+    },
+    // ==================== 本机核销计数（P11-24 P-1/D2，纯本地 storage） ====================
+    // 键含日期（partner_verify_count_<YYYY-MM-DD>，日期形状用本页既有 todayStr()——与清单默认日
+    // 同一实现，不另起第二套日期函数）：跨日自动归零=旧键自然读不到，从 0 重新起算。
+    // 只在非幂等成功支自增（幂等=该码此前已核销，不计——与后端 D-6 同口径）；多设备不合并，
+    // 计数行口径标注逐字「（多设备不合并，以门店实际为准）」，绝不冒充全店真值。
+    // 读/写全 try-catch：storage 失败静默，计数行宁可不显也不谎报
+    todayVerifyCountKey() {
+      return 'partner_verify_count_' + this.todayStr()
+    },
+    // 非幂等成功支调用：读旧值（parseInt 兜 0）→ +1 → 写回 + 更新屏上读数
+    bumpTodayVerifyCount() {
+      try {
+        const key = this.todayVerifyCountKey()
+        const prev = parseInt(uni.getStorageSync(key), 10)
+        const next = (Number.isFinite(prev) && prev > 0 ? prev : 0) + 1
+        uni.setStorageSync(key, next)
+        this.todayVerifyCount = next
+      } catch (e) {
+        // 读/写失败静默：本行只是增益信息，不打扰核销现场（保持上次读数或 null 不显）
+      }
+    },
+    // onShow 调用：重读当日键。今天还没核过=读回 0（如实显 0 单，不是「没读过」的 null）；
+    // 读失败置 null 静默不显
+    refreshTodayVerifyCount() {
+      try {
+        const v = parseInt(uni.getStorageSync(this.todayVerifyCountKey()), 10)
+        this.todayVerifyCount = Number.isFinite(v) && v > 0 ? v : 0
+      } catch (e) {
+        this.todayVerifyCount = null
+      }
     },
     // ==================== 到货警示条（静默通道：失败不显示、不动四态、不起冷却） ====================
     // FE-2：名下多店时逐店查后聚合。原来只发一次不带 storeId 的请求，服务端按 Collections.min 挑一家
@@ -935,6 +981,10 @@ export default {
 .verify-feedback-neutral { color: var(--c-text-2); background-color: var(--c-fill); }
 .verify-feedback-err { color: var(--c-danger); background-color: var(--c-danger-soft); }
 .verify-feedback-cooling { color: var(--c-warn); background-color: var(--c-warn-soft); }
+
+/* P11-24（P-1/D2）本机核销计数行：照 .form-hint 小字档（--c-text-3 族），中性小字不与四支反馈色混轨——
+   它是增益信息不是结果反馈，绝不冒充全店真值 */
+.verify-count-note { font-size: 22rpx; color: var(--c-text-3); line-height: 1.5; }
 
 /* ==================== 3. 日期条（取值口径与 pickup-plan.vue 样式小节的「1. 日期条」同档） ==================== */
 .date-card { display: flex; flex-direction: column; gap: 12rpx; }
