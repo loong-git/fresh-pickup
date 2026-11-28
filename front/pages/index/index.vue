@@ -668,9 +668,9 @@ export default {
       homeGuideReached: false,     // 是否已达门槛（remaining<=0，切换副标题文案）
       // P11-14-3 浏览足迹，onShow 从 storage 刷新
       browseHistory: [],
-      // P11-14-4（D1）免费领活动简报：onReady 拉 freeCurrent 缓存一次（匿名可调），失败静默 online=false 不显；
-      // 活动在线态变化低频（运营配置），tab 页一次够——独立于引导弹窗 scheduleHomeGuide（零触碰）
-      freeBrief: { online: false, threshold: 0 }
+      // P11-14-4 引入、P11-16 批A 扩充：免费领活动简报（onShow 刷新，见 loadFreeBrief）——
+      // online 活动在线态 / threshold 门槛 / freeDishId 当前免费商品 id（凑单差额排除判据，null=未知不排除）
+      freeBrief: { online: false, threshold: 0, freeDishId: null }
     }
   },
   computed: {
@@ -693,12 +693,16 @@ export default {
     liveShowCartSaving() {
       return Number(this.liveCartSaving) > 0
     },
-    // P11-14-4（D2）凑单差额：购物车口径实时算——freeBrief.online && 非空车才有效；
-    // Σ 用实时价 rowUnitPrice（P11-10 I4 弹层行级切 live 同族口径，不用快照价）；
-    // 免费商品不进购物车（0 元随赠单与购物车分离），无需免费项排除
+    // P11-16 批A（A-D1/A-D2）凑单差额：口径对齐后端 recalcCartTotal 挂牌价真源（free 页 cartNoFreeTotal
+    // 同族）——Σ 取快照挂牌价 item.price，不用 rowUnitPrice（秒杀窗口内秒价会与 free 页/后端产生
+    // 「再挑X元 vs 已达标」互斥矛盾）；免费项（id===freeBrief.freeDishId）排除与 free 页同族 String 归一
+    // （免费件可被当普通商品加购，0 元随赠不占门槛）
     freeRemaining() {
       if (!this.freeBrief.online || !this.cart || this.cart.length === 0) return 0
-      const sum = this.cart.reduce((total, item) => total + this.rowUnitPrice(item) * (Number(item.quantity) || 0), 0)
+      const sum = this.cart.reduce((total, item) => {
+        if (this.freeBrief.freeDishId != null && item && String(item.id) === String(this.freeBrief.freeDishId)) return total
+        return total + (Number(item.price) || 0) * (Number(item.quantity) || 0)
+      }, 0)
       return Math.max(0, +(this.freeBrief.threshold - sum).toFixed(2))
     },
     // 列表商品：'all'（推荐）时不过滤但秒杀商品优先（T-M3-13 排序语义），其余按字典 code 过滤（T-M3-12）
@@ -802,14 +806,14 @@ export default {
       const h = uni.getStorageSync('browse_history')
       this.browseHistory = Array.isArray(h) ? h : []
     } catch (e) { this.browseHistory = [] }
+    // P11-16 批A（A-D3）：活动简报 onShow 刷新（对齐 free 页同族形状）
+    this.loadFreeBrief()
   },
   onReady() {
     // 内容首次渲染后测量"tab 吸顶位"阈值（驱动 catTabStuck 变色 + 弹层滚动目标；券区异步渲染后 loadDicts 内会重测校准）
     this.measureStickyThreshold()
     // 免费领商品引导弹窗：冷启动会话首次进入，延迟 1.5s 判定弹出（不挡首屏渲染）
     this.scheduleHomeGuide()
-    // P11-14-4 活动简报缓存
-    this.loadFreeBrief()
   },
   onUnload() {
     if (this.countdownTimer) clearInterval(this.countdownTimer)
@@ -1136,8 +1140,9 @@ export default {
       if (!item || item.id == null) return
       uni.navigateTo({ url: '/pages/detail/detail?id=' + item.id })
     },
-    // P11-14-4（D1）活动简报缓存：online 判定照 showHomeGuide 同款口径（activityStatus 优先，兼容旧 status，
-    // 均缺省按有商品视为 online）；threshold 兜底 50 同款；失败静默不显（契约 D1）
+    // P11-16 批A（A-D3）：活动简报缓存改 onShow 刷新（对齐 free 页 loadCurrent onShow 同族形状，
+    // 活动状态/threshold 中途变更首页即时跟上）；online/threshold 判定照 showHomeGuide 同款口径；
+    // 失败静默不显（增强功能不伤主流程）
     async loadFreeBrief() {
       try {
         const res = await freeCurrent()
@@ -1147,9 +1152,13 @@ export default {
         if (typeof status !== 'string' || !status) status = data.status
         if (!status) status = (data.dish || (Array.isArray(data.pool) && data.pool.length)) ? 'online' : 'empty'
         const threshold = Number(data.threshold)
+        // P11-16 批A（A-D2）：免费件 id（dish 单商品优先，回退候选池首位——与 showHomeGuide 弹窗商品同款兜底）
+        const briefDish = (data.dish && typeof data.dish === 'object' && data.dish.id != null) ? data.dish
+          : ((Array.isArray(data.pool) && data.pool[0] && data.pool[0].id != null) ? data.pool[0] : null)
         this.freeBrief = {
           online: status === 'online',
-          threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 50
+          threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 50,
+          freeDishId: briefDish ? briefDish.id : null
         }
       } catch (e) { /* 失败静默：凑单提示是增强功能 */ }
     },
