@@ -30,6 +30,16 @@
       </view>
     </view>
 
+    <!-- ==================== 2b. 浏览足迹入口（P11-18：独立页承载完整列表+清空管理，首页横滑条只显一屏横滑） ==================== -->
+    <view class="card cell-card" @click="goBrowseHistory">
+      <view class="cell">
+        <text class="cell-icon">🧭</text>
+        <text class="cell-title">浏览足迹</text>
+        <text class="cell-sub">最近看过的商品</text>
+        <text class="cell-arrow">›</text>
+      </view>
+    </view>
+
     <!-- ==================== 3. 我的订单行（整行跳订单页；订单页内部已有四状态 tab，不重复做） ==================== -->
     <view class="card cell-card" @click="goOrder">
       <view class="cell">
@@ -235,6 +245,8 @@ export default {
       if (!this.hasToken) { this.goLogin(); return }
       uni.navigateTo({ url: '/pages/my-reviews/my-reviews' })
     },
+    // 浏览足迹行（P11-18 D7）：跳独立浏览足迹页（完整 20 条列表+清空管理；storage 本地数据无需登录态）
+    goBrowseHistory() { uni.navigateTo({ url: '/pages/browse-history/browse-history' }) },
     // 券 expireAt -> 毫秒时间戳：null/空/解析失败一律返回 null（按"永不过期"语义归可用）。
     // F-09 保留：couponGroups 归类内部调用此方法，误删则登录态≥1 张券时 TypeError→概要行崩溃白屏
     // （且游客态验收路径测不出该崩溃，risks 首条）
