@@ -115,6 +115,21 @@
               <text class="supply-text">供货价 {{ fmtSupply(d.supplyPrice) }}</text>
             </view>
           </view>
+          <!-- P11-20 行级快改钮（docs/十一期规划/P11-20-商品行级快改契约.md D1/D2）：上下架 5 步→1 步。
+               @click.stop 必须有——dish-item 整行 tap=goEdit，不带 stop 的话点钮会跳进编辑页；
+               文案按行 onSale 互斥（isOnSale 同款判据），在飞时发起钮切「处理中…」；
+               置灰只做视觉（row-act-off），拦截与告知在 quickToggleSale/quickStock 里（不加原生 disabled，
+               那会把「为什么点不动」的 toast 指路一起吞掉——与本页 goCreate 同款纪律） -->
+          <text
+            class="row-act"
+            :class="{ 'row-act-off': quickBusyId !== null || quickCooling }"
+            @click.stop="quickToggleSale(d)"
+          >{{ quickBusyId === d.id && quickBusyOp === 'sale' ? '处理中…' : (isOnSale(d) ? '下架' : '上架') }}</text>
+          <text
+            class="row-act"
+            :class="{ 'row-act-off': quickBusyId !== null || quickCooling }"
+            @click.stop="quickStock(d)"
+          >{{ quickBusyId === d.id && quickBusyOp === 'stock' ? '处理中…' : '库存' }}</text>
           <text class="cell-arrow">›</text>
         </view>
       </view>
@@ -142,7 +157,7 @@
 // 数据加载纪律照 workspace.vue：onShow 每次重拉（编辑页改完回页即反映最新值），带 in-flight 守卫防连点。
 // 401 由 api 层统一清态回登录页（并 toast 告知原因），本页不再处理跳转；403 透 message 不清 token（handleEnvelope 语义），
 // 本页对 403/404 这类确定性失败给「回工作台」出口而非重试。
-import { getMerchantDishes, getDishCategories, getMerchantMe, merchantFileUrl, merchantStatusText, retrySecondsOf, coolingFullText, coolingLeadText, cooldownPillText } from '@/api/index.js'
+import { getMerchantDishes, getDishCategories, getMerchantMe, merchantFileUrl, merchantStatusText, retrySecondsOf, coolingFullText, coolingLeadText, cooldownPillText, setMerchantDishOnSale, adjustMerchantDishStock } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 429 冷却秒数的回落档：本端点（GET /api/merchant/dishes）限流窗口是 60 秒
@@ -163,6 +178,22 @@ const CATEGORY_RETRY_FALLBACK_SECONDS = 60
 // + 尾缀小字「库存偏低」；stock>阈值 原样。纯展示定形（照 fmtPrice/fmtSupply 同口径），
 // 不参与任何页内算术、不触碰增删改/上下架/秒杀只读任何写路径。
 const STOCK_LOW_THRESHOLD = 5
+
+// ==================== P11-20 行级快改（docs/十一期规划/P11-20-商品行级快改契约.md） ====================
+// 行内写钮撞 429 时闸门的回落秒数（D3，照 dish-edit.vue 的 WRITE_GATE_FALLBACK_SECONDS 同源）：
+// setOnSale / adjustStock 两枚桶都是 MerchantDishController 的 USER 10 次 / 60 秒
+//（dish-edit.vue:223-227 注释登记过这两枚桶的档位），窗口长度与列表 GET 那枚（RETRY_COOLING_SECONDS）
+// 同为 60 秒，故别名复用它——不新增时长字面量（dish-edit 同款纪律：页内时长出处只有
+// 后端 data.retryAfterSeconds（api 层 retrySecondsOf 转述）与这枚窗口保守上限，页内零推算）。
+const QUICK_WRITE_GATE_FALLBACK_SECONDS = RETRY_COOLING_SECONDS
+
+// 行级写锁的「锁键 → 锁名」表（X-5：每处文案必须能看出它在报哪把锁）：
+// 两枚锁名与 dish-edit.vue COOLING_LOCK_LABEL 的 stock/sale 逐字同名——同一把桶就该同一句说法，
+// 商家在列表页被限流、进编辑页又被限流时，看到的归因必须是同一个词
+const QUICK_LOCK_LABEL = {
+  sale: '上下架',
+  stock: '库存调整'
+}
 
 export default {
   data() {
@@ -220,7 +251,27 @@ export default {
       retryLockUntil: 0,
       // 图片加载失败标记（按 dish.id）：与 C 端 index.vue 的 imgFail / onImgFail 同款——失败才回退 emoji，
       // 成功过的一次性标记在每次重拉后清掉，否则商家换了好图仍显示 emoji
-      imgFail: {}
+      imgFail: {},
+      // ==================== P11-20 行级快改 ====================
+      // 在飞行 id（null = 空闲）：行级写钮的单飞防重判据（模板据它切「处理中…」/置灰，
+      // 方法入口据它早退——连点第二击是一次重复写，形状照 dish-edit 的 busySale/adjusting 那条 M4 纪律）
+      quickBusyId: null,
+      // 在飞钮（'sale' | 'stock' | ''）：发起钮才切「处理中…」，另一钮只置灰——
+      // 整行两个钮同时说「处理中…」读不出是哪个动作在飞
+      quickBusyOp: '',
+      // 行级两把 429 写锁（D3，形状照 dish-edit.vue 的 writeGates 逐字对齐，只留本页用到的 sale/stock 两枚；
+      // feedback 常驻行不留——列表行没有「栏」可落，失败反馈按 D5 走 toast）：
+      // retryAt = 墙上时钟锚点（闸门真值，ms），seconds = 由它派生的剩余秒数。
+      // 两把互不相干：桶身份是「控制器类名 + 方法名」（RateLimitInterceptor#bucketKey），
+      // 上/下架撞的桶（setOnSale）与库存增量撞的桶（adjustStock）各计各的配额——
+      // 共用一枚就会反向误锁（dish-edit.vue:619-625 那条结论在这里同样成立）
+      writeGates: {
+        sale: { retryAt: 0, seconds: 0 },
+        stock: { retryAt: 0, seconds: 0 }
+      },
+      // 两把闸门共用的一枚定时器（tick 只换算派生值，不各自 setInterval）：onUnload 单点成对清，
+      // 两把全到期时它自己摘（见 tickWriteGates）
+      writeGatesTimer: null
     }
   },
   computed: {
@@ -302,6 +353,13 @@ export default {
           : coolingLeadText('类目')
       }
       return this.categoriesError ? '类目加载失败：' + this.categoriesError + '，点击重试' : ''
+    },
+    // P11-20：行级两把写锁是否任一在冷却中（true = 行内两钮置灰）。置灰只是视觉，
+    // 拦截在方法入口 writeGateRemaining 早退 + toast 带秒数（照 dish-edit「原生 disabled 不加」纪律）。
+    // 剩余秒数只从墙上时钟锚点现算（writeGateRemaining），到期回 0 —— 屏上的置灰、点击的判定、
+    // toast 里那句用的是同一个来源，不存在「两处数互相矛盾」
+    quickCooling() {
+      return Object.keys(this.writeGates).some((k) => this.writeGateRemaining(k) > 0)
     }
   },
   onLoad() {
@@ -365,6 +423,9 @@ export default {
     // 残值会让下一实例的闸门从上一实例那里读数
     this.stopRetryLock()
     this.stopCatRetryLock()
+    // P11-20：行级两把写闸门一起清（锚点与派生读数成对归零 + 摘共享定时器）——
+    // 残值会让下一实例的点击侧读到上一实例的数字（同上方两枚锁的 FE-5 纪律）
+    this.stopWriteGates()
   },
   methods: {
     // ==================== 数据加载 ====================
@@ -661,6 +722,206 @@ export default {
       this._resetFiltersOnReturn = true
       uni.navigateTo({ url: '/pages/dish-edit/dish-edit' })
     },
+    // ==================== P11-20 行级快改（docs/十一期规划/P11-20-商品行级快改契约.md） ====================
+    // 闸门顺序照 dish-edit.vue changeOnSale/adjustStock 逐字对齐（M4）：
+    // ① 单飞早退（判在最前，第二击不多报一声「冷却中」）；② writeBlocked 预判早退（非 active 商家
+    // 的写请求必然 403，当场拦住并指路——快照只是预判，真判归服务端）；③ 429 写锁早退（冷却里再点
+    // 只会续桶）；④ 下架的 showModal 确认判在 busy 置位之前（点「不下架」等于什么都没发生过，
+    // 既不许锁住按钮也不许起冷却——那是在偷商家的限流额度）；⑤ 置在飞 → 请求 → 行级回写。
+    // 行内下架/上架（D1）：目标态按行 onSale 互斥，isOnSale 判据与徽标同一份（Number(onSale)===1）；
+    // setMerchantDishOnSale 收 1/0（api 层 TINYINT 口径，见 api/index.js 该函数注释）
+    async quickToggleSale(d) {
+      if (this.quickBusyId !== null) return
+      if (this.writeBlocked) {
+        uni.showToast({ title: '商家当前' + (this.statusText || '非正常营业') + '，暂不能上下架商品', icon: 'none' })
+        return
+      }
+      const gateLeft = this.writeGateRemaining('sale')
+      if (gateLeft > 0) {
+        uni.showToast({ title: coolingFullText(QUICK_LOCK_LABEL.sale, gateLeft), icon: 'none' })
+        return
+      }
+      const target = this.isOnSale(d) ? 0 : 1
+      // 只给「下架」加确认（D1）：下架有可见损失（C 端不可下单 + 撤出推荐位），上架是恢复语义、加确认只会变啰嗦
+      // ——与 dish-edit.vue changeOnSale 的「上架不确认」同款语义
+      if (target === 0) {
+        const ok = await this.confirmQuickOffSale()
+        if (!ok) return
+      }
+      this.quickBusyId = d.id
+      this.quickBusyOp = 'sale'
+      try {
+        const res = await setMerchantDishOnSale(d.id, target)
+        // D4 行级更新：成功后就地翻这一行（换新引用，照 plan-orders markRowShortage 的姿势），不整表重拉
+        // ——重拉打的是读侧 GET 桶（30 次/分），翻一行烧一次读额度还会把筛选/滚动位置冲掉
+        this.patchDishRow(d.id, { onSale: target })
+        uni.showToast({ title: target === 1 ? '已上架' : '已下架', icon: 'none' })
+      } catch (e) {
+        // 429（该桶 USER 10 次/60 秒）：起闸（秒数唯一出处=api 层 retrySecondsOf 转述的后端
+        // data.retryAfterSeconds，回落 QUICK_WRITE_GATE_FALLBACK_SECONDS）+ toast 点名「上下架」带秒数
+        if (e && e.code === 429) {
+          this.startWriteGate('sale', e)
+          uni.showToast({ title: coolingFullText(QUICK_LOCK_LABEL.sale, this.writeGateRemaining('sale')), icon: 'none' })
+          return
+        }
+        // 403（停留期间被停业/清退）/404（行不存在）/400/500/网络异常：后端 message 原文透出
+        //（403/404 的 reason 与兜底文案已有 F-123 机制，D5「失败走既有错误反馈路径」）
+        uni.showToast({ title: (e && e.message) || '操作失败，请稍后重试', icon: 'none' })
+      } finally {
+        this.quickBusyId = null
+        this.quickBusyOp = ''
+      }
+    },
+    // 行内下架二次确认（D1）：Promise 化 uni.showModal，姿势照 dish-edit.vue confirmOffSale；
+    // confirmText/cancelText 与编辑页逐字同名（同一动作同一副按钮文案）；confirmColor 取 danger
+    // 浅档值 #C81E1E（=App.vue --c-danger，uni.showModal 的 confirmColor 只收字面色、收不了 CSS var，
+    // C 端 main.vue/search.vue 等多处同款先例；styles 仍走 var(--c-danger)，不入 theme-audit style 段扫描面）。
+    // 关闭/fail 一律 false——弹框起不来的端宁可这一次下架不发，也不能替商家做有损失的决定
+    confirmQuickOffSale() {
+      return new Promise((resolve) => {
+        uni.showModal({
+          title: '下架商品',
+          content: '下架后 C 端不可下单并撤出推荐位',
+          confirmText: '确认下架',
+          cancelText: '不下架',
+          confirmColor: '#C81E1E',
+          success: (res) => resolve(!!(res && res.confirm)),
+          fail: () => resolve(false)
+        })
+      })
+    },
+    // 行内库存钮（D2）：ActionSheet 四项 → delta 正补负减走 adjustMerchantDishStock。
+    // writeBlocked 预判在弹层之前：停业/清退商家点开面板再选完才吃 403 最坑（同 goCreate 的当场指路纪律）
+    quickStock(d) {
+      if (this.quickBusyId !== null) return
+      if (this.writeBlocked) {
+        uni.showToast({ title: '商家当前' + (this.statusText || '非正常营业') + '，暂不能调整库存', icon: 'none' })
+        return
+      }
+      // 清零项的形状（任务书 D2「实读后端对 delta 使结果为负的校验后定形状」）：
+      // 后端只拦「减成负数」（400「库存不足，不能减成负数」），delta = -stock 恰好到 0 不触发，
+      // 故 stock>0 时正常给「清零售罄」；stock=0 时清零的 delta=0——编辑页页内校验明确拒绝
+      // n<=0（「请填写要调整的库存数量（正整数）」），后端同样不收 0 增量，所以这一项换成
+      // 「库存已是 0」的提示态，选中只 toast 不发请求
+      const stock = Number(d && d.stock)
+      const canClear = Number.isFinite(stock) && stock > 0
+      uni.showActionSheet({
+        itemList: ['＋10 库存', '＋50 库存', canClear ? '清零售罄' : '库存已是 0', '去编辑页精调'],
+        success: (res) => this.onQuickStockPick(d, res && res.tapIndex, canClear),
+        fail: () => {}
+      })
+    },
+    // ActionSheet 分派：0/1 → +10/+50；2 → 清零（delta=-stock，|delta|≤1000 与编辑页同款页内校验——
+    // api 层明写 |delta| ≤ 1000，超限后端 400，囤大库存的商品必须指路编辑页分次调）；3 → goEdit 精调
+    onQuickStockPick(d, tapIndex, canClear) {
+      const idx = Number(tapIndex)
+      if (idx === 3) {
+        // 精调走既有 goEdit（编辑页带 ±1000 内任意增量与方向选择），不发写请求、不占在飞态
+        this.goEdit(d)
+        return
+      }
+      if (idx === 2) {
+        if (!canClear) {
+          uni.showToast({ title: '当前库存已是 0', icon: 'none' })
+          return
+        }
+        const clearDelta = -Number(d.stock)
+        if (Math.abs(clearDelta) > 1000) {
+          uni.showToast({ title: '单次库存调整不能超过 ±1000，请进编辑页分次调整', icon: 'none' })
+          return
+        }
+        this.sendQuickStock(d, clearDelta)
+        return
+      }
+      if (idx === 0 || idx === 1) this.sendQuickStock(d, idx === 0 ? 10 : 50)
+    },
+    // 库存增量的真发请求支（闸门顺序与 quickToggleSale 同一族，锁键换成 'stock'）：
+    // 429 是独立桶（MerchantDishController#adjustStock，与上下架那枚互不覆盖），文案点名「库存调整」
+    async sendQuickStock(d, delta) {
+      const gateLeft = this.writeGateRemaining('stock')
+      if (gateLeft > 0) {
+        uni.showToast({ title: coolingFullText(QUICK_LOCK_LABEL.stock, gateLeft), icon: 'none' })
+        return
+      }
+      this.quickBusyId = d.id
+      this.quickBusyOp = 'stock'
+      try {
+        const res = await adjustMerchantDishStock(d.id, delta)
+        // D2 返回值回显纪律（api 层注释明写）：data 是落库后的真实库存——并发下它不等于
+        // 「进入页面时看到的库存 + delta」，必须以服务端返回覆盖，页内不自算（编辑页 currentStock 同款姿势）。
+        // Number.isFinite 只防信封异常态把 NaN 写进行：真值缺失时退回后端 message，不编造一个本地读数
+        const real = Number(res && res.data)
+        if (Number.isFinite(real)) this.patchDishRow(d.id, { stock: real })
+        uni.showToast({ title: Number.isFinite(real) ? '库存已更新（' + real + ' 件）' : ((res && res.message) || '库存已更新'), icon: 'none' })
+      } catch (e) {
+        if (e && e.code === 429) {
+          this.startWriteGate('stock', e)
+          uni.showToast({ title: coolingFullText(QUICK_LOCK_LABEL.stock, this.writeGateRemaining('stock')), icon: 'none' })
+          return
+        }
+        // 400「库存不足，不能减成负数」/403/404/500/网络异常：后端 message 原文透出（D5 既有反馈路径）
+        uni.showToast({ title: (e && e.message) || '库存调整失败，请稍后重试', icon: 'none' })
+      } finally {
+        this.quickBusyId = null
+        this.quickBusyOp = ''
+      }
+    },
+    // D4 行级回写：换整个数组元素而不是按下标就地赋值（照 plan-orders.vue markRowShortage 的
+    // 「一次替换一个新引用」纪律，不依赖就地变更的侦测时机；:key=d.id 换新对象也不会让行重建或串位）。
+    // 找不到 = 列表在这条请求在途期间已被重拉/换条件清掉，那次回包里服务端就带着最新值，
+    // 无需也不该再往一份不属于本次条件的新列表里补旧行（markRowShortage 同款判据）
+    patchDishRow(id, patch) {
+      const key = String(id)
+      const idx = this.dishes.findIndex((r) => String(r && r.id) === key)
+      if (idx < 0) return
+      const next = this.dishes.slice()
+      next[idx] = Object.assign({}, next[idx], patch)
+      this.dishes = next
+    },
+    // ==================== 行级 429 写闸门（D3，形状照 dish-edit.vue startWriteGate 族逐字对齐） ====================
+    // 为什么是墙上时钟锚点 + 派生读数（FE-5）：H5 后台标签页会把 setInterval 压到远慢于 1 秒，
+    // 自减读数会停在最后一次 tick 的旧值上；锚点只由 retrySecondsOf 转述的后端真值换算，页内零推算时长
+    startWriteGate(key, err) {
+      const g = this.writeGates[key]
+      // 秒数唯一出处＝api 层 retrySecondsOf 转述的 data.retryAfterSeconds；后端没给数才回落到
+      // 同档窗口的保守上限 QUICK_WRITE_GATE_FALLBACK_SECONDS（RETRY_COOLING_SECONDS 的别名，不是新数值）
+      g.retryAt = Date.now() + retrySecondsOf(err, QUICK_WRITE_GATE_FALLBACK_SECONDS) * 1000
+      g.seconds = this.writeGateRemaining(key)
+      if (!this.writeGatesTimer) this.writeGatesTimer = setInterval(() => this.tickWriteGates(), 1000)
+    },
+    // 剩余秒数只从锚点现算（到期回 0）：点击时的判定、quickCooling 的置灰、toast 里那句同源
+    writeGateRemaining(key) {
+      const at = this.writeGates[key].retryAt
+      if (!(at > 0)) return 0
+      return Math.max(0, Math.ceil((at - Date.now()) / 1000))
+    },
+    tickWriteGates() {
+      const keys = Object.keys(this.writeGates)
+      let live = 0
+      keys.forEach((k) => {
+        const g = this.writeGates[k]
+        if (!(g.retryAt > 0)) return
+        g.seconds = this.writeGateRemaining(k)
+        if (g.seconds > 0) live++
+        else g.retryAt = 0
+      })
+      // 两把全到期就自己摘表：留一枚每秒空转的 interval 会一直触发重渲染（dish-edit 同款）
+      if (!live) this.stopWriteGatesTimer()
+    },
+    stopWriteGatesTimer() {
+      if (this.writeGatesTimer) { clearInterval(this.writeGatesTimer); this.writeGatesTimer = null }
+    },
+    // onUnload 用：两把闸门的锚点与派生读数成对归零 + 摘共享定时器
+    //（残值会让下一实例的点击侧读到上一实例的数字，dish-edit resetWriteGates 同款纪律）
+    stopWriteGates() {
+      Object.keys(this.writeGates).forEach((k) => {
+        this.writeGates[k].retryAt = 0
+        this.writeGates[k].seconds = 0
+      })
+      this.stopWriteGatesTimer()
+      this.quickBusyId = null
+      this.quickBusyOp = ''
+    },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
     // 滚轮接管的两道守卫（缺一条就是 bug，见各自注释）：
@@ -805,6 +1066,22 @@ export default {
 .price-unit { font-size: 22rpx; color: var(--c-text-3); margin-left: 4rpx; }
 /* 供货价（F-120 §2）：灰字推到行尾，与挂牌价（蓝）拉开色阶——它是结算口径读数不是售价 */
 .supply-text { margin-left: auto; font-size: 22rpx; color: var(--c-text-3); line-height: 1.4; font-variant-numeric: tabular-nums; }
+
+/* ==================== 5. P11-20 行级快改钮 ==================== */
+/* 小文字胶囊钮（D1/D2）：主色描边 + currentColor 边框（border 色随 color 走，双主题自动跟随），
+   字号与 .dish-badge/.dish-meta 同档（22rpx）；flex-shrink:0 防在 dish-item 的 flex 行里被挤压变形；
+   margin-left 与 dish-item 的 gap 叠出「正文→钮→钮」的均匀间距。零 hex：色值全走 var(--c-*)，
+   边框 currentColor 不引入字面色 */
+.row-act {
+  flex-shrink: 0;
+  font-size: 22rpx; font-weight: 600; line-height: 1.4;
+  color: var(--c-primary);
+  padding: 6rpx 16rpx;
+  border: 1rpx solid currentColor; border-radius: 999rpx;
+  margin-left: 4rpx;
+}
+/* 在飞/冷却置灰只做视觉（拦截与告知在方法里）：主色禁用档，边框 currentColor 跟随变灰 */
+.row-act-off { color: var(--c-primary-disabled); }
 
 /* ==================== 4. 空态卡 ==================== */
 .empty-card { margin-top: 24rpx; display: flex; flex-direction: column; align-items: center; }
