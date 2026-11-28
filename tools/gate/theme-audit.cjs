@@ -8,6 +8,10 @@
 //   2. hex 残留：三移动端（front/、front-merchant/、front-partner/）+ 运营端（front-admin/src/）
 //      全部 .vue 的 <style> 段内 hex 色值，超白名单即 FAIL（P9 系列「页面 scoped 色值全走 var(--c-*)」
 //      纪律的机器判据，防止字面色值回潮）。
+//   3. 过时禁值（P11-17 D1/D2/D4 新）：仅 front/ 面全文本扫描（.vue 全文不再只 style 段 + .js/.css/.scss/
+//      .json）的四枚过时色 #E02020/#FF6600/#0F7B4A/#0B3D26（大小写不敏感整 token）——三端不扫（七期绿
+//      #0F7B4A 是商家/主理人现役主题品牌色，D2 明文边界）。命中即 FAIL 并入退出码（D4），豁免五档见
+//      下方「过时禁值扫描」段逐条注释。
 // 输出风格照 pointer-audit.cjs：中文汇总行 + 分类 + 逐条「kind  file:line  值」；有 FAIL 时 exitCode=1。
 // f28-gate.sh §13 读退出码与本文件汇总行（第一行），本文件汇总措辞改动必须同步那边。
 const fs = require("fs");
@@ -32,6 +36,19 @@ const FRONT_ALLOWED = new Set([
   "#FFD84D", "#FFE14D", "#FFEDBE", "#FFC55C", "#FFF7F0", "#E8F8EF",
 ]);
 
+// P11-17（D1）过时禁值清单（仅 front/ 面全文本扫描——三端不扫，七期绿品牌是商家/主理人现役主题）：
+// 四值全部是 C 端红主题收口后不该再出现的过时色。豁免五档（星位/公章 .seal- 块/uni.scss dead 标记/
+// App.vue --c-ok 定义行/注释行）见下方「过时禁值扫描」段逐条注释。
+const STALE_HEX = [
+  { hex: "#E02020", why: "旧深红（P11-15 已统一 #E1251B）" },
+  { hex: "#FF6600", why: "旧橙（P11-16 已回轨 var；评分星位豁免）" },
+  { hex: "#0F7B4A", why: "旧主色绿（P11-13 已翻红；App.vue --c-ok 定义位豁免）" },
+  { hex: "#0B3D26", why: "八期深绿（P11-13 已消）" },
+];
+// 整 token 大小写不敏感：hex 串后接 \b 词边界断言——#E020201 这类 8 位 hex 的前缀形态不误命中
+//（末位 0 与后续数字 1 同为词字符、无边界），后跟 ;/}/空白/引号/行尾才成立。
+const STALE_RES = STALE_HEX.map((x) => ({ hex: x.hex, why: x.why, re: new RegExp(x.hex + "\\b", "i") }));
+
 // 双组完整性对比对象（浅组选择器 → 深组选择器）。C 端 front/App.vue 单主题，契约登记豁免。
 const PAIRS = [
   { file: "front-merchant/App.vue", light: ":root", dark: ":root.dark" },
@@ -45,14 +62,18 @@ const SKIP_DIR = new Set(["node_modules", "unpackage", "dist", ".git", "static"]
 // 四端 App.vue——「变量定义块」白名单只对它们生效（契约：白名单是变量定义块本身）
 const APP_VUES = new Set(["front/App.vue", "front-merchant/App.vue", "front-partner/App.vue", "front-admin/src/App.vue"]);
 
-function walk(dir, acc) {
+// exts 缺省 [".vue"]＝既有 hex 残留扫描面（一字不变）；P11-17 过时禁值扫描传五扩展名复用同一遍历
+//（skip 目录与点开头目录——含 front/.backup-*——两口径天然同 rules，D2「全部跟踪文本文件」的
+// 等效面：.backup-*/unpackage/static/dist 均不在 git 跟踪里）。
+function walk(dir, acc, exts) {
+  const extList = exts || [".vue"];
   let ents;
   try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return acc; }
   for (const e of ents) {
     if (e.name.startsWith(".") || SKIP_DIR.has(e.name)) continue;
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) walk(p, acc);
-    else if (e.name.endsWith(".vue")) acc.push(p);
+    if (e.isDirectory()) walk(p, acc, extList);
+    else if (extList.some((x) => e.name.endsWith(x))) acc.push(p);
   }
   return acc;
 }
@@ -209,14 +230,65 @@ for (const f of files) {
   if (inStyle) findings.push({ kind: "UNCLOSED_STYLE", file: f, line: lines.length, val: "<style> 段未闭合（判据面被截断，先修文件）" });
 }
 
+// —— 3) 过时禁值扫描（P11-17 D1/D2/D4：仅 front/ 面全文本——.vue 全文不再只 style 段 + .js/.css/.scss/.json；
+// 三端不扫：七期绿 #0F7B4A 是商家/主理人现役主题品牌色，D2 明文边界）。front/ 面单独走一遍 walk 收集
+//（exts 五扩展名），既有 style 段扫描（上面第 2 段）的文件面/逐条输出/读数一字不动。
+const STALE_EXTS = [".vue", ".js", ".css", ".scss", ".json"];
+const staleFiles = walk("front", [], STALE_EXTS);
+let staleLines = 0;
+for (const f of staleFiles) {
+  const nf = norm(f);
+  // 豁免②（契约 D3）：front/uni.scss 整文件——P11-16 dead 标记（文件头「P11-16 审计标记」，实测全仓
+  // 零消费，色值已过时勿引用），整文件豁免不逐行判。
+  if (nf === "front/uni.scss") continue;
+  const lines = fs.readFileSync(f, "utf8").split(/\r?\n/);
+  const mask = bc.insideClosedMask(lines, f); // .json 不在 helper 的 BLOCK_CAPABLE → noMask（JSON 无注释，正确）
+  // 豁免③（契约 D3 例外档①）：qualification.vue 拟物公章 .seal- 块——**块级**判据（与上方 style 段
+  // 扫描的 inSealBlock 完全同构，按行内容匹配不按行号，指针安全）。不能按「行含 .seal-」字面判：
+  // 公章 hex 落在 .seal-top/.seal-top-star 块**内部行**（实测 :151/:158 两行本体不含 .seal-），
+  // 按行字面判现状树就出 2 误报。
+  let inSealBlock = false, sealDepth = 0;
+  lines.forEach((raw, idx) => {
+    // 豁免⑤（契约 D3）：注释行——复用 codeOf 剥注释口径（.js/.css/.scss 走块注释 mask + 行注释剥离，
+    // 与既有 style 段扫描同一真相；.json 无注释天然全代码）。剥空即离场，注释里的历史值登记引用不误报。
+    const code = codeOf(raw, mask[idx]);
+    if (!code.trim()) return;
+    // 豁免④（契约 D3，任务简化式）：App.vue 里命中 #0F7B4A 的行若以 --c-ok 开头即豁免——合法定义位
+    //（:root 变量定义块内，P11-13 主色翻红后 ok 轨保留绿）。App.vue 其余位置命中照报。
+    if (nf === "front/App.vue" && /^--c-ok\s*:/.test(code.trim())) return;
+    // 豁免①（契约 D3 原文）：review.vue 评分星位——「含 .star.active 或 .star-picker .star.active 的行」，
+    // 后者包含前者子串，一个 includes 判据精确覆盖两处登记位（:402/:435）。不放宽到裸 .star
+    //（.review-stars/.star-picker 等非星色行不豁免，方向更严）。
+    if (nf === "front/pages/review/review.vue" && code.includes(".star.active")) return;
+    // 豁免③块追踪（见上）：选择器行先入账开块，块内行（含 hex 行）整体豁免直到闭合。
+    if (nf === "front/pages/qualification/qualification.vue") {
+      if (inSealBlock) {
+        for (const ch of code) {
+          if (ch === "{") sealDepth++;
+          else if (ch === "}") { sealDepth--; if (sealDepth <= 0) { inSealBlock = false; sealDepth = 0; break; } }
+        }
+        return;
+      }
+      if (/\.seal-[^{]*\{/.test(code)) { inSealBlock = true; sealDepth = 1; return; }
+    }
+    const hits = STALE_RES.filter((s) => s.re.test(code));
+    if (!hits.length) return;
+    staleLines++; // 摘要读数按「行」计（D4「命中 N 行」）；一行多枚过时值时逐枚出条便于定位
+    for (const h of hits) {
+      findings.push({ kind: "STALE_HEX_HIT", file: f, line: idx + 1, val: `${h.hex}（${h.why}）` });
+    }
+  });
+}
+
 // —— 输出（照 pointer-audit.cjs 风格）——
 const byKind = {};
 for (const x of findings) byKind[x.kind] = (byKind[x.kind] || 0) + 1;
 const hexResidue = byKind.HEX_RESIDUE || 0;
 const missingDark = byKind.MISSING_DARK || 0;
 const failCount = findings.length;
-// 汇总行（第一行，f28 §13 展示用；措辞改动同步 f28-gate.sh）
-console.log(`主题审计：双组完整性 ${pairsChecked} 组/${lightVars} 枚浅组变量，缺失 ${missingDark} 枚；hex 残留 ${hexResidue} 行（扫描 ${files.length} 个 .vue，命中 style 段字面 hex ${hexTotal} 处、白名单放行 ${whitelisted} 处），FAIL ${failCount} 条`);
+// 汇总行（第一行，f28 §13 展示用；措辞改动同步 f28-gate.sh）。P11-17（D4）追加「过时禁值命中 N 行」段，
+// 保持单行形态（f28 §13 say "  $(head -1 …)" 吃首行）；FAIL 计数含 STALE_HEX_HIT（退出码合并，D4）。
+console.log(`主题审计：双组完整性 ${pairsChecked} 组/${lightVars} 枚浅组变量，缺失 ${missingDark} 枚；hex 残留 ${hexResidue} 行（扫描 ${files.length} 个 .vue，命中 style 段字面 hex ${hexTotal} 处、白名单放行 ${whitelisted} 处）；过时禁值命中 ${staleLines} 行（front/ 全文本面 E02020/FF6600/0F7B4A/0B3D26，豁免：星位/公章/dead 标记/App.vue 变量块/注释），FAIL ${failCount} 条`);
 console.log("分类:", JSON.stringify(byKind, null, 0));
 console.log("口径备注：front/ 显式例外清单四档（.seal- 块／「P10-4 登记」锚行／FRONT_ALLOWED 八色值／注释行）之外，front/ 命中即真违规照 FAIL（P10-6 片3 收窄，含旧红回潮防线），四端已无「预期红」档。");
 console.log("");

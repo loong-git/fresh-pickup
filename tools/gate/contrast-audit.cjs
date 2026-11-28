@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // P10-4 B5｜对比度审计（报告型）——契约 docs/十期规划/P10-4-四端视觉对齐与质量防线契约.md §B5
 // 读三端 App.vue 的变量定义（商家/主理人 :root 浅组 + 运营端 :root 浅组与 html.dark 深组），
+// P11-17（D6）起补 C 端 front/App.vue :root 单主题 suite（报告型不变，退出码仍恒 0），
 // 对写死在下面的语义对清单算 WCAG 2.x 对比度，报告写 logs/out/contrast-report.txt。
 // **退出码恒 0、不进 f28 FAILS**：这是给用户过目的报告，不是门禁——契约 §B5 定案
 // 「不改 P7/P9 定稿 token 值本身（弱提示文字弱化是设计意图），低于 AA 的对逐条列出并标『设计取舍』」。
@@ -139,6 +140,22 @@ const SUITES = [
       ["成功字 × 成功软底", "--admin-ok-text", "--admin-ok-bg"],
     ],
   },
+  {
+    // P11-17（D6）补 C 端 suite：单主题无深组，suite 循环按 label 是否含「深组」选 selector，
+    // 本 label 不含 → 走 ":root"（与 merchant 同 selector 名，parseSelectorVars 天然兼容）。
+    // 变量名全部实存于 front/App.vue :root（P11-13 红主题 tokens），值现场解析。
+    // 券卡白字 × rgba 合成底组合不在脚本口径（清单只用 hex/var），见报告尾注的固定人工登记行。
+    app: "front/App.vue", label: "C 端 :root 单主题（P11-17 补）",
+    pairs: [
+      ["正文 × 页底", "--c-text", "--c-bg"],
+      ["正文 × 卡片", "--c-text", "--c-card"],
+      ["次级文字 × 页底", "--c-text-2", "--c-bg"],
+      ["弱提示 × 卡片", "--c-text-3", "--c-card"],
+      ["按钮白字 × 主色实底", "#FFFFFF", "--c-primary"],
+      ["警示字 × 警示软底", "--c-warn", "--c-warn-soft"],
+      ["危险字 × 危险软底", "--c-danger", "--c-danger-soft"],
+    ],
+  },
 ];
 
 // —— P10-6a 设计取舍（DESIGN_TAKE）豁免清单（契约 docs/十期规划/P10-6-收尾三片与演示数据清理契约.md 片 1 登记）——
@@ -189,6 +206,7 @@ for (const suite of SUITES) {
 
 rep.push(`汇总：${totalPairs} 对里 AA 达标 ${totalPairs - lowAA - designTake - unresolvable} 对、DESIGN_TAKE 豁免 ${designTake} 对（登记例外，不算 FAIL）、FAIL ${lowAA} 对（未豁免，需继续迭代）、解析失败 ${unresolvable} 对。`);
 rep.push("DESIGN_TAKE 豁免清单登记在 tools/gate/contrast-audit.cjs（P10-6a 契约片 1）：按钮白字×主色蓝=EP 品牌色定稿不许动；深组弱提示×页底=placeholder 语义档。清单外任何对 FAIL 即未达标；清单内对若实测 ≥4.5 则按 PASS 输出、标注自动消失。");
+rep.push("P11-17 人工登记（脚本口径外）：P11-13e 券卡白字 × rgba 白叠合成底 3.92:1 / .coupon-lock 2.81:1 —— DESIGN_TAKE（R-1 等用户口径），见 HANDOFF 登记区。");
 fs.writeFileSync(OUT, rep.join("\n") + "\n");
 console.log(`对比度报告已写 ${OUT}：${totalPairs} 对，AA PASS ${totalPairs - lowAA - designTake - unresolvable}，DESIGN_TAKE 豁免 ${designTake}，FAIL ${lowAA}，解析失败 ${unresolvable}`);
 process.exitCode = 0; // 报告型，退出码恒 0（契约 §B5：不进 FAILS）
