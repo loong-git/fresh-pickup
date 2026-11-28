@@ -544,7 +544,11 @@ export default {
         const prev = parseInt(uni.getStorageSync(key), 10)
         const next = (Number.isFinite(prev) && prev > 0 ? prev : 0) + 1
         uni.setStorageSync(key, next)
-        this.todayVerifyCount = next
+        // P11-25（D4）：写回后按键重读同步屏上读数——跨午夜场景 23:59:59 的 bump 写昨日键后
+        // 00:00:01 的下一次 bump 会读新键 0+1，屏上若沿用本地 +1 结果会把昨日数字带进新一天
+        //（审计轮11 #3「屏上不自愈」）；按键现读让屏上读数永远=当日键真值
+        const reread = parseInt(uni.getStorageSync(this.todayVerifyCountKey()), 10)
+        this.todayVerifyCount = Number.isFinite(reread) && reread > 0 ? reread : 0
       } catch (e) {
         // 读/写失败静默：本行只是增益信息，不打扰核销现场（保持上次读数或 null 不显）
       }

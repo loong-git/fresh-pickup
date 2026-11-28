@@ -804,16 +804,21 @@ export default {
       // n<=0（「请填写要调整的库存数量（正整数）」），后端同样不收 0 增量，所以这一项换成
       // 「库存已是 0」的提示态，选中只 toast 不发请求
       const stock = Number(d && d.stock)
-      const canClear = Number.isFinite(stock) && stock > 0
+      const stockValid = Number.isFinite(stock) && stock >= 0
+      const canClear = stockValid && stock > 0
+      const isZero = stockValid && stock === 0
+      // P11-25（D5）：第三项文案三态——可清零「清零售罄」/已是 0「库存已是 0」/读数异常中性兜底
+      //（旧版脏值——NaN/负数等非法形态——时谎称「库存已是 0」，审计轮11 #7）
+      const thirdItem = canClear ? '清零售罄' : (isZero ? '库存已是 0' : '库存读数异常，去编辑页查看')
       uni.showActionSheet({
-        itemList: ['＋10 库存', '＋50 库存', canClear ? '清零售罄' : '库存已是 0', '去编辑页精调'],
-        success: (res) => this.onQuickStockPick(d, res && res.tapIndex, canClear),
+        itemList: ['＋10 库存', '＋50 库存', thirdItem, '去编辑页精调'],
+        success: (res) => this.onQuickStockPick(d, res && res.tapIndex, canClear, isZero),
         fail: () => {}
       })
     },
     // ActionSheet 分派：0/1 → +10/+50；2 → 清零（delta=-stock，|delta|≤1000 与编辑页同款页内校验——
     // api 层明写 |delta| ≤ 1000，超限后端 400，囤大库存的商品必须指路编辑页分次调）；3 → goEdit 精调
-    onQuickStockPick(d, tapIndex, canClear) {
+    onQuickStockPick(d, tapIndex, canClear, isZero) {
       const idx = Number(tapIndex)
       if (idx === 3) {
         // 精调走既有 goEdit（编辑页带 ±1000 内任意增量与方向选择），不发写请求、不占在飞态
@@ -822,7 +827,9 @@ export default {
       }
       if (idx === 2) {
         if (!canClear) {
-          uni.showToast({ title: '当前库存已是 0', icon: 'none' })
+          // P11-25（D5）：已是 0 与读数异常两态分说——异常态（canClear 与 isZero 均否）中性指路
+          // 编辑页、不发请求，不再谎称「库存已是 0」；canClear/isZero 是面板打开时的快照，不重算
+          uni.showToast({ title: isZero ? '当前库存已是 0' : '库存读数异常，请去编辑页查看后调整', icon: 'none' })
           return
         }
         const clearDelta = -Number(d.stock)

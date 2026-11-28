@@ -106,9 +106,12 @@
              复用 common.css 的 .btn-main.btn-disabled 禁用族 + :disabled 真闸。
              「与单日导出互斥」落在模板层（两条路共用 copyHint 常驻行与剪贴板，并发会互相覆盖结果），
              单日导出的点击逻辑 copyPlanText 一字未动 -->
+        <!-- P11-25（D3）：合并钮禁用态并入 _copying（单日导出在飞也置灰合并钮，与 copyPlanText 入口
+             _copying||mergingExport 早退构成双向互斥）；_copying 是实例属性（照 _loadingXXX 族不进 data），
+             该置灰是兜底视觉闸，硬互斥在 copyPlanText 的入口早退那一行 -->
         <view class="export-actions">
           <button class="btn-main" :class="{ 'btn-disabled': mergingExport }" :disabled="mergingExport" @click="copyPlanText"><text>导出文本</text></button>
-          <button class="btn-main export-btn-merge" :class="{ 'btn-disabled': mergingExport }" :disabled="mergingExport" @click="mergeExportTodayTomorrow"><text>{{ mergingExport ? '合并中…' : '合并导出（今天+明天）' }}</text></button>
+          <button class="btn-main export-btn-merge" :class="{ 'btn-disabled': mergingExport || _copying }" :disabled="mergingExport || _copying" @click="mergeExportTodayTomorrow"><text>{{ mergingExport ? '合并中…' : '合并导出（今天+明天）' }}</text></button>
         </view>
         <view class="export-toggle" @click="toggleExportText">
           <text class="export-toggle-text">{{ showExportText ? '收起文本' : '展开文本' }}</text>
@@ -474,24 +477,32 @@ export default {
     // showToast: false —— uni-h5 的 setClipboardData 默认会自己弹一枚「复制成功」，
     // 那等于在页面还没知道真实结果前先替页面宣布成功；关掉它，文案由本页按 success/fail 分支决定
     async copyPlanText() {
-      const text = this.planText
-      if (!text) {
-        uni.showToast({ title: '当前没有可导出的备货内容', icon: 'none' })
-        return
-      }
+      // P11-25（D3）：单日导出在飞闸——与合并导出双向互斥（合并在飞已禁单日钮，这里补反向），
+      // 两路并发写剪贴板后完成者覆盖，商家会以为复制了单日实际是两日文本
+      if (this._copying || this.mergingExport) return
+      this._copying = true
       try {
-        await uni.setClipboardData({ data: text, showToast: false })
-        // 成功也要落到常驻行位（不只 toast）：非可信上下文下 setClipboardData 可能既不 reject
-        // 又没真写进去，只剩一次性 toast 就是「静默假成功」，商家得能在屏上回头核对这句
-        this.copyHint = '已复制到剪贴板，可粘贴核对'
-        this.copyOk = true
-        uni.showToast({ title: '已复制', icon: 'none' })
-      } catch (e) {
-        // 失败就说失败并把只读文本展开（非 secure context 下剪贴板会走到这一路）
-        this.copyHint = '复制失败，请长按文本框手动复制'
-        this.copyOk = false
-        this.showExportText = true
-        uni.showToast({ title: this.copyHint, icon: 'none', duration: 2000 })
+        const text = this.planText
+        if (!text) {
+          uni.showToast({ title: '当前没有可导出的备货内容', icon: 'none' })
+          return
+        }
+        try {
+          await uni.setClipboardData({ data: text, showToast: false })
+          // 成功也要落到常驻行位（不只 toast）：非可信上下文下 setClipboardData 可能既不 reject
+          // 又没真写进去，只剩一次性 toast 就是「静默假成功」，商家得能在屏上回头核对这句
+          this.copyHint = '已复制到剪贴板，可粘贴核对'
+          this.copyOk = true
+          uni.showToast({ title: '已复制', icon: 'none' })
+        } catch (e) {
+          // 失败就说失败并把只读文本展开（非 secure context 下剪贴板会走到这一路）
+          this.copyHint = '复制失败，请长按文本框手动复制'
+          this.copyOk = false
+          this.showExportText = true
+          uni.showToast({ title: this.copyHint, icon: 'none', duration: 2000 })
+        }
+      } finally {
+        this._copying = false
       }
     },
     toggleExportText() {
@@ -509,14 +520,19 @@ export default {
     // （new Date() 取本地时区年月日拼 YYYY-MM-DD；两端均无共享 utils/time.js，故本地复用不另造；
     // 与服务端 CURDATE() 可能存在时区差异——H5 端本地即北京时间）。上限钉死 2 天，不设可配。
     async mergeExportTodayTomorrow() {
-      // D4 在飞防重：单飞早退（按钮 :disabled 是第一道闸，这里兜连点竞态）
-      if (this.mergingExport) return
+      // D4 在飞防重 + P11-25（D3）反向闸：单飞早退（按钮 :disabled 是第一道闸，这里兜连点竞态）；
+      // 并入 _copying——单日导出在飞同样早退，与 copyPlanText 入口 _copying||mergingExport 对称成硬互斥
+      //（_copying 非响应式，模板置灰只是兜底视觉闸，真闸在这一行入口早退）
+      if (this.mergingExport || this._copying) return
       // 与本页 X-4 纪律同源：429 冷却期内不再给这把限流桶续命（只读既有 retryLock，不新增闸门状态）
       if (this.retryCoolingBlocked()) return
       // 上限钉死 2 天：今天 + 明天（写死，不设可配——防把导出做成可刷请求的口子）
-      const tomorrow = this.newToday()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      const days = [this.todayStr(), this.fmtDate(tomorrow)]
+      // P11-25（D2）：单基准派生两天——旧写法 todayStr() 与 newToday()+1 两次取墙上时钟，
+      // 毫秒级跨午夜窗口会让 days 变成 ['新今天','明天'] 同日两段（审计轮11 #2）
+      const base = this.newToday()
+      const t2 = new Date(base)
+      t2.setDate(t2.getDate() + 1)
+      const days = [this.fmtDate(base), this.fmtDate(t2)]
       // 每发打上自己的日期标签再进 Promise.all：裸 Promise.all 只回第一个 rejection，分不清哪天挂了，
       // D5 的失败提示要点名日期，必须逐发认领成败
       const pullOfDay = (date) => getMerchantPickupPlan({ date }).then(
@@ -530,6 +546,15 @@ export default {
         if (failed.length) {
           // 401：请求层已统一清态回登录页（含「请先登录」toast），本页不叠第二枚 toast（照 loadPlan 的 401 支）
           if (failed.some((p) => p.err && p.err.code === 401)) return
+          // P11-25（D1）：429 单独起读侧冷却闸（照 loadPlan 429 支同款 startRetryLock）——
+          // 本路径原先只区分 401，429 落 generic 失败提示不起闸，连点合并导出会持续给
+          // pickup-plan 读桶（30/60s，同桶挂着 P11-21 工作台备货徽标）续命
+          const hit429 = failed.find((p) => p.err && p.err.code === 429)
+          if (hit429) {
+            this.startRetryLock(hit429.err)
+            uni.showToast({ title: coolingFullText('合并导出', this.retryLock), icon: 'none', duration: 2000 })
+            return
+          }
           // D5 诚实失败：点名失败日期（N 以日期落地，与分段日期头同源），绝不半份复制——
           // 整段 early return，走不到下面的 setClipboardData
           const failMsg = '合并导出失败：' + failed.map((p) => p.date).join('、') + ' 数据获取失败，请逐日导出'
