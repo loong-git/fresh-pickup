@@ -1461,7 +1461,7 @@ export default {
         title: '删除商品',
         content: `是否删除选中的 ${this.checkedCount} 件商品？`,
         confirmText: '删除',
-        confirmColor: '#E02020',
+        confirmColor: '#C81E1E',
         success: (res) => {
           if (!res.confirm) return
           this.checkedItems.forEach(item => this.$store.commit('removeFromCart', item.id))

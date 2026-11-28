@@ -7,7 +7,7 @@
 const AVATAR_SVG = [
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">',
   '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">',
-  '<stop offset="0" stop-color="#FF7E5F"/><stop offset="1" stop-color="#E02020"/>',
+  '<stop offset="0" stop-color="#FF7E5F"/><stop offset="1" stop-color="#E1251B"/>',
   '</linearGradient></defs>',
   '<rect width="64" height="64" fill="url(#g)"/>',
   // 人形剪影：头（圆）+ 肩（半椭圆），纯白，水平居中，底边超出画布制造"胸像"裁切感

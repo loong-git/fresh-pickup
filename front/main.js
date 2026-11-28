@@ -410,7 +410,7 @@ setForbiddenHandler((payload) => {
 			+ (reasonText !== null ? reasonText + FORBIDDEN_TAIL : '当前账号可能受限，可退出登录后换账号，或联系客服。'),
 		confirmText: '退出登录',
 		cancelText: '知道了',
-		confirmColor: '#E02020',
+		confirmColor: '#C81E1E',
 		success: (res) => {
 			if (res.confirm) {
 				store.commit('setClearUser')

@@ -80,7 +80,7 @@
 	cursor: pointer;
 }
 /* 水滴 pin：border-radius 50% 50% 50% 0（左下尖角）+ rotate(-45deg) 尖端朝正下方；
-   营业态红 #E02020、白描边 + 红色投影；box-sizing:border-box 固定含描边 34×34，
+   营业态红主红 var(--c-primary)（#E1251B）、白描边 + 红色投影；box-sizing:border-box 固定含描边 34×34，
    保证上述尖端几何补偿不变；flex 居中承载反旋转图标 */
 .pickup-page .amap-store-pin {
 	position: absolute;
@@ -89,7 +89,7 @@
 	box-sizing: border-box;
 	width: 34px;
 	height: 34px;
-	background-color: #E02020;
+	background-color: var(--c-primary);
 	border: 2px solid #ffffff;
 	border-radius: 50% 50% 50% 0;
 	box-shadow: 0 2px 8px rgba(224, 32, 32, 0.45);
@@ -103,7 +103,7 @@
    与原三态优先级一致（selected > closed，zIndex 130 由 JS 写入） */
 .pickup-page .amap-store-pin-selected {
 	transform: translateY(-6px) rotate(-45deg) scale(1.25);
-	background-color: #E02020;
+	background-color: var(--c-primary);
 }
 /* 停业态：灰 pin（icon 同走漂白滤镜呈灰白剪影） */
 .pickup-page .amap-store-pin-closed {
@@ -184,7 +184,7 @@
 	flex: 1;
 	min-width: 0;
 	font-size: 24rpx;
-	color: #e02020;
+	color: var(--c-primary);
 	line-height: 1.5;
 	display: -webkit-box;
 	-webkit-box-orient: vertical;
@@ -197,12 +197,12 @@
 	flex-shrink: 0;
 	padding: 10rpx 22rpx;
 	background-color: #ffffff;
-	border: 1rpx solid #e02020;
+	border: 1rpx solid var(--c-primary);
 	border-radius: 999rpx;
 }
 .pickup-page .relocate-btn-text {
 	font-size: 24rpx;
-	color: #e02020;
+	color: var(--c-primary);
 	line-height: 1;
 	white-space: nowrap;
 }

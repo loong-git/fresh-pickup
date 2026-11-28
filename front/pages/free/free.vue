@@ -759,7 +759,7 @@ export default {
         content: `每人每日限领 1 份\n购物车满 ${this.fmtThreshold(this.threshold)} 元可获得领取资格（免费商品不计入门槛金额）\n当日 23:00 截单，免费商品凭 0 元订单到自提点随单自提\n数量有限先到先得`,
         showCancel: false,
         confirmText: '我知道了',
-        confirmColor: '#E02020'
+        confirmColor: '#E1251B'
       })
     },
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 2000 }) },
@@ -1068,7 +1068,7 @@ export default {
         title: '删除商品',
         content: `是否删除选中的 ${this.checkedCount} 件商品？`,
         confirmText: '删除',
-        confirmColor: '#E02020',
+        confirmColor: '#C81E1E',
         success: (res) => {
           if (!res.confirm) return
           this.checkedItems.forEach(item => this.$store.commit('removeFromCart', item.id))
@@ -1183,7 +1183,7 @@ export default {
           title: '登录提示',
           content: '请先登录后领取免费商品',
           confirmText: '去登录',
-          confirmColor: '#E02020',
+          confirmColor: '#E1251B',
           success: (res) => {
             if (res.confirm) this.goLogin()
           }

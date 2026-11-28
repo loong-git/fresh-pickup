@@ -155,7 +155,7 @@
 </template>
 
 <script>
-// 邀请赚现金页（F-04.3/F-05，多多买菜风格，白底+主红 #E02020，默认导航栏标题「邀请赚现金」）：
+// 邀请赚现金页（F-04.3/F-05，多多买菜风格，白底+主红 #E1251B，默认导航栏标题「邀请赚现金」）：
 // 余额大卡（¥balance + 累计已入账 + 提现按钮）+ 冻结提示条（frozenTotal=0 隐藏）
 // + 邀请信息区（F-05 承接原 invite 页功能：GET /api/invite/me 邀请码大卡+复制链接+已邀/已完成统计+脱敏记录列表）
 // + 规则说明 + 现金流水列表（type 1=邀请奖励 2=提现；status 0=冻结中 1=已入账）。
@@ -381,7 +381,7 @@ export default {
         content: `将提现全部余额 ¥${amountText}。演示环境模拟到账，不发生实际打款。确认提现？`,
         confirmText: '提现',
         cancelText: '取消',
-        confirmColor: '#E02020',
+        confirmColor: '#E1251B',
         success: (res) => {
           if (!res.confirm) return
           this.withdrawing = true

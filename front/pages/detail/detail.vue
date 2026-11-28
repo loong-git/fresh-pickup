@@ -503,7 +503,7 @@ export default {
     },
     // 头图轮播帧 2-5（商品海报）：文案固定，背景由 bgColor 同色系渐变衍生（rgba 黑压暗，保证白字可读）
     galleryFrames() {
-      const bg = this.dish.bgColor || '#FF6600'
+      const bg = this.dish.bgColor || '#E1251B'
       return [
         { text: '产地直采·新鲜到家', bg: bg },
         { text: '坏了包退·晚到必赔·极速退款', bg: `linear-gradient(180deg, ${bg}, rgba(0,0,0,.18))` },
@@ -627,7 +627,7 @@ export default {
         if (!dish || dish.id == null) return
         const list = uni.getStorageSync('browse_history')
         const old = Array.isArray(list) ? list : []
-        const rest = old.filter(it => !it || String(it.id) !== String(dish.id))
+        const rest = old.filter(it => it && String(it.id) !== String(dish.id))
         const entry = { id: dish.id, name: dish.name, emoji: dish.emoji, image: dish.image, bgColor: dish.bgColor, ts: Date.now() }
         uni.setStorageSync('browse_history', [entry].concat(rest).slice(0, 20))
       } catch (e) { /* storage 不可用静默：足迹是增强功能，失败不伤主流程 */ }

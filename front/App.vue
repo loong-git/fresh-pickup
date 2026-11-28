@@ -59,7 +59,7 @@ export default {
 				'left:0',
 				'right:0',
 				'z-index:99999',
-				'background-color:#E02020',
+				'background-color:#E1251B',
 				'color:#FFFFFF',
 				'font-size:13px',
 				'line-height:32px',

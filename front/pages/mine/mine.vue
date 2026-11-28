@@ -87,7 +87,7 @@
 </template>
 
 <script>
-// 「我的」个人中心页（多多买菜工具风，白底+主红 #E02020）：
+// 「我的」个人中心页（多多买菜工具风，白底+主红 #E1251B）：
 // 身份卡 / 优惠券概要入口 / 订单入口 / 评价概要入口 / 账号安全 / 申请成为商家 / 退出登录。
 // 登录态判定与渲染一律响应 store.user.token（mapState user）：
 // token 失效接口 401 时 request 层统一清登录态，本页随 store 自动降级游客视图，不残留已登录 UI。
@@ -383,7 +383,7 @@ export default {
         title: '退出登录',
         content: '确定退出当前账号？',
         confirmText: '退出',
-        confirmColor: '#E02020',
+        confirmColor: '#C81E1E',
         success: (res) => {
           if (!res.confirm) return
           this.$store.commit('setClearUser')

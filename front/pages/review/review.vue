@@ -383,7 +383,7 @@ export default {
 .dish-emoji { width: 120rpx; height: 120rpx; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; font-size: 64rpx; flex-shrink: 0; }
 .dish-info { display: flex; flex-direction: column; gap: 10rpx; }
 .dish-name { font-size: 30rpx; font-weight: 700; color: var(--c-text); }
-.dish-price { font-size: 28rpx; color: #FF6600; font-weight: 700; }
+.dish-price { font-size: 28rpx; color: var(--c-warn); font-weight: 700; }
 
 /* 评价区 */
 .review-section { background-color: #FFFFFF; padding: 24rpx; }
@@ -395,7 +395,7 @@ export default {
 .review-item:last-child { border-bottom: none; padding-bottom: 0; }
 .review-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14rpx; }
 .review-user { display: flex; align-items: center; gap: 12rpx; }
-.review-avatar { width: 52rpx; height: 52rpx; background: linear-gradient(135deg, #FF6600, var(--c-warn-bright)); border-radius: 50%; font-size: 24rpx; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.review-avatar { width: 52rpx; height: 52rpx; background: linear-gradient(135deg, var(--c-primary), var(--c-warn-bright)); border-radius: 50%; font-size: 24rpx; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 700; }
 .review-name { font-size: 26rpx; color: var(--c-text); font-weight: 600; }
 .review-stars { display: flex; gap: 2rpx; }
 .star { font-size: 26rpx; color: var(--c-border); }
@@ -403,7 +403,7 @@ export default {
 /* 超长评价内容折叠为 2 行（M3-T-07 line-clamp），expanded 时解除折叠 */
 .review-content { font-size: 26rpx; color: var(--c-text-2); line-height: 1.7; margin-bottom: 12rpx; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-all; }
 .review-content.expanded { -webkit-line-clamp: 999; }
-.review-expand { display: block; font-size: 24rpx; color: #FF6600; margin-bottom: 12rpx; }
+.review-expand { display: block; font-size: 24rpx; color: var(--c-primary); margin-bottom: 12rpx; }
 .review-time { font-size: 22rpx; color: var(--c-disabled); }
 /* P10-6b（D5）评价图三列网格缩略（样式照 detail.vue 评价图三列网格 CSS 同款：三列 gap/圆角/aspectFill） */
 .preview-imgs { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 12rpx; }
@@ -415,11 +415,11 @@ export default {
 .empty-icon { font-size: 80rpx; }
 .empty-text { font-size: 26rpx; color: var(--c-disabled); }
 /* 错误态重试按钮（M3-T-05 部分） */
-.btn-retry { margin-top: 24rpx; min-width: 240rpx; font-size: 26rpx; font-weight: 600; color: #FF6600; background-color: #FFFFFF; border: 1rpx solid #FF6600; border-radius: 0; padding: 14rpx 48rpx; line-height: 1.4; }
+.btn-retry { margin-top: 24rpx; min-width: 240rpx; font-size: 26rpx; font-weight: 600; color: var(--c-primary); background-color: #FFFFFF; border: 1rpx solid var(--c-primary); border-radius: 0; padding: 14rpx 48rpx; line-height: 1.4; }
 
 /* 底部栏 */
 .bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 100rpx; background-color: #FFFFFF; display: flex; align-items: center; justify-content: center; box-shadow: 0 -2rpx 16rpx rgba(0,0,0,.06); z-index: 100; }
-.btn-write { flex: 1; margin: 0 24rpx; height: 80rpx; background: linear-gradient(135deg, #FF6600, var(--c-warn-bright)); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+.btn-write { flex: 1; margin: 0 24rpx; height: 80rpx; background: linear-gradient(135deg, var(--c-primary), var(--c-warn-bright)); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
 
 /* 弹窗 */
 .popup-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,.5); z-index: 200; display: flex; align-items: flex-end; justify-content: center; }
@@ -436,7 +436,7 @@ export default {
 .form-group { margin-bottom: 24rpx; position: relative; }
 .review-textarea { width: 100%; height: 240rpx; background-color: var(--c-fill); border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; color: var(--c-text); box-sizing: border-box; line-height: 1.7; }
 .char-count { position: absolute; bottom: 12rpx; right: 16rpx; font-size: 20rpx; color: var(--c-disabled); }
-.btn-submit { width: 100%; height: 88rpx; background: linear-gradient(135deg, #FF6600, var(--c-warn-bright)); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+.btn-submit { width: 100%; height: 88rpx; background: linear-gradient(135deg, var(--c-primary), var(--c-warn-bright)); color: #FFFFFF; font-size: 28rpx; font-weight: 700; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
 /* 提交飞行中禁用态（P4-2 D3）：置灰提示「提交中…」，姿势照 index.vue btn-confirm-disabled（浅色底 + 降透明白字） */
 .btn-submit-disabled { background: var(--c-warn-hair); color: rgba(255,255,255,.9); }
 

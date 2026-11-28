@@ -672,7 +672,7 @@ export default {
         content: '确认删除最近搜索记录吗？',
         cancelText: '取消',
         confirmText: '确定',
-        confirmColor: '#E02020',
+        confirmColor: '#C81E1E',
         success: (res) => {
           if (!res.confirm) return
           this.searchHistory = []
@@ -741,7 +741,7 @@ export default {
         title: '清空购物车',
         content: '确定要清空购物车中的全部商品吗？',
         confirmText: '清空',
-        confirmColor: '#E02020',
+        confirmColor: '#C81E1E',
         success: (res) => {
           if (!res.confirm) return
           this.$store.commit('clearCart')

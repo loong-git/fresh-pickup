@@ -27,8 +27,8 @@
 		<view id="pickup-map" class="map-inner"></view>
 		<view class="map-legend">
 			<!-- R7 三态语义：营业红 pin（原蓝色圆点时代终结，图例色同步） -->
-			<view class="legend-item"><view class="legend-dot" style="background-color: #E02020;"></view><text class="legend-text">营业</text></view>
-			<view class="legend-item"><view class="legend-dot" style="background-color: #E02020;"></view><text class="legend-text">选中</text></view>
+			<view class="legend-item"><view class="legend-dot" style="background-color: var(--c-primary);"></view><text class="legend-text">营业</text></view>
+			<view class="legend-item"><view class="legend-dot" style="background-color: var(--c-primary);"></view><text class="legend-text">选中</text></view>
 			<view class="legend-item"><view class="legend-dot" style="background-color: #999999;"></view><text class="legend-text">停业</text></view>
 			<!-- F-06.6 R2 修复③：第四项「我所在的位置」——R8 头像化后光标为蓝色头像圆+蓝脉冲，
 				图例 dot 颜色同步 #1E6FFF 与光圈一致 -->
