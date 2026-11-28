@@ -122,6 +122,12 @@
           <view v-if="entry.key === 'reviews' && pendingReplyCount > 0" class="cell-badge">
             <text class="cell-badge-num">{{ pendingReplyCount > 99 ? '99+' : pendingReplyCount }}</text>
           </view>
+          <!-- P11-21（M-1/D1-D4）备货单 cell 的今日待备数字徽标：形状/判据/折叠照上方评价徽标逐字同族
+               （>0 才显、失败静默不显、>99 折叠 99+），只挂 stock 这一行，其余 cell 零改动；
+               只读不做写入口（备货执行仍在备货单页），数据源与拉取姿势见 loadTodayStockBadge -->
+          <view v-if="entry.key === 'stock' && todayStockBadge > 0" class="cell-badge">
+            <text class="cell-badge-num">{{ todayStockBadge > 99 ? '99+' : todayStockBadge }}</text>
+          </view>
           <text v-if="entryRoute(entry)" class="cell-arrow">›</text>
           <text v-else class="tag-building">建设中</text>
         </view>
@@ -144,7 +150,7 @@
 // 商家工作台页（G-01 §3.3 建页）：五入口已全部交付在册（G-02 商品管理 / G-03 备货单 / G-05 数据看板与营销参与态 / F-120 结算账单）；可点与否仍只由 ENTRY_ROUTES 裁决。
 // 数据加载纪律照用户端 front/pages/mine/mine.vue：onShow 每次重拉 me，回页即反映服务端最新状态。
 // 页面不预判角色：role 判定与 401/403 分流全在 api 层（handleEnvelope），本页只按 code 渲染三态。
-import { getMerchantMe, getPendingReplyCount, merchantStatusText, retrySecondsOf, coolingFullText } from '@/api/index.js'
+import { getMerchantMe, getPendingReplyCount, getMerchantPickupPlan, merchantStatusText, retrySecondsOf, coolingFullText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 429 冷却秒数的回落档：GET /api/merchant/me 的限流窗口是 60 秒（后端不给 data.retryAfterSeconds 时，
@@ -221,7 +227,11 @@ export default {
       ],
       // P11-8 片③（D7）评价管理入口的待回复数字徽标：0 或拉取失败都不显（v-if 判据在模板）。
       // 计数真源=服务端「展示中且未回复」谓词，本页只转述不推算；>99 折叠成 99+ 防撑破小圆点
-      pendingReplyCount: 0
+      pendingReplyCount: 0,
+      // P11-21（M-1/D1-D3）备货单 cell 的「今日待备 N 单」徽标读数：null = 不显（0 或拉取失败都是 null，
+      // 失败≠没有，绝不渲染成 0）；真源=GET /api/merchant/pickup-plan?date=今天 的 groups[].orderCount
+      // 服务端聚合（多店 Σ，本页只转述不推算订单归属），判据与折叠在模板
+      todayStockBadge: null
     }
   },
   computed: {
@@ -292,6 +302,9 @@ export default {
     // P11-8 片③（D7）：待回复评价计数与 me 并行拉（徽标是增益不是必须，失败静默不显不挡工作台；
     // 从评价管理回复完返回本页时 onShow 重拉，数字即回落）
     this.loadPendingReplyCount()
+    // P11-21（D5）：今日待备徽标同样在 onShow 尾部并行一发（fire-and-forget，与上面两路互不等待；
+    // 从备货单页返回时重拉，数字即回落；D3 失败/0 静默）
+    this.loadTodayStockBadge()
   },
   // #ifdef H5
   onReady() {
@@ -392,6 +405,41 @@ export default {
       } finally {
         this._loadingBadge = false
       }
+    },
+    // ==================== 今日待备徽标（P11-21 M-1/D1-D5，独立只读请求） ====================
+    // 数据源：GET /api/merchant/pickup-plan?date=今天（api 层 getMerchantPickupPlan，date 形如 YYYY-MM-DD；
+    // date 缺省时后端按「明天」兜底，故今天必须显式传，与备货单页「今天」档同口径）。返回 data.groups 是
+    // 多店数组（每行 {storeId, storeName, orderCount, items}），徽标取 Σ 各店 orderCount=今日波次订单数，
+    // 只转述服务端聚合、页内不推算归属。onShow 与 loadMe/loadPendingReplyCount 并行不互相等待；
+    // 单飞守卫照上方 loadPendingReplyCount 同款（慢回包旧盖新）；>0 才落值，失败/0 置 null 静默不显
+    // （D3 失败≠没有），也不弹错误不打扰工作台；401 时请求层已收敛回登录页
+    async loadTodayStockBadge() {
+      if (this._loadingStockBadge) return
+      this._loadingStockBadge = true
+      try {
+        const res = await getMerchantPickupPlan({ date: this.localToday() })
+        const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
+        const groups = Array.isArray(data.groups) ? data.groups : []
+        let sum = 0
+        for (const g of groups) {
+          const n = Number(g && g.orderCount)
+          if (Number.isFinite(n) && n > 0) sum += n
+        }
+        this.todayStockBadge = sum > 0 ? sum : null
+      } catch (e) {
+        this.todayStockBadge = null
+      } finally {
+        this._loadingStockBadge = false
+      }
+    },
+    // 本地今日 YYYY-MM-DD（P11-21 D2 备货徽标的日期口径）：new Date() 取本地时区年月日拼 YYYY-MM-DD，
+    // 形状照 C 端 free.vue 的 localToday（前一天/后一天族同源）。两端均无共享 utils/time.js
+    // （front-merchant 无 utils 目录），故本地实现并在此声明：与服务端 CURDATE() 可能存在时区差异——
+    // H5 端本地即北京时间、与演示部署一致；小程序端取设备时区，同一口径
+    localToday() {
+      const d = new Date()
+      const p = (n) => String(n).padStart(2, '0')
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
     },
     // ==================== 主题切换（P9-1/P9-2 契约 §0，纯 UI 显式披露） ====================
     // 实现：写 uni.setStorageSync('app_theme', 新值) + document.documentElement.classList.toggle('dark')

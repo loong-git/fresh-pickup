@@ -113,6 +113,18 @@
           <text class="cell-icon">{{ entry.icon }}</text>
           <text class="cell-title">{{ entry.title }}</text>
           <text class="cell-sub">{{ entry.hint }}</text>
+          <!-- P11-21（P-2/D1-D4）核销台 cell 的今日待取数字徽标：形状/判据/折叠照商家端评价徽标
+               （front-merchant/pages/workspace/workspace.vue 的 cell-badge，P11-8 片③范式）逐字同族——
+               >0 才显、失败静默不显、>99 折叠 99+，只挂 verify 这一行；数据源见 loadTodayPickupBadge -->
+          <view v-if="entry.key === 'verify' && todayPickupBadge > 0" class="cell-badge">
+            <text class="cell-badge-num">{{ todayPickupBadge > 99 ? '99+' : todayPickupBadge }}</text>
+          </view>
+          <!-- P11-21（P-3/D1-D4）佣金 cell 的待结金额徽标：同一族几何（cell-badge），判据同族 >0 才显、
+               失败/0 静默；读数是两位小数字面（'¥'+pendingCommission.toFixed(2)，照佣金页 moneyText 口径），
+               金额无 99+ 折叠语义；只挂 commission 这一行；数据源见 loadCommissionBadge -->
+          <view v-if="entry.key === 'commission' && commissionBadge" class="cell-badge">
+            <text class="cell-badge-num">{{ commissionBadge }}</text>
+          </view>
           <!-- 在册行给箭头；表里没登记路由的行（当前没有）不画箭头，点了给一句实话，不留静默死行 -->
           <text v-if="entryRoute(entry)" class="cell-arrow">›</text>
         </view>
@@ -146,7 +158,7 @@
 // 401 不在本页处理（请求层 rejectUnauthorized 已清 partner_token 并 reLaunch 回登录页）；
 // 403 也不当登录失效（handleEnvelope 只 reject 不跳），本页把它归到 empty 态渲染引导内容。
 // 渲染不依赖 store：本页自持一份服务端最新值（母版同款纪律）。
-import { getPartnerStores, getPartnerStore, retrySecondsOf, coolingText } from '@/api/index.js'
+import { getPartnerStores, getPartnerStore, getPartnerOrders, getWalletPendingEstimate, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）——P11-19 照 verify 模式补齐（轮4 审计 P-4）
@@ -229,7 +241,15 @@ export default {
         { key: 'store', icon: '🏪', title: '门店信息', hint: '营业时间/接单开关' },
         { key: 'commission', icon: '💰', title: '我的佣金', hint: '佣金余额与流水' },
         { key: 'apply', icon: '📝', title: '我的入驻申请', hint: '审核进度与驳回原因' }
-      ]
+      ],
+      // P11-21（P-2/D1-D3）核销台 cell 的「今日待取 N 单」徽标读数：null = 不显（0 或拉取失败都是 null，
+      // 失败≠没有，绝不渲染成 0）；真源=GET /api/partner/orders?pickupDate=今天&status=pending_pickup
+      // 的 data.total 服务端分页真值（size:1 只为取 total，本页只转述不推算），判据与折叠在模板
+      todayPickupBadge: null,
+      // P11-21（P-3/D1-D3）佣金 cell 的待结金额徽标读数（'¥xx.xx' 字面串或 null）：真源=
+      // GET /api/partner/wallet/pending-estimate 的 data.pendingCommission（number，逐单实付×3% 合计，
+      // 与佣金页预估卡同端点同口径）；>0 才落值，失败/0 置 null 静默不显
+      commissionBadge: null
     }
   },
   computed: {
@@ -328,6 +348,11 @@ export default {
     // 每次进入重拉（对齐母版 front-merchant/pages/workspace/workspace.vue 的 onShow 惯例，F-25/P-4 重测）：
     // 换绑门店、改了营业时间都能第一时间反映
     this.load()
+    // P11-21（D5）：两枚 KPI 徽标在 onShow 尾部各自并行一发（fire-and-forget，与 load() 及彼此互不等待，
+    // 照母版 loadPendingReplyCount 的同族姿势；D3 失败/0 静默，三端点失败互不影响——各自 try-catch）；
+    // 从核销台/佣金页返回本页时重拉，数字即回落
+    this.loadTodayPickupBadge()
+    this.loadCommissionBadge()
   },
   // #ifdef H5
   onReady() {
@@ -437,6 +462,54 @@ export default {
       this.refreshFailed = false
       this.emptyMessage = (typeof message === 'string' ? message : '').trim()
       this.viewState = 'empty'
+    },
+    // ==================== 工作台 KPI 徽标（P11-21 D1-D5，两枚独立只读请求） ====================
+    // 照母版 front-merchant/pages/workspace/workspace.vue 的 loadPendingReplyCount 同族（P11-8 片③范式）：
+    // 单飞守卫防 onShow 连续触发时慢回包旧盖新；>0 才落值，失败/0 置 null 静默不显（D3 失败≠没有，
+    // 绝不渲染成 0），不弹错误不打扰工作台；401 时请求层已收敛回登录页；两枚互不等待、各自 try-catch，
+    // 一枚失败（含 429）不影响另一枚
+    // 今日待取徽标：GET /api/partner/orders?pickupDate=今天&status=pending_pickup&page=1&size=1
+    // （参数名以 api 层 getPartnerOrders 实读为准——日期真名 pickupDate，status 白名单
+    // all|pending_pickup|completed；size:1 只为拿 data.total 服务端分页真值，与核销台「今天」清单同口径）
+    async loadTodayPickupBadge() {
+      if (this._loadingPickupBadge) return
+      this._loadingPickupBadge = true
+      try {
+        const res = await getPartnerOrders({ pickupDate: this.localToday(), status: 'pending_pickup', page: 1, size: 1 })
+        const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
+        const n = Number(data.total)
+        this.todayPickupBadge = Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+      } catch (e) {
+        this.todayPickupBadge = null
+      } finally {
+        this._loadingPickupBadge = false
+      }
+    },
+    // 待结金额徽标：GET /api/partner/wallet/pending-estimate（无参，与佣金页预估卡同端点同口径）。
+    // pendingCommission 是 number（api 层 JSDoc 声明；commission.vue 的 numOr 同款转数），
+    // 两位小数字面格式化照该页 moneyText 口径（toFixed(2)）；>0 才落 '¥xx.xx'，失败/0 置 null
+    async loadCommissionBadge() {
+      if (this._loadingCommissionBadge) return
+      this._loadingCommissionBadge = true
+      try {
+        const res = await getWalletPendingEstimate()
+        const data = (res && res.data && typeof res.data === 'object') ? res.data : {}
+        const v = Number(data.pendingCommission)
+        this.commissionBadge = Number.isFinite(v) && v > 0 ? '¥' + v.toFixed(2) : null
+      } catch (e) {
+        this.commissionBadge = null
+      } finally {
+        this._loadingCommissionBadge = false
+      }
+    },
+    // 本地今日 YYYY-MM-DD（P11-21 D2 两枚徽标共用的日期口径）：new Date() 取本地时区年月日拼
+    // YYYY-MM-DD，形状照 C 端 free.vue 的 localToday（前一天/后一天族同源）。两端均无共享
+    // utils/time.js（front-partner/utils 只有 gcj02.js），故本地实现并在此声明：与服务端 CURDATE()
+    // 可能存在时区差异——H5 端本地即北京时间、与演示部署一致；小程序端取设备时区，同一口径
+    localToday() {
+      const d = new Date()
+      const p = (n) => String(n).padStart(2, '0')
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
     },
     // ==================== 交互 ====================
     // ==================== 主题切换（P9-1/P9-2 契约 §0，纯 UI 显式披露） ====================
@@ -621,4 +694,19 @@ export default {
 /* ==================== 5. 四入口列表（.cell/.cell-disabled 均取自 common.css；
    .tag-building 占位角标已随 F-18.19 交付 store/apply 退役，本页不再引用它） ==================== */
 .cell-card { margin-top: 24rpx; }
+
+/* ==================== 6. 入口 KPI 徽标（P11-21：从母版 front-merchant/pages/workspace/workspace.vue
+   同构移植，类名与几何逐字一致，零 hex——配色取本端既有 var 族，两端 App.vue 同名变量同值） ==================== */
+/* 徽标锚点：仅本页给 .cell 补 relative（common.css 不动），小圆点以入口行为定位父级（母版同款） */
+.cell { position: relative; }
+/* 今日待取/待结徽标（P11-21）：右上角小圆点+数字，几何照母版 cell-badge 的角标形状；
+   配色取母版同款警示族（danger 文字 + danger-soft 底 + danger-hair 描边，全 var），
+   0/失败不渲染由模板判据承担 */
+.cell-badge {
+  position: absolute; top: 10rpx; right: 28rpx;
+  min-width: 30rpx; height: 30rpx; padding: 0 8rpx; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background-color: var(--c-danger-soft); border: 1rpx solid var(--c-danger-hair); border-radius: 15rpx;
+}
+.cell-badge-num { font-size: 20rpx; font-weight: 600; color: var(--c-danger); line-height: 1; }
 </style>
