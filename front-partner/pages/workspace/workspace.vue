@@ -149,6 +149,9 @@
 import { getPartnerStores, getPartnerStore, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
+// 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）——P11-19 照 verify 模式补齐（轮4 审计 P-4）
+const PAGE_ROUTE = 'pages/workspace/workspace'
+
 // 入口 key -> 路由表（先例：front-merchant/pages/workspace/workspace.vue 的 ENTRY_ROUTES。模块级 const 表，
 // 模板的置灰判定（entryRoute）与点击分支（onEntryTap）两处消费它，页面不持第二个开关字段）。
 // F-18.17 §1.4 放开 verify / arrivals 两行，F-18.19 §1 放开 store / apply 两行，F-119 放开 commission 行：
@@ -536,7 +539,25 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
+    // 两道守卫缺一不可（照 verify.vue 的 onPageWheel 与其上方的守卫说明注释）——P11-19 照 verify 模式补齐（轮4 审计 P-4）：
+    // ① 栈顶守卫：监听挂在 document 上，navigateTo/reLaunch 都不保证触发本页 onUnload，
+    //    栈里多挂一份 handler 就会一次滚两倍（本页 navigateTo 去子页后本页 handler 仍挂 document——SPA 共享）。
+    // ② 弹层与表单控件放行：picker/modal/toast 以及表单 input 上的滚轮归控件，不能 preventDefault 抢走。
     onPageWheel(e) {
+      // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
+      let pages = []
+      try {
+        pages = getCurrentPages() || []
+      } catch (err) {
+        return
+      }
+      if (!pages.length || (pages[pages.length - 1] && pages[pages.length - 1].route) !== PAGE_ROUTE) return
+      const t = e.target
+      const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
+      if (el && typeof el.closest === 'function'
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input, uni-textarea, uni-input')) {
+        return
+      }
       e.preventDefault()
       document.body.scrollTop += e.deltaY
     }

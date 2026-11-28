@@ -143,6 +143,9 @@ import '@/styles/common.css'
 const WORKSPACE_PAGE = '/pages/workspace/workspace'
 const APPLY_PAGE = '/pages/apply/apply'
 
+// 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）——P11-19 照 verify 模式补齐（轮4 审计 P-4）
+const PAGE_ROUTE = 'pages/login/login'
+
 // F-23/FP-3：429 冷却时长不再硬编码 60——后端 429 信封的 data.retryAfterSeconds 优先，取不到才回落本地 60。
 // 回落值口径：它是本页所撞限流档（USER 维度 @RateLimit）的整窗长度，是「后端不给 data 时的保守上限」，
 // 不是回速（回速远小于窗口），两个数不是一回事，别混成一个值。
@@ -531,8 +534,25 @@ export default {
     },
     // ==================== H5 页面滚轮兜底 ====================
     // #ifdef H5
-    // 页面级滚轮兜底：手动驱动 body 滚动（照母版/用户端登录页同款方案，一字不改）；本页无弹层，无需弹层放行守卫
+    // 两道守卫缺一不可（照 verify.vue 的 onPageWheel 与其上方的守卫说明注释）——P11-19 照 verify 模式补齐（轮4 审计 P-4）：
+    // ① 栈顶守卫：监听挂在 document 上，navigateTo/reLaunch 都不保证触发本页 onUnload，
+    //    栈里多挂一份 handler 就会一次滚两倍（goStoreApply 是真 navigateTo，同样压栈污染）。
+    // ② 弹层与表单控件放行：picker/modal/toast 以及表单 input 上的滚轮归控件，不能 preventDefault 抢走。
     onPageWheel(e) {
+      // getCurrentPages 在卸载竞态下可能拿不到栈，拿不到就不接管滚动——绝不能在这里 preventDefault 把滚轮吞掉
+      let pages = []
+      try {
+        pages = getCurrentPages() || []
+      } catch (err) {
+        return
+      }
+      if (!pages.length || (pages[pages.length - 1] && pages[pages.length - 1].route) !== PAGE_ROUTE) return
+      const t = e.target
+      const el = t && t.nodeType === 1 ? t : (t && t.parentElement)
+      if (el && typeof el.closest === 'function'
+        && el.closest('.uni-actionsheet, .uni-modal, .uni-toast, .uni-sample-toast, .uni-picker-container, textarea, input, uni-textarea, uni-input')) {
+        return
+      }
       e.preventDefault()
       document.body.scrollTop += e.deltaY
     }
