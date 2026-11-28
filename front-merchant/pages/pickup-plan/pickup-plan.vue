@@ -73,6 +73,13 @@
 
     <!-- ==================== 5. 就绪：按自提点分组聚合 ==================== -->
     <template v-else>
+      <!-- P11-22（D1）合计行：纯 computed 汇总（非交互、不给按下态），口径单源见 planTotals：
+           storeCount=组数、orderCount=Σ 各组 orderCount（与每组「N 单」同一读数同源）；
+           items[].quantity 是菜品件数口径，与「N 单」不同源，故不加「总件数」维度、不发明新口径。
+           groups 为空/未就绪时 planTotals 为 null，整行不渲染 -->
+      <view v-if="planTotals" class="card totals-card">
+        <text class="totals-text">共 {{ planTotals.storeCount }} 店 · {{ planTotals.orderCount }} 单</text>
+      </view>
       <view
         class="card group-card"
         v-for="(g, gi) in groups"
@@ -95,7 +102,14 @@
            非 secure context / 浏览器拒绝剪贴板权限时 setClipboardData 会走 fail/reject，
            这一路必须如实说「复制失败」并把文本展开让商家长按手抄，绝不能照旧 toast「已复制」（静默假成功） -->
       <view class="card export-card">
-        <button class="btn-main" @click="copyPlanText"><text>导出文本</text></button>
+        <!-- P11-22（D3/D4）合并导出钮与单日导出钮并排：在飞（mergingExport）时两钮同置灰——
+             复用 common.css 的 .btn-main.btn-disabled 禁用族 + :disabled 真闸。
+             「与单日导出互斥」落在模板层（两条路共用 copyHint 常驻行与剪贴板，并发会互相覆盖结果），
+             单日导出的点击逻辑 copyPlanText 一字未动 -->
+        <view class="export-actions">
+          <button class="btn-main" :class="{ 'btn-disabled': mergingExport }" :disabled="mergingExport" @click="copyPlanText"><text>导出文本</text></button>
+          <button class="btn-main export-btn-merge" :class="{ 'btn-disabled': mergingExport }" :disabled="mergingExport" @click="mergeExportTodayTomorrow"><text>{{ mergingExport ? '合并中…' : '合并导出（今天+明天）' }}</text></button>
+        </view>
         <view class="export-toggle" @click="toggleExportText">
           <text class="export-toggle-text">{{ showExportText ? '收起文本' : '展开文本' }}</text>
         </view>
@@ -149,6 +163,9 @@ export default {
       copyHint: '',
       // copyHint 是当前这条复制「成功」时写的（仅驱动颜色：成功不该穿失败那身红）
       copyOk: false,
+      // P11-22（D4）合并导出在飞态：驱动合并钮「合并中…」置灰与单日导出互斥禁用（进 data 因模板要读它）。
+      // 防重双闸：按钮 :disabled 是第一道，mergeExportTodayTomorrow 的单飞早退兜连点竞态
+      mergingExport: false,
       // 429 冷却剩余秒数（>0 时重试按钮不可点）与驱动它的定时器：与 dishes.vue 同口径，
       // 限流态下的「重试」必须有秒级闸门，否则每次点都在给这个桶续命
       // FE-5：这枚读数降级为「每秒由锚点现算出来的派生值」，判据名一个不改
@@ -171,16 +188,22 @@ export default {
     }
   },
   computed: {
-    // 纯文本导出内容：`生效日期 · 店名` 换行后每行两条空格 + `商品名 × 数量`
+    // P11-22（D1/D2）合计口径（单源）：storeCount=组数（每组一个自提点）、orderCount=Σ groups.orderCount。
+    // Σ 的归集照本页 probe 的 wavesOf 同款 reduce + countOf 兜非数值，与 P11-21 工作台备货徽标同族口径。
+    // 刻意不加「总件数」维度：items[].quantity 是菜品件数（同一商品跨单聚合后的量），与「N 单」是两个口径，
+    // 合计只转述既有读数、不发明新口径。groups 为空/未就绪 → null：模板整行不渲染、planText 不追加合计行
+    planTotals() {
+      return this.totalsOfGroups(this.groups)
+    },
+    // 纯文本导出内容：`生效日期 · 店名` 换行后每行两条空格 + `商品名 × 数量`，
+    // 末尾（有数据时）追加合计行「合计：X 店 Y 单」（P11-22 D2，与页面合计行同一 planTotals 口径）。
+    // 生成逻辑抽成 buildPlanText(date, groups)（P11-22 D3）：单日导出与合并导出共用同一份，
+    // 既有格式逐字保留、只在末尾追加合计行
     planText() {
-      const day = this.effectiveDate
-      return this.groups
-        .map((g) => {
-          const head = day ? day + ' · ' + this.storeNameOf(g) : this.storeNameOf(g)
-          const lines = this.itemsOf(g).map((it) => '  ' + (it.dishName || '未命名商品') + ' × ' + this.countOf(it.quantity))
-          return lines.length ? [head].concat(lines).join('\n') : head
-        })
-        .join('\n')
+      const body = this.buildPlanText(this.effectiveDate, this.groups)
+      if (!body) return ''
+      const t = this.planTotals
+      return t ? body + '\n合计：' + t.storeCount + ' 店 ' + t.orderCount + ' 单' : body
     },
     // F-23-fix/FF-1：429 这行不带时长，秒数只在闸门那一处（本页模板的 retryLock 倒计时行）出现一次
     // X-2（四路分流，母版 dashboard.vue 的 errorLeadText）：改前的最后一行是无条件兜底，500/400 都被说成
@@ -425,7 +448,29 @@ export default {
     pad2(n) {
       return (n < 10 ? '0' : '') + n
     },
-    // ==================== 导出文本 ====================
+    // ==================== 导出文本（P11-22：单日 + 多日合并，docs/十一期规划/P11-22-备货单合计与合并导出契约.md） ====================
+    // 合计归集（planTotals computed 与合并导出每段合计共用的单一口径出处）：Σ 归集照 probe 的 wavesOf
+    // 同款 reduce + countOf 兜非数值；空组 → null（模板不渲染、文本不追加）
+    totalsOfGroups(groups) {
+      const list = Array.isArray(groups) ? groups : []
+      if (!list.length) return null
+      return {
+        storeCount: list.length,
+        orderCount: list.reduce((sum, g) => sum + this.countOf(g && g.orderCount), 0)
+      }
+    },
+    // 单日导出文本生成（planText computed 与合并导出每段共用，P11-22 D3）：date 缺省时店名头不带日期前缀，
+    // 其余格式与改前 planText 逐字一致（`生效日期 · 店名` + 两空格缩进的 `商品名 × 数量`）
+    buildPlanText(date, groups) {
+      const list = Array.isArray(groups) ? groups : []
+      return list
+        .map((g) => {
+          const head = date ? date + ' · ' + this.storeNameOf(g) : this.storeNameOf(g)
+          const lines = this.itemsOf(g).map((it) => '  ' + (it.dishName || '未命名商品') + ' × ' + this.countOf(it.quantity))
+          return lines.length ? [head].concat(lines).join('\n') : head
+        })
+        .join('\n')
+    },
     // showToast: false —— uni-h5 的 setClipboardData 默认会自己弹一枚「复制成功」，
     // 那等于在页面还没知道真实结果前先替页面宣布成功；关掉它，文案由本页按 success/fail 分支决定
     async copyPlanText() {
@@ -454,6 +499,72 @@ export default {
       if (this.showExportText) {
         this.copyHint = ''
         this.copyOk = false
+      }
+    },
+    // ==================== 多日合并导出（P11-22 D3-D5） ====================
+    // 「合并导出（今天+明天）」：Promise.all 并发 2 发 getMerchantPickupPlan（date=本地今天/本地明天；
+    // 并发姿势照本页 probeNextWaves，30 次/分桶 2 发安全），按日期分段拼接（每段【YYYY-MM-DD】日期头 +
+    // 该日与单日导出同构的店明细 + 该日合计行）后走与 copyPlanText 同一条复制路径。
+    // 日期口径：本页既有 todayStr()/newToday()/fmtDate() 即 workspace.vue P11-21 localToday 同族
+    // （new Date() 取本地时区年月日拼 YYYY-MM-DD；两端均无共享 utils/time.js，故本地复用不另造；
+    // 与服务端 CURDATE() 可能存在时区差异——H5 端本地即北京时间）。上限钉死 2 天，不设可配。
+    async mergeExportTodayTomorrow() {
+      // D4 在飞防重：单飞早退（按钮 :disabled 是第一道闸，这里兜连点竞态）
+      if (this.mergingExport) return
+      // 与本页 X-4 纪律同源：429 冷却期内不再给这把限流桶续命（只读既有 retryLock，不新增闸门状态）
+      if (this.retryCoolingBlocked()) return
+      // 上限钉死 2 天：今天 + 明天（写死，不设可配——防把导出做成可刷请求的口子）
+      const tomorrow = this.newToday()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      const days = [this.todayStr(), this.fmtDate(tomorrow)]
+      // 每发打上自己的日期标签再进 Promise.all：裸 Promise.all 只回第一个 rejection，分不清哪天挂了，
+      // D5 的失败提示要点名日期，必须逐发认领成败
+      const pullOfDay = (date) => getMerchantPickupPlan({ date }).then(
+        (res) => ({ date, res }),
+        (err) => ({ date, err })
+      )
+      this.mergingExport = true
+      try {
+        const pulls = await Promise.all([pullOfDay(days[0]), pullOfDay(days[1])])
+        const failed = pulls.filter((p) => p.err)
+        if (failed.length) {
+          // 401：请求层已统一清态回登录页（含「请先登录」toast），本页不叠第二枚 toast（照 loadPlan 的 401 支）
+          if (failed.some((p) => p.err && p.err.code === 401)) return
+          // D5 诚实失败：点名失败日期（N 以日期落地，与分段日期头同源），绝不半份复制——
+          // 整段 early return，走不到下面的 setClipboardData
+          const failMsg = '合并导出失败：' + failed.map((p) => p.date).join('、') + ' 数据获取失败，请逐日导出'
+          this.copyHint = failMsg
+          this.copyOk = false
+          uni.showToast({ title: failMsg, icon: 'none', duration: 2000 })
+          return
+        }
+        // 每段：日期头 + 该日 buildPlanText 同构内容（与单日导出同一生成函数）+ 该日合计行；
+        // 该日无组 → 补「该日无待备货」（与本页空态文案逐字同源），裸日期头会像漏渲染
+        const segments = pulls.map((p) => {
+          const data = (p.res && p.res.data) || {}
+          // 生效日期以后端回显为准（回显缺失才退请求值，照 loadPlan 的同一优先级）
+          const date = String(data.date || p.date)
+          const groups = Array.isArray(data.groups) ? data.groups : []
+          const totals = this.totalsOfGroups(groups)
+          let seg = '【' + date + '】'
+          const body = this.buildPlanText(date, groups)
+          seg += body ? '\n' + body : '\n该日无待备货'
+          if (totals) seg += '\n合计：' + totals.storeCount + ' 店 ' + totals.orderCount + ' 单'
+          return seg
+        })
+        const text = segments.join('\n\n')
+        // 复制路径与单日导出同一条：uni.setClipboardData({ showToast:false })，成功/失败都落 copyHint 常驻行。
+        // 复制失败不展开 textarea：里面是单日文本，长按抄到的会和剪贴板缺的两日内容对不上，改指「逐日导出」
+        await uni.setClipboardData({ data: text, showToast: false })
+        this.copyHint = '已复制到剪贴板，可粘贴核对'
+        this.copyOk = true
+        uni.showToast({ title: '已复制', icon: 'none' })
+      } catch (e) {
+        this.copyHint = '复制失败，请改用逐日导出'
+        this.copyOk = false
+        uni.showToast({ title: this.copyHint, icon: 'none', duration: 2000 })
+      } finally {
+        this.mergingExport = false
       }
     },
     // ==================== 渲染辅助 ====================
@@ -637,8 +748,20 @@ export default {
 }
 .plan-empty-line { font-size: 24rpx; color: var(--c-text-4); line-height: 1.5; }
 
+/* P11-22（D1）合计行：组卡上方的纯展示汇总（非交互，不给 hover/按下态），复用 .card 壳只收窄内边距 */
+.totals-card { display: flex; align-items: baseline; padding: 16rpx 24rpx; }
+.totals-text {
+  font-size: 26rpx; font-weight: 600; color: var(--c-text-2); line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ==================== 6. 导出文本 ==================== */
 .export-card { display: flex; flex-direction: column; align-items: center; gap: 12rpx; }
+/* P11-22（D3/D4）合并导出钮行：两钮并排等宽（.btn-main 的 width:100% 让位给 flex-basis:0%），
+   gap 沿用本卡 12rpx 呼吸档 */
+.export-actions { display: flex; align-self: stretch; gap: 12rpx; }
+/* 合并钮文案比单日钮长一倍多：降一档字号（26rpx，同 .date-step/.date-quick 档）保证并排不换行 */
+.export-btn-merge { font-size: 26rpx; }
 .export-toggle { padding: 4rpx 8rpx; }
 .export-toggle-text { font-size: 24rpx; font-weight: 600; color: var(--c-primary); }
 .copy-hint {
