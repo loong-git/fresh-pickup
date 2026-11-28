@@ -362,8 +362,14 @@
           <text class="manage-count">已选 {{ checkedCount }} 件</text>
           <button class="btn-manage-delete" @click="onDeleteChecked"><text>删除</text></button>
         </view>
+        <!-- P11-14-4（D3/D4）凑单提示：免费领活动 online 且差额>0 时显于结算栏上方；编辑模式不显；
+             达标(=0)不显（免费页自行引导）。差额购物车口径实时算（P11-10 I4/I5 同族），只读展示纯导航 -->
+        <view v-if="freeRemaining > 0 && !editingCart" class="cart-free-hint" @click="goFreeZone">
+          <text class="cfh-text">再挑 {{ fmtPrice(freeRemaining) }} 元可 0 元领商品</text>
+          <text class="cfh-go">去凑单 ›</text>
+        </view>
         <!-- 常规模式底部合计栏（无勾选框：加购默认勾选 + 退出管理时复位全选，已选恒等于全部；空车支付按钮置灰禁用） -->
-        <view class="cart-total-bar" v-else>
+        <view class="cart-total-bar" v-if="!editingCart">
           <text class="check-all-text">已选 {{ checkedCount }} 件</text>
           <view class="ctb-price">
             <view class="ctb-price-line">
@@ -661,7 +667,10 @@ export default {
       homeGuideRemaining: 0,       // 距门槛差额（元，后端 remainingToThreshold）
       homeGuideReached: false,     // 是否已达门槛（remaining<=0，切换副标题文案）
       // P11-14-3 浏览足迹，onShow 从 storage 刷新
-      browseHistory: []
+      browseHistory: [],
+      // P11-14-4（D1）免费领活动简报：onReady 拉 freeCurrent 缓存一次（匿名可调），失败静默 online=false 不显；
+      // 活动在线态变化低频（运营配置），tab 页一次够——独立于引导弹窗 scheduleHomeGuide（零触碰）
+      freeBrief: { online: false, threshold: 0 }
     }
   },
   computed: {
@@ -683,6 +692,14 @@ export default {
     },
     liveShowCartSaving() {
       return Number(this.liveCartSaving) > 0
+    },
+    // P11-14-4（D2）凑单差额：购物车口径实时算——freeBrief.online && 非空车才有效；
+    // Σ 用实时价 rowUnitPrice（P11-10 I4 弹层行级切 live 同族口径，不用快照价）；
+    // 免费商品不进购物车（0 元随赠单与购物车分离），无需免费项排除
+    freeRemaining() {
+      if (!this.freeBrief.online || !this.cart || this.cart.length === 0) return 0
+      const sum = this.cart.reduce((total, item) => total + this.rowUnitPrice(item) * (Number(item.quantity) || 0), 0)
+      return Math.max(0, +(this.freeBrief.threshold - sum).toFixed(2))
     },
     // 列表商品：'all'（推荐）时不过滤但秒杀商品优先（T-M3-13 排序语义），其余按字典 code 过滤（T-M3-12）
     filteredDishes() {
@@ -791,6 +808,8 @@ export default {
     this.measureStickyThreshold()
     // 免费领商品引导弹窗：冷启动会话首次进入，延迟 1.5s 判定弹出（不挡首屏渲染）
     this.scheduleHomeGuide()
+    // P11-14-4 活动简报缓存
+    this.loadFreeBrief()
   },
   onUnload() {
     if (this.countdownTimer) clearInterval(this.countdownTimer)
@@ -1117,6 +1136,25 @@ export default {
       if (!item || item.id == null) return
       uni.navigateTo({ url: '/pages/detail/detail?id=' + item.id })
     },
+    // P11-14-4（D1）活动简报缓存：online 判定照 showHomeGuide 同款口径（activityStatus 优先，兼容旧 status，
+    // 均缺省按有商品视为 online）；threshold 兜底 50 同款；失败静默不显（契约 D1）
+    async loadFreeBrief() {
+      try {
+        const res = await freeCurrent()
+        const data = (res && res.data) || null
+        if (!data) return
+        let status = data.activityStatus
+        if (typeof status !== 'string' || !status) status = data.status
+        if (!status) status = (data.dish || (Array.isArray(data.pool) && data.pool.length)) ? 'online' : 'empty'
+        const threshold = Number(data.threshold)
+        this.freeBrief = {
+          online: status === 'online',
+          threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 50
+        }
+      } catch (e) { /* 失败静默：凑单提示是增强功能 */ }
+    },
+    // P11-14-4（D4）凑单提示跳免费领页：纯导航，领取链路在 free 页
+    goFreeZone() { uni.navigateTo({ url: '/pages/free/free' }) },
     // ==================== 1. 搜索（搜索页接管版） ====================
     // 唯一入口是整条白条的 @click（无独立搜索按钮、无回车监听）：跳转独立搜索页 pages/search/search
     onSearch() {
@@ -2236,6 +2274,10 @@ export default {
 .cart-empty { display: flex; flex-direction: column; align-items: center; gap: 16rpx; }
 .cart-empty-icon { font-size: 88rpx; opacity: .4; }
 .cart-empty-text { font-size: 26rpx; color: var(--c-text-3); }
+/* P11-14-4（D4）凑单提示行：--c-text 常规+--c-warn 强调（提醒引导语义，券角标 P11-14-2 同族）；零 hex */
+.cart-free-hint { display: flex; align-items: center; justify-content: space-between; padding: 14rpx 24rpx; border-top: 1rpx solid var(--c-fill); }
+.cfh-text { font-size: 24rpx; color: var(--c-text); }
+.cfh-go { font-size: 24rpx; font-weight: 700; color: var(--c-warn); }
 /* 底部合计栏（固定面板底部，不滚动） */
 .cart-total-bar {
   flex-shrink: 0;
