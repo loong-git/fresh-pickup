@@ -29,7 +29,21 @@
       <view class="date-sub-row">
         <view class="date-quick" :class="{ 'date-pill-disabled': retryLock > 0 }"
           hover-class="pill-hover" @click="goToday">今天</view>
-        <text class="date-note">{{ storeText }}</text>
+        <!-- P11-23（D1/D5）：单店如实一行店名（店名未回/失败时整行不出，不编 id 不猜名）；
+             旧句「本页只显门店 N 的批次，一期不提供选店」已废弃 -->
+        <text v-if="!showStorePicker" class="date-note">{{ storeNote }}</text>
+        <!-- P11-23（D2）：多店出「门店」选择器。形状照仓内 selector picker 先例
+             （front-merchant/pages/dishes/dishes.vue 的类目 picker：mode=selector + :range + :value +
+             @change，触发行值+箭头同构）。只允许选具体店、不提供「全部」——「全部」正是审计实证的
+             盲区形态（后端 min(storeIds) 只回一家，也没有全量端点）。冷却期与日期步进撞同一读桶，
+             闸门照 stepDay/goToday 姿势只拦在 onStorePick 方法首行，灰态复用 .date-pill-disabled -->
+        <picker v-else class="store-picker" mode="selector" :range="storeNames"
+          :value="storeIndex" @change="onStorePick">
+          <view class="store-picker-row">
+            <text class="date-note" :class="{ 'date-pill-disabled': retryLock > 0 }">门店：{{ currentStoreName }}</text>
+            <text class="store-picker-arrow" :class="{ 'date-pill-disabled': retryLock > 0 }">›</text>
+          </view>
+        </picker>
       </view>
       <!-- 只在冷却中出现、且**不带秒数**（D4「同一枚锁的秒数一屏只出现一次」）：
            本页读侧唯一的带数处还是错误卡那一句「Ns后可重试」，位置和措辞一字未动 -->
@@ -131,13 +145,14 @@
 // ④ 请求全走 @/api/index.js（本页零原生请求）；⑤ 只渲染后端白名单键，缺键就如实不渲染，
 //    绝不为了「页面好看」去前端 JOIN 别的接口补数据。
 // 本表 uk_store_date 保证「一店一日至多一批」，故这一页没有分页（RB 的手写分页在核销台那一页用）。
-// storeId 选择器本页不传（FE-3：一期不提供选店，本页没有选店入口）：留空即由服务端按
-// 「名下 id 最小的一家」解析（PartnerStoreServiceImpl#resolveStoreId 的 Collections.min(storeIds)），
-// 页内那一行「门店编号 N」就是回包的 data.storeId——显示哪家、确认哪家，永远是那一家。
+// P11-23 补口（此处原登记 FE-3「一期不提供选店」，已废止）：单店本页仍不传 storeId（后端按
+// PartnerStoreServiceImpl#resolveStoreId 的 Collections.min(storeIds) 解析，唯一店即结果，D1 零变化）；
+// 名下多店时日期条旁出「门店」选择器（onShow 拉 getPartnerStores 取 {id,name}，选定后带 storeId 重拉，
+// 默认选列表第一店——与旧行为 min(storeIds) 未必同一家，展示以店列表序为准，D2 已声明该差异）。
 // 核销台的到货警示条是另一条通道：它逐店**显式带 storeId** 查后聚合（FE-2），管的是「名下几家没确认」，
-// 与本页「只看一家」各说各的事，不构成同一屏上的矛盾结论。
+// 与本页「一次看一家」各说各的事，不构成同一屏上的矛盾结论。
 // ?date= 是可选入参（FE-6：警示条「去看批次」会带日期过来，因为批次多在明日生成）。
-import { getPartnerArrivals, confirmArrival, retrySecondsOf, coolingText } from '@/api/index.js'
+import { getPartnerArrivals, confirmArrival, getPartnerStores, retrySecondsOf, coolingText } from '@/api/index.js'
 import '@/styles/common.css'
 
 // 本页路由（滚轮栈顶守卫用，须与 pages.json 的 path 逐字一致）
@@ -175,8 +190,12 @@ export default {
       queryDate: '',
       // 显示用日期：一律以 data.date 回显为准，回显缺失才退回本次请求值（一份真值）
       effectiveDate: '',
-      // 本次回包的 storeId（后端 D-22 解析出来的那一家）：只用于「你看的是哪家」这一行字
-      resolvedStoreId: null,
+      // P11-23（D3）：名下门店列表（getPartnerStores 回包，只取 {id,name} 两键进本页）。
+      // 空数组=未拉到/失败：此时请求回落无 storeId 的现状路径（后端 min 兜底），选择器不出现
+      stores: [],
+      // P11-23（D2）：当前选定下标（默认 0=列表第一店）。与旧行为 min(storeIds) 未必同一家，
+      // 展示以店列表序为用户可预期口径（差异已在 D2 决策表声明）
+      storeIndex: 0,
       batches: [],
       // 四态互斥：loading | error | empty | ready
       viewState: 'loading',
@@ -228,12 +247,29 @@ export default {
     errorRetryable() {
       return this.errorCode !== 403
     },
-    // 门店这一行：后端 data.storeId 有值就报 id（多店主理人靠它对上工作台那张「共 N 家店」），
-    // 没值就整行不出——本页不认门店名（明细接口不在本轮范围内，不为了这一行字多发一次请求）
-    storeText() {
-      return this.resolvedStoreId === null || this.resolvedStoreId === undefined
-        ? ''
-        : '本页只显门店 ' + this.resolvedStoreId + ' 的批次，一期不提供选店'
+    // P11-23（D1/D5）：单店门店行——如实报店名。旧句「本页只显门店 N 的批次，一期不提供选店」
+    // 既报 id 又撒了谎（P11-23 已补多店选择器），整句废弃；店名拿不到时整行不出（不编 id、不猜名）
+    storeNote() {
+      if (this.stores.length !== 1) return ''
+      const name = this.stores[0] && this.stores[0].name
+      return name ? '门店：' + name : ''
+    },
+    // P11-23（D2）：名下 >1 家店才出选择器；单店维持现状（无 picker、请求不传 storeId——D1 零感知）
+    showStorePicker() {
+      return this.stores.length > 1
+    },
+    // picker 选项：名字缺失时按本页 itemName 的先例报「门店#id」（不猜名、不编名；id 也缺失才报未回显）
+    storeNames() {
+      return this.stores.map((s) => {
+        const name = (s && s.name) == null ? '' : String(s.name).trim()
+        if (name) return name
+        const id = s && s.id
+        return (id === null || id === undefined || id === '') ? '门店#未回显' : '门店#' + id
+      })
+    },
+    // 多店触发行文案（picker 的 :value 已绑 storeIndex，这里只管屏上那行字）
+    currentStoreName() {
+      return this.storeNames[this.storeIndex] || ''
     }
   },
   onLoad(options) {
@@ -262,6 +298,11 @@ export default {
     // 成功后已经 patchBatch 就地变色 + reloadOneBatch 补拉），唯一的外跳是 403 时 reLaunch 回工作台，
     // 那条路上没有任何「回页必须立刻重拉」的新写入。
     if (this.retryLock > 0) return
+    // P11-23（D2/D3）：店列表与批次并行拉。单店（或店列表没回）时 arrivalsStoreId() 恒 null，
+    // 批次请求形状与时序与改前完全相同（D1 零变化）；多店首屏那一次无 storeId 的请求，会在店列表
+    // 到位后被 loadBatches 的「店维度过期判定」整批丢弃并队列重发，不会出现「选择器默认写着第一店、
+    // 屏上却是 min(storeIds) 那家」的错位。店列表失败静默回落（loadStores 内吞错），不拦批次、不进错误态
+    this.loadStores()
     this.loadBatches()
   },
   // #ifdef H5
@@ -289,6 +330,41 @@ export default {
   },
   methods: {
     showToast(title) { uni.showToast({ title, icon: 'none', duration: 1500 }) },
+    // ==================== P11-23 门店列表与选定店（D2/D3） ====================
+    // 名下店列表：工作台同款端点（getPartnerStores，data 直接是数组）。只取 {id,name} 两键进本页
+    // （页内纪律⑤）。失败/空列表都静默回落——stores 保持空 → arrivalsStoreId() 恒 null → 批次请求
+    // 走无 storeId 的现状路径（后端 min 兜底），选择器不出现；辅助数据掉线不拖垮批次主链路
+    async loadStores() {
+      try {
+        const res = await getPartnerStores()
+        const list = (res && Array.isArray(res.data)) ? res.data : []
+        this.stores = list.map((s) => ({ id: s && s.id, name: (s && s.name) == null ? '' : String(s.name) }))
+        // 列表缩短（店解约）后旧下标可能越界：夹回第一店；首拉时 storeIndex 本就是 0（data 缺省）
+        if (this.storeIndex >= this.stores.length) this.storeIndex = 0
+      } catch (e) {
+        this.stores = []
+        this.storeIndex = 0
+      }
+    },
+    // 本次批次请求要带的 storeId（null=不带参）：多店=选定店，单店/店列表未回=null（D1：请求形状零变化）。
+    // 后端对非 null 的 selector 校验 ∈ 归属集合（PartnerStoreServiceImpl#resolveStoreId），本列表即来源，天然合法
+    arrivalsStoreId() {
+      if (this.stores.length <= 1) return null
+      const s = this.stores[this.storeIndex]
+      return (s && s.id !== null && s.id !== undefined && s.id !== '') ? s.id : null
+    },
+    // picker change（形状照商家端 dishes.vue 的 onCategoryChange：Number 洗值卡界 + 冷却首行早退）。
+    // 换店与换日期同性质：整屏数据换了主体，按 resetView 退回加载态（照 stepDay 姿势）；
+    // 在飞守卫不用另写——loadBatches 自带 _loadingBatches/_reloadQueued，店维度过期判定会把
+    // 旧店回包丢弃并队列重发
+    onStorePick(e) {
+      if (this.retryLock > 0) return
+      const idx = Number(e && e.detail && e.detail.value)
+      if (!Number.isFinite(idx) || idx < 0 || idx >= this.stores.length) return
+      if (idx === this.storeIndex) return
+      this.storeIndex = idx
+      this.loadBatches(true)
+    },
     // ==================== 批次加载 ====================
     // @param {boolean} [resetView] 日期变了要立刻退回加载态让上一日期的卡让位；onShow 的静默重拉不传
     async loadBatches(resetView) {
@@ -307,18 +383,22 @@ export default {
       // 控件禁用后按不动、queryDate 也不会变，「用户主动改条件必须立刻发请求」这半句就不再需要请求侧兜底了。
       this._loadingBatches = true
       const reqDate = this.queryDate
+      // P11-23（D2）：本次请求实际带出的门店（多店=选定店 id；单店/店列表未回=null 不带参，现状不变）。
+      // 捕获成局部量做过期判定：在飞期间店列表到位或用户换店，回包都不能拿旧主体渲染新选择
+      const reqStoreId = this.arrivalsStoreId()
       if (resetView || this.viewState !== 'ready') this.viewState = 'loading'
       try {
-        const res = await getPartnerArrivals({ date: reqDate })
-        // 回包晚于步进：整批丢弃、按最新日期重发——绝不用上一日期的批次渲染当前日期
-        if (this.queryDate !== reqDate) {
+        const res = await getPartnerArrivals(reqStoreId === null
+          ? { date: reqDate }
+          : { date: reqDate, storeId: reqStoreId })
+        // 回包晚于步进/换店：整批丢弃、按最新日期+门店重发——绝不用上一条件的批次渲染当前条件
+        if (this.queryDate !== reqDate || this.arrivalsStoreId() !== reqStoreId) {
           this._reloadQueued = true
           return
         }
         const data = (res && res.data) || {}
         const list = Array.isArray(data.list) ? data.list : []
         this.batches = list
-        this.resolvedStoreId = data.storeId === undefined ? null : data.storeId
         this.effectiveDate = String(data.date || reqDate || '')
         this.errorText = ''
         this.errorCode = 0
@@ -359,6 +439,9 @@ export default {
       this.confirmingId = id
       const key = String(id)
       try {
+        // P11-23：confirmArrival（api 层实读）只收批次 id、不收 storeId——归属由后端四条件 UPDATE 的
+        // IN(归属集合) 判（PartnerStoreServiceImpl#confirmArrival），选定店只影响「看哪批」，
+        // 不影响写哪批；屏上清单已是选定店的批次，这里的 id 必然属于该店（他店/不存在同 404，反馈行有各支口径）
         const res = await confirmArrival(id)
         const data = (res && res.data) || {}
         if (data.idempotent === true) {
@@ -422,7 +505,12 @@ export default {
       if (this.retryLock > 0) return
       this.batchRefreshFailed = false
       try {
-        const res = await getPartnerArrivals({ date: this.queryDate })
+        // P11-23（D2）：补拉与主拉同参——多店带选定 storeId；不带的话拿到的是 min(storeIds) 那家的
+        // 清单，fresh 找不到刚确认的那批，就静默不更新了
+        const storeId = this.arrivalsStoreId()
+        const res = await getPartnerArrivals(storeId === null
+          ? { date: this.queryDate }
+          : { date: this.queryDate, storeId })
         const data = (res && res.data) || {}
         const list = Array.isArray(data.list) ? data.list : []
         const fresh = list.filter((b) => String(b && b.id) === String(id))[0]
@@ -719,6 +807,11 @@ export default {
   background-color: var(--c-fill); border: 1rpx solid var(--c-border); border-radius: 999rpx; padding: 12rpx 24rpx;
 }
 .date-note { flex: 1; min-width: 0; font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; }
+/* P11-23：多店门店选择器触发行（形状照商家端 dishes.vue 类目 picker 的值+箭头同构）。
+   零新色值：文字档直接复用 .date-note，灰态复用 .date-pill-disabled，箭头只补布局、色用同一 var 族 */
+.store-picker { flex: 1; min-width: 0; display: block; }
+.store-picker-row { display: flex; align-items: center; gap: 6rpx; min-width: 0; }
+.store-picker-arrow { flex-shrink: 0; font-size: 20rpx; color: var(--c-text-4); line-height: 1.4; }
 /* P4-5 S5（D3/D4）：日期条三枚控件在读侧冷却里的灰态。两个灰值照本页既有姿势
    （.error-retry-cooling 用的就是同一对 --c-text-4 / --c-border）。
    刻意排在 .date-step 与 .date-quick 之后：同优先级下后写的才压得过它们各自的 color/border。
